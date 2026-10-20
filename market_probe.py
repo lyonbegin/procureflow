@@ -70,17 +70,20 @@ def scan(name,url,context):
     finally:page.close()
     return result
 
-def run():
+def run(names=None):
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
         try:
             for name,url in TARGETS.items():
+                if names is not None and name not in names:continue
                 context=browser.new_context(locale='ko-KR',viewport={'width':1366,'height':900})
                 result=scan(name,url,context)
                 with session() as db:
                     db.execute("""INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb)
                         ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()""",
                         ('market-probe:'+name,json.dumps(result,ensure_ascii=False)))
+                if result.get('xhr'):
+                    logging.info('MARKET_XHR %s %s',name,json.dumps(result['xhr'],ensure_ascii=False)[:6500])
                 logging.info('MARKET_PROBE %s',json.dumps({**result,'links':result['links'][:30]},ensure_ascii=False)[:4200])
                 context.close()
                 time.sleep(.4)
