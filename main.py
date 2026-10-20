@@ -151,6 +151,8 @@ def wishket_records(kind:str="portfolios",q:str="",customer:str="",limit:int=Que
 # Additional private work sources. The source's own terms/access controls remain authoritative.
 MARKET_SOURCES = {
  "freemoa":"development_demand",
+ "freemoa_partners":"expert_supply",
+ "freemoa_portfolios":"portfolio_reference",
  "wanted_gigs":"development_demand",
  "kmong":"expert_supply",
  "work24":"business_demand",
