@@ -12,6 +12,13 @@ TARGETS={
  'work24':'https://www.work24.go.kr/cm/main.do',
  'daangn':'https://jobs.daangn.com/',
  'soomgo':'https://soomgo.com/',
+ 'freemoa_projects':'https://www.freemoa.net/m4/s41',
+ 'freemoa_partners':'https://www.freemoa.net/m7/s71',
+ 'freemoa_portfolios':'https://www.freemoa.net/m7/s712',
+ 'kmong_it':'https://kmong.com/category/6',
+ 'daangn_cleaning':'https://jobs.daangn.com/s?regionId=28&jobTasks=%5B%22HOUSEWORK%22%5D',
+ 'soomgo_experts':'https://soomgo.com/search/pro/review_count?from=web_gnb',
+
 }
 NAV_WORDS=re.compile(r'프로젝트|포트폴리오|파트너|전문가|고수|외주|견적|채용|일자리|알바|지원|청소|이사|운송|프리랜서',re.I)
 
