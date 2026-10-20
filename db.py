@@ -57,6 +57,13 @@ def initialize():
          PRIMARY KEY(source,kind,source_id))""")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_market_source_kind ON procureflow.market_records(source,kind)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_market_seen ON procureflow.market_records(last_seen DESC)")
+        # Relabel earlier Freemoa freelancer profile samples incorrectly tagged as buyers.
+        con.execute("""UPDATE procureflow.market_records SET kind='expert_supply'
+            WHERE source='freemoa' AND kind='development_demand'
+              AND url LIKE '%/freelance_detail%' AND NOT EXISTS
+              (SELECT 1 FROM procureflow.market_records x
+               WHERE x.source='freemoa' AND x.kind='expert_supply'
+                 AND x.source_id=market_records.source_id)""")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_tenders_date ON procureflow.tenders(notice_date DESC)")
 def store(con, row):
     record=dict(row)
