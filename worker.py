@@ -200,7 +200,7 @@ def main():
     # One-time reconnaissance of newly requested private sources.
     with session() as db:
         claim=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('market-recon-v2-20261021','{"state":"started"}')).fetchone()
+            ('market-recon-v3-20261021','{"state":"started"}')).fetchone()
     if claim:
         import market_probe
         try:market_probe.run()
@@ -208,10 +208,10 @@ def main():
     # One-time end-to-end execution of all new adapters (bounded public pages).
     with session() as db:
         claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('market-smoke-v2-20261021','{"state":"queued"}')).fetchone()
+            ('market-smoke-v3-20261021','{"state":"queued"}')).fetchone()
         if claimed:
             for site in ('freemoa','freemoa_partners','freemoa_portfolios','wanted_gigs','kmong','work24','daangn','soomgo'):
-                cfg={'source':site,'pages':2,'limit':4,'test':'market-smoke-v2'}
+                cfg={'source':site,'pages':2,'limit':4,'test':'market-smoke-v3'}
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
                     ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
                 logging.info('MARKET_SMOKE_QUEUED job=%s source=%s',jid,site)
