@@ -48,6 +48,15 @@ def initialize():
            updated_at timestamptz NOT NULL DEFAULT now(),
            PRIMARY KEY(kind,source_id))""")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_wishket_kind ON procureflow.wishket_records(kind)")
+        con.execute("""CREATE TABLE IF NOT EXISTS procureflow.market_records
+        (source text NOT NULL,kind text NOT NULL,source_id text NOT NULL,
+         title text NOT NULL DEFAULT '',url text NOT NULL DEFAULT '',
+         body text NOT NULL DEFAULT '',meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+         first_seen timestamptz NOT NULL DEFAULT now(),
+         last_seen timestamptz NOT NULL DEFAULT now(),
+         PRIMARY KEY(source,kind,source_id))""")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pf_market_source_kind ON procureflow.market_records(source,kind)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pf_market_seen ON procureflow.market_records(last_seen DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_tenders_date ON procureflow.tenders(notice_date DESC)")
 def store(con, row):
     record=dict(row)
