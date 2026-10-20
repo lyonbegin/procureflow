@@ -197,6 +197,14 @@ def main():
                     cfg={'kind':kind,'pages':1,'limit':6}
                     jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('wishket',%s::jsonb,%s) RETURNING id",(json.dumps(cfg),f'Wishket smoke {kind}')).fetchone()['id']
                     logging.info('WISHKET_SMOKE_QUEUED job=%s kind=%s',jid,kind)
+    # One-time reconnaissance of newly requested private sources.
+    with session() as db:
+        claim=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+            ('market-recon-v1-20261021','{"state":"started"}')).fetchone()
+    if claim:
+        import market_probe
+        try:market_probe.run()
+        except Exception:logging.exception('MARKET_PROBE_BATCH_FAILED')
     while not STOP:
         try:
             job=get_next_job()
