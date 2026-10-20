@@ -205,6 +205,16 @@ def main():
         import market_probe
         try:market_probe.run()
         except Exception:logging.exception('MARKET_PROBE_BATCH_FAILED')
+    # One-time end-to-end execution of all new adapters (bounded public pages).
+    with session() as db:
+        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+            ('market-smoke-v1-20261021','{"state":"queued"}')).fetchone()
+        if claimed:
+            for site in ('freemoa','wanted_gigs','kmong','work24','daangn','soomgo'):
+                cfg={'source':site,'pages':2,'limit':4,'test':'market-smoke-v1'}
+                jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
+                    ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
+                logging.info('MARKET_SMOKE_QUEUED job=%s source=%s',jid,site)
     while not STOP:
         try:
             job=get_next_job()
@@ -217,6 +227,20 @@ def main():
                         update(job['id'],checked=result['saved'],added=result['saved'],message=json.dumps(result,ensure_ascii=False)[:450])
                         done(job['id'],'completed' if not result['errors'] else 'failed',json.dumps(result,ensure_ascii=False))
                         logging.info('WISHKET_JOB_RESULT %s',json.dumps(result,ensure_ascii=False))
+                    elif job['source'].startswith('market_'):
+                        import market_collector
+                        cfg=job.get('config') or {}
+                        site=job['source'][len('market_'):]
+                        result=market_collector.run(site,pages=cfg.get('pages',1),limit=cfg.get('limit',8))
+                        with session() as db:
+                            db.execute("""INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb)
+                                ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()""",
+                                ('market-result:'+site,json.dumps(result,ensure_ascii=False)))
+                        update(job['id'],checked=result['examined'],added=result['new'],
+                            duplicates=result['saved']-result['new'],
+                            message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['status']=='collected' else 'failed',json.dumps(result,ensure_ascii=False))
+                        logging.info('MARKET_JOB_RESULT %s',json.dumps(result,ensure_ascii=False)[:3000])
                     else:run_job(job,base)
                 except Exception as exc:
                     logging.exception('Job error');done(job['id'],'failed',type(exc).__name__+': '+str(exc))
