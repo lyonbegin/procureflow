@@ -183,7 +183,7 @@ def main():
                 logging.info('STABLE KAPT SMOKE QUEUED job=%s',jid)
     if os.getenv('RUN_SITE_PROBES')=='1':
         with session() as db:
-            claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",('site-probe-batch-20261020-v1','{"state":"started"}')).fetchone()
+            claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",('site-probe-batch-20261020-v2-wishket-paths','{"state":"started"}')).fetchone()
         if claimed:
             import site_probe
             try:site_probe.run()
