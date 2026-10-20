@@ -115,3 +115,10 @@ def test_results(limit:int=Query(50,ge=1,le=200)):
           ORDER BY id DESC LIMIT %s""",(limit,)).fetchall()
         counts=c.execute("SELECT source,count(*) AS count FROM procureflow.tenders GROUP BY source ORDER BY source").fetchall()
     return {"items":rows,"database_counts":counts}
+
+@app.get("/api/site-probes")
+def site_probes():
+    """Read-only results from Railway Headless Chrome site reconnaissance."""
+    with session() as c:
+        rows=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'site-probe:%' ORDER BY key").fetchall()
+    return {"items":[{"site":r["key"].split(":",1)[1],**r["value"],"saved_at":r["updated_at"]} for r in rows]}
