@@ -190,7 +190,7 @@ def main():
             except Exception:logging.exception('Headless site reconnaissance batch failed')
     if os.getenv('RUN_WISHKET_SMOKE')=='1':
         with session() as db:
-            marker='wishket-smoke-v1-20261020'
+            marker='wishket-smoke-v2-20261020'
             claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"started":true}')).fetchone()
             if claimed:
                 for kind in ('projects','partners','portfolios'):
