@@ -200,10 +200,10 @@ def main():
     # One-time reconnaissance of newly requested private sources.
     with session() as db:
         claim=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('market-recon-v3-20261021','{"state":"started"}')).fetchone()
+            ('market-recon-v4-20261021','{"state":"started"}')).fetchone()
     if claim:
         import market_probe
-        try:market_probe.run()
+        try:market_probe.run(names=('freemoa_projects','freemoa_portfolios','work24_jobs'))
         except Exception:logging.exception('MARKET_PROBE_BATCH_FAILED')
     # One-time end-to-end execution of all new adapters (bounded public pages).
     with session() as db:
