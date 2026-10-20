@@ -67,3 +67,11 @@ def cancel(id:int,authorization:str|None=Header(None)):
     with session() as c:
         r=c.execute("UPDATE procureflow.jobs SET state='cancelled',finished_at=now() WHERE id=%s AND state IN ('queued','running') RETURNING id",(id,)).fetchone()
     return {"cancelled":bool(r)}
+
+@app.get("/api/diagnostics")
+def diagnostics():
+    """Read-only aggregation for live deployment verification; no credentials or tender details."""
+    with session() as conn:
+        by_source=conn.execute("SELECT source,category, count(*) AS count FROM procureflow.tenders GROUP BY source,category ORDER BY source,category").fetchall()
+        recent=conn.execute("SELECT id,source,state,current_page,checked,added,duplicates FROM procureflow.jobs ORDER BY id DESC LIMIT 10").fetchall()
+    return {"status":"ok","database":"connected","counts":by_source,"recent_jobs":recent}
