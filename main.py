@@ -82,3 +82,36 @@ def diagnostics_probe():
     result=diagnostics()
     print("PROCUREFLOW_DIAGNOSTICS "+json.dumps(result,ensure_ascii=False,default=str),flush=True)
     return result
+
+# Test operations use the same queue and original collector as the UI button.
+TEST_SCENARIOS = {
+    "g2b_smoke": {"source":"g2b","config":{"days":2,"pages":1,"categories":"both"},"title":"G2B one-page real collection"},
+    "kapt_goods": {"source":"kapt","config":{"days":2,"pages":1,"categories":"goods"},"title":"K-apt goods only"},
+    "kapt_service": {"source":"kapt","config":{"days":2,"pages":1,"categories":"service"},"title":"K-apt service only"},
+    "kapt_repeat": {"source":"kapt","config":{"days":2,"pages":1,"categories":"both"},"title":"K-apt duplicate/idempotency retest"},
+}
+@app.get("/api/test/scenarios")
+def test_scenarios():
+    return {"items":[{"id":k,"title":v["title"],"source":v["source"],"config":v["config"]} for k,v in TEST_SCENARIOS.items()]}
+
+@app.post("/api/test/run/{scenario_id}")
+def test_run(scenario_id:str,authorization:str|None=Header(None)):
+    guard(authorization)
+    scenario=TEST_SCENARIOS.get(scenario_id)
+    if not scenario: raise HTTPException(404,"Unknown test scenario")
+    cfg={**scenario["config"],"test_scenario":scenario_id}
+    with session() as c:
+        active=c.execute("SELECT id FROM procureflow.jobs WHERE source=%s AND state IN ('queued','running') LIMIT 1",(scenario["source"],)).fetchone()
+        if active:raise HTTPException(409,f"Source busy with job {active['id']}")
+        jid=c.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",(scenario["source"],json.dumps(cfg),scenario["title"])).fetchone()["id"]
+    return {"job_id":jid,"scenario_id":scenario_id,"state":"queued"}
+
+@app.get("/api/test/results")
+def test_results(limit:int=Query(50,ge=1,le=200)):
+    with session() as c:
+        rows=c.execute("""SELECT id,source,config->>'test_scenario' AS scenario_id,
+          state,checked,added,duplicates,current_page,message,last_error,created_at,started_at,finished_at
+          FROM procureflow.jobs WHERE config ? 'test_scenario'
+          ORDER BY id DESC LIMIT %s""",(limit,)).fetchall()
+        counts=c.execute("SELECT source,count(*) AS count FROM procureflow.tenders GROUP BY source ORDER BY source").fetchall()
+    return {"items":rows,"database_counts":counts}
