@@ -192,7 +192,15 @@ def main():
         try:
             job=get_next_job()
             if job:
-                try:run_job(job,base)
+                try:
+                    if job['source']=='wishket':
+                        import wishket_collector
+                        cfg=job.get('config') or {}
+                        result=wishket_collector.collect(kind=cfg.get('kind','portfolios'),pages=cfg.get('pages',2),limit=cfg.get('limit',30))
+                        update(job['id'],checked=result['saved'],added=result['saved'],message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if not result['errors'] else 'failed',json.dumps(result,ensure_ascii=False))
+                        logging.info('WISHKET_JOB_RESULT %s',json.dumps(result,ensure_ascii=False))
+                    else:run_job(job,base)
                 except Exception as exc:
                     logging.exception('Job error');done(job['id'],'failed',type(exc).__name__+': '+str(exc))
             else:time.sleep(3)
