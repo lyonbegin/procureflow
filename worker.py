@@ -188,6 +188,15 @@ def main():
             import site_probe
             try:site_probe.run()
             except Exception:logging.exception('Headless site reconnaissance batch failed')
+    if os.getenv('RUN_WISHKET_SMOKE')=='1':
+        with session() as db:
+            marker='wishket-smoke-v1-20261020'
+            claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"started":true}')).fetchone()
+            if claimed:
+                for kind in ('projects','partners','portfolios'):
+                    cfg={'kind':kind,'pages':1,'limit':6}
+                    jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('wishket',%s::jsonb,%s) RETURNING id",(json.dumps(cfg),f'Wishket smoke {kind}')).fetchone()['id']
+                    logging.info('WISHKET_SMOKE_QUEUED job=%s kind=%s',jid,kind)
     while not STOP:
         try:
             job=get_next_job()
