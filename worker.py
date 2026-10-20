@@ -141,6 +141,26 @@ def create_one_time_smoke_jobs():
             jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",(source,json.dumps(config,ensure_ascii=False),'Automatic original V13.1/V14 Railway smoke test')).fetchone()['id']
             logging.info('SMOKE QUEUED job=%s source=%s',jid,source)
 
+def enqueue_scenario_validation():
+    """One-time real UI-equivalent end-to-end runs after code deployment."""
+    if os.getenv('RUN_SMOKE_TESTS')!='1': return
+    test_cases=[
+      ('g2b_smoke','g2b',{'days':2,'pages':1,'categories':'both'}),
+      ('kapt_goods','kapt',{'days':2,'pages':1,'categories':'goods'}),
+      ('kapt_service','kapt',{'days':2,'pages':1,'categories':'service'}),
+      ('kapt_repeat','kapt',{'days':2,'pages':1,'categories':'both'}),
+    ]
+    with session() as db:
+        marker='real-scenario-validation-20261020-v1'
+        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"test":"original-collector-ui-equivalent"}')).fetchone()
+        if not claimed:
+            logging.info('Scenario validation already queued')
+            return
+        for name,source,config in test_cases:
+            config['test_scenario']=name
+            jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",(source,json.dumps(config),f'Auto validation {name}')).fetchone()['id']
+            logging.info('TEST SCENARIO QUEUED job=%s scenario=%s',jid,name)
+
 def main():
     base=Path(__file__).resolve().parent / "legacy"
     if not (base / "g2b_headless_collect.py").is_file() or not (base / "kapt_headless_collect.py").is_file():
@@ -154,6 +174,7 @@ def main():
         logging.info('Waiting 20 seconds for previous Railway replica to drain')
         time.sleep(20)
         create_one_time_smoke_jobs()
+        enqueue_scenario_validation()
         with session() as db:
             mark='v14-kapt-retry-after-railway-drain-20261020-v2'
             inserted=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(mark,'{"purpose":"stable-kapt-smoke"}')).fetchone()
