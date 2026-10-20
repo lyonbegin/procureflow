@@ -75,3 +75,10 @@ def diagnostics():
         by_source=conn.execute("SELECT source,category, count(*) AS count FROM procureflow.tenders GROUP BY source,category ORDER BY source,category").fetchall()
         recent=conn.execute("SELECT id,source,state,current_page,checked,added,duplicates FROM procureflow.jobs ORDER BY id DESC LIMIT 10").fetchall()
     return {"status":"ok","database":"connected","counts":by_source,"recent_jobs":recent}
+
+@app.post("/api/diagnostics")
+def diagnostics_probe():
+    """Read-only database verification invoked by Railway test endpoint."""
+    result=diagnostics()
+    print("PROCUREFLOW_DIAGNOSTICS "+json.dumps(result,ensure_ascii=False,default=str),flush=True)
+    return result
