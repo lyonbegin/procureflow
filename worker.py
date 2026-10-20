@@ -181,6 +181,13 @@ def main():
             if inserted:
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('kapt',%s::jsonb,%s) RETURNING id",(json.dumps({'days':2,'pages':1,'categories':'both'}),'Stable V14 original K-apt smoke test')).fetchone()['id']
                 logging.info('STABLE KAPT SMOKE QUEUED job=%s',jid)
+    if os.getenv('RUN_SITE_PROBES')=='1':
+        with session() as db:
+            claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",('site-probe-batch-20261020-v1','{"state":"started"}')).fetchone()
+        if claimed:
+            import site_probe
+            try:site_probe.run()
+            except Exception:logging.exception('Headless site reconnaissance batch failed')
     while not STOP:
         try:
             job=get_next_job()
