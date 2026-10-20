@@ -120,6 +120,19 @@ def run_job(job,base):
         update(jid,checked=count,added=added,duplicates=count-added,current_page=current_page)
         logging.info('JOB %s DONE exit=%s imported=%s added=%s status=%s',jid,rc,count,added,result_status)
 
+def create_one_time_smoke_jobs():
+    if os.getenv('RUN_SMOKE_TESTS')!='1':return
+    with session() as db:
+        marker='v13-v14-original-railway-smoke-20261020'
+        inserted=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued"}')).fetchone()
+        if not inserted:
+            logging.info('One-time original smoke jobs already queued previously')
+            return
+        for source in ('g2b','kapt'):
+            config={'days':2,'pages':1,'categories':'both'}
+            jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",(source,json.dumps(config,ensure_ascii=False),'Automatic original V13.1/V14 Railway smoke test')).fetchone()['id']
+            logging.info('SMOKE QUEUED job=%s source=%s',jid,source)
+
 def main():
     base=Path(__file__).resolve().parent / "legacy"
     if not (base / "g2b_headless_collect.py").is_file() or not (base / "kapt_headless_collect.py").is_file():
@@ -127,6 +140,7 @@ def main():
     initialize()
     with session() as db:db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
+    create_one_time_smoke_jobs()
     while not STOP:
         try:
             job=get_next_job()
