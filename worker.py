@@ -112,8 +112,16 @@ def run_job(job,base):
         except Exception:state='running'
         if state=='cancelled':return
         rc=process.poll()
-        if rc==0:
-            done(jid,'completed',f'Original {source} done; SQLite {count}, pgvector newly added {added}; {result_status}')
+        monitor=result.get('monitor') or {}
+        # V13.1 reports INCOMPLETE for an intentional --pages cap, even when
+        # every requested page was saved. Keep its original behavior and
+        # interpret that report correctly here in the Railway adapter only.
+        expected_limit=(source=='g2b' and result_status=='incomplete' and
+                        int(monitor.get('batch_done') or 0)>=pages and count>0 and
+                        not (monitor.get('failed_pages') or []))
+        if rc==0 or expected_limit:
+            label='requested page cap reached' if expected_limit else result_status
+            done(jid,'completed',f'Original {source} done; SQLite {count}, pgvector newly added {added}; {label}')
         else:
             last=error_text or latest
             done(jid,'failed',f'Original {source} exit={rc}; {last}')
@@ -141,6 +149,17 @@ def main():
     with session() as db:db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
     create_one_time_smoke_jobs()
+    if os.getenv('RUN_SMOKE_TESTS')=='1':
+        # Wait for Railway's old worker replica to drain before enqueuing a
+        # new job; otherwise the old replica may take the job and be SIGTERMed.
+        logging.info('Waiting 20 seconds for previous Railway replica to drain')
+        time.sleep(20)
+        with session() as db:
+            mark='v14-kapt-retry-after-railway-drain-20261020'
+            inserted=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(mark,'{"purpose":"stable-kapt-smoke"}')).fetchone()
+            if inserted:
+                jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('kapt',%s::jsonb,%s) RETURNING id",(json.dumps({'days':2,'pages':1,'categories':'both'}),'Stable V14 original K-apt smoke test')).fetchone()['id']
+                logging.info('STABLE KAPT SMOKE QUEUED job=%s',jid)
     while not STOP:
         try:
             job=get_next_job()
