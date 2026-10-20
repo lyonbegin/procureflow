@@ -7,6 +7,9 @@ from db import session
 
 TARGETS=[
  ('wishket','https://www.wishket.com/project/'),
+ ('wishket_portfolios','https://www.wishket.com/partners/wishket-portfolio/?tab=all&page=3'),
+ ('wishket_portfolio_detail','https://www.wishket.com/partners/wishket-portfolio/293597/'),
+ ('wishket_project_clear','https://www.wishket.com/project/#clear'),
  ('freemoa','https://www.freemoa.net/'),
  ('wanted_gigs','https://www.wanted.co.kr/'),
  ('kmong','https://kmong.com/'),
@@ -38,9 +41,10 @@ def run():
         'body_length':len(page.locator('body').inner_text(timeout=4000)),
         'links':page.locator('a[href]').count(),
         'project_links':page.locator('a[href*="project"]').count(),
+        'internal_links':page.locator('a[href]').evaluate_all("els=>Array.from(new Set(els.map(a=>a.href).filter(x=>x.includes('wishket.com')))).slice(0,45)"),
         'forms':page.locator('form').count(),
         'dynamic_requests':captured,
-        'body_sample':page.locator('body').inner_text(timeout=4000)[:700]})
+        'body_sample':page.locator('body').inner_text(timeout=4000)[:1400]})
     except Exception as exc:result['error']=type(exc).__name__+': '+str(exc)[:250]
     result['elapsed_seconds']=round(time.monotonic()-started,2)
     try:
