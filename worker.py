@@ -1,5 +1,5 @@
 """Run byte-exact V13.1/V14 collector subprocess, sync local SQLite into Railway Postgres."""
-import os,signal,sys,time,logging,subprocess,tempfile,json,shutil,threading,re
+import os,signal,sys,time,logging,subprocess,tempfile,json,shutil,threading,re,socket,ssl
 from pathlib import Path
 from db import session,initialize
 from legacy_import import sync
@@ -27,8 +27,23 @@ def status(jid):
 def done(jid,state,message):
     with session() as db:db.execute("UPDATE procureflow.jobs SET state=%s,message=%s,last_error=%s,finished_at=now() WHERE id=%s AND state='running'",(state,message[:500],message[:1000] if state=='failed' else '',jid))
 
+def transport_probe(host):
+    """Diagnose Railway outbound TCP/TLS separately from original browser collection."""
+    started=time.monotonic()
+    try:
+        with socket.create_connection((host,443),timeout=7) as tcp:
+            tcp.settimeout(7)
+            t=time.monotonic()-started
+            with ssl.create_default_context().wrap_socket(tcp,server_hostname=host) as secure:
+                return f"Transport probe {host}: TCP={t:.2f}s TLS={time.monotonic()-started:.2f}s protocol={secure.version()}"
+    except Exception as exc:
+        return f"Transport probe {host}: {type(exc).__name__} after {time.monotonic()-started:.1f}s: {str(exc)[:150]}"
+
 def run_job(job,base):
     jid,source,config=job['id'],job['source'],job.get('config') or {}
+    probe=transport_probe("www.g2b.go.kr" if source=="g2b" else "www.k-apt.go.kr")
+    logging.info('[network] %s',probe)
+    update(jid,message=probe)
     days=max(1,min(365,int(config.get('days',30))))
     pages=max(1,min(500,int(config.get('pages',2))))
     # only use original executables; do not call rewritten collectors.py
