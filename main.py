@@ -122,3 +122,28 @@ def site_probes():
     with session() as c:
         rows=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'site-probe:%' ORDER BY key").fetchall()
     return {"items":[{"site":r["key"].split(":",1)[1],**r["value"],"saved_at":r["updated_at"]} for r in rows]}
+
+class WishketRun(BaseModel):
+    kind:str="portfolios"
+    pages:int=Field(2,ge=1,le=500)
+    limit:int=Field(30,ge=1,le=5000)
+@app.post("/api/wishket/collect")
+def wishket_collect(req:WishketRun,authorization:str|None=Header(None)):
+    guard(authorization)
+    if req.kind not in ("projects","partners","portfolios"):
+        raise HTTPException(400,"Invalid kind")
+    with session() as c:
+        active=c.execute("SELECT id FROM procureflow.jobs WHERE source='wishket' AND state IN ('queued','running') LIMIT 1").fetchone()
+        if active:raise HTTPException(409,"Wishket collector already running")
+        jid=c.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('wishket',%s::jsonb,'Wishket Chromium collection') RETURNING id",(json.dumps(req.model_dump()),)).fetchone()["id"]
+    return {"job_id":jid,"state":"queued"}
+@app.get("/api/wishket/records")
+def wishket_records(kind:str="portfolios",q:str="",customer:str="",limit:int=Query(50,ge=1,le=500),offset:int=Query(0,ge=0)):
+    if kind not in ("projects","partners","portfolios"):raise HTTPException(400,"Invalid kind")
+    params=[kind];where="kind=%s"
+    if q:where+=" AND (title ILIKE %s OR body ILIKE %s)";params.extend(["%"+q+"%"]*2)
+    if customer:where+=" AND customers::text ILIKE %s";params.append("%"+customer+"%")
+    with session() as c:
+        total=c.execute("SELECT count(*) AS n FROM procureflow.wishket_records WHERE "+where,params).fetchone()["n"]
+        items=c.execute("SELECT kind,source_id,title,url,customers,left(body,800) AS excerpt,updated_at FROM procureflow.wishket_records WHERE "+where+" ORDER BY updated_at DESC LIMIT %s OFFSET %s",params+[limit,offset]).fetchall()
+    return {"total":total,"items":items}
