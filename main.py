@@ -147,3 +147,63 @@ def wishket_records(kind:str="portfolios",q:str="",customer:str="",limit:int=Que
         total=c.execute("SELECT count(*) AS n FROM procureflow.wishket_records WHERE "+where,params).fetchone()["n"]
         items=c.execute("SELECT kind,source_id,title,url,customers,left(body,800) AS excerpt,updated_at FROM procureflow.wishket_records WHERE "+where+" ORDER BY updated_at DESC LIMIT %s OFFSET %s",params+[limit,offset]).fetchall()
     return {"total":total,"items":items}
+
+# Additional private work sources. The source's own terms/access controls remain authoritative.
+MARKET_SOURCES = {
+ "freemoa":"development_demand",
+ "wanted_gigs":"development_demand",
+ "kmong":"expert_supply",
+ "work24":"business_demand",
+ "daangn":"job_demand",
+ "soomgo":"expert_supply",
+}
+class MarketRun(BaseModel):
+    source:str
+    pages:int=Field(1,ge=1,le=20)
+    limit:int=Field(8,ge=1,le=200)
+
+@app.get("/api/market/sources")
+def market_sources(authorization:str|None=Header(None)):
+    guard(authorization)
+    with session() as c:
+        rows=c.execute("SELECT source,kind,count(*) AS count FROM procureflow.market_records GROUP BY 1,2").fetchall()
+        probes=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'market-probe:%' ORDER BY key").fetchall()
+    return {"sources":[{"id":key,"role":role,
+       "records":sum(r['count'] for r in rows if r['source']==key),
+       "probe":next((p['value'].get('status') for p in probes if p['key']=='market-probe:'+key),None)}
+       for key,role in MARKET_SOURCES.items()]}
+
+@app.get("/api/market/probes")
+def market_probes(authorization:str|None=Header(None)):
+    guard(authorization)
+    with session() as c:
+        rows=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'market-probe:%' ORDER BY key").fetchall()
+    return {"items":[{"source":r['key'].split(':',1)[1],"diagnosis":r['value'],"saved_at":r['updated_at']} for r in rows]}
+
+@app.post("/api/market/collect")
+def market_collect(req:MarketRun,authorization:str|None=Header(None)):
+    guard(authorization)
+    if req.source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
+    job_source="market_"+req.source
+    with session() as c:
+        active=c.execute("SELECT id FROM procureflow.jobs WHERE source=%s AND state IN ('queued','running') LIMIT 1",(job_source,)).fetchone()
+        if active:raise HTTPException(409,"Source already has an active collection")
+        jid=c.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
+            (job_source,json.dumps(req.model_dump()),"Private source Headless Chromium collection")).fetchone()["id"]
+    return {"job_id":jid,"source":req.source,"state":"queued"}
+
+@app.get("/api/market/records")
+def market_records(source:str="",kind:str="",q:str="",limit:int=Query(50,ge=1,le=200),
+                   offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
+    guard(authorization)
+    if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
+    where=[];args=[]
+    if source:where.append("source=%s");args.append(source)
+    if kind:where.append("kind=%s");args.append(kind)
+    if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
+    condition=" WHERE "+" AND ".join(where) if where else ""
+    with session() as c:
+        n=c.execute("SELECT count(*) AS n FROM procureflow.market_records"+condition,args).fetchone()['n']
+        records=c.execute("SELECT source,kind,source_id,title,url,LEFT(body,1000) AS excerpt,meta,first_seen,last_seen FROM procureflow.market_records"+
+            condition+" ORDER BY last_seen DESC LIMIT %s OFFSET %s",args+[limit,offset]).fetchall()
+    return {"total":n,"items":records}
