@@ -35,7 +35,7 @@ def collect(kind="portfolios",pages=2,limit=30):
       portfolio_list=ROOT+"/partners/wishket-portfolio/?tab=all&page="+str(n)
       page.goto(portfolio_list,wait_until="domcontentloaded",timeout=30000)
       portfolio_hrefs=page.locator('a[href]').evaluate_all("els=>els.map(e=>e.getAttribute('href'))")
-      portfolio_links=sorted(set(urljoin(ROOT,x) for x in portfolio_hrefs if x and re.match(r"^/partners/wishket-portfolio/\\d+/$",urlparse(urljoin(ROOT,x)).path)))
+      portfolio_links=sorted(set(urljoin(ROOT,x) for x in portfolio_hrefs if x and re.match(r"^/partners/wishket-portfolio/\d+/$",urlparse(urljoin(ROOT,x)).path)))
       author_links=set()
       for portfolio_url in portfolio_links[:max(10,limit)]:
        try:
