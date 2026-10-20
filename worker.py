@@ -131,7 +131,7 @@ def run_job(job,base):
 def create_one_time_smoke_jobs():
     if os.getenv('RUN_SMOKE_TESTS')!='1':return
     with session() as db:
-        marker='v13-v14-original-railway-smoke-20261020'
+        marker='v13-v14-original-railway-smoke-20261020-v2'
         inserted=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued"}')).fetchone()
         if not inserted:
             logging.info('One-time original smoke jobs already queued previously')
@@ -148,14 +148,14 @@ def main():
     initialize()
     with session() as db:db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
-    create_one_time_smoke_jobs()
     if os.getenv('RUN_SMOKE_TESTS')=='1':
         # Wait for Railway's old worker replica to drain before enqueuing a
         # new job; otherwise the old replica may take the job and be SIGTERMed.
         logging.info('Waiting 20 seconds for previous Railway replica to drain')
         time.sleep(20)
+        create_one_time_smoke_jobs()
         with session() as db:
-            mark='v14-kapt-retry-after-railway-drain-20261020'
+            mark='v14-kapt-retry-after-railway-drain-20261020-v2'
             inserted=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(mark,'{"purpose":"stable-kapt-smoke"}')).fetchone()
             if inserted:
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('kapt',%s::jsonb,%s) RETURNING id",(json.dumps({'days':2,'pages':1,'categories':'both'}),'Stable V14 original K-apt smoke test')).fetchone()['id']
