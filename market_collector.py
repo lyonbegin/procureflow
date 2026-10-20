@@ -26,7 +26,7 @@ CONFIG={
     'detail':r'/job-posts/|/kr/jobs/'},
  'soomgo':{'role':'expert_supply','start':'https://soomgo.com/search/pro/review_count?from=web_gnb',
     'nav':r'고수찾기|이사.청소|외주|전문가|고수',
-    'detail':r'/profile/|/pro/[^?]|/service/|/search/pro/[a-f0-9]{10,}'},
+    'detail':r'/profile/users/|/service/|/pro/[0-9]+'},
 }
 CUTOFF=re.compile(r'javascript:|^#|login|sign.?up|register|logout|signup|privacy|terms|policy|customer.?support|support|faq|notices',re.I)
 
