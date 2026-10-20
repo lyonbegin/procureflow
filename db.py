@@ -40,6 +40,14 @@ def initialize():
          (id bigserial PRIMARY KEY,supplier_id bigint REFERENCES procureflow.suppliers(id),
          cert_type text NOT NULL,product text NOT NULL DEFAULT '',cert_no text NOT NULL DEFAULT '',
          valid_to text NOT NULL DEFAULT '',raw jsonb NOT NULL DEFAULT '{}'::jsonb)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS procureflow.wishket_records
+          (kind text NOT NULL,source_id text NOT NULL,title text NOT NULL DEFAULT '',
+           url text NOT NULL DEFAULT '',body text NOT NULL DEFAULT '',
+           customers jsonb NOT NULL DEFAULT '[]'::jsonb,
+           raw jsonb NOT NULL DEFAULT '{}'::jsonb,
+           updated_at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY(kind,source_id))""")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pf_wishket_kind ON procureflow.wishket_records(kind)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_tenders_date ON procureflow.tenders(notice_date DESC)")
 def store(con, row):
     record=dict(row)
