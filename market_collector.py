@@ -9,23 +9,24 @@ from playwright.sync_api import sync_playwright
 from db import session
 
 CONFIG={
- 'freemoa':{'role':'development_demand','start':'https://www.freemoa.net/',
-    'nav':r'프로젝트|비교견적|포트폴리오|파트너',
-    'detail':r'project|proj|estimate|portfolio|partner|view'},
+ 'freemoa':{'role':'development_demand','start':'https://www.freemoa.net/m4/s41',
+    'nav':r'프로젝트|비교견적','detail':r'/m4/(?!s41(?:$|\?))|pjno=|pno=|project_detail'},
+ 'freemoa_partners':{'role':'expert_supply','start':'https://www.freemoa.net/m7/s71',
+    'nav':r'파트너스|프리랜서','detail':r'/m7/freelance_detail\?fno='},
+ 'freemoa_portfolios':{'role':'portfolio_reference','start':'https://www.freemoa.net/m7/s712',
+    'nav':r'포트폴리오','detail':r'/m7/portfolio|portfolio_detail|pfo_no=|pfno='},
  'wanted_gigs':{'role':'development_demand','start':'https://gigs.wanted.co.kr/',
     'nav':r'프로젝트|프리랜서','detail':r'project|projects'},
- 'kmong':{'role':'expert_supply','start':'https://kmong.com/',
-    'nav':r'IT.프로그래밍|청소|이사|전문가|카테고리|AI 서비스',
-    'detail':r'gig|service|portfolio|seller|experts|@'},
- 'work24':{'role':'business_demand','start':'https://www.work24.go.kr/cm/main.do',
-    'nav':r'채용정보|일자리 찾기|지역별|직종별|채용공고',
-    'detail':r'empDetail|wantedAuthNo|empInfo|recruit'},
+ 'kmong':{'role':'expert_supply','start':'https://kmong.com/category/6',
+    'nav':r'IT.프로그래밍|AI|청소|이사|전문가','detail':r'/gig/|/service/|/seller/|/portfolio/[0-9]+'},
+ 'work24':{'role':'business_demand','start':'https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do',
+    'nav':r'채용정보|일자리 찾기|지역별|직종별|채용공고','detail':r'empDetailAuthView|wantedAuthNo='},
  'daangn':{'role':'job_demand','start':'https://jobs.daangn.com/',
     'nav':r'가사.집청소|물류.현장|심부름|알바|배송',
-    'detail':r'/kr/jobs/|/jobs/'},
- 'soomgo':{'role':'expert_supply','start':'https://soomgo.com/',
+    'detail':r'/job-posts/|/kr/jobs/'},
+ 'soomgo':{'role':'expert_supply','start':'https://soomgo.com/search/pro/review_count?from=web_gnb',
     'nav':r'고수찾기|이사.청소|외주|전문가|고수',
-    'detail':r'/pro/|/pro$|profile|master|expert|/search|/service'},
+    'detail':r'/profile/|/pro/[^?]|/service/|/search/pro/[a-f0-9]{10,}'},
 }
 CUTOFF=re.compile(r'javascript:|^#|login|sign.?up|register|logout|signup|privacy|terms|policy|customer.?support|support|faq|notices',re.I)
 
@@ -98,6 +99,8 @@ def run(site,pages=1,limit=8):
                     if r.status>=400:continue
                     page.wait_for_timeout(350)
                     body=page.locator('body').inner_text(timeout=4500)[:20000]
+                    # Contact details on Work24 are for employment purposes only.
+                    if site=='work24':body=body.split('채용 담당자')[0]
                     title=page.title()[:250]
                     if len(body)<130:continue
                     key=hashlib.sha256(item['url'].encode()).hexdigest()[:24]
