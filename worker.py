@@ -200,7 +200,7 @@ def main():
     # One-time reconnaissance of newly requested private sources.
     with session() as db:
         claim=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('market-recon-v1-20261021','{"state":"started"}')).fetchone()
+            ('market-recon-v2-20261021','{"state":"started"}')).fetchone()
     if claim:
         import market_probe
         try:market_probe.run()
