@@ -16,12 +16,13 @@ TARGETS={
  'freemoa_partners':'https://www.freemoa.net/m7/s71',
  'freemoa_portfolios':'https://www.freemoa.net/m7/s712',
  'kmong_it':'https://kmong.com/category/6',
+ 'kmong_enterprise':'https://kmong.com/enterprise/requests?category_list=6&page=1&q=&sort=created_at',
  'daangn_cleaning':'https://jobs.daangn.com/s?regionId=28&jobTasks=%5B%22HOUSEWORK%22%5D',
  'soomgo_experts':'https://soomgo.com/search/pro/review_count?from=web_gnb',
  'work24_jobs':'https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do',
 
 }
-NAV_WORDS=re.compile(r'프로젝트|포트폴리오|파트너|전문가|고수|외주|견적|채용|일자리|알바|지원|청소|이사|운송|프리랜서',re.I)
+NAV_WORDS=re.compile(r'프로젝트|포트폴리오|파트너|전문가|고수|외주|견적|채용|일자리|알바|지원|청소|이사|운송|프리랜서|의뢰|외주|프로그램|개발',re.I)
 
 def scan(name,url,context):
     page=context.new_page()
@@ -32,10 +33,10 @@ def scan(name,url,context):
         domain=urlparse(resp.url)
         if any(x in domain.netloc for x in ('google','naver','doubleclick','analytics','sentry','clarity','channel','posthog')):return
         info={'host':domain.netloc,'path':domain.path[:200],'code':resp.status}
-        if 'freemoa.net' in domain.netloc and re.search(r'/m[47]a/',domain.path):
+        if (('freemoa.net' in domain.netloc and re.search(r'/m[47]a/',domain.path)) or (name=='kmong_enterprise' and 'kmong.com' in domain.netloc and any(t in domain.path for t in ('request','project','enterprise')))):
             try:
                 data=resp.text()
-                info['response_excerpt']=data[:2600]
+                info['response_excerpt']=data[:1800]
                 info['response_size']=len(data)
                 info['content_type']=resp.headers.get('content-type','')
             except Exception as exc:info['read_error']=type(exc).__name__
