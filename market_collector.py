@@ -1,7 +1,7 @@
 """Bounded public-listing collectors for ProcureFlow private work sources.
 
 Reads only public pages that render without login/CAPTCHA; blocked sites stay blocked.
-Use distinct opportunity and subcontractor-supply roles; never turn job ads into worker profiles.
+Use distinct project demand and supplier roles; exclude job-board recruitment sources.
 """
 import hashlib,json,logging,re,time
 from urllib.parse import urljoin,urlparse
@@ -23,11 +23,6 @@ CONFIG={
     'detail':r'/enterprise/requests/[0-9]+'},
  'kmong':{'role':'expert_supply','start':'https://kmong.com/category/6',
     'nav':r'IT.프로그래밍|AI|청소|이사|전문가','detail':r'/gig/|/service/|/seller/|/portfolio/[0-9]+'},
- 'work24':{'role':'business_demand','start':'https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do',
-    'nav':r'채용정보|일자리 찾기|지역별|직종별|채용공고','detail':r'empDetailAuthView|wantedAuthNo='},
- 'daangn':{'role':'job_demand','start':'https://jobs.daangn.com/',
-    'nav':r'가사.집청소|물류.현장|심부름|알바|배송',
-    'detail':r'/job-posts/|/kr/jobs/'},
  'soomgo':{'role':'expert_supply','start':'https://soomgo.com/search/pro/review_count?from=web_gnb',
     'nav':r'고수찾기|이사.청소|외주|전문가|고수',
     'detail':r'/profile/users/|/service/|/pro/[0-9]+'},
@@ -37,7 +32,6 @@ CUTOFF=re.compile(r'javascript:|^#|login|sign.?up|register|logout|signup|privacy
 def allowed(site,u):
     if not u.startswith('https://'):return False
     host=urlparse(u).hostname or ''
-    if site=='daangn':return host in ('jobs.daangn.com','www.daangn.com','daangn.com')
     if site=='wanted_gigs':return host in ('gigs.wanted.co.kr','www.wanted.co.kr')
     base=urlparse(CONFIG[site]['start']).hostname or ''
     return host==base or host==base.removeprefix('www.') or host=='www.'+base
@@ -57,10 +51,6 @@ def classify_demand(site,short_text):
     """Separate explicit service tasks from recurring employment demand."""
     area=next((key for key,pattern in SERVICE_TAGS.items() if re.search(pattern,short_text,re.I)),'other')
     if site=='kmong_enterprise': return 'project_request',area
-    if site=='work24':return 'staffing_demand',area
-    if site=='daangn':
-        is_one_off=bool(re.search(r'건당|1회|단기|당일|오늘|내일|하루|이번주|한번|일회성|1일|2일',short_text,re.I))
-        return ('concrete_task' if is_one_off and area!='other' else 'staffing_demand'),area
     return ('project_request' if site=='freemoa' else 'supply'),area
 
 def run(site,pages=1,limit=8):
@@ -119,8 +109,6 @@ def run(site,pages=1,limit=8):
                     if r.status>=400:continue
                     page.wait_for_timeout(350)
                     body=page.locator('body').inner_text(timeout=4500)[:20000]
-                    # Contact details on Work24 are for employment purposes only.
-                    if site=='work24':body=body.split('채용 담당자')[0]
                     title=page.title()[:250]
                     if len(body)<130:continue
                     key=hashlib.sha256(item['url'].encode()).hexdigest()[:24]
