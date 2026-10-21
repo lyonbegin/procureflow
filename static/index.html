@@ -8,9 +8,6 @@
 <option value="freemoa_partners">프리모아 · 파트너/개발 인력</option>
 <option value="freemoa_portfolios">프리모아 · 포트폴리오</option>
 <option value="wanted_gigs">원티드 긱스 · 개발 일감 (접근진단)</option>
-<option value="kmong_enterprise">크몽 엔터프라이즈 · 실제 발주 프로젝트</option>
-<option value="kmong">크몽 마켓 · 수행 전문가/서비스</option>
-<option value="soomgo">숨고 · 전문가/협력업체</option></select></label>
 <label>목록 페이지 <input id="mPages" type="number" min="1" max="20" value="2"></label>
 <label>최대 상세 <input id="mLimit" type="number" min="1" max="200" value="8"></label>
 <button onclick="mCollect()">Headless Chrome 수집</button><button onclick="mSourceStatus()">사이트 상태</button></div>
@@ -20,7 +17,7 @@
 <label>용역 분야 <select id="mServiceArea"><option value="">전체</option><option value="cleaning">청소·미화</option><option value="transport">운송·이사</option><option value="facility">경비·시설관리</option><option value="development">개발·IT</option><option value="other">기타</option></select></label>
 <input id="mQuery" placeholder="직종·지역·기술·기업명 검색"><button onclick="mSearch()">결과 검색</button><span id="mCount"></span></div>
 <div style="overflow:auto"><table><thead><tr><th>사이트</th><th>공급/수요</th><th>수요 성격</th><th>용역 분야</th><th>공개 페이지</th><th>요약</th></tr></thead><tbody id="mRows"></tbody></table></div>
-<small>원문 사이트 접근 권한을 준수하며 차단을 우회하지 않습니다. 고용24·당근 구인공고는 수집 대상에서 제외합니다.</small></section><section><b>수집 작업 상태</b><div class="row"><button onclick="loadJobs()">상태 확인</button><span id="jobsSummary"></span></div><div style="overflow:auto"><table><thead><tr><th>ID</th><th>사이트</th><th>상태</th><th>페이지</th><th>검사</th><th>신규</th><th>중복</th><th>결과</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
+<small>원문 사이트 접근 권한을 준수하며 차단을 우회하지 않습니다. 고용24·당근·숨고·크몽은 현재 수집 대상에서 제외합니다.</small></section><section><b>수집 작업 상태</b><div class="row"><button onclick="loadJobs()">상태 확인</button><span id="jobsSummary"></span></div><div style="overflow:auto"><table><thead><tr><th>ID</th><th>사이트</th><th>상태</th><th>페이지</th><th>검사</th><th>신규</th><th>중복</th><th>결과</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
 <section><b>통합 공고 검색</b><div class="row"><select id="sSource"><option value="">전체</option><option value="g2b">G2B</option><option value="kapt">K-apt</option></select><select id="sCategory"><option value="">물품·일반용역 전체</option><option value="물품">물품</option><option value="일반용역">일반용역</option></select><input id="query" placeholder="공고명·발주처·공고번호"><button onclick="loadTenders()">검색</button><span id="total"></span></div><div style="overflow:auto"><table><thead><tr><th>구분</th><th>발주명</th><th>발주처</th><th>분류</th><th>공고일</th><th>마감일</th></tr></thead><tbody id="tenders"></tbody></table></div></section><section><b>진단</b><pre id="message"></pre></section></main>
 <script>
 let timer=null;const el=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
