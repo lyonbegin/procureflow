@@ -20,7 +20,7 @@ CONFIG={
  'kmong_enterprise':{'role':'development_demand',
     'start':'https://kmong.com/enterprise/requests?category_list=6&page=1&q=&sort=created_at',
     'nav':r'프로젝트|IT|프로그래밍|외주|인력|전체',
-'detail':r'/enterprise/requests/[0-9]+'},
+    'detail':r'/enterprise/requests/[0-9]+'},
  'kmong':{'role':'expert_supply','start':'https://kmong.com/category/6',
     'nav':r'IT.프로그래밍|AI|청소|이사|전문가','detail':r'/gig/|/service/|/seller/|/portfolio/[0-9]+'},
  'work24':{'role':'business_demand','start':'https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do',
