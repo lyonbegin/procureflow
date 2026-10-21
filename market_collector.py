@@ -17,6 +17,10 @@ CONFIG={
     'nav':r'포트폴리오','detail':r'/m7/portfolio|portfolio_detail|pfo_no=|pfno='},
  'wanted_gigs':{'role':'development_demand','start':'https://gigs.wanted.co.kr/',
     'nav':r'프로젝트|프리랜서','detail':r'project|projects'},
+ 'kmong_enterprise':{'role':'development_demand',
+    'start':'https://kmong.com/enterprise/requests?category_list=6&page=1&q=&sort=created_at',
+    'nav':r'프로젝트|IT|프로그래밍|외주|인력|전체',
+    'detail':r'/enterprise/(?:requests|projects)/[0-9a-zA-Z_-]+|/enterprise/requests\?'},
  'kmong':{'role':'expert_supply','start':'https://kmong.com/category/6',
     'nav':r'IT.프로그래밍|AI|청소|이사|전문가','detail':r'/gig/|/service/|/seller/|/portfolio/[0-9]+'},
  'work24':{'role':'business_demand','start':'https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do',
@@ -42,6 +46,22 @@ def links(page):
     return page.locator('a[href]').evaluate_all("""els=>els.map(e=>({
         url:e.href,text:(e.innerText||e.getAttribute('aria-label')||'').replace(/\\s+/g,' ').trim().slice(0,160)
     })).filter(x=>x.url.startsWith('https://'))""")
+
+SERVICE_TAGS={
+ 'cleaning':r'청소|미화|세척|소독|방역|정리',
+ 'transport':r'운송|배송|이사|화물|퀵|배달|캐리어|짐(?:옮기|운반)',
+ 'facility':r'경비|보안|시설관리|방재|전기안전|기계설비|시설점검',
+ 'development':r'개발|프로그래밍|ERP|MES|AI|앱제작|웹사이트|IT|소프트웨어',
+}
+def classify_demand(site,short_text):
+    """Separate explicit service tasks from recurring employment demand."""
+    area=next((key for key,pattern in SERVICE_TAGS.items() if re.search(pattern,short_text,re.I)),'other')
+    if site=='kmong_enterprise': return 'project_request',area
+    if site=='work24':return 'staffing_demand',area
+    if site=='daangn':
+        is_one_off=bool(re.search(r'건당|1회|단기|당일|오늘|내일|하루|이번주|한번|일회성|1일|2일',short_text,re.I))
+        return ('concrete_task' if is_one_off and area!='other' else 'staffing_demand'),area
+    return ('project_request' if site=='freemoa' else 'supply'),area
 
 def run(site,pages=1,limit=8):
     if site not in CONFIG:raise ValueError('Unknown source')
@@ -104,8 +124,9 @@ def run(site,pages=1,limit=8):
                     title=page.title()[:250]
                     if len(body)<130:continue
                     key=hashlib.sha256(item['url'].encode()).hexdigest()[:24]
+                    task_class,service_area=classify_demand(site,(item['anchor']+' '+title)[:600])
                     sample={'site':site,'role':cfg['role'],'listing_label':item['anchor'],
-                        'http_status':r.status}
+                        'http_status':r.status,'demand_type':task_class,'service_area':service_area}
                     with session() as db:
                         row=db.execute("""INSERT INTO procureflow.market_records
                             (source,kind,source_id,title,url,body,meta)
