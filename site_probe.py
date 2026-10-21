@@ -12,8 +12,6 @@ TARGETS=[
  ('wishket_project_clear','https://www.wishket.com/project/#clear'),
  ('freemoa','https://www.freemoa.net/'),
  ('wanted_gigs','https://www.wanted.co.kr/'),
- ('kmong','https://kmong.com/'),
- ('soomgo','https://soomgo.com/'),
 ]
 def run():
  with sync_playwright() as p:
