@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_work24','market_daangn') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_work24','market_daangn','market_kmong','market_kmong_enterprise','market_soomgo') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -168,7 +168,7 @@ def main():
     initialize()
     with session() as db:
         db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
-        db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_work24','market_daangn') AND state='queued'")
+        db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_work24','market_daangn','market_kmong','market_kmong_enterprise','market_soomgo') AND state='queued'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
     if os.getenv('RUN_SMOKE_TESTS')=='1':
         # Wait for Railway's old worker replica to drain before enqueuing a
@@ -212,28 +212,11 @@ def main():
         claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
             ('market-smoke-v3-20261021','{"state":"queued"}')).fetchone()
         if claimed:
-            for site in ('freemoa','freemoa_partners','freemoa_portfolios','wanted_gigs','kmong','soomgo'):
+            for site in ('freemoa','freemoa_partners','freemoa_portfolios','wanted_gigs'):
                 cfg={'source':site,'pages':2,'limit':4,'test':'market-smoke-v3'}
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
                     ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
                 logging.info('MARKET_SMOKE_QUEUED job=%s source=%s',jid,site)
-    # Once-only public Kmong Enterprise project route inspection.
-    with session() as db:
-        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('kmong-enterprise-probe-20261021-v1','{"state":"started"}')).fetchone()
-    if claimed:
-        import market_probe
-        try:market_probe.run(names=('kmong_enterprise',))
-        except Exception:logging.exception('KMONG_ENTERPRISE_PROBE_FAILED')
-    # Verify real Kmong Enterprise project detail collection without user actions.
-    with session() as db:
-        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
-            ('kmong-enterprise-smoke-20261021-v1','{"state":"queued"}')).fetchone()
-        if claimed:
-            cfg={'source':'kmong_enterprise','pages':2,'limit':5,'test':'enterprise'}
-            jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
-                ('market_kmong_enterprise',json.dumps(cfg),'Kmong Enterprise actual open project validation')).fetchone()['id']
-            logging.info('KMONG_ENTERPRISE_SMOKE_QUEUED job=%s',jid)
     while not STOP:
         try:
             job=get_next_job()
