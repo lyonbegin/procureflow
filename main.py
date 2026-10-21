@@ -33,7 +33,7 @@ def stats(authorization:str|None=Header(None)):
 def tenders(source:str="",q:str="",category:str="",limit:int=Query(100,ge=1,le=500),offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
     guard(authorization)
     where=[];params=[]
-    if source in ("g2b","kapt","s2b"):where.append("source=%s");params.append(source)
+    if source in ("g2b","kapt"):where.append("source=%s");params.append(source)
     if category:where.append("category=%s");params.append(category)
     if q:where.append("(title ILIKE %s OR agency ILIKE %s OR external_id ILIKE %s)");params += [f"%{q}%"]*3
     w=" WHERE "+" AND ".join(where) if where else ""
@@ -155,6 +155,7 @@ MARKET_SOURCES = {
  "freemoa_portfolios":"portfolio_reference",
  "wanted_gigs":"development_demand",
  "kmong":"expert_supply",
+ "kmong_enterprise":"development_demand",
  "work24":"business_demand",
  "daangn":"job_demand",
  "soomgo":"expert_supply",
@@ -195,7 +196,7 @@ def market_collect(req:MarketRun,authorization:str|None=Header(None)):
     return {"job_id":jid,"source":req.source,"state":"queued"}
 
 @app.get("/api/market/records")
-def market_records(source:str="",kind:str="",q:str="",limit:int=Query(50,ge=1,le=200),
+def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service_area:str="",limit:int=Query(50,ge=1,le=200),
                    offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
     guard(authorization)
     if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
@@ -203,6 +204,8 @@ def market_records(source:str="",kind:str="",q:str="",limit:int=Query(50,ge=1,le
     if source:where.append("source=%s");args.append(source)
     if kind:where.append("kind=%s");args.append(kind)
     if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
+    if demand_type:where.append("meta->>'demand_type'=%s");args.append(demand_type)
+    if service_area:where.append("meta->>'service_area'=%s");args.append(service_area)
     condition=" WHERE "+" AND ".join(where) if where else ""
     with session() as c:
         n=c.execute("SELECT count(*) AS n FROM procureflow.market_records"+condition,args).fetchone()['n']
