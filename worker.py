@@ -223,6 +223,15 @@ def main():
         import market_probe
         try:market_probe.run(names=('kmong_enterprise',))
         except Exception:logging.exception('KMONG_ENTERPRISE_PROBE_FAILED')
+    # Verify real Kmong Enterprise project detail collection without user actions.
+    with session() as db:
+        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+            ('kmong-enterprise-smoke-20261021-v1','{"state":"queued"}')).fetchone()
+        if claimed:
+            cfg={'source':'kmong_enterprise','pages':2,'limit':5,'test':'enterprise'}
+            jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
+                ('market_kmong_enterprise',json.dumps(cfg),'Kmong Enterprise actual open project validation')).fetchone()['id']
+            logging.info('KMONG_ENTERPRISE_SMOKE_QUEUED job=%s',jid)
     while not STOP:
         try:
             job=get_next_job()
