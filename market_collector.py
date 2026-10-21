@@ -125,8 +125,12 @@ def run(site,pages=1,limit=8):
                     if len(body)<130:continue
                     key=hashlib.sha256(item['url'].encode()).hexdigest()[:24]
                     task_class,service_area=classify_demand(site,(item['anchor']+' '+title)[:600])
+                    budget_match=re.search(r'예산\s*\n?\s*([0-9][0-9,]*)\s*원',body)
+                    budget_krw=int(budget_match.group(1).replace(',','')) if budget_match else None
+                    format_match=re.search(r'진행 방식\s*\n?\s*(외주|상주)',body)
                     sample={'site':site,'role':cfg['role'],'listing_label':item['anchor'],
-                        'http_status':r.status,'demand_type':task_class,'service_area':service_area}
+                        'http_status':r.status,'demand_type':task_class,'service_area':service_area,
+                        'budget_krw':budget_krw,'work_format':format_match.group(1) if format_match else None}
                     with session() as db:
                         row=db.execute("""INSERT INTO procureflow.market_records
                             (source,kind,source_id,title,url,body,meta)
