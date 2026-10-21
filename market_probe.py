@@ -67,11 +67,14 @@ def scan(name,url,context):
     finally:page.close()
     return result
 
+SUSPENDED_PROBES=frozenset(('kmong','kmong_it','kmong_enterprise','soomgo','soomgo_experts'))
+
 def run(names=None):
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
         try:
             for name,url in TARGETS.items():
+                if name in SUSPENDED_PROBES:continue
                 if names is not None and name not in names:continue
                 context=browser.new_context(locale='ko-KR',viewport={'width':1366,'height':900})
                 result=scan(name,url,context)
