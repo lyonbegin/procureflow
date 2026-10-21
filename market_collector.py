@@ -53,7 +53,10 @@ def classify_demand(site,short_text):
     if site=='kmong_enterprise': return 'project_request',area
     return ('project_request' if site=='freemoa' else 'supply'),area
 
+SUSPENDED_SOURCES=frozenset(('kmong','kmong_enterprise','soomgo'))
+
 def run(site,pages=1,limit=8):
+    if site in SUSPENDED_SOURCES:raise ValueError('Temporarily suspended source')
     if site not in CONFIG:raise ValueError('Unknown source')
     cfg=CONFIG[site];pages=max(1,min(int(pages),20));limit=max(1,min(int(limit),200))
     result={'source':site,'role':cfg['role'],'status':'started','examined':0,'saved':0,
