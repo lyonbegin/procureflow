@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_work24','market_daangn') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -166,7 +166,9 @@ def main():
     if not (base / "g2b_headless_collect.py").is_file() or not (base / "kapt_headless_collect.py").is_file():
         raise RuntimeError("Original V13.1/V14 collector source missing")
     initialize()
-    with session() as db:db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
+    with session() as db:
+        db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
+        db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_work24','market_daangn') AND state='queued'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
     if os.getenv('RUN_SMOKE_TESTS')=='1':
         # Wait for Railway's old worker replica to drain before enqueuing a
@@ -203,14 +205,14 @@ def main():
             ('market-recon-v4-20261021','{"state":"started"}')).fetchone()
     if claim:
         import market_probe
-        try:market_probe.run(names=('freemoa_projects','freemoa_portfolios','work24_jobs'))
+        try:market_probe.run(names=('freemoa_projects','freemoa_portfolios'))
         except Exception:logging.exception('MARKET_PROBE_BATCH_FAILED')
     # One-time end-to-end execution of all new adapters (bounded public pages).
     with session() as db:
         claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
             ('market-smoke-v3-20261021','{"state":"queued"}')).fetchone()
         if claimed:
-            for site in ('freemoa','freemoa_partners','freemoa_portfolios','wanted_gigs','kmong','work24','daangn','soomgo'):
+            for site in ('freemoa','freemoa_partners','freemoa_portfolios','wanted_gigs','kmong','soomgo'):
                 cfg={'source':site,'pages':2,'limit':4,'test':'market-smoke-v3'}
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
                     ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
