@@ -215,6 +215,14 @@ def main():
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
                     ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
                 logging.info('MARKET_SMOKE_QUEUED job=%s source=%s',jid,site)
+    # Once-only public Kmong Enterprise project route inspection.
+    with session() as db:
+        claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
+            ('kmong-enterprise-probe-20261021-v1','{"state":"started"}')).fetchone()
+    if claimed:
+        import market_probe
+        try:market_probe.run(names=('kmong_enterprise',))
+        except Exception:logging.exception('KMONG_ENTERPRISE_PROBE_FAILED')
     while not STOP:
         try:
             job=get_next_job()
