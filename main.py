@@ -154,9 +154,6 @@ MARKET_SOURCES = {
  "freemoa_partners":"expert_supply",
  "freemoa_portfolios":"portfolio_reference",
  "wanted_gigs":"development_demand",
- "kmong":"expert_supply",
- "kmong_enterprise":"development_demand",
- "soomgo":"expert_supply",
 }
 class MarketRun(BaseModel):
     source:str
@@ -178,7 +175,7 @@ def market_sources(authorization:str|None=Header(None)):
 def market_probes(authorization:str|None=Header(None)):
     guard(authorization)
     with session() as c:
-        rows=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'market-probe:%' AND key NOT IN ('market-probe:work24','market-probe:work24_jobs','market-probe:daangn','market-probe:daangn_cleaning') ORDER BY key").fetchall()
+        rows=c.execute("SELECT key,value,updated_at FROM procureflow.settings WHERE key LIKE 'market-probe:%' AND key NOT IN ('market-probe:work24','market-probe:work24_jobs','market-probe:daangn','market-probe:daangn_cleaning','market-probe:kmong','market-probe:kmong_it','market-probe:kmong_enterprise','market-probe:soomgo','market-probe:soomgo_experts') ORDER BY key").fetchall()
     return {"items":[{"source":r['key'].split(':',1)[1],"diagnosis":r['value'],"saved_at":r['updated_at']} for r in rows]}
 
 @app.post("/api/market/collect")
@@ -198,7 +195,7 @@ def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service
                    offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
     guard(authorization)
     if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
-    where=["source NOT IN ('work24','daangn')"];args=[]
+    where=["source NOT IN ('work24','daangn','kmong','kmong_enterprise','soomgo')"];args=[]
     if source:where.append("source=%s");args.append(source)
     if kind:where.append("kind=%s");args.append(kind)
     if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
