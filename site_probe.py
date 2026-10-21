@@ -13,8 +13,6 @@ TARGETS=[
  ('freemoa','https://www.freemoa.net/'),
  ('wanted_gigs','https://www.wanted.co.kr/'),
  ('kmong','https://kmong.com/'),
- ('work24','https://www.work24.go.kr/'),
- ('daangn','https://www.daangn.com/'),
  ('soomgo','https://soomgo.com/'),
 ]
 def run():
