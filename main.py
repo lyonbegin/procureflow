@@ -194,6 +194,55 @@ def market_collect(req:MarketRun,authorization:str|None=Header(None)):
             (job_source,json.dumps(req.model_dump()),"Private source Headless Chromium collection")).fetchone()["id"]
     return {"job_id":jid,"source":req.source,"state":"queued"}
 
+@app.get("/api/analysis/summary")
+def analysis_summary():
+    """Aggregated live counts for the existing FastAPI dashboard.
+
+    Public procurement, explicit development requests and hiring leads are
+    kept separate. The sector labels describe the collected sample only;
+    they are not national procurement statistics.
+    """
+    with session() as conn:
+        public=conn.execute("""
+            SELECT source,category,count(*) AS count
+            FROM procureflow.tenders
+            WHERE source IN ('g2b','kapt') AND category IN ('물품','일반용역')
+            GROUP BY source,category ORDER BY source,category
+        """).fetchall()
+        market=conn.execute("""
+            SELECT source,kind,count(*) AS count
+            FROM procureflow.market_records
+            WHERE source IN ('freemoa','freemoa_partners','freemoa_portfolios',
+                             'wanted_gigs','kmong_enterprise','work24')
+            GROUP BY source,kind ORDER BY source,kind
+        """).fetchall()
+        sectors=conn.execute("""
+            SELECT kind,
+                   COALESCE(NULLIF(meta->>'service_area',''),'unclassified') AS service_area,
+                   count(*) AS count
+            FROM procureflow.market_records
+            WHERE source IN ('freemoa','kmong_enterprise','wanted_gigs','work24')
+              AND kind IN ('development_demand','job_demand')
+            GROUP BY kind,service_area ORDER BY count DESC,service_area
+        """).fetchall()
+        providers=conn.execute("""
+            SELECT COALESCE(NULLIF(meta->>'information_provider',''),'unknown')
+                       AS provider,count(*) AS count
+            FROM procureflow.market_records
+            WHERE source='work24' AND kind='job_demand'
+            GROUP BY provider ORDER BY count DESC,provider
+        """).fetchall()
+        recent=conn.execute("""
+            SELECT id,source,state,checked,added,duplicates,created_at
+            FROM procureflow.jobs
+            ORDER BY id DESC LIMIT 8
+        """).fetchall()
+    return {"status":"ok","public":public,"market":market,
+            "service_areas":sectors,"work24_providers":providers,
+            "recent_jobs":recent,
+            "scope":"stored_records_not_national_statistics"}
+
+
 @app.get("/api/market/records")
 def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service_area:str="",limit:int=Query(50,ge=1,le=200),
                    offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
