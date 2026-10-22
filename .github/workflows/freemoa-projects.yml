@@ -1,0 +1,49 @@
+name: Freemoa Project Crawl Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/crawl_probe.py"
+      - "tests/test_crawl_probe.py"
+      - ".github/workflows/freemoa-projects.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freemoa-projects:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Chromium
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Run offline regression tests
+        run: python -m unittest discover -s tests -p 'test_crawl_probe.py' -v
+      - name: Crawl real Freemoa project listing
+        run: python tools/crawl_probe.py --site freemoa --section projects --limit 10 --output artifacts/freemoa-projects
+      - name: Print and validate evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('artifacts/freemoa-projects/result.json').read_text(encoding='utf-8'))
+          print(json.dumps({k:r.get(k) for k in ('status','http_status','working_listing_url','discovered','parsed','errors')},ensure_ascii=False))
+          if not r.get('parsed',0):
+              raise SystemExit('Crawl did not yield any actual project cards')
+          PY
+      - name: Upload result JSON and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freemoa-projects-${{ github.run_number }}
+          path: artifacts/freemoa-projects/
+          if-no-files-found: warn
+          retention-days: 7
