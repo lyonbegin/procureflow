@@ -27,6 +27,23 @@ class Work24ContractTests(unittest.TestCase):
         self.assertEqual(classify("통근버스 운전기사"),"transport")
         self.assertEqual(classify("ERP 시스템 개발자"),"development")
         self.assertEqual(classify("사무보조 채용"),"administration")
+    def test_job_search_uses_actual_work24_detail_route(self):
+        import inspect
+        from work24_collector import search_keyword, DEFAULT_QUERIES, SEARCH_URL
+        self.assertEqual(SEARCH_URL,"https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do")
+        self.assertIn("미화",DEFAULT_QUERIES)
+        self.assertIn("경비",DEFAULT_QUERIES)
+        source=inspect.getsource(search_keyword)
+        self.assertIn("srchWrd",source)
+        self.assertIn("btnSearch",source)
+        self.assertIn("fnSearch",source)
+        self.assertNotIn("/cm/main.do",source)
+    def test_search_sectors_are_separate_from_procurement(self):
+        from work24_collector import collect
+        import inspect
+        code=inspect.getsource(collect)
+        self.assertIn("search_keyword",code)
+        self.assertIn("queries",code)
     def test_no_automatic_bidding_or_pii_getters(self):
         import inspect
         from work24_collector import collect
