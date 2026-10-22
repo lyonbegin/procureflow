@@ -1,0 +1,15 @@
+# Local crawler and developer environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+artifacts/
+test-results/
+playwright-report/
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.db
+*.log
