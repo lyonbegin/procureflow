@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_work24','market_daangn','market_kmong','market_soomgo') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -168,7 +168,7 @@ def main():
     initialize()
     with session() as db:
         db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
-        db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_work24','market_daangn','market_kmong','market_soomgo') AND state='queued'")
+        db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_daangn','market_kmong','market_soomgo') AND state='queued'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
     if os.getenv('RUN_SMOKE_TESTS')=='1':
         # Wait for Railway's old worker replica to drain before enqueuing a
@@ -226,6 +226,25 @@ def main():
                 (json.dumps(cfg),"Kmong Enterprise live: first 10 full project details")
             ).fetchone()["id"]
             logging.info("KMONG_ENTERPRISE_SMOKE_QUEUED job=%s",jid)
+    # One-time Work24 read-only public recruitment leads smoke (no API credentials).
+    # Previous obsolete work24 smoke records are not used; run a fresh job
+    # with versioned marker to provide explicit detail-ID/database evidence.
+    with session() as db:
+        work24_marker='work24-first-real-detail-smoke-20261023-v1'
+        claim=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (work24_marker,'{"state":"queued","origin":"work24_public"}')
+        ).fetchone()
+        if claim:
+            cfg={"source":"work24","pages":1,"limit":10,
+                 "test":"work24-first-real-detail-smoke-20261023-v1"}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('market_work24',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg),"Work24 original recruitment IDs: first 10 public detail pages")
+            ).fetchone()["id"]
+            logging.info("WORK24_SMOKE_QUEUED job=%s",jid)
     # One-time end-to-end execution of all new adapters (bounded public pages).
     with session() as db:
         claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
