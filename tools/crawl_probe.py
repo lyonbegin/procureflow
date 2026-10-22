@@ -175,7 +175,24 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
                                   "resource_type":response.request.resource_type})
         page.on("response",watch_response)
         try:
-            resp=page.goto(entry,wait_until="domcontentloaded",timeout=timeout_ms)
+            if site=="freemoa" and section=="projects":
+                # ?page=1 can stall in GitHub-hosted runners. Retry known public list paths.
+                resp=None
+                for candidate in (entry,
+                        "https://www.freemoa.net/m4/s41",
+                        "https://m.freemoa.net/m4/s41?page=1"):
+                    try:
+                        resp=page.goto(candidate,wait_until="commit",timeout=12000)
+                        page.wait_for_selector("#projectListNew > li.proj-list-item_li_new",
+                            state="attached",timeout=13000)
+                        report["working_listing_url"]=candidate
+                        break
+                    except Exception as navigation_exc:
+                        report["errors"].append("listing_attempt:"+candidate+":"+
+                            type(navigation_exc).__name__)
+                        resp=None
+            else:
+                resp=page.goto(entry,wait_until="domcontentloaded",timeout=timeout_ms)
             report["http_status"]=resp.status if resp else None
             report["final_url"]=page.url
             if not resp or resp.status in (401,403,429):
