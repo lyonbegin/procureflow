@@ -36,8 +36,9 @@ jobs:
           from pathlib import Path
           r=json.loads(Path('artifacts/freemoa-projects/result.json').read_text(encoding='utf-8'))
           print(json.dumps({k:r.get(k) for k in ('status','http_status','working_listing_url','discovered','parsed','errors')},ensure_ascii=False))
-          if not r.get('parsed',0):
-              raise SystemExit('Crawl did not yield any actual project cards')
+          if not r.get('detail_records_parsed',0):
+              print(json.dumps(r.get('detail_diagnostics',[])[:5],ensure_ascii=False))
+              raise SystemExit('No actual project DETAIL popups parsed; listing cards alone are insufficient')
           PY
       - name: Upload result JSON and screenshot
         if: always()
