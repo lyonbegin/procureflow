@@ -56,6 +56,9 @@ def classify_demand(site,short_text):
 SUSPENDED_SOURCES=frozenset(('kmong','soomgo'))
 
 def run(site,pages=1,limit=8):
+    if site == 'work24':
+        from work24_collector import collect
+        return collect(pages=pages,limit=limit)
     if site == 'kmong_enterprise':
         from kmong_enterprise_collector import collect
         return collect(pages=pages,limit=limit)
