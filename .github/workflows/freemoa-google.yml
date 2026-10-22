@@ -1,0 +1,72 @@
+name: Freemoa Headless Google Login
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/freemoa-google.yml"
+      - "tools/freemoa_headless_google.py"
+      - "tests/test_freemoa_headless_google.py"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe checks Google link; crawl uses encrypted session or GitHub Secrets"
+        type: choice
+        required: true
+        default: probe
+        options: [probe, crawl]
+
+permissions:
+  contents: read
+
+jobs:
+  google-headless:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      RUN_MODE: ${{ inputs.mode || 'probe' }}
+      FREEMOA_GOOGLE_EMAIL: ${{ secrets.FREEMOA_GOOGLE_EMAIL }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      FREEMOA_SESSION_ENCRYPTION_KEY: ${{ secrets.FREEMOA_SESSION_ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install headless Chromium
+        run: |
+          pip install playwright==1.56.0 cryptography
+          python -m playwright install --with-deps chromium
+      - name: Test credential filtering and session encryption
+        run: python -m unittest discover -s tests -p 'test_freemoa_headless_google.py' -v
+      - name: Restore encrypted session cache
+        if: env.RUN_MODE == 'crawl'
+        uses: actions/cache/restore@v4
+        with:
+          path: .private/freemoa-session.enc
+          key: freemoa-auth-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            freemoa-auth-${{ runner.os }}-
+      - name: Run actual headless browser
+        run: |
+          python -m tools.freemoa_headless_google \
+            --mode "$RUN_MODE" \
+            --encrypted-session .private/freemoa-session.enc \
+            --limit 10 \
+            --output artifacts/freemoa-google
+      - name: Save encrypted Freemoa session
+        if: success() && env.RUN_MODE == 'crawl'
+        uses: actions/cache/save@v4
+        with:
+          path: .private/freemoa-session.enc
+          key: freemoa-auth-${{ runner.os }}-${{ github.run_id }}
+      - name: Upload sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freemoa-google-${{ github.run_number }}
+          path: |
+            artifacts/freemoa-google/login_status.json
+            artifacts/freemoa-google/result.json
+          if-no-files-found: warn
+          retention-days: 7
