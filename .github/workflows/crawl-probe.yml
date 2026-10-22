@@ -2,12 +2,6 @@ name: ProcureFlow Crawl Probe
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/crawl-probe.yml"
-      - "tools/crawl_probe.py"
-      - "tests/test_crawl_probe.py"
 
 permissions:
   contents: read
