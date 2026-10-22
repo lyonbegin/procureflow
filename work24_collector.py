@@ -105,10 +105,12 @@ def read_detail(page, card):
     # job title; anchor the extraction on that explicit page heading.
     textlines=[s.strip() for s in parts if s.strip()]
     summary=textlines
-    frontpos=next((i for i,t in enumerate(textlines) if t.startswith("채용정보 상세")),None)
+    header_positions=[i for i,t in enumerate(textlines) if t.startswith("채용정보 상세")]
+    frontpos=header_positions[-1] if header_positions else None
     if frontpos is not None:
-        summary=textlines[frontpos+1:frontpos+14]
-    bad={"일반기업","공공기관","상세정보","정보제공처","조회수","채용정보 제공 사이트 바로가기",
+        summary=textlines[frontpos+1:frontpos+22]
+    bad={"일반기업","공공기관","가족","상세정보","정보제공처","조회수",
+         "채용정보 제공 사이트 바로가기","링크 복사","이메일 전송","인쇄하기",
          "모집요강","근무조건","복리후생","기업정보","전형방법"}
     title=card.get("listing_title","").strip()
     if not title or title in ("상세보기","채용정보",""):
@@ -123,9 +125,16 @@ def read_detail(page, card):
     if not title:raise RuntimeError("title_not_extracted")
     company=""
     if frontpos is not None:
-        for item in textlines[frontpos+1:frontpos+8]:
-            if item!=title and item not in bad and not item.startswith("정보제공처") and len(item)>1:
-                company=item[:160];break
+        tail=textlines[frontpos+1:frontpos+22]
+        if "기업정보" in tail:
+            ix=tail.index("기업정보")
+            next_names=[t for t in tail[ix+1:ix+5] if t not in bad and t!=title]
+            if next_names:company=next_names[0][:160]
+        if not company:
+            for item in tail:
+                if (item!=title and item not in bad and not item.startswith(("정보제공처","조회수"))
+                        and not re.search(r"공유하기|링크|로그인|스크랩",item) and len(item)>1):
+                    company=item[:160];break
     # Do not repurpose applicant contact details for marketing/sales leads.
     publicbody=CONTACT_CUT.split(raw,maxsplit=1)[0][-25000:]
     publicbody=EMAIL.sub("[email redacted]",MOBILE.sub("[phone redacted]",publicbody))
