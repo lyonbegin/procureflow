@@ -73,8 +73,9 @@ def diagnostics():
     """Read-only aggregation for live deployment verification; no credentials or tender details."""
     with session() as conn:
         by_source=conn.execute("SELECT source,category, count(*) AS count FROM procureflow.tenders GROUP BY source,category ORDER BY source,category").fetchall()
+        market=conn.execute("SELECT source,kind,count(*) AS count FROM procureflow.market_records GROUP BY source,kind ORDER BY source,kind").fetchall()
         recent=conn.execute("SELECT id,source,state,current_page,checked,added,duplicates FROM procureflow.jobs ORDER BY id DESC LIMIT 10").fetchall()
-    return {"status":"ok","database":"connected","counts":by_source,"recent_jobs":recent}
+    return {"status":"ok","database":"connected","counts":by_source,"market_counts":market,"recent_jobs":recent}
 
 @app.post("/api/diagnostics")
 def diagnostics_probe():
