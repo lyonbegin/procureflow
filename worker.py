@@ -249,7 +249,7 @@ def main():
     # Verify the Railway-secret-backed login on a fresh worker deployment.
     # A separate marker prevents repeated jobs if Railway restarts replicas.
     with session() as db:
-        marker="work24-auto-login-smoke-20261023-v1"
+        marker="work24-auto-login-detail-diagnostic-20261023-v2"
         claim=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
