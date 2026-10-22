@@ -13,7 +13,7 @@ on:
         description: "probe checks Google link; crawl signs in with Google Secrets without session storage"
         type: choice
         required: true
-        default: probe
+        default: crawl
         options: [probe, crawl]
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      RUN_MODE: ${{ inputs.mode || 'probe' }}
+      RUN_MODE: ${{ inputs.mode || 'crawl' }}
       FREEMOA_GOOGLE_EMAIL: ${{ secrets.FREEMOA_GOOGLE_EMAIL }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
 
@@ -37,7 +37,7 @@ jobs:
         run: |
           pip install playwright==1.56.0
           python -m playwright install --with-deps chromium
-      - name: Test credential filtering and session encryption
+      - name: Test headless Google button
         run: python -m unittest discover -s tests -p 'test_freemoa_headless_google.py' -v
       - name: Run actual headless browser
         run: |
