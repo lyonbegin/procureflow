@@ -52,8 +52,10 @@ def recognized(site, section, url):
     if p.hostname not in HOSTS[site]: return False
     path=p.path + ("?" + p.query if p.query else "")
     if site=="freemoa" and section=="projects":
-        # Site has both desktop and mobile detail forms, e.g. /m4/s41?pno=41284.
-        if p.path=="/m4/s41":return "pno" in parse_qs(p.query)
+        # Never confuse the project creation form with a published project.
+        # Confirmed public desktop/mobile detail form: /m4/s41?pno=<number>.
+        value=parse_qs(p.query).get("pno",[""])[0]
+        return p.path=="/m4/s41" and bool(re.fullmatch(r"[0-9]+",value))
     return bool(re.match(SITES[site][section][1],path))
 
 def redact(text):
