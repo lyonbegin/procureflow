@@ -7,7 +7,7 @@ from db import session
 
 TARGETS={
  'freemoa':'https://www.freemoa.net/',
- 'wanted_gigs':'https://gigs.wanted.co.kr/',
+ 'wanted_gigs':'https://www.wanted.co.kr/gigs/projects',
  'kmong':'https://kmong.com/',
  'soomgo':'https://soomgo.com/',
  'freemoa_projects':'https://www.freemoa.net/m4/s41',
