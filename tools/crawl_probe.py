@@ -206,12 +206,48 @@ def extract_freemoa_project_details(page, cards, report, max_records=10):
             diag["xhr_chars"]=len(detail_text)
             diag["xhr_excerpt"]=redact(detail_text[:16000])
             diag["xhr_content_type"]=detail_response.headers.get("content-type","")
+            detail_json=None
             try:
                 detail_json=json.loads(detail_text)
                 diag["xhr_json_type"]=type(detail_json).__name__
                 if isinstance(detail_json,dict): diag["xhr_keys"]=list(detail_json)[:35]
             except (ValueError,TypeError):
                 pass
+            if isinstance(detail_json,dict) and detail_json.get("ERROR",{}).get("NO")==-1:
+                diag["requires_login"]=True
+                diag["auth_message"]=str(detail_json["ERROR"].get("MSG",""))[:100]
+                # Try only the publicly available mobile project URL.
+                # No passwords, cookie injection, access-control bypass or
+                # replays of restricted endpoints.
+                mobile=page.context.new_page()
+                try:
+                    candidate=record["url"]
+                    mobile_resp=mobile.goto(candidate,wait_until="commit",timeout=16000)
+                    mobile.wait_for_timeout(1200)
+                    mobile_text=mobile.locator("body").inner_text(timeout=6000)
+                    diag["mobile_http"]=mobile_resp.status if mobile_resp else None
+                    diag["mobile_final_url"]=mobile.url
+                    diag["mobile_title"]=mobile.title()[:170]
+                    diag["mobile_text_length"]=len(mobile_text)
+                    diag["mobile_text_excerpt"]=redact(mobile_text[:1500])
+                    if mobile_resp and mobile_resp.status==200 and title in mobile_text:
+                        # Do not confuse snippets with a complete project brief.
+                        mobile_desc=mobile.locator("#projectInfoDataDetail").first
+                        desc=(mobile_desc.inner_text(timeout=1000) if mobile_desc.count() else "")
+                        if len(desc.strip())>=120 and not desc.strip().endswith("..."):
+                            record["detail"]={"project_description":redact(desc[:25000]),
+                                              "origin":"public_mobile_detail"}
+                            record["detail_verified"]=True
+                            record["evidence"]="public_mobile_detail"
+                            record["body_excerpt"]=redact(desc[:1300])
+                            valid+=1
+                            diag["description_chars"]=len(desc)
+                except Exception as mobile_exc:
+                    diag["mobile_error"]=type(mobile_exc).__name__+":"+str(mobile_exc)[:170]
+                finally:
+                    mobile.close()
+                report["detail_diagnostics"].append(diag)
+                continue
             try:
                 page.wait_for_function("""expected => {
                     const root=document.querySelector('#projectViewWrap');
