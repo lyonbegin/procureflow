@@ -7,8 +7,6 @@ username/password sign-in from protected environment variables. Google MFA,
 CAPTCHA and security challenges are never bypassed.
 """
 import argparse
-import base64
-import hashlib
 import json
 import os
 import re
@@ -16,36 +14,11 @@ import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from cryptography.fernet import Fernet, InvalidToken
 from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout
 from tools.freemoa_google_login import LOGIN_URL, filter_freemoa_state, verify_freemoa_account
 
 class LoginStop(Exception):
     pass
-
-def cipher():
-    secret=os.environ.get("FREEMOA_SESSION_ENCRYPTION_KEY","")
-    if len(secret)<24:
-        raise LoginStop("missing_or_short_session_encryption_key")
-    key=base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
-    return Fernet(key)
-
-def restore_state(path):
-    if not path.exists():return None
-    try:
-        value=json.loads(cipher().decrypt(path.read_bytes()))
-        return filter_freemoa_state(value)
-    except (InvalidToken,ValueError,UnicodeError) as err:
-        raise LoginStop("encrypted_session_invalid") from err
-
-def encrypt_state(context,path):
-    data=filter_freemoa_state(context.storage_state())
-    if not data["cookies"]:raise LoginStop("freemoa_session_cookies_missing")
-    path.parent.mkdir(parents=True,exist_ok=True)
-    tmp=path.with_suffix(".tmp")
-    tmp.write_bytes(cipher().encrypt(json.dumps(data).encode()))
-    if os.name!="nt":os.chmod(tmp,0o600)
-    tmp.replace(path)
 
 def click_google(page):
     selectors=[
@@ -118,7 +91,7 @@ def verified(context):
     finally:
         check_page.close()
 
-def run(mode,encrypted_file,output,limit):
+def run(mode,output,limit):
     result={"mode":mode,"status":"starting","authenticated":False,"detail_records":0}
     output.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as p:
@@ -131,18 +104,12 @@ def run(mode,encrypted_file,output,limit):
                 result["provider_host"]=urlparse(google.url).hostname
                 result["status"]="google_provider_reached"
                 return result
-            restored=restore_state(encrypted_file)
-            context=browser.new_context(locale="ko-KR",storage_state=restored or None)
-            if restored and verified(context):
-                result["auth_method"]="encrypted_session_reused"
-            else:
-                context.close()
-                context=browser.new_context(locale="ko-KR")
-                sign_in(context)
-                if not verified(context):
-                    raise LoginStop("freemoa_detail_api_authentication_failed")
-                result["auth_method"]="headless_google_login"
-                encrypt_state(context,encrypted_file)
+            # Test-only: sign in on each run; no persisted sessions or encryption keys.
+            context=browser.new_context(locale="ko-KR")
+            sign_in(context)
+            if not verified(context):
+                raise LoginStop("freemoa_detail_api_authentication_failed")
+            result["auth_method"]="headless_google_login"
             result["authenticated"]=True
             from tools.crawl_probe import scan
             with tempfile.TemporaryDirectory() as td:
@@ -153,14 +120,11 @@ def run(mode,encrypted_file,output,limit):
                             storage_state=str(state_path))
             result["detail_records"]=report.get("detail_records_parsed",0)
             result["list_cards"]=report.get("list_cards_parsed",0)
-            # The GitHub repo is public: never publish authenticated briefs
-            # as plain JSON artifacts. Encrypt them before upload.
-            plain=output/"result.json"
-            if plain.exists():
-                protected=output/"result.json.enc"
-                protected.write_bytes(cipher().encrypt(plain.read_bytes()))
-                if os.name!="nt":os.chmod(protected,0o600)
-                plain.unlink()
+            # This repository is public: do not upload account-only details.
+            # The diagnostic test reports counts without publishing project data.
+            raw_result=output/"result.json"
+            if raw_result.exists():
+                raw_result.unlink()
             result["status"]="detail_success" if result["detail_records"] else "authenticated_but_no_details"
             return result
         except LoginStop as exc:
@@ -179,11 +143,10 @@ def run(mode,encrypted_file,output,limit):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--mode",choices=["probe","crawl"],default="probe")
-    parser.add_argument("--encrypted-session",default=".private/freemoa-session.enc")
     parser.add_argument("--output",default="artifacts/freemoa-google")
     parser.add_argument("--limit",type=int,default=10)
     args=parser.parse_args()
-    status=run(args.mode,Path(args.encrypted_session),Path(args.output),args.limit)
+    status=run(args.mode,Path(args.output),args.limit)
     print(json.dumps(status,ensure_ascii=False))
     return 0 if status["status"] in ("google_provider_reached","detail_success") else 1
 
