@@ -57,11 +57,51 @@ def open_google(context):
         page.wait_for_timeout(350)
     raise LoginStop("google_provider_window_not_opened")
 
-def fill_and_submit(page,selector,value):
-    target=page.locator(selector).first
-    target.wait_for(state="visible",timeout=16000)
-    target.fill(value)
-    target.press("Enter")
+def google_stage(page):
+    """Return safe diagnostic categories; never expose account identifiers."""
+    if page.is_closed():
+        return "google_page_closed"
+    path=urlparse(page.url).path.lower()
+    if "/challenge/" in path:
+        return "google_account_challenge"
+    try:
+        body=page.locator("body").inner_text(timeout=3000).lower()
+    except Exception:
+        body=""
+    if any(t in body for t in (
+        "this browser or app may not be secure",
+        "couldn't sign you in",
+        "browser or app may not be secure",
+        "브라우저 또는 앱이 안전하지",
+        "이 브라우저 또는 앱",
+        "로그인할 수 없습니다",
+    )):
+        return "google_signin_security_restriction"
+    if any(t in body for t in (
+        "verify it's you", "2-step verification",
+        "verify your identity", "본인 확인",
+        "2단계 인증", "인증 코드를 입력", "보안 확인",
+    )):
+        return "google_account_verification_required"
+    try:
+        if page.locator('input[type="password"]').first.is_visible():
+            return "google_password_prompt"
+        if page.locator('input[type="email"]').first.is_visible():
+            return "google_email_prompt"
+    except Exception:
+        pass
+    return "google_unrecognized_account_step"
+
+def google_next_once(page):
+    for label in ("Next", "다음"):
+        try:
+            button=page.get_by_role("button",name=label,exact=True)
+            if button.count() and button.first.is_visible():
+                button.first.click(timeout=5000)
+                return True
+        except Exception:
+            continue
+    return False
 
 def sign_in(context):
     email=os.environ.get("FREEMOA_GOOGLE_EMAIL","")
@@ -70,17 +110,39 @@ def sign_in(context):
         raise LoginStop("missing_google_email_or_password_secret")
     google,freemoa=open_google(context)
     try:
-        fill_and_submit(google,"input[type=email]",email)
-        fill_and_submit(google,"input[type=password]",password)
+        identifier=google.locator('input[type="email"]').first
+        identifier.wait_for(state="visible",timeout=13000)
+        identifier.fill(email)
+        if not google_next_once(google):
+            identifier.press("Enter")
     except BrowserTimeout as exc:
-        raise LoginStop("google_account_screen_or_verification_required") from exc
-    for _ in range(70):
+        raise LoginStop("google_email_step_"+google_stage(google)) from exc
+    try:
+        google.locator('input[type="password"]').first.wait_for(
+            state="visible",timeout=15000
+        )
+    except BrowserTimeout as exc:
+        raise LoginStop("google_password_step_"+google_stage(google)) from exc
+    try:
+        password_field=google.locator('input[type="password"]').first
+        password_field.fill(password)
+        if not google_next_once(google):
+            password_field.press("Enter")
+    except BrowserTimeout as exc:
+        raise LoginStop("google_password_submission_"+google_stage(google)) from exc
+    for _ in range(50):
         active=google_window(context,freemoa)
-        if active is None or active.is_closed():return
-        if "/challenge/" in urlparse(active.url).path:
-            raise LoginStop("google_mfa_or_approval_required")
+        if active is None or active.is_closed():
+            return
+        stage=google_stage(active)
+        if stage in (
+            "google_account_challenge",
+            "google_account_verification_required",
+            "google_signin_security_restriction"
+        ):
+            raise LoginStop(stage)
         freemoa.wait_for_timeout(500)
-    raise LoginStop("google_login_redirect_unfinished")
+    raise LoginStop("google_login_redirect_unfinished_"+google_stage(google))
 
 def verified(context):
     check_page=context.new_page()
