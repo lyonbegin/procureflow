@@ -118,6 +118,83 @@ def cards_from_page(page) -> list[dict]:
     return list(result.values())
 
 
+
+def clickable_cards(page):
+    """Kmong's project cards are JS-driven LI buttons, NOT <a href> links.
+
+    Verified real UI: LI with class css-x6apz0 ep8pv1p0; accessible name
+    '프로젝트 카드'. Prefer accessibility selector; fall back to the observed
+    class rather than guessing links or scraping anonymous API endpoints.
+    """
+    choices = (
+        page.get_by_role("button", name="프로젝트 카드"),
+        page.locator('li[role="button"][name="프로젝트 카드"]'),
+        page.locator("li.css-x6apz0.ep8pv1p0"),
+        page.locator('li[class*="ep8pv1p0"]'),
+    )
+    for locator in choices:
+        try:
+            if locator.count():
+                return locator
+        except Exception:
+            continue
+    return None
+
+
+def discover_by_click(page, address: str, max_cards: int) -> list[dict]:
+    """Follow the genuine project-card UI to obtain IDs, returning to listing.
+
+    Each interaction requires the actual URL to become /enterprise/requests/ID;
+    never infer an ID from card order or unrelated Next.js scripts.
+    """
+    found: dict[str,dict] = {}
+    page.goto(address, wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(1250)
+    cards = clickable_cards(page)
+    if cards is None:
+        return []
+    total = min(cards.count(), max_cards)
+    logging.info("KMONG_ENTERPRISE_CLICKABLE_CARDS count=%s", total)
+    for index in range(total):
+        try:
+            if index:
+                page.goto(address, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(950)
+            cards = clickable_cards(page)
+            if cards is None or cards.count() <= index:
+                logging.warning("KMONG_ENTERPRISE_CARD_DISAPPEARED index=%s", index)
+                continue
+            card = cards.nth(index)
+            excerpt = card.inner_text(timeout=4500).strip()[:1200]
+            if not excerpt:
+                continue
+            card.click(timeout=9000)
+            try:
+                page.wait_for_url(re.compile(r"^https://(?:www\.)?kmong\.com/enterprise/requests/[0-9]+/?(?:\?.*)?$"),
+                                  timeout=14000)
+            except Exception:
+                pass
+            identifier = detail_id(page.url)
+            if not identifier:
+                logging.warning(
+                    "KMONG_ENTERPRISE_CLICK_NO_DETAIL index=%s path=%s",
+                    index, urlparse(page.url).path,
+                )
+                continue
+            found.setdefault(identifier, {
+                "source_id": identifier,
+                "url": BASE + "/enterprise/requests/" + identifier,
+                "listing_title": excerpt.splitlines()[0][:280],
+                "listing_excerpt": excerpt,
+            })
+        except Exception as exc:
+            logging.warning(
+                "KMONG_ENTERPRISE_CLICK_ERROR index=%s type=%s",
+                index, type(exc).__name__,
+            )
+    return list(found.values())
+
+
 def detail_title(page, listing: dict) -> str:
     heads = page.locator("h1,h2").all_inner_texts()
     for text in heads:
@@ -215,6 +292,9 @@ def collect(pages: int = 1, limit: int = 10) -> dict:
                         )
                     page.wait_for_timeout(1250)
                     found = cards_from_page(page)
+                    if not found:
+                        # Real Kmong cards are clickable LI elements without href.
+                        found = discover_by_click(page, address, max_cards=limit)
                     result["pages_checked"] += 1
                     result["listings"].append({
                         "page": number, "url": page.url,
