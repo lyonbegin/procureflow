@@ -9,6 +9,7 @@ This bounded browser adapter works with publicly viewable job listing/details.
 """
 from __future__ import annotations
 import json
+import os
 import logging
 import re
 import time
@@ -182,6 +183,46 @@ def store(item):
 # not searched on the main page or fabricated as URL query parameters.
 DEFAULT_QUERIES=("미화","청소","경비","시설관리","배송","운전","개발","폐기물","행정지원","방역")
 SEARCH_URL=BASE+LIST_PATH
+LOGIN_URL=BASE+"/cm/z/b/0210/openLginPage.do"
+
+
+def login_if_configured(page) -> str:
+    """Attempt member ID/password login for every collection run.
+
+    Credentials only come from Railway environment variables, never source
+    code, request configs, logs, or persisted recruitment records. Public
+    job listings remain collectible if the website refuses ID login.
+    """
+    account=os.environ.get("WORK24_LOGIN_ID","")
+    password=os.environ.get("WORK24_LOGIN_PASSWORD","")
+    if not account or not password:
+        logging.info("WORK24_LOGIN status=not_configured")
+        return "not_configured"
+    try:
+        response=page.goto(LOGIN_URL,wait_until="domcontentloaded",timeout=30000)
+        if not response or response.status>=400:
+            logging.warning("WORK24_LOGIN status=login_page_unavailable")
+            return "login_page_unavailable"
+        page.locator("a.link-id").first.click(timeout=8000)
+        popup=page.locator("section.pop_cert_id.on")
+        popup.locator("input#id").fill(account,timeout=8000)
+        popup.locator("input#pwd").fill(password,timeout=8000)
+        popup.locator("#btnIndvIdLogin").click(timeout=10000)
+        page.wait_for_timeout(1700)
+        # Verify signed-in state on the same browser context, not merely a
+        # successful click or a redirected URL.
+        page.goto(SEARCH_URL,wait_until="domcontentloaded",timeout=30000)
+        page.wait_for_timeout(700)
+        logout=page.get_by_text("로그아웃",exact=True)
+        authenticated=any(logout.nth(i).is_visible() for i in range(min(logout.count(),5)))
+        outcome="authenticated" if authenticated else "not_authenticated"
+        logging.info("WORK24_LOGIN status=%s",outcome)
+        return outcome
+    except Exception as exc:
+        # Never log the raw exception: browser errors may contain form data.
+        outcome="error_"+type(exc).__name__
+        logging.warning("WORK24_LOGIN status=%s",outcome)
+        return outcome
 
 
 def search_keyword(page,term: str) -> dict:
@@ -253,6 +294,7 @@ def collect(pages=1,limit=10,queries=None):
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
         page=ctx.new_page()
         try:
+            result["login_status"]=login_if_configured(page)
             for term in terms:
                 if len(candidates)>=limit:break
                 try:
