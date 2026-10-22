@@ -162,6 +162,7 @@ class MarketRun(BaseModel):
     source:str
     pages:int=Field(1,ge=1,le=20)
     limit:int=Field(8,ge=1,le=200)
+    queries:list[str]=Field(default_factory=list,max_length=12)
 
 @app.get("/api/market/sources")
 def market_sources(authorization:str|None=Header(None)):
