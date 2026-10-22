@@ -6,6 +6,8 @@ the tool does not accept or capture passwords. Only freemoa.net browser
 session state is exported, never Google cookies. No remote upload.
 """
 import argparse
+import base64
+import subprocess
 import json
 import os
 import re
@@ -29,6 +31,33 @@ def filter_freemoa_state(state: dict) -> dict:
         "origins": [o for o in state.get("origins", [])
                     if _freemoa_host(urlparse(o.get("origin", "")).hostname or "")],
     }
+
+def export_session_secret(state: dict) -> str:
+    """Prepare a Freemoa-only browser session for a GitHub Actions Secret."""
+    filtered=filter_freemoa_state(state)
+    if not filtered["cookies"]:
+        raise RuntimeError("No Freemoa cookies are available.")
+    payload=json.dumps(filtered,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+    encoded=base64.b64encode(payload).decode("ascii")
+    if len(encoded)>45000:
+        raise RuntimeError("Session exceeds GitHub Actions Secret size; reduce stored origins.")
+    return encoded
+
+
+def import_session_secret(encoded: str) -> dict:
+    """Strictly validate a session before giving it to a Chromium context."""
+    try:
+        payload=base64.b64decode(encoded.strip(),validate=True)
+        state=json.loads(payload.decode("utf-8"))
+    except (ValueError,UnicodeError,TypeError) as exc:
+        raise RuntimeError("Invalid Freemoa session secret.") from exc
+    if not isinstance(state,dict) or not isinstance(state.get("cookies"),list):
+        raise RuntimeError("Freemoa session format is invalid.")
+    filtered=filter_freemoa_state(state)
+    if not filtered["cookies"]:
+        raise RuntimeError("Session contains no Freemoa cookies.")
+    return filtered
+
 
 def save_private_state(context, path: Path) -> int:
     contents = filter_freemoa_state(context.storage_state())
@@ -116,6 +145,22 @@ def main():
             print(f"Authenticated Freemoa session saved locally: {state_path}")
             print(f"Saved {count} freemoa.net session cookies. Google cookies excluded.")
             print("This is a sensitive session file. Do not commit or upload it.")
+            secret=export_session_secret(browser.storage_state())
+            if os.name=="nt":
+                try:
+                    subprocess.run(["clip"],input=secret.encode("ascii"),check=True)
+                    print("FREEMOA_SESSION_B64 copied to Windows clipboard.")
+                except Exception:
+                    backup=home/"FREEMOA_SESSION_B64.txt"
+                    backup.write_text(secret,encoding="ascii")
+                    print(f"Session secret saved locally: {backup}")
+            else:
+                backup=home/"FREEMOA_SESSION_B64.txt"
+                backup.write_text(secret,encoding="ascii")
+                os.chmod(backup,0o600)
+                print(f"Session secret saved locally: {backup}")
+            print("Add one repository secret named FREEMOA_SESSION_B64.")
+            print("Do not paste session contents into chat or GitHub code.")
             return 0
         finally:
             browser.close()
