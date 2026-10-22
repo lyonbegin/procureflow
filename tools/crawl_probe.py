@@ -169,7 +169,20 @@ def extract_freemoa_project_details(page, cards, report, max_records=10):
         diag={"source_id":pno,"listing_title":title,"opened":False}
         try:
             locator=page.locator(f'#projectListNew .projTitle[data-pno="{pno}"]').first
-            locator.click(timeout=9000)
+            with page.expect_response(lambda resp: "/m4a/s41v" in resp.url,timeout=10000) as detail_event:
+                locator.click(timeout=9000)
+            detail_response=detail_event.value
+            detail_text=detail_response.text()
+            diag["xhr_http_status"]=detail_response.status
+            diag["xhr_chars"]=len(detail_text)
+            diag["xhr_excerpt"]=redact(detail_text[:16000])
+            diag["xhr_content_type"]=detail_response.headers.get("content-type","")
+            try:
+                detail_json=json.loads(detail_text)
+                diag["xhr_json_type"]=type(detail_json).__name__
+                if isinstance(detail_json,dict): diag["xhr_keys"]=list(detail_json)[:35]
+            except (ValueError,TypeError):
+                pass
             try:
                 page.wait_for_function("""expected => {
                     const root=document.querySelector('#projectViewWrap');
