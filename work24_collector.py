@@ -178,51 +178,126 @@ def store(item):
     return bool(row["inserted"])
 
 
-def collect(pages=1,limit=10):
-    pages=max(1,min(int(pages),20));limit=max(1,min(int(limit),200))
+# Each query is applied in the *actual Work24 detailed job-search form*,
+# not searched on the main page or fabricated as URL query parameters.
+DEFAULT_QUERIES=("미화","청소","경비","시설관리","배송","운전","개발","폐기물","행정지원","방역")
+SEARCH_URL=BASE+LIST_PATH
+
+
+def search_keyword(page,term: str) -> dict:
+    """Execute the verified searchForm/srchWrd/btnSearch Work24 UI flow."""
+    resp=page.goto(SEARCH_URL,wait_until="domcontentloaded",timeout=35000)
+    if not resp or resp.status>=400:
+        raise RuntimeError("search_page_http_"+str(resp.status if resp else "empty"))
+    page.wait_for_timeout(750)
+    target=page.locator('input[name="srchWrd"]')
+    if not target.count():
+        target=page.locator("#srchWrd")
+    if not target.count():
+        # The input's placeholder was observed in the browser even where the
+        # government page's accessibility markup omits its name/ID.
+        target=page.locator('input[placeholder*="여러 단어"]')
+    if not target.count():
+        raise RuntimeError("missing_search_keyword_control")
+    target.first.fill(term,timeout=7000)
+    logging.info("WORK24_SEARCH_TERM term=%s input_filled=1",term)
+    search_btn=page.locator("#btnSearch")
+    if search_btn.count():
+        try:
+            search_btn.first.scroll_into_view_if_needed(timeout=3000)
+            search_btn.first.click(timeout=7000)
+        except Exception:
+            # The Work24 search form's click handler is verified to invoke
+            # fnSearch('searchForm'); call it only if actually installed.
+            activated=page.evaluate("""() => {
+              if (typeof window.fnSearch !== 'function') return false;
+              window.fnSearch('searchForm'); return true;
+            }""")
+            if not activated:raise RuntimeError("search_button_unavailable")
+    else:
+        activated=page.evaluate("""() => {
+          if (typeof window.fnSearch !== 'function') return false;
+          window.fnSearch('searchForm'); return true;
+        }""")
+        if not activated:
+            target.first.press("Enter",timeout=5000)
+    page.wait_for_timeout(1650)
+    found=list_links(page)
+    if not found:
+        page.wait_for_timeout(1800)
+        found=list_links(page)
+    return {"term":term,"url":page.url,"links":found}
+
+
+def collect(pages=1,limit=10,queries=None):
+    """Use actual search filters; store only true matched job detail pages.
+
+    An individual Work24 search result is *not* a confirmed outsourcing
+    request. Deduplicate Work24 and third-party syndicated listings using
+    the original source-coded recruitment ID.
+    """
+    pages=max(1,min(int(pages),20))
+    limit=max(1,min(int(limit),200))
+    terms=tuple(dict.fromkeys(str(t).strip()[:70] for t in (
+        queries if queries else DEFAULT_QUERIES
+    ) if str(t).strip()))[:12]
+    if not terms:terms=DEFAULT_QUERIES
     result={"source":"work24","role":"job_demand","status":"started",
+            "search_page":SEARCH_URL,"search_terms":list(terms),
             "examined":0,"saved":0,"new":0,"pages_checked":0,
             "errors":[],"verified_ids":[],"failed_ids":[],"listings":[]}
     candidates={}
+    per_term=max(1,(limit+len(terms)-1)//len(terms))
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
         page=ctx.new_page()
         try:
-            for page_no in range(1,pages+1):
+            for term in terms:
                 if len(candidates)>=limit:break
-                address=BASE+LIST_PATH
-                resp=page.goto(address,wait_until="domcontentloaded",timeout=30000)
-                if not resp or resp.status>=400:
-                    raise RuntimeError(f"list_http_{resp.status if resp else 'no_response'}")
-                page.wait_for_timeout(1450)
-                found=list_links(page)
-                result["pages_checked"]+=1
-                result["listings"].append({"page":page_no,"url":address,"found":len(found)})
-                logging.info("WORK24_LIST page=%s found=%s",page_no,len(found))
-                for item in found:candidates.setdefault(item["source_id"],item)
-                if page_no<pages and len(candidates)<limit:
-                    # Public list is driven by a site-side JS pager, not a
-                    # documented query parameter. Until the official API key
-                    # is provided do not fabricate URLs to fetch page >1.
-                    result["errors"].append("pagination_requires_verified_site_navigation")
-                    break
+                try:
+                    selected=search_keyword(page,term)
+                    found=selected["links"]
+                    result["pages_checked"]+=1
+                    result["listings"].append(
+                        {"search_term":term,"url":selected["url"],
+                         "found":len(found)}
+                    )
+                    logging.info("WORK24_SEARCH_RESULT term=%s found=%s",
+                                 term,len(found))
+                    if not found:
+                        result["errors"].append("search_"+term+":no_result_links")
+                    for record in found[:per_term]:
+                        record["search_term"]=term
+                        candidates.setdefault(record["source_id"],record)
+                except Exception as exc:
+                    result["errors"].append(
+                        "search_"+term+":"+type(exc).__name__+":"+str(exc)[:110]
+                    )
+                    logging.warning("WORK24_SEARCH_ERROR term=%s type=%s",
+                                    term,type(exc).__name__)
+            # Avoid claiming successful pagination: the search page uses its
+            # own JavaScript result paging; separate queries are real and
+            # transparent while deeper paging remains a later adapter.
+            if pages>1:result["errors"].append("multi_page_pagination_not_yet_implemented")
             result["examined"]=min(len(candidates),limit)
             for card in list(candidates.values())[:limit]:
                 try:
                     detail=read_detail(page,card)
-                    is_new=store(detail)
-                    result["saved"]+=1;result["new"]+=int(is_new)
+                    detail["meta"]["search_term"]=card["search_term"]
+                    was_new=store(detail)
+                    result["saved"]+=1;result["new"]+=int(was_new)
                     result["verified_ids"].append(card["source_id"])
-                    logging.info("WORK24_DETAIL id=%s area=%s provider=%s new=%s",
-                                 card["source_id"],detail["meta"]["service_area"],
-                                 detail["meta"]["information_provider"],is_new)
+                    logging.info("WORK24_DETAIL id=%s term=%s area=%s provider=%s new=%s",
+                                 card["source_id"],card["search_term"],
+                                 detail["meta"]["service_area"],
+                                 detail["meta"]["information_provider"],was_new)
                 except Exception as exc:
                     result["failed_ids"].append(card["source_id"])
                     result["errors"].append("detail_"+card["source_id"]+":"+type(exc).__name__)
-                    logging.warning("WORK24_DETAIL_ERROR id=%s error=%s",
+                    logging.warning("WORK24_DETAIL_ERROR id=%s type=%s",
                                     card["source_id"],type(exc).__name__)
-                time.sleep(1.0)
+                time.sleep(.5)
             result["status"]="collected" if result["saved"] else "discovery_only" if candidates else "error"
         except Exception as exc:
             result["status"]="error"
@@ -230,6 +305,7 @@ def collect(pages=1,limit=10):
         finally:
             ctx.close();browser.close()
     return result
+
 
 if __name__=="__main__":
     print(json.dumps(collect(),ensure_ascii=False))
