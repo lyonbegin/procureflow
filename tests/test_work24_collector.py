@@ -44,6 +44,20 @@ class Work24ContractTests(unittest.TestCase):
         code=inspect.getsource(collect)
         self.assertIn("search_keyword",code)
         self.assertIn("queries",code)
+    def test_dashboard_uses_existing_fastapi_for_web_and_analysis(self):
+        from pathlib import Path
+        from main import app
+        routes={r.path for r in app.routes if hasattr(r,"path")}
+        self.assertIn("/",routes)
+        self.assertIn("/api/analysis/summary",routes)
+        self.assertIn("/api/market/collect",routes)
+        html=(Path(__file__).resolve().parents[1]/"static"/"index.html").read_text(encoding="utf-8")
+        self.assertIn("id=\"analysisSummary\"",html)
+        self.assertIn("async function loadAnalysis()",html)
+        self.assertIn("loadAnalysis()",html)
+        self.assertIn("관리자 키",html)
+        self.assertNotIn("고용24·당근·숨고·크몽은 현재 수집 대상에서 제외합니다.",html)
+
     def test_no_automatic_bidding_or_pii_getters(self):
         import inspect
         from work24_collector import collect
