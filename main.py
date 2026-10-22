@@ -155,6 +155,7 @@ MARKET_SOURCES = {
  "freemoa_portfolios":"portfolio_reference",
  "wanted_gigs":"development_demand",
  "kmong_enterprise":"development_demand",
+ "work24":"job_demand",
 }
 class MarketRun(BaseModel):
     source:str
@@ -196,7 +197,7 @@ def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service
                    offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
     guard(authorization)
     if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
-    where=["source NOT IN ('work24','daangn','kmong','soomgo')"];args=[]
+    where=["source NOT IN ('daangn','kmong','soomgo')"];args=[]
     if source:where.append("source=%s");args.append(source)
     if kind:where.append("kind=%s");args.append(kind)
     if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
