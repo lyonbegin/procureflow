@@ -7,6 +7,8 @@ on:
       - ".github/workflows/freemoa-google.yml"
       - "tools/freemoa_headless_google.py"
       - "tools/freemoa_google_login.py"
+      - "tools/freemoa_bootstrap_windows.py"
+      - "tools/authorize_freemoa_once.cmd"
       - "tests/test_freemoa_headless_google.py"
   workflow_dispatch:
     inputs:
@@ -38,7 +40,9 @@ jobs:
           pip install playwright==1.56.0
           google-chrome --version
       - name: Test headless Google button
-        run: python -m unittest discover -s tests -p 'test_freemoa_headless_google.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_freemoa_headless_google.py' -v
+          python -m py_compile tools/freemoa_bootstrap_windows.py tools/freemoa_google_login.py
       - name: Run actual headless browser
         run: |
           python -m tools.freemoa_headless_google \
