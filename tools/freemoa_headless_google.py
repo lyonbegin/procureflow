@@ -95,7 +95,7 @@ def run(mode,output,limit):
     result={"mode":mode,"status":"starting","authenticated":False,"detail_records":0}
     output.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+        browser=p.chromium.launch(channel="chrome",headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
         context=None
         try:
             if mode=="probe":
