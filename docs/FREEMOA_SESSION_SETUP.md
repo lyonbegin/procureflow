@@ -11,6 +11,7 @@ GitHub Actions의 Headless Chrome에서 Google 신규 로그인을 반복하지 
 3. 새로 열린 **일반 Chrome**에서 프리모아의 Google 로그인을 완료합니다.
 4. 해당 Chrome 창을 닫고 명령창에서 Enter를 누릅니다.
 5. 프로그램이 실제 프리모아 프로젝트 상세 API에 접속하여 인증을 검사합니다.
+6. 인증 성공 직후 프로젝트 최대 10건의 전체 상세를 수집하고 Windows `문서/ProcureFlow/Freemoa/result.json`과 `projects.csv`에 저장합니다.
 
 GitHub CLI(`gh`)가 이미 로그인된 컴퓨터에서는 프로그램이
 `FREEMOA_SESSION_B64` GitHub Secret을 등록하고 Actions 수집을 실행합니다.
