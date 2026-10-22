@@ -55,7 +55,7 @@ jobs:
             --limit 10 \
             --output artifacts/freemoa-google
       - name: Save encrypted Freemoa session
-        if: success() && env.RUN_MODE == 'crawl'
+        if: always() && env.RUN_MODE == 'crawl'
         uses: actions/cache/save@v4
         with:
           path: .private/freemoa-session.enc
@@ -67,6 +67,6 @@ jobs:
           name: freemoa-google-${{ github.run_number }}
           path: |
             artifacts/freemoa-google/login_status.json
-            artifacts/freemoa-google/result.json
+            artifacts/freemoa-google/result.json.enc
           if-no-files-found: warn
           retention-days: 7
