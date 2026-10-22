@@ -155,6 +155,104 @@ def extract_freemoa_project_cards(page):
         })
     return results
 
+def extract_freemoa_project_details(page, cards, report, max_records=10):
+    """Open real public project detail popup by clicking the data-pno card.
+
+    The listing text is not accepted as project detail. Attach full public modal
+    content only after the modal title matches the clicked project.
+    """
+    valid=0
+    report["detail_diagnostics"]=[]
+    for record in cards[:max_records]:
+        pno=record["source_id"]
+        title=record["title"]
+        diag={"source_id":pno,"listing_title":title,"opened":False}
+        try:
+            locator=page.locator(f'#projectListNew .projTitle[data-pno="{pno}"]').first
+            locator.click(timeout=9000)
+            try:
+                page.wait_for_function("""expected => {
+                    const root=document.querySelector('#projectViewWrap');
+                    if(!root || getComputedStyle(root).display==='none') return false;
+                    const v=root.querySelector('.projectInfoData[data-name="title"]');
+                    const text=(v?.textContent||'').trim();
+                    return text && text===expected;
+                }""",arg=title,timeout=12000)
+                diag["opened"]=True
+            except Exception as e:
+                diag["wait_error"]=type(e).__name__
+                diag["modal_visible"]=page.locator("#projectViewWrap").is_visible()
+                diag["page_url_after_click"]=page.url
+                diag["modal_title"]=page.locator('#projectViewWrap [data-name="title"]').first.text_content(timeout=2000)[:200]
+                report["detail_diagnostics"].append(diag)
+                continue
+
+            detail=page.locator("#projectViewWrap").evaluate("""root=>{
+                const t=selector => (root.querySelector(selector)?.textContent||'').trim();
+                const many=selector=>[...root.querySelectorAll(selector)].map(el=>(el.textContent||'').trim());
+                const prop=(name)=>t('[data-name="'+name+'"]');
+                return {
+                    title:prop('title'),
+                    registered_at:t('.projectInfoDate'),
+                    budget:prop('costView'),
+                    period_days:prop('during'),
+                    kickoff:prop('BEGIN_EXPECT'),
+                    project_area:prop('proj_filed_new'),
+                    project_class:t('.projectType'),
+                    planning_stage:prop('plan_nm'),
+                    meeting_area:prop('pvNmu'),
+                    deadline:t('.enddate_custom'),
+                    work_type:t('#projectWorkType'),
+                    project_description:t('#projectInfoDataDetail'),
+                    recruit_requirements:t('#recruitMemoDiv .recruitMemo'),
+                    client_alias:t('.companyUserId'),
+                    client_company_info:t('#projectViewClientCompanyInfo'),
+                    client_post_count:prop('all_cnt'),
+                    client_contract_count:prop('contract_cnt'),
+                    client_contract_amount:prop('sum_cost'),
+                    related_technologies:many('.prj-need-tech-new span,.prj-need-tech-new b'),
+                    summary:t('#projectViewConMidArticle'),
+                    visible_text:(root.innerText||'').slice(0,18000)
+                }
+            }""")
+            detail={k:(redact(v[:30000]) if isinstance(v,str) else v) for k,v in detail.items()}
+            desc=detail.get("project_description") or ""
+            requirements=detail.get("recruit_requirements") or ""
+            if len(desc)+len(requirements)<90:
+                diag["reason"]="Detail popup appeared but public description too short"
+                diag["desc_len"]=len(desc)
+                diag["recruit_len"]=len(requirements)
+                report["detail_diagnostics"].append(diag)
+                continue
+            record["detail_verified"]=True
+            record["evidence"]="public_clicked_detail_modal"
+            record["detail"]=detail
+            record["body_excerpt"]=desc[:1300]
+            valid+=1
+            diag["description_chars"]=len(desc)
+            diag["recruitment_chars"]=len(requirements)
+            diag["client_alias"]=detail.get("client_alias")
+            report["detail_diagnostics"].append(diag)
+        except Exception as e:
+            diag["error"]=type(e).__name__+":"+str(e)[:160]
+            report["detail_diagnostics"].append(diag)
+        finally:
+            # Close modal through public UI if possible; otherwise restore listing
+            # without trying to bypass any access restriction.
+            try:
+                page.keyboard.press("Escape")
+                if page.locator("#projectViewWrap").is_visible():
+                    # The DOM has a separate popup outside the listing. Hiding it
+                    # only resets this browser view for the next already-visible card.
+                    page.evaluate("""()=>{
+                        document.querySelector('#projectViewWrap')?.style.setProperty('display','none');
+                    }""")
+            except Exception:
+                pass
+    report["detail_records_parsed"]=valid
+    return valid
+
+
 def scan(site,section,outdir,max_records=4,timeout_ms=22000):
     started=datetime.now(timezone.utc).isoformat()
     entry,_=SITES[site][section]
@@ -221,7 +319,10 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
                         report["detail_records_parsed"]=0
                         report["records"]=cards[:max_records]
                         report["parsed"]=len(report["records"])
-                        if report["parsed"]:report["status"]="listing_cards_parsed"
+                        if report["parsed"]:
+                            report["status"]="listing_cards_parsed"
+                            if extract_freemoa_project_details(page,report["records"],report,max_records):
+                                report["status"]="detail_modal_parsed"
                     for item in ([] if special else links[:max_records]):
                         try:
                             dresp=page.goto(item["url"],wait_until="domcontentloaded",timeout=timeout_ms)
