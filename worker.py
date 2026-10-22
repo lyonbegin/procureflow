@@ -211,7 +211,7 @@ def main():
     # are saved using the real kmong.com /enterprise/requests/<number> ID.
     # A unique database marker prevents duplicate bootstrap jobs on restarts.
     with session() as db:
-        kmong_marker='kmong-enterprise-live-smoke-20261022-v1'
+        kmong_marker='kmong-enterprise-live-smoke-20261022-v2'
         claim=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
@@ -219,7 +219,7 @@ def main():
         ).fetchone()
         if claim:
             cfg={"source":"kmong_enterprise","pages":1,"limit":10,
-                 "test":"kmong-enterprise-live-smoke-20261022-v1"}
+                 "test":"kmong-enterprise-live-smoke-20261022-v2"}
             jid=db.execute(
                 "INSERT INTO procureflow.jobs(source,config,message) "
                 "VALUES ('market_kmong_enterprise',%s::jsonb,%s) RETURNING id",
