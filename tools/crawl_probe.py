@@ -172,7 +172,28 @@ def extract_freemoa_project_details(page, cards, report, max_records=10):
             with page.expect_response(lambda resp: "/m4a/s41v" in resp.url,timeout=10000) as detail_event:
                 locator.click(timeout=9000)
             detail_response=detail_event.value
-            detail_text=detail_response.text()
+            detail_response.finished()
+            request=detail_response.request
+            diag["xhr_request_method"]=request.method
+            diag["xhr_request_path"]=urlparse(request.url).path
+            try:
+                detail_text=detail_response.text()
+                diag["xhr_body_method"]="chromium_response"
+            except Exception as body_exc:
+                diag["chromium_read_error"]=type(body_exc).__name__+":"+str(body_exc)[:130]
+                # Browser CDP can discard XHR body; re-fetch the exact same
+                # public AJAX request with shared context cookies and data.
+                headers={}
+                for header in ("accept","content-type","x-requested-with","referer"):
+                    value=request.headers.get(header)
+                    if value:headers[header]=value
+                retry=page.context.request.fetch(
+                    request.url,method=request.method,
+                    data=request.post_data if request.method!="GET" else None,
+                    headers=headers,timeout=15000)
+                detail_text=retry.text()
+                diag["xhr_body_method"]="context_api_request"
+                diag["xhr_retry_status"]=retry.status
             diag["xhr_http_status"]=detail_response.status
             diag["xhr_chars"]=len(detail_text)
             diag["xhr_excerpt"]=redact(detail_text[:16000])
