@@ -1,0 +1,226 @@
+"""Read-only Work24 recruitment leads collector.
+
+ProcureFlow records staffing demand as *potential service leads*, not as actual
+procurement tenders. The source and original recruitment ID are preserved.
+No applicant/contact records are fetched and no applications are submitted.
+
+The government Open API is preferred if WORK24_API_KEY is issued later.
+This bounded browser adapter works with publicly viewable job listing/details.
+"""
+from __future__ import annotations
+import json
+import logging
+import re
+import time
+from datetime import datetime,timezone
+from urllib.parse import parse_qs, urlparse, urlencode
+
+from playwright.sync_api import sync_playwright
+from db import session
+
+BASE="https://www.work24.go.kr"
+LIST_PATH="/wk/a/b/1200/retriveDtlEmpSrchList.do"
+DETAIL_PATH="/wk/a/b/1500/empDetailAuthView.do"
+SERVICE_TAGS = [
+ ("cleaning",r"청소|미화|환경미화|환경관리|방역|소독|세척|클리닝|하우스키핑"),
+ ("security",r"경비|보안|방재|주차관리|시설경비|안전관리"),
+ ("facility",r"시설관리|건물관리|설비관리|기계설비|전기관리|소방시설|공조|빌딩관리"),
+ ("transport",r"운전|배송|운송|물류|택배|화물|이사|배차|출고|입고"),
+ ("development",r"프로그래밍|개발자|소프트웨어|정보화|전산|웹개발|앱개발|AI 개발|ERP|MES|서버 개발"),
+ ("environment",r"폐기물|재활용|분리수거|음식물쓰레기|자원순환"),
+ ("administration",r"사무보조|행정지원|민원안내|접수|운영지원|비서"),
+ ("education",r"교육운영|강사|교사|강의|훈련운영|교수"),
+ ("events",r"행사운영|전시|전시회|박람회|이벤트|축제운영"),
+ ("design",r"디자인|광고|마케팅|홍보|영상편집|콘텐츠 제작"),
+]
+CONTACT_CUT = re.compile(r"(?:채용\s*담당자|채용담당자\s*정보)(?:\s|\n|$)")
+EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+MOBILE = re.compile(r"(?<!\d)01[016789][- ]?\d{3,4}[- ]?\d{4}(?!\d)")
+
+
+def detail_ref(url: str):
+    p=urlparse(url)
+    if p.scheme!="https" or p.hostname not in ("www.work24.go.kr","work24.go.kr"):
+        return None
+    if p.path!=DETAIL_PATH:
+        return None
+    q=parse_qs(p.query)
+    wanted=q.get("wantedAuthNo",[""])[0].strip()
+    info=q.get("infoTypeCd",[""])[0].strip()
+    group=q.get("infoTypeGroup",[""])[0].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{4,75}",wanted) or not re.fullmatch(r"[A-Za-z0-9_-]{2,40}",info):
+        return None
+    if group and not re.fullmatch(r"[A-Za-z0-9_-]{2,50}",group):
+        return None
+    # Work24 authentic listing ID + originating data provider id (avoid collision).
+    return {"wantedAuthNo":wanted,"infoTypeCd":info,"infoTypeGroup":group,
+            "source_id":f"{info}:{wanted}"}
+
+
+def normalize_detail_url(url: str) -> str:
+    ref=detail_ref(url)
+    if ref is None:raise ValueError("invalid_work24_detail_url")
+    params={"wantedAuthNo":ref["wantedAuthNo"],"infoTypeCd":ref["infoTypeCd"]}
+    if ref["infoTypeGroup"]:params["infoTypeGroup"]=ref["infoTypeGroup"]
+    return BASE+DETAIL_PATH+"?"+urlencode(params)
+
+
+def classify(text: str) -> str:
+    for area,regex in SERVICE_TAGS:
+        if re.search(regex,text,re.I):return area
+    return "other"
+
+
+def list_links(page) -> list[dict]:
+    anchors=page.locator('a[href]').evaluate_all(
+       """items => items.map(a => ({
+          url:a.href, label:(a.innerText||a.getAttribute('title')||'').trim().slice(0,280),
+          context:(a.closest('tr,li,article')||a).innerText?.trim().slice(0,700)||''
+       }))"""
+    )
+    found={}
+    for a in anchors:
+        ref=detail_ref(a["url"])
+        if not ref:continue
+        found.setdefault(ref["source_id"],{
+            **ref,"url":normalize_detail_url(a["url"]),
+            "listing_title":a["label"],"listing_excerpt":a["context"]})
+    return list(found.values())
+
+
+def read_detail(page, card):
+    url=card["url"]
+    response=page.goto(url,wait_until="domcontentloaded",timeout=27000)
+    if not response or response.status>=400:
+        raise RuntimeError(f"detail_http_{response.status if response else 'no_response'}")
+    page.wait_for_timeout(700)
+    current=detail_ref(page.url)
+    if not current or current["source_id"]!=card["source_id"]:
+        raise RuntimeError("detail_not_matched")
+    raw=page.locator("body").inner_text(timeout=6500)
+    if "모집요강" not in raw or "근무조건" not in raw:
+        raise RuntimeError("not_a_complete_job_detail")
+    parts=raw.splitlines()
+    # Work24's front matter contains '채용정보 상세' then employer then
+    # job title; anchor the extraction on that explicit page heading.
+    textlines=[s.strip() for s in parts if s.strip()]
+    summary=textlines
+    frontpos=next((i for i,t in enumerate(textlines) if t.startswith("채용정보 상세")),None)
+    if frontpos is not None:
+        summary=textlines[frontpos+1:frontpos+14]
+    bad={"일반기업","공공기관","상세정보","정보제공처","조회수","채용정보 제공 사이트 바로가기",
+         "모집요강","근무조건","복리후생","기업정보","전형방법"}
+    title=card.get("listing_title","").strip()
+    if not title or title in ("상세보기","채용정보",""):
+        # Job title immediately before the provider/view-count block.
+        for i,item in enumerate(summary):
+            if item.startswith("정보제공처") and i>=1:
+                candidate=summary[i-1].strip()
+                if candidate not in bad and len(candidate)>=5:title=candidate
+                break
+    if not title or title in bad:
+        title=next((t for t in summary if len(t)>14 and t not in bad),"")
+    if not title:raise RuntimeError("title_not_extracted")
+    company=""
+    if frontpos is not None:
+        for item in textlines[frontpos+1:frontpos+8]:
+            if item!=title and item not in bad and not item.startswith("정보제공처") and len(item)>1:
+                company=item[:160];break
+    # Do not repurpose applicant contact details for marketing/sales leads.
+    publicbody=CONTACT_CUT.split(raw,maxsplit=1)[0][-25000:]
+    publicbody=EMAIL.sub("[email redacted]",MOBILE.sub("[phone redacted]",publicbody))
+    provider={"VALIDATION":"고용24","CJK":"잡코리아"}.get(card["infoTypeCd"],card["infoTypeCd"])
+    area=classify((title+" "+publicbody[:4000])[:4200])
+    meta={
+        "demand_type":"job_demand","is_procurement_tender":False,
+        "is_confirmed_outsourcing":False,"potential_service_lead":True,
+        "service_area":area,"company":company,"information_provider":provider,
+        "information_provider_code":card["infoTypeCd"],
+        "original_wanted_auth_no":card["wantedAuthNo"],
+        "original_group":card["infoTypeGroup"],
+        "source_listing_excerpt":card.get("listing_excerpt",""),
+        "collected_from":"work24_public_detail",
+        "detail_verified":True,"observed_at":datetime.now(timezone.utc).isoformat()
+    }
+    for name,regex in (
+        ("wage",r"임금조건\s*\n?\s*([^\n]{1,90})"),
+        ("place",r"근무\s*예정지\s*\n?\s*([^\n]{1,100})"),
+        ("working_hours",r"근무\s*시간\s*\n?\s*([^\n]{1,90})"),
+        ("employment",r"고용형태\s*\n?\s*([^\n]{1,90})"),
+    ):
+        m=re.search(regex,publicbody)
+        if m:meta[name]=m.group(1).strip()
+    return {"source_id":card["source_id"],"title":title[:300],
+            "url":normalize_detail_url(url),"body":publicbody,"meta":meta}
+
+
+def store(item):
+    with session() as db:
+        row=db.execute("""
+        INSERT INTO procureflow.market_records
+          (source,kind,source_id,title,url,body,meta)
+        VALUES ('work24','job_demand',%s,%s,%s,%s,%s::jsonb)
+        ON CONFLICT (source,kind,source_id) DO UPDATE SET
+          title=EXCLUDED.title,url=EXCLUDED.url,body=EXCLUDED.body,
+          meta=EXCLUDED.meta,last_seen=now()
+        RETURNING (xmax=0) AS inserted
+        """,(item["source_id"],item["title"],item["url"],item["body"],
+              json.dumps(item["meta"],ensure_ascii=False))).fetchone()
+    return bool(row["inserted"])
+
+
+def collect(pages=1,limit=10):
+    pages=max(1,min(int(pages),20));limit=max(1,min(int(limit),200))
+    result={"source":"work24","role":"job_demand","status":"started",
+            "examined":0,"saved":0,"new":0,"pages_checked":0,
+            "errors":[],"verified_ids":[],"failed_ids":[],"listings":[]}
+    candidates={}
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+        ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
+        page=ctx.new_page()
+        try:
+            for page_no in range(1,pages+1):
+                if len(candidates)>=limit:break
+                address=BASE+LIST_PATH
+                resp=page.goto(address,wait_until="domcontentloaded",timeout=30000)
+                if not resp or resp.status>=400:
+                    raise RuntimeError(f"list_http_{resp.status if resp else 'no_response'}")
+                page.wait_for_timeout(1450)
+                found=list_links(page)
+                result["pages_checked"]+=1
+                result["listings"].append({"page":page_no,"url":address,"found":len(found)})
+                logging.info("WORK24_LIST page=%s found=%s",page_no,len(found))
+                for item in found:candidates.setdefault(item["source_id"],item)
+                if page_no<pages and len(candidates)<limit:
+                    # Public list is driven by a site-side JS pager, not a
+                    # documented query parameter. Until the official API key
+                    # is provided do not fabricate URLs to fetch page >1.
+                    result["errors"].append("pagination_requires_verified_site_navigation")
+                    break
+            result["examined"]=min(len(candidates),limit)
+            for card in list(candidates.values())[:limit]:
+                try:
+                    detail=read_detail(page,card)
+                    is_new=store(detail)
+                    result["saved"]+=1;result["new"]+=int(is_new)
+                    result["verified_ids"].append(card["source_id"])
+                    logging.info("WORK24_DETAIL id=%s area=%s provider=%s new=%s",
+                                 card["source_id"],detail["meta"]["service_area"],
+                                 detail["meta"]["information_provider"],is_new)
+                except Exception as exc:
+                    result["failed_ids"].append(card["source_id"])
+                    result["errors"].append("detail_"+card["source_id"]+":"+type(exc).__name__)
+                    logging.warning("WORK24_DETAIL_ERROR id=%s error=%s",
+                                    card["source_id"],type(exc).__name__)
+                time.sleep(1.0)
+            result["status"]="collected" if result["saved"] else "discovery_only" if candidates else "error"
+        except Exception as exc:
+            result["status"]="error"
+            result["errors"].append("collector:"+type(exc).__name__+":"+str(exc)[:140])
+        finally:
+            ctx.close();browser.close()
+    return result
+
+if __name__=="__main__":
+    print(json.dumps(collect(),ensure_ascii=False))
