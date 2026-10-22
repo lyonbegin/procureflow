@@ -1,0 +1,69 @@
+name: ProcureFlow Crawl Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Public source to diagnose"
+        required: true
+        type: choice
+        options: [wishket, freemoa, wanted]
+        default: wishket
+      section:
+        description: "Which type of page"
+        required: true
+        type: choice
+        options: [projects, partners, portfolios]
+        default: projects
+      limit:
+        description: "Max detail records, 1-10"
+        required: true
+        default: "4"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/crawl-probe.yml"
+      - "tools/crawl_probe.py"
+      - "tests/test_crawl_probe.py"
+
+permissions:
+  contents: read
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROBE_SITE: ${{ inputs.site || 'wishket' }}
+      PROBE_SECTION: ${{ inputs.section || 'projects' }}
+      PROBE_LIMIT: ${{ inputs.limit || '4' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Playwright and Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Validate parsers without network
+        run: python -m unittest discover -s tests -p 'test_crawl_probe.py' -v
+      - name: Execute bounded public crawl
+        run: |
+          python tools/crawl_probe.py \
+            --site "$PROBE_SITE" \
+            --section "$PROBE_SECTION" \
+            --limit "$PROBE_LIMIT" \
+            --output artifacts/crawl-probe
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawl-probe-${{ github.run_number }}
+          path: artifacts/crawl-probe/
+          if-no-files-found: warn
+          retention-days: 7
