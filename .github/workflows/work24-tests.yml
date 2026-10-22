@@ -1,0 +1,31 @@
+name: Work24 Collector Tests
+on:
+  push:
+    branches: [main]
+    paths:
+      - "work24_collector.py"
+      - "market_collector.py"
+      - "worker.py"
+      - "main.py"
+      - "static/index.html"
+      - "tests/test_work24_collector.py"
+      - ".github/workflows/work24-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  work24_contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime requirements
+        run: pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile application and collector
+        run: python -m py_compile work24_collector.py market_collector.py worker.py main.py
+      - name: Test source-native provider and demand contracts
+        run: python -m unittest discover -s tests -p 'test_work24_collector.py' -v
