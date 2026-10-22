@@ -83,6 +83,9 @@ def google_stage(page):
         "2단계 인증", "인증 코드를 입력", "보안 확인",
     )):
         return "google_account_verification_required"
+    if any(t in body for t in ("choose an account", "계정 선택", "use another account",
+                                 "다른 계정 사용", "계정을 선택")):
+        return "google_account_chooser"
     try:
         if page.locator('input[type="password"]').first.is_visible():
             return "google_password_prompt"
@@ -90,7 +93,18 @@ def google_stage(page):
             return "google_email_prompt"
     except Exception:
         pass
-    return "google_unrecognized_account_step"
+    # Safe, structural-only diagnostic: no URL query, usernames or DOM text.
+    family=("signin" if "signin" in path else
+            "oauth" if "oauth" in path else
+            "challenge" if "challenge" in path else "other")
+    try:
+        types=sorted(set(str(x or "text")[:15] for x in
+                          page.locator("input").evaluate_all(
+                              "els=>els.map(e=>e.getAttribute('type'))")))
+        code="_".join(types)[:65] or "no_inputs"
+    except Exception:
+        code="inputs_unavailable"
+    return "google_unrecognized_"+family+"_form_"+code
 
 def google_next_once(page):
     for label in ("Next", "다음"):
@@ -110,7 +124,23 @@ def sign_in(context):
         raise LoginStop("missing_google_email_or_password_secret")
     google,freemoa=open_google(context)
     try:
-        identifier=google.locator('input[type="email"]').first
+        google.wait_for_load_state("domcontentloaded",timeout=12000)
+    except Exception:
+        pass
+    if google_stage(google)=="google_account_chooser":
+        try:
+            existing=google.get_by_text(email,exact=True)
+            if existing.count() and existing.first.is_visible():
+                existing.first.click(timeout=5500)
+            else:
+                alternate=google.get_by_text(
+                    re.compile("Use another account|다른 계정 사용",re.I))
+                if alternate.count() and alternate.first.is_visible():
+                    alternate.first.click(timeout=5500)
+        except Exception:
+            pass
+    try:
+        identifier=google.locator('input[type="email"], input[name="identifier"]').first
         identifier.wait_for(state="visible",timeout=13000)
         identifier.fill(email)
         if not google_next_once(google):
