@@ -136,6 +136,43 @@ def _click_mouse_as_fallback(pages,kind):
     return False
 
 
+
+def _open_sitemap(pages):
+    """Fallback for public G2B WebSquare navigation when GNB depths do not expand.
+
+    Verified in the public browser: 사이트맵 -> 발주 -> 발주목록.
+    Activate a visible existing sitemap button, then use the unchanged
+    DOM-ranked '발주목록' selector, not a guessed deep URL.
+    """
+    selectors=(
+        'button:has-text("사이트맵")',
+        'a:has-text("사이트맵")',
+        'button[title*="사이트맵"]',
+        'a[title*="사이트맵"]',
+        'button[aria-label*="전체"]',
+        'button[title*="전체메뉴"]',
+        'a[title*="전체메뉴"]',
+    )
+    for page in pages:
+        for fr in _frames(page):
+            for selector in selectors:
+                try:
+                    loc=fr.locator(selector)
+                    for idx in range(min(loc.count(),5)):
+                        el=loc.nth(idx)
+                        if not el.is_visible():continue
+                        el.click(timeout=1800)
+                        LAST_TRACE.append({'step':'sitemap_opened',
+                                           'frame':_path(fr),'selector':selector})
+                        return True
+                except Exception as exc:
+                    LAST_TRACE.append({'step':'sitemap_click_error',
+                                       'frame':_path(fr),
+                                       'type':type(exc).__name__})
+    LAST_TRACE.append({'step':'sitemap_button_not_found'})
+    return False
+
+
 def _form_present(fr):
     try:
         return bool(fr.evaluate(r'''() => {
@@ -257,24 +294,36 @@ def auto_open_and_search(browser, cache_path, attach_page, attached):
     while time.monotonic()<deadline and not _scan(_pages(ctx),'root'):
         page.wait_for_timeout(350)
     LAST_TRACE.append({'step':'before_root', 'frames':menu_snapshot(ctx)})
-    if not _click_dom(_pages(ctx),'root'):
-        if not _click_mouse_as_fallback(_pages(ctx),'root'):
-            return {'ok':False,'stage':'root_dom_not_found','message':'발주 DOM 엘리먼트를 찾지 못했습니다. menu_trace 확인'}
+    root_clicked=_click_dom(_pages(ctx),'root')
+    if not root_clicked:
+        root_clicked=_click_mouse_as_fallback(_pages(ctx),'root')
+    if not root_clicked:
+        # On public G2B the sitemap provides a separate stable route.
+        if not _open_sitemap(_pages(ctx)):
+            return {'ok':False,'stage':'root_dom_not_found','message':'발주 메뉴 및 사이트맵을 찾지 못했습니다. menu_trace 확인'}
     # Search every frame afresh after root clicked. No stale frame reference.
-    deadline=time.monotonic()+8
+    deadline=time.monotonic()+5
     found=False
     while time.monotonic()<deadline:
         if _scan(_pages(ctx),'submenu'):
             found=True;break
-        page.wait_for_timeout(350)
+        page.wait_for_timeout(300)
     LAST_TRACE.append({'step':'after_root','frames':menu_snapshot(ctx)})
     if not found:
-        # A site may only open the submenu on a trusted physical mouse event.
-        _click_mouse_as_fallback(_pages(ctx),'root')
-        page.wait_for_timeout(400)
-    if not _click_dom(_pages(ctx),'submenu'):
-        if not _click_mouse_as_fallback(_pages(ctx),'submenu'):
-            return {'ok':False,'stage':'submenu_dom_not_found','message':'발주목록 DOM 엘리먼트 없음. frames / id 검색결과 확인'}
+        # Verified fallback: open the site's actual public sitemap.
+        _open_sitemap(_pages(ctx))
+        page.wait_for_timeout(600)
+        LAST_TRACE.append({'step':'after_sitemap','frames':menu_snapshot(ctx)})
+    submenu_clicked=_click_dom(_pages(ctx),'submenu')
+    if not submenu_clicked:
+        submenu_clicked=_click_mouse_as_fallback(_pages(ctx),'submenu')
+    if not submenu_clicked:
+        if _open_sitemap(_pages(ctx)):
+            page.wait_for_timeout(500)
+            submenu_clicked=(_click_dom(_pages(ctx),'submenu') or
+                             _click_mouse_as_fallback(_pages(ctx),'submenu'))
+    if not submenu_clicked:
+        return {'ok':False,'stage':'submenu_dom_not_found','message':'사이트맵 경유 후에도 발주목록 선택 실패. menu_trace 확인'}
     if _wait_and_search(ctx,attach_page,attached,timeout_s=12):
         return {'ok':True,'stage':'search_clicked','mode':'dom_click', 'message':'발주 → 발주목록 → 검색 클릭 완료'}
     # JS click was delivered but WebSquare may require a trusted pointer event.
