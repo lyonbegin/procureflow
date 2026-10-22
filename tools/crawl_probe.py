@@ -401,6 +401,12 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
                             report["status"]="listing_cards_parsed"
                             if extract_freemoa_project_details(page,report["records"],report,max_records):
                                 report["status"]="detail_modal_parsed"
+                            else:
+                                auth_ids=[d["source_id"] for d in report.get("detail_diagnostics",[])
+                                          if d.get("requires_login")]
+                                report["auth_required_project_ids"]=auth_ids
+                                report["status"]=("detail_login_required" if auth_ids
+                                                  else "listing_cards_only_no_detail")
                     for item in ([] if special else links[:max_records]):
                         try:
                             dresp=page.goto(item["url"],wait_until="domcontentloaded",timeout=timeout_ms)
