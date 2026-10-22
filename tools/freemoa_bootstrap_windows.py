@@ -41,6 +41,7 @@ def launch(chrome,profile,debug=False):
         chrome,
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-background-mode",
         "--user-data-dir="+str(profile),
     ]
     if debug:
