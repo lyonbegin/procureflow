@@ -331,7 +331,7 @@ def extract_freemoa_project_details(page, cards, report, max_records=10):
     return valid
 
 
-def scan(site,section,outdir,max_records=4,timeout_ms=22000):
+def scan(site,section,outdir,max_records=4,timeout_ms=22000,storage_state=None):
     started=datetime.now(timezone.utc).isoformat()
     entry,_=SITES[site][section]
     outdir=Path(outdir)
@@ -341,7 +341,12 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
             "discovered":0,"parsed":0,"links":[],"records":[],"xhr":[],"errors":[]}
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
-        context=browser.new_context(locale="ko-KR",viewport={"width":1366,"height":900})
+        opts={"locale":"ko-KR","viewport":{"width":1366,"height":900}}
+        if storage_state:
+            statefile=Path(storage_state).expanduser().resolve()
+            if not statefile.is_file():raise FileNotFoundError(str(statefile))
+            opts["storage_state"]=str(statefile)
+        context=browser.new_context(**opts)
         page=context.new_page()
         def watch_response(response):
             if response.request.resource_type not in ("xhr","fetch") or len(report["xhr"])>=60:return
@@ -439,8 +444,9 @@ def main():
     ap.add_argument("--section",choices=("projects","partners","portfolios"),default="projects")
     ap.add_argument("--limit",type=int,default=4)
     ap.add_argument("--output",default="artifacts/crawl-probe")
+    ap.add_argument("--storage-state",default=None,help="Local authenticated Freemoa session JSON; never commit or upload")
     args=ap.parse_args()
     if not 1<=args.limit<=10:ap.error("limit must be 1..10")
-    scan(args.site,args.section,args.output,args.limit)
+    scan(args.site,args.section,args.output,args.limit,storage_state=args.storage_state)
 
 if __name__=="__main__": main()
