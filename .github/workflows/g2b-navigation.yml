@@ -1,0 +1,25 @@
+name: G2B Navigation Regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - "legacy/g2b_prod_nav.py"
+      - "tests/test_g2b_sitemap.py"
+      - ".github/workflows/g2b-navigation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  navigation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile G2B WebSquare navigation
+        run: python -m py_compile legacy/g2b_prod_nav.py
+      - name: Test sitemap fallback selectors
+        run: python -m unittest discover -s tests -p 'test_g2b_sitemap.py' -v
