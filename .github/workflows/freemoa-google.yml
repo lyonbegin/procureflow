@@ -6,11 +6,12 @@ on:
     paths:
       - ".github/workflows/freemoa-google.yml"
       - "tools/freemoa_headless_google.py"
+      - "tools/freemoa_google_login.py"
       - "tests/test_freemoa_headless_google.py"
   workflow_dispatch:
     inputs:
       mode:
-        description: "probe checks Google link; crawl signs in with Google Secrets without session storage"
+        description: "probe checks Google link; crawl reuses the Freemoa session Secret"
         type: choice
         required: true
         default: crawl
@@ -25,15 +26,14 @@ jobs:
     timeout-minutes: 18
     env:
       RUN_MODE: ${{ inputs.mode || 'crawl' }}
-      FREEMOA_GOOGLE_EMAIL: ${{ secrets.FREEMOA_GOOGLE_EMAIL }}
-      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      FREEMOA_SESSION_B64: ${{ secrets.FREEMOA_SESSION_B64 }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install headless Chromium
+      - name: Use preinstalled Google Chrome
         run: |
           pip install playwright==1.56.0
           google-chrome --version
