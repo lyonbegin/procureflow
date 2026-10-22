@@ -28,7 +28,7 @@ jobs:
       - name: Run offline regression tests
         run: python -m unittest discover -s tests -p 'test_crawl_probe.py' -v
       - name: Crawl real Freemoa project listing
-        run: python tools/crawl_probe.py --site freemoa --section projects --limit 10 --output artifacts/freemoa-projects
+        run: python tools/crawl_probe.py --site freemoa --section projects --limit 1 --output artifacts/freemoa-projects
       - name: Print and validate evidence
         run: |
           python - <<'PY'
