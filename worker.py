@@ -230,15 +230,16 @@ def main():
     # Previous obsolete work24 smoke records are not used; run a fresh job
     # with versioned marker to provide explicit detail-ID/database evidence.
     with session() as db:
-        work24_marker='work24-first-real-detail-smoke-20261023-v1'
+        work24_marker='work24-search-terms-smoke-20261023-v2'
         claim=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
             (work24_marker,'{"state":"queued","origin":"work24_public"}')
         ).fetchone()
         if claim:
-            cfg={"source":"work24","pages":1,"limit":10,
-                 "test":"work24-first-real-detail-smoke-20261023-v1"}
+            cfg={"source":"work24","pages":1,"limit":12,
+                 "queries":["미화","경비","시설관리","배송","개발","청소"],
+                 "test":"work24-search-terms-smoke-20261023-v2"}
             jid=db.execute(
                 "INSERT INTO procureflow.jobs(source,config,message) "
                 "VALUES ('market_work24',%s::jsonb,%s) RETURNING id",
@@ -271,7 +272,7 @@ def main():
                         import market_collector
                         cfg=job.get('config') or {}
                         site=job['source'][len('market_'):]
-                        result=market_collector.run(site,pages=cfg.get('pages',1),limit=cfg.get('limit',8))
+                        result=market_collector.run(site,pages=cfg.get('pages',1),limit=cfg.get('limit',8),queries=cfg.get('queries'))
                         with session() as db:
                             db.execute("""INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb)
                                 ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()""",
