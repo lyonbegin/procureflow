@@ -20,7 +20,7 @@ SITES = {
         "portfolios": ("https://www.wishket.com/partners/wishket-portfolio/?tab=all", r"^/partners/wishket-portfolio/[0-9]+/?$"),
     },
     "freemoa": {
-        "projects": ("https://www.freemoa.net/m4/s41", r"^/m4/(?:s41\?pno=[0-9]+|[^/]+(?:\?.*?\b(?:pno|pjno)=[0-9]+.*)?)$"),
+        "projects": ("https://www.freemoa.net/m4/s41?page=1", r"^/m4/(?:s41\?pno=[0-9]+|[^/]+(?:\?.*?\b(?:pno|pjno)=[0-9]+.*)?)$"),
         "partners": ("https://www.freemoa.net/m7/s71", r"^/m7/freelance_detail\?fno=[0-9]+(?:&.*)?$"),
         "portfolios": ("https://www.freemoa.net/m7/s712", r"^/m7/(?:portfolio[^?]*|freelance_detail\?[^#]*\btab=[0-9]+.*)$"),
     },
@@ -87,6 +87,74 @@ def extract_links(page,site,section):
             result[link]=redact(node.get("title","")[:150])
     return [{"url":url,"anchor":title} for url,title in result.items()]
 
+
+def extract_freemoa_project_cards(page):
+    """Read Freemoa's real click-cards, which expose data-pno rather than href.
+
+    These records reflect the public LISTING, not yet the opened detail modal.
+    """
+    cards=page.locator("#projectListNew > li.proj-list-item_li_new").evaluate_all("""
+        nodes => nodes.map(li => {
+          const titleNode=li.querySelector('.projTitle[data-pno]');
+          if(!titleNode) return null;
+          const pno=titleNode.getAttribute('data-pno');
+          if(!/^\\d+$/.test(pno||'')) return null;
+          const data=[...li.querySelectorAll(':scope > div.projectInfo')];
+          const top=titleNode.parentElement;
+          const headings=[...top.querySelectorAll(':scope > div:not(.projTitle) > p')]
+                           .map(p=>p.textContent.trim()).filter(Boolean);
+          const tags=data[0] ? [...data[0].querySelectorAll('p')]
+                           .map(p=>p.textContent.trim()).filter(Boolean) : [];
+          const categories=data[0]?.querySelector(':scope > div')?.textContent.trim() || '';
+          const metrics={};
+          for(const p of data[1]?.querySelectorAll(':scope > p') || []){
+            const k=p.querySelector('span')?.textContent.trim();
+            const v=p.querySelector('b')?.textContent.trim();
+            if(k&&v) metrics[k]=v;
+          }
+          const client=data[2]?.querySelector('div > div > p > span')?.textContent.trim() || null;
+          const region=data[2]?.querySelector('div > div > p > b')?.textContent.trim() || null;
+          const summary=data[2]?.firstElementChild?.textContent.trim() || '';
+          return {
+            source_id:pno,
+            url:'https://m.freemoa.net/m4/s41?pno='+encodeURIComponent(pno),
+            title:titleNode.querySelector('p.title')?.textContent.trim()||'',
+            work_type:headings[0]||null,
+            status:headings[1]||null,
+            categories,tags,metrics,summary:summary.slice(0,2200),
+            client_alias:client,region
+          };
+        }).filter(Boolean)
+    """)
+    results=[]
+    for card in cards:
+        if not card.get("title"):continue
+        metrics=card.pop("metrics")
+        desc=card.pop("summary")
+        results.append({
+            "site":"freemoa","section":"projects",
+            "source_id":card["source_id"],
+            "url":card["url"],
+            "title":redact(card["title"][:230]),
+            "body_excerpt":redact(desc[:1300]),
+            "fields":{
+                "budget":metrics.get("예상비용"),
+                "monthly_pay":metrics.get("월 임금"),
+                "period":metrics.get("예상기간"),
+                "applicants":metrics.get("지원자수"),
+                "deadline":metrics.get("마감일정"),
+                "categories":card["categories"],
+                "tags":card["tags"],
+                "work_type":card["work_type"],
+                "status":card["status"],
+                "client_alias":redact(card["client_alias"] or ""),
+                "region":card["region"],
+            },
+            "evidence":"public_listing_card",
+            "detail_verified":False,
+        })
+    return results
+
 def scan(site,section,outdir,max_records=4,timeout_ms=22000):
     started=datetime.now(timezone.utc).isoformat()
     entry,_=SITES[site][section]
@@ -121,14 +189,23 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
                 if any(s in listing_text[:900].lower() for s in BLOCK_TERMS):
                     report["status"]="blocked_or_restricted"
                 else:
-                    links=extract_links(page,site,section)
+                    special=(site=="freemoa" and section=="projects")
+                    cards=extract_freemoa_project_cards(page) if special else []
+                    links=([{"url":card["url"],"anchor":card["title"]} for card in cards]
+                           if special else extract_links(page,site,section))
                     report["links"]=links[:100]
                     report["discovered"]=len(links)
                     report["listing_excerpt"]=redact(listing_text[:1000])
                     try:page.screenshot(path=str(outdir/"listing.png"),full_page=False,timeout=7500)
                     except Exception as exc:report["errors"].append("screenshot:"+type(exc).__name__)
                     report["status"]="links_found" if links else "listing_only_no_detail_links"
-                    for item in links[:max_records]:
+                    if special:
+                        report["list_cards_parsed"]=len(cards)
+                        report["detail_records_parsed"]=0
+                        report["records"]=cards[:max_records]
+                        report["parsed"]=len(report["records"])
+                        if report["parsed"]:report["status"]="listing_cards_parsed"
+                    for item in ([] if special else links[:max_records]):
                         try:
                             dresp=page.goto(item["url"],wait_until="domcontentloaded",timeout=timeout_ms)
                             if not dresp or dresp.status!=200:
@@ -143,7 +220,7 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000):
                             report["parsed"]+=1
                         except Exception as exc:
                             report["errors"].append("detail:"+type(exc).__name__+":"+str(exc)[:150])
-                    if report["parsed"]:report["status"]="detail_parsed"
+                    if report["parsed"] and not special:report["status"]="detail_parsed"
         except Exception as exc:
             report["status"]="navigation_error"
             report["errors"].append(type(exc).__name__+":"+str(exc)[:230])
