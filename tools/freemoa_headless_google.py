@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Google -> Freemoa sign-in using headless Chromium.
+"""Freemoa headless collector: reuse one approved Google->Freemoa session.
 
-probe: verify the real social-login button opens Google.
-crawl: reuse an encrypted Freemoa-only session, or attempt ordinary Google
-username/password sign-in from protected environment variables. Google MFA,
-CAPTCHA and security challenges are never bypassed.
+Google restricts scripted sign-in on GitHub runners. Users authenticate once
+in a normal visible Chrome browser; headless Chrome subsequently uses only
+Freemoa cookies from GitHub Secret FREEMOA_SESSION_B64. No Google password,
+no extra encryption key, and no browser-profile upload.
 """
 import argparse
 import json
@@ -14,13 +14,17 @@ import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from playwright.sync_api import sync_playwright, TimeoutError as BrowserTimeout
-from tools.freemoa_google_login import LOGIN_URL, filter_freemoa_state, verify_freemoa_account
+from playwright.sync_api import sync_playwright
+from tools.freemoa_google_login import (
+    LOGIN_URL, import_session_secret, filter_freemoa_state,
+    verify_freemoa_account
+)
 
-class LoginStop(Exception):
+class LoginStop(RuntimeError):
     pass
 
 def click_google(page):
+    """Probe only: click Freemoa's official Google login control."""
     selectors=[
         page.get_by_role("link",name=re.compile("Google|구글",re.I)),
         page.get_by_role("button",name=re.compile("Google|구글",re.I)),
@@ -29,217 +33,115 @@ def click_google(page):
         page.locator("a[href*='google' i],a[onclick*='google' i],button[onclick*='google' i]"),
         page.locator("img[alt*='google' i],img[alt*='구글']")
     ]
-    for selector in selectors:
+    for candidate in selectors:
         try:
-            if selector.count() and selector.first.is_visible():
-                selector.first.click(timeout=5000)
+            if candidate.count() and candidate.first.is_visible():
+                candidate.first.click(timeout=4500)
                 return True
         except Exception:
             continue
     return False
 
-def google_window(context,page):
-    for candidate in reversed(context.pages):
-        if urlparse(candidate.url).hostname=="accounts.google.com":
-            return candidate
-    return None
-
-def open_google(context):
+def probe_google_entry(context):
     page=context.new_page()
-    response=page.goto(LOGIN_URL,wait_until="domcontentloaded",timeout=30000)
+    response=page.goto(LOGIN_URL,wait_until="domcontentloaded",timeout=25000)
     if not response or response.status>=400:
-        raise LoginStop("freemoa_login_http_error")
+        raise LoginStop("freemoa_login_page_unavailable")
     if not click_google(page):
-        raise LoginStop("google_button_not_found")
+        raise LoginStop("freemoa_google_login_button_missing")
     for _ in range(25):
-        found=google_window(context,page)
-        if found:return found,page
-        page.wait_for_timeout(350)
-    raise LoginStop("google_provider_window_not_opened")
+        for tab in context.pages:
+            if urlparse(tab.url).hostname=="accounts.google.com":
+                return "accounts.google.com"
+        page.wait_for_timeout(300)
+    raise LoginStop("google_provider_window_missing")
 
-def google_stage(page):
-    """Return safe diagnostic categories; never expose account identifiers."""
-    if page.is_closed():
-        return "google_page_closed"
-    path=urlparse(page.url).path.lower()
-    if "/challenge/" in path:
-        return "google_account_challenge"
+def verify_existing_session(context):
+    page=context.new_page()
     try:
-        body=page.locator("body").inner_text(timeout=3000).lower()
-    except Exception:
-        body=""
-    if any(t in body for t in (
-        "this browser or app may not be secure",
-        "couldn't sign you in",
-        "browser or app may not be secure",
-        "브라우저 또는 앱이 안전하지",
-        "이 브라우저 또는 앱",
-        "로그인할 수 없습니다",
-    )):
-        return "google_signin_security_restriction"
-    if any(t in body for t in (
-        "verify it's you", "2-step verification",
-        "verify your identity", "본인 확인",
-        "2단계 인증", "인증 코드를 입력", "보안 확인",
-    )):
-        return "google_account_verification_required"
-    if any(t in body for t in ("choose an account", "계정 선택", "use another account",
-                                 "다른 계정 사용", "계정을 선택")):
-        return "google_account_chooser"
-    try:
-        if page.locator('input[type="password"]').first.is_visible():
-            return "google_password_prompt"
-        if page.locator('input[type="email"]').first.is_visible():
-            return "google_email_prompt"
-    except Exception:
-        pass
-    # Safe, structural-only diagnostic: no URL query, usernames or DOM text.
-    family=("signin" if "signin" in path else
-            "oauth" if "oauth" in path else
-            "challenge" if "challenge" in path else "other")
-    try:
-        types=sorted(set(str(x or "text")[:15] for x in
-                          page.locator("input").evaluate_all(
-                              "els=>els.map(e=>e.getAttribute('type'))")))
-        code="_".join(types)[:65] or "no_inputs"
-    except Exception:
-        code="inputs_unavailable"
-    return "google_unrecognized_"+family+"_form_"+code
-
-def google_next_once(page):
-    for label in ("Next", "다음"):
-        try:
-            button=page.get_by_role("button",name=label,exact=True)
-            if button.count() and button.first.is_visible():
-                button.first.click(timeout=5000)
-                return True
-        except Exception:
-            continue
-    return False
-
-def sign_in(context):
-    email=os.environ.get("FREEMOA_GOOGLE_EMAIL","")
-    password=os.environ.get("FREEMOA_GOOGLE_PASSWORD","")
-    if not email or not password:
-        raise LoginStop("missing_google_email_or_password_secret")
-    google,freemoa=open_google(context)
-    try:
-        google.wait_for_load_state("domcontentloaded",timeout=12000)
-    except Exception:
-        pass
-    if google_stage(google)=="google_account_chooser":
-        try:
-            existing=google.get_by_text(email,exact=True)
-            if existing.count() and existing.first.is_visible():
-                existing.first.click(timeout=5500)
-            else:
-                alternate=google.get_by_text(
-                    re.compile("Use another account|다른 계정 사용",re.I))
-                if alternate.count() and alternate.first.is_visible():
-                    alternate.first.click(timeout=5500)
-        except Exception:
-            pass
-    try:
-        identifier=google.locator('input[type="email"], input[name="identifier"]').first
-        identifier.wait_for(state="visible",timeout=13000)
-        identifier.fill(email)
-        if not google_next_once(google):
-            identifier.press("Enter")
-    except BrowserTimeout as exc:
-        raise LoginStop("google_email_step_"+google_stage(google)) from exc
-    try:
-        google.locator('input[type="password"]').first.wait_for(
-            state="visible",timeout=15000
-        )
-    except BrowserTimeout as exc:
-        raise LoginStop("google_password_step_"+google_stage(google)) from exc
-    try:
-        password_field=google.locator('input[type="password"]').first
-        password_field.fill(password)
-        if not google_next_once(google):
-            password_field.press("Enter")
-    except BrowserTimeout as exc:
-        raise LoginStop("google_password_submission_"+google_stage(google)) from exc
-    for _ in range(50):
-        active=google_window(context,freemoa)
-        if active is None or active.is_closed():
-            return
-        stage=google_stage(active)
-        if stage in (
-            "google_account_challenge",
-            "google_account_verification_required",
-            "google_signin_security_restriction"
-        ):
-            raise LoginStop(stage)
-        freemoa.wait_for_timeout(500)
-    raise LoginStop("google_login_redirect_unfinished_"+google_stage(google))
-
-def verified(context):
-    check_page=context.new_page()
-    try:
-        return verify_freemoa_account(check_page).get("authenticated") is True
-    except Exception:
-        return False
+        return verify_freemoa_account(page)
     finally:
-        check_page.close()
+        page.close()
 
 def run(mode,output,limit):
-    result={"mode":mode,"status":"starting","authenticated":False,"detail_records":0}
+    status={"mode":mode,"status":"starting","authenticated":False,
+            "details_parsed":0,"listing_cards":0}
     output.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as p:
-        browser=p.chromium.launch(channel="chrome",headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+        browser=p.chromium.launch(channel="chrome",headless=True,
+                                   args=["--no-sandbox","--disable-dev-shm-usage"])
         context=None
         try:
             if mode=="probe":
                 context=browser.new_context(locale="ko-KR")
-                google,_=open_google(context)
-                result["provider_host"]=urlparse(google.url).hostname
-                result["status"]="google_provider_reached"
-                return result
-            # Test-only: sign in on each run; no persisted sessions or encryption keys.
-            context=browser.new_context(locale="ko-KR")
-            sign_in(context)
-            if not verified(context):
-                raise LoginStop("freemoa_detail_api_authentication_failed")
-            result["auth_method"]="headless_google_login"
-            result["authenticated"]=True
+                status["google_provider_host"]=probe_google_entry(context)
+                status["status"]="google_provider_reached"
+                return status
+            token=os.environ.get("FREEMOA_SESSION_B64","")
+            if not token:
+                raise LoginStop("missing_freemoa_session_secret")
+            try:
+                session=import_session_secret(token)
+            except RuntimeError as exc:
+                raise LoginStop("invalid_freemoa_session_secret") from exc
+            context=browser.new_context(locale="ko-KR",storage_state=session)
+            check=verify_existing_session(context)
+            status["auth_probe"]=check.get("reason","")
+            if not check.get("authenticated"):
+                raise LoginStop("freemoa_session_expired_or_rejected")
+            status["authenticated"]=True
+            status["auth_method"]="freemoa_google_session_reuse"
             from tools.crawl_probe import scan
-            with tempfile.TemporaryDirectory() as td:
-                state_path=Path(td)/"state.json"
-                state_path.write_text(json.dumps(filter_freemoa_state(context.storage_state())))
-                if os.name!="nt":os.chmod(state_path,0o600)
+            with tempfile.TemporaryDirectory() as directory:
+                temp_state=Path(directory)/"freemoa.json"
+                temp_state.write_text(json.dumps(
+                    filter_freemoa_state(context.storage_state()),
+                    ensure_ascii=False),encoding="utf-8")
+                if os.name!="nt":
+                    os.chmod(temp_state,0o600)
                 report=scan("freemoa","projects",output,max_records=limit,
-                            storage_state=str(state_path))
-            result["detail_records"]=report.get("detail_records_parsed",0)
-            result["list_cards"]=report.get("list_cards_parsed",0)
-            # This repository is public: do not upload account-only details.
-            # The diagnostic test reports counts without publishing project data.
-            raw_result=output/"result.json"
-            if raw_result.exists():
-                raw_result.unlink()
-            result["status"]="detail_success" if result["detail_records"] else "authenticated_but_no_details"
-            return result
+                            storage_state=temp_state)
+            status["listing_cards"]=report.get("list_cards_parsed",0)
+            status["details_parsed"]=report.get("detail_records_parsed",0)
+            status["projects"]=[
+                {"source_id":x.get("source_id"),"title":x.get("title"),
+                 "detail_verified":x.get("detail_verified",False)}
+                for x in report.get("records",[])
+            ]
+            status["status"]=("detail_success" if status["details_parsed"]>0
+                              else "authenticated_but_no_details")
+            return status
         except LoginStop as exc:
-            result["status"]="authentication_stopped"
-            result["reason"]=str(exc)
-            return result
+            status["status"]="authentication_stopped"
+            status["reason"]=str(exc)
+            return status
         except Exception as exc:
-            result["status"]="execution_error"
-            result["reason"]=type(exc).__name__
-            return result
+            status["status"]="execution_error"
+            status["reason"]=type(exc).__name__
+            return status
         finally:
             if context:context.close()
             browser.close()
-            (output/"login_status.json").write_text(json.dumps(result,ensure_ascii=False,indent=2))
+            # Authenticated detail descriptions are not stored as public
+            # GitHub Actions artifacts. Only safe count-level diagnostics.
+            raw=output/"result.json"
+            if raw.exists():
+                raw.unlink()
+            (output/"login_status.json").write_text(
+                json.dumps(status,ensure_ascii=False,indent=2),encoding="utf-8")
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument("--mode",choices=["probe","crawl"],default="probe")
+    parser.add_argument("--mode",choices=("probe","crawl"),default="crawl")
     parser.add_argument("--output",default="artifacts/freemoa-google")
     parser.add_argument("--limit",type=int,default=10)
     args=parser.parse_args()
-    status=run(args.mode,Path(args.output),args.limit)
-    print(json.dumps(status,ensure_ascii=False))
-    return 0 if status["status"] in ("google_provider_reached","detail_success") else 1
+    if not 1<=args.limit<=10:
+        parser.error("--limit must be 1 to 10")
+    result=run(args.mode,Path(args.output),args.limit)
+    print(json.dumps(result,ensure_ascii=False))
+    return 0 if result["status"] in ("google_provider_reached",
+                                    "detail_success") else 1
 
-if __name__=="__main__":sys.exit(main())
+if __name__=="__main__":
+    sys.exit(main())
