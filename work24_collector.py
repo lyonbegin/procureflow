@@ -336,11 +336,17 @@ def collect(pages=1,limit=10,queries=None):
                                  detail["meta"]["information_provider"],was_new)
                 except Exception as exc:
                     result["failed_ids"].append(card["source_id"])
-                    result["errors"].append("detail_"+card["source_id"]+":"+type(exc).__name__)
-                    logging.warning("WORK24_DETAIL_ERROR id=%s type=%s",
-                                    card["source_id"],type(exc).__name__)
+                    # Only print our own explicit validation reasons; never
+                    # include raw browser exceptions or secret form contents.
+                    reason=(str(exc)[:90] if isinstance(exc,RuntimeError)
+                            else type(exc).__name__)
+                    result["errors"].append("detail_"+card["source_id"]+":"+reason)
+                    logging.warning("WORK24_DETAIL_ERROR id=%s reason=%s",
+                                    card["source_id"],reason)
                 time.sleep(.5)
-            result["status"]="collected" if result["saved"] else "discovery_only" if candidates else "error"
+            result["status"]=("collected" if result["saved"] else
+                              "error" if result["failed_ids"] else
+                              "discovery_only" if candidates else "error")
         except Exception as exc:
             result["status"]="error"
             result["errors"].append("collector:"+type(exc).__name__+":"+str(exc)[:140])
