@@ -26,7 +26,7 @@ class KmongEnterpriseTests(unittest.TestCase):
         self.assertEqual(meta["work_format"],"외주")
         self.assertEqual(meta["duration_days"],102)
         self.assertIn("ai",meta["tags"])
-        self.assertIn("development",meta["tags"])
+        self.assertIn("data",meta["tags"])
         self.assertIsNone(parse_fields("예산은 추후 협의") .get("budget_krw"))
     def test_card_route_regex(self):
         self.assertTrue(DETAIL_RE.fullmatch("/enterprise/requests/227244"))
