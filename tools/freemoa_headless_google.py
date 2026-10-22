@@ -153,6 +153,14 @@ def run(mode,encrypted_file,output,limit):
                             storage_state=str(state_path))
             result["detail_records"]=report.get("detail_records_parsed",0)
             result["list_cards"]=report.get("list_cards_parsed",0)
+            # The GitHub repo is public: never publish authenticated briefs
+            # as plain JSON artifacts. Encrypt them before upload.
+            plain=output/"result.json"
+            if plain.exists():
+                protected=output/"result.json.enc"
+                protected.write_bytes(cipher().encrypt(plain.read_bytes()))
+                if os.name!="nt":os.chmod(protected,0o600)
+                plain.unlink()
             result["status"]="detail_success" if result["detail_records"] else "authenticated_but_no_details"
             return result
         except LoginStop as exc:
