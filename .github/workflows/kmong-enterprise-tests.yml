@@ -1,0 +1,30 @@
+name: Kmong Enterprise Collector Tests
+on:
+  push:
+    branches: [main]
+    paths:
+      - "kmong_enterprise_collector.py"
+      - "market_collector.py"
+      - "worker.py"
+      - "main.py"
+      - "tests/test_kmong_enterprise.py"
+      - ".github/workflows/kmong-enterprise-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collector_contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python runtime dependencies
+        run: pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile collector and worker integration
+        run: python -m py_compile kmong_enterprise_collector.py market_collector.py worker.py main.py market_probe.py
+      - name: Kmong source and detail regression
+        run: python -m unittest discover -s tests -p 'test_kmong_enterprise.py' -v
