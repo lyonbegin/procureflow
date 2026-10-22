@@ -15,7 +15,7 @@ CONFIG={
     'nav':r'파트너스|프리랜서','detail':r'/m7/freelance_detail\?fno='},
  'freemoa_portfolios':{'role':'portfolio_reference','start':'https://www.freemoa.net/m7/s712',
     'nav':r'포트폴리오','detail':r'/m7/portfolio|portfolio_detail|pfo_no=|pfno='},
- 'wanted_gigs':{'role':'development_demand','start':'https://gigs.wanted.co.kr/',
+ 'wanted_gigs':{'role':'development_demand','start':'https://www.wanted.co.kr/gigs/projects',
     'nav':r'프로젝트|프리랜서','detail':r'project|projects'},
  'kmong_enterprise':{'role':'development_demand',
     'start':'https://kmong.com/enterprise/requests?category_list=6&page=1&q=&sort=created_at',
@@ -53,9 +53,12 @@ def classify_demand(site,short_text):
     if site=='kmong_enterprise': return 'project_request',area
     return ('project_request' if site=='freemoa' else 'supply'),area
 
-SUSPENDED_SOURCES=frozenset(('kmong','kmong_enterprise','soomgo'))
+SUSPENDED_SOURCES=frozenset(('kmong','soomgo'))
 
 def run(site,pages=1,limit=8):
+    if site == 'kmong_enterprise':
+        from kmong_enterprise_collector import collect
+        return collect(pages=pages,limit=limit)
     if site in SUSPENDED_SOURCES:raise ValueError('Temporarily suspended source')
     if site not in CONFIG:raise ValueError('Unknown source')
     cfg=CONFIG[site];pages=max(1,min(int(pages),20));limit=max(1,min(int(limit),200))
