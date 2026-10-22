@@ -11,6 +11,8 @@ through stdin and triggers the headless crawler. Otherwise copies the
 secret to the Windows clipboard for one-time manual GitHub Secrets entry.
 """
 import json
+import csv
+import tempfile
 import os
 import shutil
 import subprocess
@@ -138,7 +140,48 @@ def main():
                 secret=export_session_secret(context.storage_state())
             finally:
                 browser.close()
-        print("3/3 Google 정보를 제외한 프리모아 세션만 연결합니다.")
+        print("3/3 로그인된 세션으로 실제 프로젝트 상세 10건을 수집합니다.")
+        try:
+            from tools.freemoa_google_login import import_session_secret
+            from tools.crawl_probe import scan
+            local_out=Path.home()/"Documents"/"ProcureFlow"/"Freemoa"
+            with tempfile.TemporaryDirectory() as td:
+                session_file=Path(td)/"freemoa.json"
+                session_file.write_text(
+                    json.dumps(import_session_secret(secret),ensure_ascii=False),
+                    encoding="utf-8")
+                report=scan("freemoa","projects",local_out,max_records=10,
+                            storage_state=session_file)
+            records=report.get("records",[])
+            def safe_csv(value):
+                text=str(value or "")
+                if text.startswith(("=","+","-","@")):
+                    return "'"+text
+                return text
+            with (local_out/"projects.csv").open(
+                "w",newline="",encoding="utf-8-sig") as handle:
+                writer=csv.writer(handle)
+                writer.writerow(["project_id","title","status","budget",
+                                 "period","full_work_content","requirements",
+                                 "client_public_info","tech_stack","verified"])
+                for item in records:
+                    fields=item.get("fields") or {}
+                    detail=item.get("detail") or {}
+                    writer.writerow([safe_csv(item.get("source_id")),
+                        safe_csv(item.get("title")),
+                        safe_csv(fields.get("status")),
+                        safe_csv(fields.get("budget") or fields.get("monthly_pay")),
+                        safe_csv(fields.get("period")),
+                        safe_csv(detail.get("project_description")),
+                        safe_csv(detail.get("recruit_requirements")),
+                        safe_csv(detail.get("client_company_info")),
+                        safe_csv(", ".join(detail.get("related_technologies") or [])),
+                        item.get("detail_verified",False)])
+            print("실제 전체 상세 검증:",report.get("detail_records_parsed",0),"건")
+            print("결과 JSON/CSV 폴더:",local_out)
+        except Exception as exc:
+            print("상세 수집 단계 오류:",type(exc).__name__)
+        print("GitHub Actions에 프리모아 로그인 세션을 연결합니다.")
         if register_secret(secret):
             print("완료: 다음 실행부터 GitHub Actions Headless Chrome이 세션을 재사용합니다.")
             return 0
