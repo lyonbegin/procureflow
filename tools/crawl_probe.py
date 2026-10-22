@@ -340,7 +340,7 @@ def scan(site,section,outdir,max_records=4,timeout_ms=22000,storage_state=None):
             "status":"starting","http_status":None,"final_url":None,"listing_title":None,
             "discovered":0,"parsed":0,"links":[],"records":[],"xhr":[],"errors":[]}
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+        browser=p.chromium.launch(channel="chrome",headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
         opts={"locale":"ko-KR","viewport":{"width":1366,"height":900}}
         if storage_state:
             statefile=Path(storage_state).expanduser().resolve()
