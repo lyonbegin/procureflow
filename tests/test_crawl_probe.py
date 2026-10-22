@@ -2,6 +2,7 @@
 import unittest
 from tools.crawl_probe import recognized,parse_record,redact,SITES,extract_freemoa_project_cards
 from playwright.sync_api import sync_playwright
+from tools.freemoa_google_login import filter_freemoa_state
 
 class CrawlProbeTests(unittest.TestCase):
     def test_all_sites_have_three_sections(self):
@@ -88,5 +89,23 @@ class CrawlProbeTests(unittest.TestCase):
         self.assertFalse(cards[0]["detail_verified"])
         self.assertEqual(cards[1]["fields"]["monthly_pay"],"600 ~ 800 만원")
         self.assertEqual(cards[1]["fields"]["work_type"],"기간제 상주")
+
+
+    def test_freemoa_google_session_excludes_google_cookies(self):
+        state={
+            "cookies":[
+                {"name":"sid","value":"x","domain":".freemoa.net","path":"/"},
+                {"name":"google","value":"must-not-save","domain":".google.com","path":"/"},
+                {"name":"hostile","value":"must-not-save","domain":"evilfreemoa.net","path":"/"},
+                {"name":"sub","value":"y","domain":"www.freemoa.net","path":"/"},
+            ],
+            "origins":[
+                {"origin":"https://www.freemoa.net","localStorage":[{"name":"test","value":"xyz"}]},
+                {"origin":"https://accounts.google.com","localStorage":[{"name":"no","value":"secret"}]},
+            ]
+        }
+        filtered=filter_freemoa_state(state)
+        self.assertEqual([c["name"] for c in filtered["cookies"]],["sid","sub"])
+        self.assertEqual([o["origin"] for o in filtered["origins"]],["https://www.freemoa.net"])
 
 if __name__=="__main__": unittest.main()
