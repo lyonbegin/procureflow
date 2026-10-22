@@ -246,6 +246,25 @@ def main():
                 (json.dumps(cfg),"Work24 original recruitment IDs: first 10 public detail pages")
             ).fetchone()["id"]
             logging.info("WORK24_SMOKE_QUEUED job=%s",jid)
+    # Verify the Railway-secret-backed login on a fresh worker deployment.
+    # A separate marker prevents repeated jobs if Railway restarts replicas.
+    with session() as db:
+        marker="work24-auto-login-smoke-20261023-v1"
+        claim=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"state":"queued","purpose":"login and public detail smoke"}')
+        ).fetchone()
+        if claim:
+            cfg={"source":"work24","pages":1,"limit":6,
+                 "queries":["미화","개발"],
+                 "test":marker}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('market_work24',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg,ensure_ascii=False),"Work24 Railway env credential login smoke")
+            ).fetchone()["id"]
+            logging.info("WORK24_LOGIN_SMOKE_QUEUED job=%s",jid)
     # One-time end-to-end execution of all new adapters (bounded public pages).
     with session() as db:
         claimed=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",
