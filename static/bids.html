@@ -7,6 +7,15 @@
 <button id="run">개찰·투찰 웹 수집</button>
 <button id="awardRun">최종낙찰자 웹 수집</button><span id="job"></span>
 <p id="awardStatus" class="muted">최종낙찰 확정정보 DB 조회 중</p>
+<div class="muted" id="scheduleInfo">정기 갱신·과거 자료 수집상태 읽는 중</div>
+<details><summary>과거 개찰·최종낙찰 자료 직접 수집</summary>
+  <label>자료 유형 <select id="historyKind"><option value="award">최종낙찰</option><option value="opening">개찰·투찰</option></select></label>
+  <label>조회 시작일 <input type="date" id="historyStart" value="2026-10-01"></label>
+  <label>조회 종료일 <input type="date" id="historyEnd" value="2026-10-02"></label>
+  <label>페이지 시작 <input type="number" id="historyPage" value="1" min="1" max="10000"></label>
+  <button id="historyRun">과거 자료 수집 작업 등록</button>
+  <p class="muted">두 수집원은 PostgreSQL에 날짜별 마지막 페이지를 저장하고, 정기 자동 갱신과 과거 자료 보강을 별도로 실행합니다.</p>
+</details>
 <p class="muted">나라장터 웹 화면에서 개찰현황과 투찰업체별 금액·순위를 수집합니다. 최종낙찰은 별도 확정정보가 표시된 경우에만 구분합니다. 인증키 불필요.</p>
 <label>결과 <select id="kind"><option value="">전체</option><option value="opening_status">개찰현황</option><option value="opening">투찰업체</option><option value="award">최종낙찰 확정</option></select></label>
 <label>검색 <input id="term" placeholder="공고명·업체명"></label><button id="find">조회</button>
@@ -16,7 +25,16 @@
 const el=id=>document.getElementById(id),esc=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 async function api(path,options){let r=await fetch(path,options);let x=await r.json();if(!r.ok)throw Error(JSON.stringify(x));return x;}
 async function refresh(){try{let s=await api('/api/bids/status');el('status').textContent='모드: 나라장터 공개 웹 / 전체 '+s.total+'건 · 최신 Job '+(s.recent_jobs[0]?('#'+s.recent_jobs[0].id+' '+s.recent_jobs[0].source+' '+s.recent_jobs[0].state):'없음');
-el('awardStatus').textContent='개찰현황 '+(s.opening_status_rows||0)+'건 · 투찰업체 '+(s.bidder_rows||0)+'건 · 최종낙찰 확정 '+(s.final_award_rows||0)+'건';let k=el('kind').value,q=el('term').value;let x=await api('/api/bids?'+new URLSearchParams({kind:k,q:q,limit:200}));el('total').textContent='조회 '+x.total+'건';el('rows').innerHTML=x.items.map(o=>'<tr>'+[o.result_kind,o.bid_ntce_no,o.bid_ntce_ord,o.title,o.company,o.amount,o.rank,o.rate,o.result_status].map(y=>'<td>'+esc(y)+'</td>').join('')+'</tr>').join('')}catch(e){el('status').textContent='조회 오류 '+e.message;}}
+el('awardStatus').textContent='개찰현황 '+(s.opening_status_rows||0)+'건 · 투찰업체 '+(s.bidder_rows||0)+'건 · 최종낙찰 확정 '+(s.final_award_rows||0)+'건';
+try{
+ const h=await api('/api/bids/schedule');
+ const cursors=(h.states||[]).filter(x=>x.key.includes(':backfill:')).map(x=>
+   (x.key.endsWith('award')?'낙찰':'개찰')+' 과거진행 '+(x.state.cursor_date||'시작 전')+
+   ' · '+(x.state.last_state||'대기'));
+ el('scheduleInfo').textContent='자동 갱신: '+(h.enabled?'설정됨':'중지')+
+ ' · 최근 '+h.recent_refresh_hours+'시간 주기 · 과거자료 '+h.archive_backfill_minutes+'분 간격'+
+ (cursors.length?' · '+cursors.join(' / '):'');
+}catch(e){el('scheduleInfo').textContent='수집 상태 조회 오류: '+e.message}let k=el('kind').value,q=el('term').value;let x=await api('/api/bids?'+new URLSearchParams({kind:k,q:q,limit:200}));el('total').textContent='조회 '+x.total+'건';el('rows').innerHTML=x.items.map(o=>'<tr>'+[o.result_kind,o.bid_ntce_no,o.bid_ntce_ord,o.title,o.company,o.amount,o.rank,o.rate,o.result_status].map(y=>'<td>'+esc(y)+'</td>').join('')+'</tr>').join('')}catch(e){el('status').textContent='조회 오류 '+e.message;}}
 el('run').onclick=async()=>{try{let nums=el('bidNos').value.split(',').map(x=>x.trim()).filter(Boolean);let x=await api('/api/bids/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pages:Number(el('pages').value),bid_numbers:nums})});el('job').textContent='Job #'+x.job_id+' 접수';refresh()}catch(e){el('job').textContent=e.message}};
 el('awardRun').onclick=async()=>{try{
   el('job').textContent='최종낙찰자 수집 접수 중';
@@ -26,5 +44,15 @@ el('awardRun').onclick=async()=>{try{
   el('job').textContent='최종낙찰 수집 Job #'+x.job_id+' 접수';
   refresh()
 }catch(e){el('job').textContent='오류: '+e.message}};
+el('historyRun').onclick=async()=>{try{
+ let cfg={kind:el('historyKind').value,start_date:el('historyStart').value,
+          end_date:el('historyEnd').value,
+          page_start:Number(el('historyPage').value),pages:2};
+ let x=await api('/api/bids/history/collect',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(cfg)});
+ el('job').textContent='과거 자료 수집 Job #'+x.job_id+' 접수';
+ refresh()
+}catch(e){el('job').textContent='과거 자료 오류: '+e.message}};
 el('find').onclick=refresh;el('kind').onchange=refresh;refresh();
 </script></body></html>
