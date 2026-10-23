@@ -19,8 +19,8 @@ PARTNER_RE=re.compile(r"/m7/freelance_detail\?fno=(\d+)")
 PORT_RE=re.compile(r"/m7/(?:portfolio[^/?]*|port_detail)[^?#]*(?:\?[^#]*)?",re.I)
 
 
-def _upsert(source,kind,url,title,text,meta):
-    key=hashlib.sha256(url.encode()).hexdigest()[:24]
+def _upsert(source,kind,url,title,text,meta,source_id=None):
+    key=source_id or hashlib.sha256(url.encode()).hexdigest()[:24]
     with session() as db:
         row=db.execute("""
           INSERT INTO procureflow.market_records
@@ -111,18 +111,34 @@ def _partner_details(page,fno):
 
 
 def _discover_portfolios(page,limit):
-    """Observe JS card details first; never save a listing title alone."""
-    samples=_cards(page)
-    urls=[]
-    for c in samples:
-        m=PORT_RE.search(c.get("href") or "")
-        if m:
-            u=c["href"]
-            if u.startswith(ROOT) and u not in urls:urls.append(u)
-    diagnostic=[{"tag":x["tag"],"href":x["href"][:160],
-                 "onclick":x["onclick"][:190],"text":x["text"][:90]}
-                for x in samples[:12]]
-    return urls[:limit],diagnostic
+    """Portfolio cards invoke showPortfolio('<real ID>') rather than anchor URLs."""
+    cards=page.locator('[onclick*="showPortfolio"]').evaluate_all(
+        """els=>els.map(e=>({event:e.getAttribute('onclick')||'',
+          label:(e.innerText||'').replace(/\s+/g,' ').trim().slice(0,260)}))""")
+    results=[]
+    for c in cards:
+        m=re.search(r"showPortfolio\s*\(\s*['\"]?(\d+)",c["event"])
+        if m and m.group(1) not in results:
+            results.append(m.group(1))
+    return results[:limit],[{"event":x["event"][:120],
+                             "label":x["label"][:180]} for x in cards[:10]]
+
+def _visible_modal(page):
+    """Read the actual visible portfolio modal after clicking the source card."""
+    data=page.evaluate("""() => {
+      const nodes=[...document.querySelectorAll('[role="dialog"],.modal,.modal-dialog,[id*="portfolio"],[id*="Portfolio"],[class*="portfolio"],[class*="Portfolio"]')];
+      return nodes.filter(e=>e.getClientRects().length>0)
+         .map(e=>({selector:String(e.id||e.className||'').slice(0,120),
+                   text:(e.innerText||'').trim().slice(0,25000)}))
+         .filter(x=>x.text.length>230 && x.text.length<25000 &&
+                   !x.text.includes('제 1 조 (목적) :::'))
+         .sort((a,b)=>Number(b.text.includes('프로젝트 요약'))-
+                       Number(a.text.includes('프로젝트 요약')))
+         .slice(0,12);
+    }""")
+    selected=next((x["text"] for x in data if
+                   "프로젝트 요약" in x["text"] or "진행기간" in x["text"]), "")
+    return selected,data[:6]
 
 
 def collect(source,pages=1,limit=10):
