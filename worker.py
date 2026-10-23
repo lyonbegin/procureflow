@@ -313,7 +313,7 @@ def main():
             ).fetchone()["id"]
             logging.info("G2B_FINAL_AWARD_PROBE_QUEUED job=%s",jid)
     with session() as db:
-        marker="g2b-final-awards-save-verified-20261023-v1"
+        marker="g2b-final-awards-idempotent-20261023-v2"
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
