@@ -25,7 +25,7 @@ def status(jid):
     with session() as db:return db.execute('SELECT state FROM procureflow.jobs WHERE id=%s',(jid,)).fetchone()
 
 def done(jid,state,message):
-    with session() as db:db.execute("UPDATE procureflow.jobs SET state=%s,message=%s,last_error=%s,finished_at=now() WHERE id=%s AND state='running'",(state,message[:500],message[:1000] if state in ('failed','completed_partial') else '',jid))
+    with session() as db:db.execute("UPDATE procureflow.jobs SET state=%s,message=%s,last_error=%s,finished_at=now() WHERE id=%s AND (state='running' OR (state='failed' AND finished_at IS NULL))",(state,message[:500],message[:1000] if state in ('failed','completed_partial') else '',jid))
 
 def transport_probe(host):
     """Diagnose Railway outbound TCP/TLS separately from original browser collection."""
@@ -167,7 +167,15 @@ def main():
         raise RuntimeError("Original V13.1/V14 collector source missing")
     initialize()
     with session() as db:
-        db.execute("UPDATE procureflow.jobs SET state='failed',message='Worker restarted' WHERE state='running'")
+        # A new Railway replica can overlap with the old replica. Never
+        # fail another replica's live running job merely because we restarted.
+        db.execute("""
+            UPDATE procureflow.jobs
+            SET state='queued',started_at=NULL,
+                message='Recovered after stale worker interruption'
+            WHERE state='running'
+              AND started_at < now() - interval '90 minutes'
+        """)
         db.execute("UPDATE procureflow.jobs SET state='cancelled',message='Excluded from ProcureFlow scope',finished_at=now() WHERE source IN ('market_daangn','market_kmong','market_soomgo') AND state='queued'")
     logging.info('ORIGINAL V13.1/V14 worker ready; no port 9333')
     if os.getenv('RUN_SMOKE_TESTS')=='1':
