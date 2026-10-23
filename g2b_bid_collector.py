@@ -93,7 +93,7 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
             original=str(rec.get("bidPbancNo") or "")
             if not ID_ONLY_RE.fullmatch(original):continue
             ord_no=str(rec.get("bidPbancOrd") or "000")
-            if not re.fullmatch(r"\\d{3}",ord_no):continue
+            if not re.fullmatch(r"\d{3}",ord_no):continue
             status=str(rec.get("bidPgstCd") or "")
             raw={k:rec.get(k) for k in (
                 "bidPbancNm","dmstNm","demaInstNm","bidPgstCd",
