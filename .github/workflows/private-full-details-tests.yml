@@ -6,9 +6,11 @@ on:
       - "private_detail_utils.py"
       - "freemoa_deep_collector.py"
       - "wishket_collector.py"
+      - "private_supply_schedule.py"
       - "main.py"
       - "worker.py"
       - "tests/test_private_full_details.py"
+      - "tests/test_private_supply_schedule.py"
       - ".github/workflows/private-full-details-tests.yml"
   workflow_dispatch:
 permissions:
@@ -24,6 +26,6 @@ jobs:
       - name: Install dependencies
         run: pip install --disable-pip-version-check -r requirements.txt
       - name: Compile updated production files
-        run: python -m py_compile private_detail_utils.py freemoa_deep_collector.py wishket_collector.py main.py worker.py
+        run: python -m py_compile private_detail_utils.py freemoa_deep_collector.py wishket_collector.py private_supply_schedule.py main.py worker.py
       - name: Full detail extraction regression tests
-        run: python -m unittest discover -s tests -p 'test_private_full_details.py' -v
+        run: python -m unittest discover -s tests -p 'test_private_*.py' -v
