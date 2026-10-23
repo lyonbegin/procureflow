@@ -97,7 +97,7 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
             if not re.fullmatch(r"\d{3}",ord_no):continue
             status=str(rec.get("bidPgstCd") or "")
             raw={k:rec.get(k) for k in (
-                "bidPbancNm","dmstNm","demaInstNm","bidPgstCd",
+                "bidPbancNm","dmstNm","dmstGrpNm","demaInstNm","bidPgstCd",
                 "onbsPrnmntDt","bidPbancNo","bidPbancOrd",
                 "bidClsfNo","bidPrgrsOrd","prcmBsneSeCd")
                  if rec.get(k) is not None}
@@ -107,7 +107,7 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
                 "bid_progress_ord":str(rec.get("bidPrgrsOrd") or "000"),
                 "business_code":str(rec.get("prcmBsneSeCd") or ""),
                 "status":status,"title":str(rec.get("bidPbancNm") or ""),
-                "agency":str(rec.get("dmstNm") or rec.get("demaInstNm") or ""),
+                "agency":str(rec.get("dmstGrpNm") or rec.get("dmstNm") or rec.get("demaInstNm") or ""),
                 "raw_listing":raw,
             })
             if len(output)>=max_results:break
