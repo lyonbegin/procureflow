@@ -169,19 +169,24 @@ def _expand_public_modal(page):
     except Exception:return 0
 
 
-def collect(source,pages=1,limit=10):
+def collect(source,pages=1,limit=10,page_start=1):
     if source not in START:raise ValueError("unsupported_freemoa_deep_source")
     pages=max(1,min(int(pages),12))
     limit=max(1,min(int(limit),60))
+    page_start=max(1,min(int(page_start),100000))
     result={"source":source,"status":"started","discovered":0,
-            "saved":0,"new":0,"details":[],"errors":[],"diagnostics":[]}
+            "saved":0,"new":0,"details":[],"errors":[],"diagnostics":[],
+            "page_start":page_start,"last_page":page_start,"has_more":False,
+            "page_fingerprint":""}
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
         ctx=browser.new_context(locale="ko-KR",viewport={"width":1440,"height":900})
         page=ctx.new_page()
         seen=set()
         try:
-            for n in range(1,pages+1):
+            seen_fingerprints=set()
+            for n in range(page_start,page_start+pages):
+                result["last_page"]=n
                 start=START[source]
                 url=start+("?page="+str(n) if n>1 else "")
                 res=page.goto(url,wait_until="domcontentloaded",timeout=35000)
@@ -191,7 +196,16 @@ def collect(source,pages=1,limit=10):
                 page.wait_for_timeout(1200)
                 if source=="freemoa_partners":
                     fnos=_public_fnos(page)
+                    fingerprint=hashlib.sha256("|".join(fnos).encode()).hexdigest()[:24] if fnos else ""
+                    if fingerprint and fingerprint in seen_fingerprints:
+                        result["has_more"]=False
+                        result["diagnostics"].append({"page":n,"repeated_page":True})
+                        break
+                    seen_fingerprints.add(fingerprint)
+                    result["page_fingerprint"]=fingerprint
+                    result["has_more"]=len(fnos)>=10
                     result["diagnostics"].append({"page":n,"partner_ids":len(fnos)})
+                    if not fnos:break
                     for fno in fnos:
                         if fno in seen:continue
                         seen.add(fno)
@@ -210,6 +224,15 @@ def collect(source,pages=1,limit=10):
                     if result["saved"]>=limit:break
                 else:
                     ids,diagnostic=_discover_portfolios(page,limit)
+                    fingerprint=hashlib.sha256("|".join(ids).encode()).hexdigest()[:24] if ids else ""
+                    if fingerprint and fingerprint in seen_fingerprints:
+                        result["has_more"]=False
+                        result["diagnostics"].append({"page":n,"repeated_page":True})
+                        break
+                    seen_fingerprints.add(fingerprint)
+                    result["page_fingerprint"]=fingerprint
+                    result["has_more"]=len(ids)>=10
+                    if not ids:break
                     source_labels={}
                     for original in diagnostic:
                         found=re.search(r"showPortfolio\s*\(\s*['\"]?(\d+)",
@@ -324,6 +347,7 @@ def collect(source,pages=1,limit=10):
                             meta={"origin":"public_javascript_portfolio_modal",
                                   "portfolio_id":portfolio_id,
                                   "source_page":source_url,
+                                  "listing_page":url,
                                   "card_label":label[:300],
                                   "verified_project_summary":True,
                                   "expanded_more":expanded,
