@@ -249,15 +249,15 @@ def main():
     # Verify the Railway-secret-backed login on a fresh worker deployment.
     # A separate marker prevents repeated jobs if Railway restarts replicas.
     with session() as db:
-        marker="work24-real-button-selector-20261023-v6"
+        marker="work24-three-sector-verified-search-20261023-v7"
         claim=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
             (marker,'{"state":"queued","purpose":"login and public detail smoke"}')
         ).fetchone()
         if claim:
-            cfg={"source":"work24","pages":1,"limit":2,
-                 "queries":["미화"],
+            cfg={"source":"work24","pages":1,"limit":12,
+                 "queries":["미화","경비","개발"],
                  "test":marker}
             jid=db.execute(
                 "INSERT INTO procureflow.jobs(source,config,message) "
