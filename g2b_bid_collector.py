@@ -374,6 +374,8 @@ def normalize_item(record, category, kind, operation, index):
           "bid_amount":amount,"bid_rate":rate,
           "remarks":str(record.get("etc") or "")[:240],
           "bid_time":str(record.get("slprRcptnDt") or "")[:45],
+          "provisional_pwin_flag":str(record.get("pwinYn") or "")[:12],
+          "bid_qualification_code":str(record.get("bidUfnsRsnCd") or "")[:45],
           "source":"g2b_public_web"}
     return {
         "source":"g2b","category":category,"result_kind":kind,
@@ -389,6 +391,11 @@ def normalize_item(record, category, kind, operation, index):
     }
 
 
+def business_category(code):
+    """Only label business codes whose meaning is independently established."""
+    return {"01":"goods","03":"service"}.get(str(code or "").strip(),"unspecified")
+
+
 def normalize_public_listing(item):
     """Store an observed grid status, not an invented bidder or winner."""
     no=str(item.get("bid_no") or "")
@@ -400,7 +407,7 @@ def normalize_public_listing(item):
                      str(item.get("bid_clsfc_no") or "0"),
                      str(item.get("bid_progress_ord") or "000")))
     return {
-        "source":"g2b","category":"unspecified",
+        "source":"g2b","category":business_category(item.get("business_code")),
         "result_kind":"opening_status","operation":"g2b_web_opening_grid",
         "record_key":hashlib.sha256(marker.encode()).hexdigest()[:40],
         "bid_ntce_no":no,"bid_ntce_ord":ord_no,
@@ -522,10 +529,13 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
                     raw_items=[]
                     for i,row in enumerate(bidders):
                         sample={**row,"bid_no":bid_no,"bid_ord":bid_ord,
+                                "bidClsfNo":item.get("bid_clsfc_no","0"),
+                                "bidPrgrsOrd":item.get("bid_progress_ord","000"),
                                 "bid_name":title,"result_status":status,
                                 "participant_count":entry["total"]}
-                        raw_items.append(normalize_item(sample,"unspecified","opening",
-                                        "g2b_web_opening",i))
+                        raw_items.append(normalize_item(sample,
+                                        business_category(item.get("business_code")),
+                                        "opening","g2b_web_opening",i))
                     winner=_final_award(bid_info,etc)
                     if winner:
                         match=next((x for x in raw_items if x and x["company"]==winner),None)
