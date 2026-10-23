@@ -3,6 +3,38 @@ import unittest
 from g2b_bid_collector import normalize_id,normalize_item,configured,_final_award,ID_ONLY_RE
 
 class G2BBidResultContracts(unittest.TestCase):
+    def test_true_websquare_listing_page_bounds_and_execution_dedup(self):
+        from g2b_bid_collector import fetch_opening_listing,LIST_URL
+        class Resp:
+            status=200
+            def __init__(self,n):self.n=n
+            def json(self):
+                return {"result":{"onbsRsltClsfList":[
+                    {"bidPbancNo":"R26BK01788962","bidPbancOrd":"000",
+                     "bidClsfNo":"0","bidPrgrsOrd":"000",
+                     "prcmBsneSeCd":"01","bidPgstCd":"입160004"}] if self.n==1 else [
+                    {"bidPbancNo":"R26BK01788962","bidPbancOrd":"000",
+                     "bidClsfNo":"1","bidPrgrsOrd":"000",
+                     "prcmBsneSeCd":"01","bidPgstCd":"입160004"}]}}
+        class API:
+            def __init__(self):self.calls=[]
+            def post(self,url,data,headers,timeout):
+                import json
+                self.calls.append((url,json.loads(data),headers))
+                return Resp(len(self.calls))
+        class Ctx:
+            def __init__(self):self.request=API()
+        ctx=Ctx()
+        x=fetch_opening_listing(ctx,days=1,pages=2,max_results=20)
+        self.assertEqual(len(x),1)
+        self.assertEqual(x[0]["bid_no"],"R26BK01788962")
+        reqs=ctx.request.calls
+        self.assertEqual(reqs[0][0],LIST_URL)
+        self.assertEqual(reqs[0][1]["dlSrchOnbsRsltClsfListInM"]["firstIndex"],1)
+        # A full first page is required to proceed to page 2. This sample is
+        # deliberately one row, so pagination must stop at the first page.
+        self.assertEqual(len(reqs),1)
+
     def test_no_public_data_api_key_needed(self):
         self.assertTrue(configured())
 
