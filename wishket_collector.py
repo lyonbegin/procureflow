@@ -111,9 +111,62 @@ def _save(kind,detail_url,listing_page,page):
           (kind,record_id,title,detail_url,raw_text[:75000],
            json.dumps(customers,ensure_ascii=False),
            json.dumps(evidence,ensure_ascii=False))).fetchone()
+    if kind=="portfolios" and author_urls:
+        for author in author_urls:
+            try:
+                save_public_partner_reference(author,detail_url,raw_text,evidence)
+            except Exception as exc:
+                logging.warning("WISHKET_PUBLIC_AUTHOR_REFERENCE_FAILED %s %s",
+                                author,type(exc).__name__)
     return {"title":title,"url":detail_url,"body_length":len(raw_text),
             "technologies":detail["technologies"][:12],
             "related_partner_count":len(author_urls),"fresh":bool(item["fresh"])}
+
+def save_public_partner_reference(partner_url,portfolio_url,portfolio_body,portfolio_evidence):
+    """Persist genuinely public work evidence without faking a private profile."""
+    from urllib.parse import urlparse
+    name=urlparse(partner_url).path.strip("/").split("/")[-1]
+    if not name or not re.match(r"^[a-zA-Z0-9_-]+$",name):
+        return False
+    # A real publicly accessible portfolio proves this author/portfolio link;
+    # profile description, ratings, CV and contact data remain login-restricted.
+    with session() as db:
+        existing=db.execute("""
+            SELECT body,meta FROM procureflow.market_records
+            WHERE source='wishket_partner_reference' AND kind='public_portfolio_evidence'
+              AND source_id=%s
+        """,(name,)).fetchone()
+        old=existing["meta"] if existing else {}
+        works=old.get("public_portfolios") or []
+        if not any(x.get("url")==portfolio_url for x in works):
+            works.append({"url":portfolio_url,
+                          "title":portfolio_evidence.get("heading","")[:300],
+                          "technologies":portfolio_evidence.get("technologies",[])[:25],
+                          "sections":portfolio_evidence.get("sections",{}),
+                          "portfolio_body_length":len(portfolio_body)})
+        works=works[:250]
+        # Keep independently extracted PUBLIC project content. Do not copy a
+        # fictional partner biography or the site's login-placeholder labels.
+        excerpts=[w.get("title","") for w in works]
+        meta={"origin":"public_portfolio_author_reference",
+              "public_profile_url":partner_url,
+              "profile_access":"login_required",
+              "profile_detail_verified":False,
+              "public_portfolios":works,
+              "public_portfolio_count":len(works)}
+        row=db.execute("""
+            INSERT INTO procureflow.market_records
+                (source,kind,source_id,title,url,body,meta)
+            VALUES ('wishket_partner_reference','public_portfolio_evidence',
+                    %s,%s,%s,%s,%s::jsonb)
+            ON CONFLICT(source,kind,source_id) DO UPDATE SET
+                title=excluded.title,url=excluded.url,body=excluded.body,
+                meta=excluded.meta,last_seen=now()
+            RETURNING xmax=0 AS fresh
+        """,(name,name,partner_url,"\n".join(excerpts)[:65000],
+              json.dumps(meta,ensure_ascii=False))).fetchone()
+    return bool(row["fresh"])
+
 
 def collect(kind="portfolios",pages=2,limit=30):
     if kind not in KINDS:raise ValueError("unsupported kind")
