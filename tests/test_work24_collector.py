@@ -58,6 +58,36 @@ class Work24ContractTests(unittest.TestCase):
         self.assertIn("관리자 키",html)
         self.assertNotIn("고용24·당근·숨고·크몽은 현재 수집 대상에서 제외합니다.",html)
 
+    def test_http_200_work24_error_page_is_rejected(self):
+        from work24_collector import read_detail, normalize_detail_url
+        raw_url=("https://www.work24.go.kr/wk/a/b/1500/empDetailAuthView.do"
+                 "?wantedAuthNo=20261019051059&infoTypeCd=CLE"
+                 "&infoTypeGroup=tb_workinfogubun")
+        class Response:
+            status=200
+        class Body:
+            def inner_text(self,timeout=None):
+                return "고용24 죄송합니다. 요청하신 페이지에 일시적인 문제가 발생했습니다."
+        class Page:
+            url=normalize_detail_url(raw_url)
+            def goto(self,*a,**kw):return Response()
+            def wait_for_timeout(self,*a,**kw):return None
+            def locator(self,*a,**kw):return Body()
+        with self.assertRaisesRegex(RuntimeError,"work24_server_error_page"):
+            read_detail(Page(),{"url":raw_url,"source_id":"CLE:20261019051059"})
+
+    def test_keyword_filter_is_verified_not_assumed(self):
+        import inspect
+        from work24_collector import search_keyword,collect
+        src=inspect.getsource(search_keyword)
+        self.assertIn("srcKeyword",src)
+        self.assertIn("search_keyword_not_verified",src)
+        self.assertIn("search_keyword_mismatch",src)
+        detail=inspect.getsource(collect)
+        self.assertIn("result[\\"discovered\\"]",detail)
+        self.assertIn("result[\\"examined\\"]+=1",detail)
+        self.assertIn("if result[\\"saved\\"]>=limit:break",detail)
+
     def test_no_automatic_bidding_or_pii_getters(self):
         import inspect
         from work24_collector import collect
