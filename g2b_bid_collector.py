@@ -37,6 +37,91 @@ def normalize_id(value: str):
     return (m.group(1),m.group(2) or "000") if m else None
 
 
+# G2B's actual public WebSquare opening-list submission (not data.go.kr).
+# Field names / Menu-Info observed in a publicly documented G2B web client.
+LIST_URL = "https://www.g2b.go.kr/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do"
+LIST_MENU = '{"menuNo":"01522","menuCangVal":"PBOC006_01","bsneClsfCd":"%EC%97%85130028","scrnNo":"02117"}'
+LIST_SUBMISSION = "mf_wfm_container_selectOnbsRsltClsfList"
+
+
+def fetch_opening_listing(context, days=7, pages=1, max_results=60):
+    """Read an actual dated G2B opening-results list via its public web form.
+
+    Avoid WebSquare GNB navigation: Railway Chrome can load a blank document
+    even when the same-origin JSON submission is available. Errors are not
+    indistinguishable from a legitimate empty search.
+    """
+    now=datetime.now(timezone(timedelta(hours=9)))
+    start=(now-timedelta(days=max(1,min(int(days),31)))).strftime("%Y%m%d")
+    end=now.strftime("%Y%m%d")
+    batch=min(100,max(10,int(max_results)))
+    output=[]
+    total=None
+    for page_number in range(1,max(1,min(int(pages),10))+1):
+        first=1+(page_number-1)*batch
+        payload={"dlSrchOnbsRsltClsfListInM":{
+            "bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
+            "onbsYmdStr":start,"onbsYmdEnd":end,
+            "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
+            "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
+            "lastIndex":first+batch-1,"firstIndex":first,
+            "inqEnd":"","stepBarYn":"","pbancKndCd":"공440002"
+        }}
+        response=context.request.post(LIST_URL,data=json.dumps(payload),
+            headers={"Accept":"application/json",
+                     "Content-Type":"application/json;charset=UTF-8",
+                     "Menu-Info":LIST_MENU,
+                     "submissionid":LIST_SUBMISSION,
+                     "Usr-Id":"null","Referer":BASE},
+            timeout=35000)
+        if response.status!=200:
+            # Only bounded non-sensitive response text is allowed in logs.
+            logging.warning("G2B_LIST_HTTP status=%s summary=%s",
+                            response.status,response.text()[:190])
+            raise RuntimeError("g2b_web_listing_http_"+str(response.status))
+        try: result=response.json()
+        except Exception:raise RuntimeError("g2b_web_listing_not_json") from None
+        data=result.get("result") if isinstance(result,dict) else None
+        if not isinstance(data,dict):
+            raise RuntimeError("g2b_web_listing_bad_schema")
+        items=data.get("onbsRsltClsfList")
+        if not isinstance(items,list):
+            raise RuntimeError("g2b_web_listing_missing_items")
+        count_before=len(output)
+        for rec in items:
+            if not isinstance(rec,dict):continue
+            original=str(rec.get("bidPbancNo") or "")
+            if not ID_ONLY_RE.fullmatch(original):continue
+            ord_no=str(rec.get("bidPbancOrd") or "000")
+            if not re.fullmatch(r"\\d{3}",ord_no):continue
+            status=str(rec.get("bidPgstCd") or "")
+            raw={k:rec.get(k) for k in (
+                "bidPbancNm","dmstNm","demaInstNm","bidPgstCd",
+                "onbsPrnmntDt","bidPbancNo","bidPbancOrd",
+                "bidClsfNo","bidPrgrsOrd","prcmBsneSeCd")
+                 if rec.get(k) is not None}
+            output.append({
+                "bid_no":original,"bid_ord":ord_no,
+                "bid_clsfc_no":str(rec.get("bidClsfNo") or "0"),
+                "bid_progress_ord":str(rec.get("bidPrgrsOrd") or "000"),
+                "business_code":str(rec.get("prcmBsneSeCd") or ""),
+                "status":status,"title":str(rec.get("bidPbancNm") or ""),
+                "agency":str(rec.get("dmstNm") or rec.get("demaInstNm") or ""),
+                "raw_listing":raw,
+            })
+            if len(output)>=max_results:break
+        logging.info("G2B_LIST_PAGE from=%s to=%s page=%s returned=%s accepted=%s keys=%s",
+                     start,end,page_number,len(items),len(output)-count_before,
+                     sorted(data.keys())[:12])
+        if len(output)>=max_results or len(items)<batch:break
+    dedup={}
+    for item in output:
+        composite=(item["bid_no"],item["bid_ord"],
+                   item["bid_clsfc_no"],item["bid_progress_ord"])
+        dedup[composite]=item
+    return list(dedup.values())[:max_results]
+
+
 def discover_visible_bids(page, limit=30):
     """Navigate observed public G2B menu and extract IDs ONLY from the results grid."""
     steps=(("입찰",),("입찰개찰/낙찰","입찰개찰·낙찰"),("개찰결과분류조회",))
@@ -195,7 +280,7 @@ def _read_json(response):
     return result["result"]
 
 
-def fetch_opening(context, bid_no, bid_ord="000", max_pages=2):
+def fetch_opening(context, bid_no, bid_ord="000", max_pages=2, listing=None):
     """Reissue same-origin read-only JSON request used by official G2B WebSquare.
 
     Session is established by a real browser page first. The request format
@@ -207,16 +292,20 @@ def fetch_opening(context, bid_no, bid_ord="000", max_pages=2):
     bidders=[]
     total=0
     for page_no in range(1,max(1,min(max_pages,5))+1):
+        listing=listing or {}
         payload={"dlSrchOnbsRsltBidInM":{
-            "bidPbancNo":bid_no,"bidPbancOrd":bid_ord,"bidClsfNo":"0",
-            "bidPrgrsOrd":"000","prcmBsneSeCd":"",
-            "bidPgstCd":"개찰완료","bzmnRegNo":"","reOpenPbancYN":"",
+            "bidPbancNo":bid_no,"bidPbancOrd":bid_ord,
+            "bidClsfNo":listing.get("bid_clsfc_no","0"),
+            "bidPrgrsOrd":listing.get("bid_progress_ord","000"),
+            "prcmBsneSeCd":listing.get("business_code",""),
+            "bidPgstCd":listing.get("status") or "개찰완료",
+            "bzmnRegNo":"","reOpenPbancYN":"",
             "currentPage":page_no,"recordCountPerPage":"999"}}
         result=None
         # Public WebSquare returns an explicit 'no opening data' response
         # for some procurement classes. Try the site's known goods/service
         # classification codes before treating the detail as unavailable.
-        for business_code in ("","01","03"):
+        for business_code in dict.fromkeys((listing.get("business_code") or "", "", "01", "03")):
             payload["dlSrchOnbsRsltBidInM"]["prcmBsneSeCd"]=business_code
             response=context.request.post(OPENING_URL,data=json.dumps(payload),
                 headers={"Content-Type":"application/json","Menu-Info":MENU_INFO,
@@ -294,17 +383,24 @@ def normalize_public_listing(item):
     if not normalize_id(no):return None
     raw_line=str(item.get("listing_text") or "").strip()[:1200]
     status=str(item.get("status") or "")
-    marker="|".join(("g2b","opening_status",no,ord_no))
+    marker="|".join(("g2b","opening_status",no,ord_no,
+                     str(item.get("bid_clsfc_no") or "0"),
+                     str(item.get("bid_progress_ord") or "000")))
     return {
         "source":"g2b","category":"unspecified",
         "result_kind":"opening_status","operation":"g2b_web_opening_grid",
         "record_key":hashlib.sha256(marker.encode()).hexdigest()[:40],
-        "bid_ntce_no":no,"bid_ntce_ord":ord_no,"bid_clsfc_no":"",
-        "rbid_no":"","title":"","agency":"","company":"","amount":"",
+        "bid_ntce_no":no,"bid_ntce_ord":ord_no,
+        "bid_clsfc_no":str(item.get("bid_clsfc_no") or ""),
+        "rbid_no":str(item.get("bid_progress_ord") or ""),
+        "title":str(item.get("title") or "")[:500],
+        "agency":str(item.get("agency") or "")[:300],
+        "company":"","amount":"",
         "participation_count":"","rate":"","rank":"",
         "result_status":status,
         "raw":{"source":"g2b_public_web_grid","bid_no":no,"bid_ord":ord_no,
-               "row_excerpt":raw_line,"status":status}
+               "row_excerpt":raw_line,"status":status,
+               "listing":item.get("raw_listing") or {}}
     }
 
 
@@ -378,7 +474,8 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
                                       "status":"","listing_text":""})
             else:
                 try:
-                    found=discover_visible_bids(page,limit)
+                    found=fetch_opening_listing(ctx,days=days,pages=pages,
+                                                 max_results=limit)
                 except Exception as exc:
                     result["errors"].append("discovery:"+type(exc).__name__+
                                             ":"+str(exc)[:85])
@@ -400,7 +497,8 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
             for item in found:
                 bid_no,bid_ord=item["bid_no"],item["bid_ord"]
                 try:
-                    entry=fetch_opening(ctx,bid_no,bid_ord,max_pages)
+                    entry=fetch_opening(ctx,bid_no,bid_ord,max_pages,
+                                        listing=item)
                     bidders=entry["bidders"]
                     bid_info=entry["bid_info"] if isinstance(entry["bid_info"],dict) else {}
                     etc=entry["etc_data"] if isinstance(entry["etc_data"],dict) else {}
