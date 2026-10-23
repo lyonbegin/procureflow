@@ -4,7 +4,9 @@
 <p id="status">Railway DB 조회 중</p>
 <label>조회 페이지 <input type="number" id="pages" value="1" min="1" max="10"></label>
 <label>특정 입찰공고번호 <input id="bidNos" placeholder="선택: R26BK...-000 여러 건은 쉼표로"></label>
-<button id="run">공개 웹 크롤링 실행</button><span id="job"></span>
+<button id="run">개찰·투찰 웹 수집</button>
+<button id="awardRun">최종낙찰자 웹 수집</button><span id="job"></span>
+<p id="awardStatus" class="muted">최종낙찰 확정정보 DB 조회 중</p>
 <p class="muted">나라장터 웹 화면에서 개찰현황과 투찰업체별 금액·순위를 수집합니다. 최종낙찰은 별도 확정정보가 표시된 경우에만 구분합니다. 인증키 불필요.</p>
 <label>결과 <select id="kind"><option value="">전체</option><option value="opening_status">개찰현황</option><option value="opening">투찰업체</option><option value="award">최종낙찰 확정</option></select></label>
 <label>검색 <input id="term" placeholder="공고명·업체명"></label><button id="find">조회</button>
@@ -13,7 +15,16 @@
 <script>
 const el=id=>document.getElementById(id),esc=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 async function api(path,options){let r=await fetch(path,options);let x=await r.json();if(!r.ok)throw Error(JSON.stringify(x));return x;}
-async function refresh(){try{let s=await api('/api/bids/status');el('status').textContent='모드: 공개 웹 크롤링 / 총 '+s.total+'건 · 최신 수집 '+(s.recent_jobs[0]?('#'+s.recent_jobs[0].id+' '+s.recent_jobs[0].state):'없음');let k=el('kind').value,q=el('term').value;let x=await api('/api/bids?'+new URLSearchParams({kind:k,q:q,limit:200}));el('total').textContent='조회 '+x.total+'건';el('rows').innerHTML=x.items.map(o=>'<tr>'+[o.result_kind,o.bid_ntce_no,o.bid_ntce_ord,o.title,o.company,o.amount,o.rank,o.rate,o.result_status].map(y=>'<td>'+esc(y)+'</td>').join('')+'</tr>').join('')}catch(e){el('status').textContent='조회 오류 '+e.message;}}
+async function refresh(){try{let s=await api('/api/bids/status');el('status').textContent='모드: 나라장터 공개 웹 / 전체 '+s.total+'건 · 최신 Job '+(s.recent_jobs[0]?('#'+s.recent_jobs[0].id+' '+s.recent_jobs[0].source+' '+s.recent_jobs[0].state):'없음');
+el('awardStatus').textContent='개찰현황 '+(s.opening_status_rows||0)+'건 · 투찰업체 '+(s.bidder_rows||0)+'건 · 최종낙찰 확정 '+(s.final_award_rows||0)+'건';let k=el('kind').value,q=el('term').value;let x=await api('/api/bids?'+new URLSearchParams({kind:k,q:q,limit:200}));el('total').textContent='조회 '+x.total+'건';el('rows').innerHTML=x.items.map(o=>'<tr>'+[o.result_kind,o.bid_ntce_no,o.bid_ntce_ord,o.title,o.company,o.amount,o.rank,o.rate,o.result_status].map(y=>'<td>'+esc(y)+'</td>').join('')+'</tr>').join('')}catch(e){el('status').textContent='조회 오류 '+e.message;}}
 el('run').onclick=async()=>{try{let nums=el('bidNos').value.split(',').map(x=>x.trim()).filter(Boolean);let x=await api('/api/bids/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pages:Number(el('pages').value),bid_numbers:nums})});el('job').textContent='Job #'+x.job_id+' 접수';refresh()}catch(e){el('job').textContent=e.message}};
+el('awardRun').onclick=async()=>{try{
+  el('job').textContent='최종낙찰자 수집 접수 중';
+  let x=await api('/api/bids/awards/collect',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({days:21,pages:2,limit:30})});
+  el('job').textContent='최종낙찰 수집 Job #'+x.job_id+' 접수';
+  refresh()
+}catch(e){el('job').textContent='오류: '+e.message}};
 el('find').onclick=refresh;el('kind').onchange=refresh;refresh();
 </script></body></html>
