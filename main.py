@@ -211,9 +211,17 @@ def bid_results_status():
             FROM procureflow.bid_results
             GROUP BY category,result_kind ORDER BY category,result_kind
         """).fetchall()
+        summary=c.execute("""
+            SELECT count(DISTINCT (bid_ntce_no,bid_ntce_ord)) AS distinct_executions,
+                   count(*) FILTER (WHERE result_kind='opening_status') AS opening_status_rows,
+                   count(*) FILTER (WHERE result_kind='opening') AS bidder_rows,
+                   count(*) FILTER (WHERE result_kind='award') AS final_award_rows
+            FROM procureflow.bid_results
+        """).fetchone()
         last=c.execute("SELECT max(last_seen) AS latest FROM procureflow.bid_results").fetchone()
         jobs=c.execute("""
-            SELECT id,state,checked,added,duplicates,last_error,finished_at
+            SELECT id,state,checked,added,duplicates,
+                   left(last_error,240) AS last_error,finished_at
             FROM procureflow.jobs WHERE source='g2b_bid_results'
             ORDER BY id DESC LIMIT 3
         """).fetchall()
@@ -223,6 +231,10 @@ def bid_results_status():
             "source_mode":"g2b_web_scrape",
             "source_page":"https://www.g2b.go.kr/",
             "counts":rows,"total":sum(x["count"] for x in rows),
+            "distinct_executions":summary["distinct_executions"],
+            "opening_status_rows":summary["opening_status_rows"],
+            "bidder_rows":summary["bidder_rows"],
+            "final_award_rows":summary["final_award_rows"],
             "last_updated":last["latest"],"recent_jobs":jobs,
             "bidder_ranks":"stored_when_publicly_available"}
 
