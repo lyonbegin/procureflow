@@ -120,6 +120,13 @@ def discover_visible_bids(page, limit=30):
 
 def _read_json(response):
     if response.status>=400:
+        # WorkSquare may answer HTTP 422 when a required runtime/form field
+        # is missing. Only log bounded non-secret diagnostic text.
+        try:
+            info=response.text()[:320]
+            logging.warning("G2B_BID_WEB_HTTP_DIAG status=%s body=%s",
+                            response.status,re.sub(r"\\s+"," ",info))
+        except Exception:pass
         raise RuntimeError("g2b_web_http_"+str(response.status))
     try: result=response.json()
     except Exception:raise RuntimeError("g2b_web_not_json") from None
@@ -144,10 +151,10 @@ def fetch_opening(context, bid_no, bid_ord="000", max_pages=2):
             "bidPbancNo":bid_no,"bidPbancOrd":bid_ord,"bidClsfNo":"0",
             "bidPrgrsOrd":"000","prcmBsneSeCd":"",
             "bidPgstCd":"개찰완료","bzmnRegNo":"","reOpenPbancYN":"",
-            "currentPage":page_no,"recordCountPerPage":"100"}}
+            "currentPage":page_no,"recordCountPerPage":"999"}}
         response=context.request.post(OPENING_URL,data=json.dumps(payload),
             headers={"Content-Type":"application/json","Menu-Info":MENU_INFO,
-                     "Referer":BASE},timeout=30000)
+                     "User-Agent":"Mozilla/5.0","Referer":BASE},timeout=30000)
         result=_read_json(response)
         if not first_info:
             first_info={k:result.get(k) or {} for k in ("bidInfo","etcData")}
