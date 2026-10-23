@@ -361,7 +361,7 @@ def main():
                         update(job['id'],checked=result['checked'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
-                        done(job['id'],'completed' if result['status']=='collected'
+                        done(job['id'],'completed' if result['status'] in ('collected','empty')
                              else 'completed_partial' if result['status']=='partial'
                              else 'failed',json.dumps(result,ensure_ascii=False))
                         import g2b_schedule
@@ -395,7 +395,7 @@ def main():
                         update(job['id'],checked=result['examined'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
-                        job_state=('completed' if result['status']=='collected'
+                        job_state=('completed' if result['status'] in ('collected','empty')
                                    else 'completed_partial' if result['status']=='partial'
                                    else 'failed')
                         done(job['id'],job_state,json.dumps(result,ensure_ascii=False))
