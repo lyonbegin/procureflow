@@ -250,24 +250,41 @@ def search_keyword(page,term: str) -> dict:
         raise RuntimeError("missing_detailed_search_keyword_control")
     target.fill(term,timeout=7000)
     logging.info("WORK24_SEARCH_TERM term=%s input_filled=1",term)
-    search_btn=page.locator("#btnSearch")
-    if search_btn.count():
-        try:
-            search_btn.first.scroll_into_view_if_needed(timeout=3000)
-            search_btn.first.click(timeout=7000)
-        except Exception:
-            activated=page.evaluate("""() => {
-              if (typeof window.fnSearch !== 'function') return false;
-              window.fnSearch('searchForm'); return true;
-            }""")
-            if not activated:raise RuntimeError("search_button_unavailable")
-    else:
-        activated=page.evaluate("""() => {
-          if (typeof window.fnSearch !== 'function') return false;
-          window.fnSearch('searchForm'); return true;
-        }""")
-        if not activated:target.press("Enter",timeout=5000)
-    page.wait_for_timeout(1700)
+    # Historical button (#btnSearch) and fnSearch('searchForm') were global
+    # search controls, not the actual mForm detailed-search submit action.
+    initial_ids=set(x["source_id"] for x in list_links(page))
+    # The actual detailed-search input is #srcKeyword, but it is *outside*
+    # the submission form mForm. The visible search button near that input
+    # copies the query into mForm's hidden #hidSrcKeyword before submission.
+    # #btnSearch can resolve to the unrelated global website search.
+    control=page.evaluate("""() => {
+      const anchor=document.querySelector('#srcKeyword');
+      if (!anchor) return {status:'no_srcKeyword'};
+      const chain=new Map();let d=0;
+      for(let n=anchor;n;n=n.parentElement)chain.set(n,d++);
+      const distance=b=>{let y=b,k=0;for(;y;y=y.parentElement,k++)
+          if(chain.has(y))return k+chain.get(y);return 10000};
+      const candidates=[...document.querySelectorAll('button,a,input[type="button"],input[type="submit"]')]
+          .filter(x=>/^\s*검색\s*$/.test((x.innerText||x.value||x.getAttribute('aria-label')||'').trim()))
+          .filter(x=>!!(x.offsetWidth||x.offsetHeight||x.getClientRects().length))
+          .map(x=>({node:x,dist:distance(x)}))
+          .sort((a,b)=>a.dist-b.dist);
+      if (!candidates.length)return {status:'no_detailed_search_button'};
+      const x=candidates[0].node;
+      const label=(x.innerText||x.value||'').trim();
+      const diagnostic={status:'clicked',tag:x.tagName,id:x.id||'',
+            class_name:(x.className||'').toString().slice(0,90),
+            onclick:(x.getAttribute('onclick')||'').slice(0,130),
+            distance:candidates[0].dist,button_candidates:candidates.length,
+            has_mForm:!!document.querySelector('#mForm')};
+      x.click();
+      return diagnostic;
+    }""")
+    logging.info("WORK24_SEARCH_TRIGGER term=%s info=%s",
+                 term,json.dumps(control,ensure_ascii=False)[:1000])
+    if control.get("status")!="clicked":
+        raise RuntimeError("detailed_search_button_missing")
+    page.wait_for_timeout(2200)
     query=parse_qs(urlparse(page.url).query)
     url_term=(query.get("srcKeyword") or [""])[0].strip()
     source_field=page.locator('input[name="srcKeyword"]')
@@ -279,7 +296,13 @@ def search_keyword(page,term: str) -> dict:
         raise RuntimeError("search_keyword_mismatch")
     if form_term and form_term != term:
         raise RuntimeError("search_form_keyword_mismatch")
-    verified_by="url" if url_term==term else "form" if form_term==term else ""
+    post_ids=set(x["source_id"] for x in list_links(page))
+    visible_term=""
+    try:visible_term=page.locator("#srcKeyword").input_value(timeout=2000).strip()
+    except Exception:pass
+    verified_by=("url" if url_term==term else "form" if form_term==term
+                 else "changed_results" if visible_term==term and post_ids!=initial_ids
+                 else "")
     if not verified_by:
         # Only introspect search-control attributes; never inspect credentials,
         # email, contact data, cookies, hidden state or the full HTML body.
