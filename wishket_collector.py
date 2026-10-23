@@ -143,11 +143,13 @@ def save_public_partner_reference(partner_url,portfolio_url,portfolio_body,portf
                           "title":portfolio_evidence.get("heading","")[:300],
                           "technologies":portfolio_evidence.get("technologies",[])[:25],
                           "sections":portfolio_evidence.get("sections",{}),
-                          "portfolio_body_length":len(portfolio_body)})
+                          "portfolio_body_length":len(portfolio_body),
+                          "public_project_text":portfolio_body[:14000]})
         works=works[:250]
         # Keep independently extracted PUBLIC project content. Do not copy a
         # fictional partner biography or the site's login-placeholder labels.
-        excerpts=[w.get("title","") for w in works]
+        excerpts=[("[공개 수행 프로젝트] "+w.get("title","")+
+                   "\\n"+w.get("public_project_text","")) for w in works]
         meta={"origin":"public_portfolio_author_reference",
               "public_profile_url":partner_url,
               "profile_access":"login_required",
