@@ -32,7 +32,7 @@ def normalized_confirmed_award(listing,detail):
     if len(winners)!=1:
         return None
     row=winners[0]
-    company=str(row.get("ibxGrpNm") or "").strip()
+    company=unescape(str(row.get("ibxGrpNm") or "")).strip()
     if not company:return None
     bid_no=str(pbanc.get("bidPbancNo") or listing.get("bidPbancNo") or "")
     bid_ord=str(pbanc.get("bidPbancOrd") or listing.get("bidPbancOrd") or "000")
@@ -63,8 +63,8 @@ def normalized_confirmed_award(listing,detail):
         "record_key":key,"bid_ntce_no":bid_no,
         "bid_ntce_ord":bid_ord,"bid_clsfc_no":clsfc,"rbid_no":progress,
         "title":unescape(str(pbanc.get("bidPbancNm") or listing.get("bidPbancNm") or ""))[:500],
-        "agency":str(pbanc.get("pbancInstUntyGrpNoNm") or
-                     listing.get("pbancInstUntyGrpNoNm") or "")[:300],
+        "agency":unescape(str(pbanc.get("pbancInstUntyGrpNoNm") or
+                            listing.get("pbancInstUntyGrpNoNm") or ""))[:300],
         "company":company[:300],"amount":amount[:70],
         "participation_count":str(len(bidders)),
         "rate":str(row.get("bdrt") or row.get("ibxBdrt") or "")[:45],
