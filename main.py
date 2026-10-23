@@ -319,6 +319,59 @@ def start_verified_final_award_collection(req:AwardCollectRun,
     return {"job_id":jid,"state":"queued","source":"g2b_final_awards"}
 
 
+@app.get("/api/bids/schedule")
+def g2b_schedule_status():
+    import g2b_schedule
+    return {"enabled":os.getenv("G2B_AUTO_COLLECT","1")=="1",
+            "recent_refresh_hours":g2b_schedule.REFRESH_HOURS,
+            "archive_backfill_minutes":g2b_schedule.BACKFILL_MINUTES,
+            "oldest_date":g2b_schedule.EARLIEST.isoformat(),
+            "states":g2b_schedule.status(session)}
+
+
+class BidHistoricalWindow(BaseModel):
+    kind:str=Field("award",pattern="^(award|opening)$")
+    start_date:str=Field(...,pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    end_date:str=Field(...,pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    page_start:int=Field(1,ge=1,le=10000)
+    pages:int=Field(2,ge=1,le=10)
+
+
+@app.post("/api/bids/history/collect")
+def queue_historical_bid_window(req:BidHistoricalWindow,
+                                 authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_date_windows import window
+    try:
+        window(1,req.start_date,req.end_date,
+               max_span_days=31 if req.kind=="opening" else 60)
+    except (ValueError,TypeError) as ex:
+        raise HTTPException(400,str(ex)) from None
+    source=("g2b_bid_results" if req.kind=="opening"
+            else "g2b_final_awards")
+    cfg={"start_date":req.start_date,"end_date":req.end_date,
+         "days":1,"page_start":req.page_start,
+         "pages":min(req.pages,10 if req.kind=="opening" else 5)}
+    if req.kind=="award":
+        cfg["limit"]=min(100,cfg["pages"]*20)
+    else:
+        cfg["categories"]=["goods","service"]
+        cfg["kinds"]=["opening","award"]
+    with session() as c:
+        busy=c.execute("""
+            SELECT id FROM procureflow.jobs
+            WHERE source=%s AND state IN ('queued','running')
+            LIMIT 1
+        """,(source,)).fetchone()
+        if busy:raise HTTPException(409,"Source already collecting")
+        jid=c.execute("""
+            INSERT INTO procureflow.jobs(source,config,message)
+            VALUES (%s,%s::jsonb,'Manual historical G2B web collection')
+            RETURNING id
+        """,(source,json.dumps(cfg))).fetchone()["id"]
+    return {"job_id":jid,"source":source,"state":"queued","config":cfg}
+
+
 @app.get("/api/analysis/summary")
 def analysis_summary():
     """Aggregated live counts for the existing FastAPI dashboard.
