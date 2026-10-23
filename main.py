@@ -19,6 +19,10 @@ def home():
     raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
     return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a></section>",1)
 
+@app.get("/private-details",response_class=HTMLResponse)
+def private_details_web():
+    return (Path(__file__).parent/"static/private-details.html").read_text(encoding="utf-8")
+
 @app.get("/bids",response_class=HTMLResponse)
 def bid_results_web():
     return (Path(__file__).parent/"static/bids.html").read_text(encoding="utf-8")
@@ -169,6 +173,64 @@ class MarketRun(BaseModel):
     pages:int=Field(1,ge=1,le=20)
     limit:int=Field(8,ge=1,le=200)
     queries:list[str]=Field(default_factory=list,max_length=12)
+
+@app.get("/api/private/detail")
+def private_full_detail(source:str,source_id:str="",kind:str="",
+                        url:str="",authorization:str|None=Header(None)):
+    """Return a single public record's full text and evidence metadata."""
+    guard(authorization)
+    if source=="wishket":
+        if kind not in ("partners","portfolios","projects"):
+            raise HTTPException(400,"Invalid Wishket kind")
+        if not source_id:raise HTTPException(400,"source_id required")
+        with session() as c:
+            item=c.execute("""
+                SELECT kind,source_id,title,url,body,customers,raw,updated_at
+                FROM procureflow.wishket_records
+                WHERE kind=%s AND source_id=%s
+            """,(kind,source_id)).fetchone()
+    elif source in ("freemoa","freemoa_partners","freemoa_portfolios",
+                    "kmong_enterprise","work24","wanted_gigs"):
+        if not source_id:raise HTTPException(400,"source_id required")
+        with session() as c:
+            item=c.execute("""
+                SELECT source,kind,source_id,title,url,body,meta,last_seen
+                FROM procureflow.market_records
+                WHERE source=%s AND source_id=%s
+            """,(source,source_id)).fetchone()
+    else:
+        raise HTTPException(400,"Unsupported private source")
+    if not item:raise HTTPException(404,"No saved public detail for record")
+    return {"record":item,"body_length":len(item["body"] or ""),
+            "is_list_only":len((item["body"] or "").strip())<260}
+
+
+@app.get("/api/private/completeness")
+def private_completeness():
+    with session() as c:
+        markets=c.execute("""
+            SELECT source,kind,count(*) AS records,
+                   count(*) FILTER (WHERE length(body)>=1000) AS detailed,
+                   count(*) FILTER (WHERE length(body)<260) AS sparse,
+                   sum(length(body)) AS total_body_chars,
+                   max(last_seen) AS latest
+            FROM procureflow.market_records
+            WHERE source IN ('freemoa_partners','freemoa_portfolios')
+            GROUP BY source,kind
+        """).fetchall()
+        wishket=c.execute("""
+            SELECT kind,count(*) AS records,
+                   count(*) FILTER (WHERE length(body)>=1000) AS detailed,
+                   count(*) FILTER (WHERE length(body)<260) AS sparse,
+                   sum(length(body)) AS total_body_chars,
+                   max(updated_at) AS latest
+            FROM procureflow.wishket_records
+            WHERE kind IN ('partners','portfolios')
+            GROUP BY kind
+        """).fetchall()
+    return {"freemoa":markets,"wishket":wishket,
+            "definition":"detailed means >=1000 saved public characters, not a guarantee of every field; login-hidden material is excluded"}
+
 
 @app.get("/api/market/sources")
 def market_sources(authorization:str|None=Header(None)):
