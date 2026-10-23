@@ -211,6 +211,14 @@ def private_completeness():
         markets=c.execute("""
             SELECT source,kind,count(*) AS records,
                    count(*) FILTER (WHERE length(body)>=1000) AS detailed,
+                   count(*) FILTER (WHERE source='freemoa_portfolios'
+                       AND (coalesce(meta->>'verified_project_summary','false')='true'
+                            OR body ILIKE '%%프로젝트 요약%%')
+                       OR source<>'freemoa_portfolios' AND length(body)>=1000)
+                       AS verified_public_details,
+                   count(*) FILTER (WHERE source='freemoa_portfolios'
+                       AND meta->>'origin'='public_javascript_portfolio_modal'
+                       AND body NOT ILIKE '%%프로젝트 요약%%') AS list_only_artifacts,
                    count(*) FILTER (WHERE length(body)<260) AS sparse,
                    sum(length(body)) AS total_body_chars,
                    max(last_seen) AS latest
@@ -490,6 +498,10 @@ def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service
     if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
     where=["source NOT IN ('daangn','kmong','soomgo')"];args=[]
     if source:where.append("source=%s");args.append(source)
+    if source=="freemoa_portfolios":
+        where.append("(coalesce(meta->>'origin','')<>'public_javascript_portfolio_modal' "
+                     "OR coalesce(meta->>'verified_project_summary','false')='true' "
+                     "OR body ILIKE '%%프로젝트 요약%%')")
     if kind:where.append("kind=%s");args.append(kind)
     if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
     if demand_type:where.append("meta->>'demand_type'=%s");args.append(demand_type)
