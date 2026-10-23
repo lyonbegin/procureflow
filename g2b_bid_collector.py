@@ -54,7 +54,8 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
     now=datetime.now(timezone(timedelta(hours=9)))
     start=(now-timedelta(days=max(1,min(int(days),31)))).strftime("%Y%m%d")
     end=now.strftime("%Y%m%d")
-    batch=min(100,max(10,int(max_results)))
+    # WebSquare firstIndex/lastIndex bounds: use 10 distinct records per page.
+    batch=10
     output=[]
     total=None
     for page_number in range(1,max(1,min(int(pages),10))+1):
@@ -113,6 +114,11 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
         logging.info("G2B_LIST_PAGE from=%s to=%s page=%s returned=%s accepted=%s keys=%s",
                      start,end,page_number,len(items),len(output)-count_before,
                      sorted(data.keys())[:12])
+        if items and page_number==1:
+            logging.info("G2B_LIST_SAMPLE_FIELD_NAMES keys=%s progress_sample=%s",
+                         sorted(items[0].keys())[:85],
+                         {k:items[0].get(k) for k in ("bidPgstCd","prcmBsneSeCd",
+                                                      "bidClsfNo","bidPrgrsOrd")})
         if len(output)>=max_results or len(items)<batch:break
     dedup={}
     for item in output:
