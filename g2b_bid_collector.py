@@ -119,6 +119,13 @@ def discover_visible_bids(page, limit=30):
 
 
 def _read_json(response):
+    if response.status==422:
+        try:
+            msg=str(response.json().get("ErrorMsg") or "")
+            if "개찰결과 데이터가 존재하지 않습니다" in msg:
+                raise LookupError("opening_details_not_published")
+        except (ValueError,TypeError,AttributeError):
+            pass
     if response.status>=400:
         # WorkSquare may answer HTTP 422 when a required runtime/form field
         # is missing. Only log bounded non-secret diagnostic text.
@@ -213,6 +220,27 @@ def normalize_item(record, category, kind, operation, index):
     }
 
 
+def normalize_public_listing(item):
+    """Store an observed grid status, not an invented bidder or winner."""
+    no=str(item.get("bid_no") or "")
+    ord_no=str(item.get("bid_ord") or "000")
+    if not normalize_id(no):return None
+    raw_line=str(item.get("listing_text") or "").strip()[:1200]
+    status=str(item.get("status") or "")
+    marker="|".join(("g2b","opening_status",no,ord_no))
+    return {
+        "source":"g2b","category":"unspecified",
+        "result_kind":"opening_status","operation":"g2b_web_opening_grid",
+        "record_key":hashlib.sha256(marker.encode()).hexdigest()[:40],
+        "bid_ntce_no":no,"bid_ntce_ord":ord_no,"bid_clsfc_no":"",
+        "rbid_no":"","title":"","agency":"","company":"","amount":"",
+        "participation_count":"","rate":"","rank":"",
+        "result_status":status,
+        "raw":{"source":"g2b_public_web_grid","bid_no":no,"bid_ord":ord_no,
+               "row_excerpt":raw_line,"status":status}
+    }
+
+
 def save_batch(items):
     items=[x for x in items if x]
     if not items:return 0,0
@@ -289,6 +317,16 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
             for x in found:dedup[(x["bid_no"],x["bid_ord"])]=x
             found=list(dedup.values())[:limit]
             result["discovered"]=len(found)
+            # Persist only website-observed grid statuses. Directly supplied
+            # sample numbers are NOT evidence of a current opening listing.
+            if not bid_numbers and found:
+                status_rows=[normalize_public_listing(x) for x in found]
+                ls,ln=save_batch(status_rows)
+                result["saved"]+=ls
+                result["new"]+=ln
+                result["listing_rows_saved"]=ls
+                logging.info("G2B_OPENING_GRID_SAVED seen=%s saved=%s new=%s",
+                             len(found),ls,ln)
             for item in found:
                 bid_no,bid_ord=item["bid_no"],item["bid_ord"]
                 try:
@@ -325,6 +363,9 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
                         "new":new,"winner_confirmed":bool(winner)})
                     logging.info("G2B_BID_WEB_RESULT no=%s ord=%s bidders=%s saved=%s new=%s winner=%s",
                                  bid_no,bid_ord,len(bidders),saved,new,bool(winner))
+                except LookupError:
+                    result.setdefault("unavailable_details",[]).append(bid_no)
+                    logging.info("G2B_BID_WEB_UNAVAILABLE no=%s",bid_no)
                 except Exception as exc:
                     reason=type(exc).__name__+":"+str(exc)[:100]
                     result["errors"].append("detail_"+bid_no+":"+reason)
