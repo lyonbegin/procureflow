@@ -280,7 +280,20 @@ def main():
             job=get_next_job()
             if job:
                 try:
-                    if job['source']=='wishket':
+                    if job['source']=='g2b_bid_results':
+                        import g2b_bid_collector
+                        cfg=job.get('config') or {}
+                        result=g2b_bid_collector.collect(
+                            days=cfg.get('days',7),pages=cfg.get('pages',1),
+                            categories=cfg.get('categories') or ['goods','service'],
+                            kinds=cfg.get('kinds') or ['award','opening'])
+                        update(job['id'],checked=result['examined'],added=result['new'],
+                               duplicates=result['saved']-result['new'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['status']=='collected' else 'failed',
+                             json.dumps(result,ensure_ascii=False))
+                        logging.info('G2B_BID_JOB_RESULT %s',json.dumps(result,ensure_ascii=False)[:3500])
+                    elif job['source']=='wishket':
                         import wishket_collector
                         cfg=job.get('config') or {}
                         result=wishket_collector.collect(kind=cfg.get('kind','portfolios'),pages=cfg.get('pages',2),limit=cfg.get('limit',30))
