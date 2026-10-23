@@ -394,7 +394,7 @@ def main():
             ).fetchone()['id']
             logging.info('FREEMOA_MODAL_V3_QUEUED job=%s',jid)
     with session() as db:
-        marker='private-freemoa-verified-dialogs-20261024-v4'
+        marker='private-freemoa-verified-dialogs-20261024-v5'
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
