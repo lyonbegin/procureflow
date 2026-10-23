@@ -99,6 +99,8 @@ def read_detail(page, card):
     if not current or current["source_id"]!=card["source_id"]:
         raise RuntimeError("detail_not_matched")
     raw=page.locator("body").inner_text(timeout=6500)
+    if "요청하신 페이지에 일시적인 문제가 발생했습니다" in raw:
+        raise RuntimeError("work24_server_error_page")
     if "모집요강" not in raw or "근무조건" not in raw:
         raise RuntimeError("not_a_complete_job_detail")
     parts=raw.splitlines()
@@ -226,21 +228,27 @@ def login_if_configured(page) -> str:
 
 
 def search_keyword(page,term: str) -> dict:
-    """Execute the verified searchForm/srchWrd/btnSearch Work24 UI flow."""
+    """Use actual Work24 detailed-search fields, validate the applied query.
+
+    The detailed-search results route uses srcKeyword (not the site-wide
+    global search box). Never mark an unverified/default listing as filtered.
+    """
     resp=page.goto(SEARCH_URL,wait_until="domcontentloaded",timeout=35000)
     if not resp or resp.status>=400:
         raise RuntimeError("search_page_http_"+str(resp.status if resp else "empty"))
-    page.wait_for_timeout(750)
-    target=page.locator('input[name="srchWrd"]')
-    if not target.count():
-        target=page.locator("#srchWrd")
-    if not target.count():
-        # The input's placeholder was observed in the browser even where the
-        # government page's accessibility markup omits its name/ID.
-        target=page.locator('input[placeholder*="여러 단어"]')
-    if not target.count():
-        raise RuntimeError("missing_search_keyword_control")
-    target.first.fill(term,timeout=7000)
+    page.wait_for_timeout(900)
+    selectors=(
+        'input[name="srcKeyword"]:visible',
+        'input#srcKeyword:visible',
+        'input[name="srchWrd"]:visible',
+        'input#srchWrd:visible',
+        'input[placeholder*="여러 단어"]:visible',
+    )
+    target=next((page.locator(sel).first for sel in selectors
+                 if page.locator(sel).count()),None)
+    if target is None:
+        raise RuntimeError("missing_detailed_search_keyword_control")
+    target.fill(term,timeout=7000)
     logging.info("WORK24_SEARCH_TERM term=%s input_filled=1",term)
     search_btn=page.locator("#btnSearch")
     if search_btn.count():
@@ -248,8 +256,6 @@ def search_keyword(page,term: str) -> dict:
             search_btn.first.scroll_into_view_if_needed(timeout=3000)
             search_btn.first.click(timeout=7000)
         except Exception:
-            # The Work24 search form's click handler is verified to invoke
-            # fnSearch('searchForm'); call it only if actually installed.
             activated=page.evaluate("""() => {
               if (typeof window.fnSearch !== 'function') return false;
               window.fnSearch('searchForm'); return true;
@@ -260,14 +266,29 @@ def search_keyword(page,term: str) -> dict:
           if (typeof window.fnSearch !== 'function') return false;
           window.fnSearch('searchForm'); return true;
         }""")
-        if not activated:
-            target.first.press("Enter",timeout=5000)
-    page.wait_for_timeout(1650)
+        if not activated:target.press("Enter",timeout=5000)
+    page.wait_for_timeout(1700)
+    query=parse_qs(urlparse(page.url).query)
+    url_term=(query.get("srcKeyword") or [""])[0].strip()
+    source_field=page.locator('input[name="srcKeyword"]')
+    form_term=""
+    if source_field.count():
+        try:form_term=source_field.first.input_value(timeout=3000).strip()
+        except Exception:pass
+    if url_term and url_term != term:
+        raise RuntimeError("search_keyword_mismatch")
+    if form_term and form_term != term:
+        raise RuntimeError("search_form_keyword_mismatch")
+    verified_by="url" if url_term==term else "form" if form_term==term else ""
+    if not verified_by:
+        raise RuntimeError("search_keyword_not_verified")
     found=list_links(page)
     if not found:
-        page.wait_for_timeout(1800)
+        page.wait_for_timeout(1900)
         found=list_links(page)
-    return {"term":term,"url":page.url,"links":found}
+    logging.info("WORK24_SEARCH_VALIDATED term=%s by=%s links=%s",
+                 term,verified_by,len(found))
+    return {"term":term,"url":page.url,"links":found,"verified_by":verified_by}
 
 
 def collect(pages=1,limit=10,queries=None):
@@ -288,7 +309,7 @@ def collect(pages=1,limit=10,queries=None):
             "examined":0,"saved":0,"new":0,"pages_checked":0,
             "errors":[],"verified_ids":[],"failed_ids":[],"listings":[]}
     candidates={}
-    per_term=max(1,(limit+len(terms)-1)//len(terms))
+    max_attempts=max(20,min(90,limit*4))
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
@@ -296,20 +317,21 @@ def collect(pages=1,limit=10,queries=None):
         try:
             result["login_status"]=login_if_configured(page)
             for term in terms:
-                if len(candidates)>=limit:break
+                if len(candidates)>=max_attempts:break
                 try:
                     selected=search_keyword(page,term)
                     found=selected["links"]
                     result["pages_checked"]+=1
                     result["listings"].append(
                         {"search_term":term,"url":selected["url"],
-                         "found":len(found)}
+                         "found":len(found),"verified_by":selected["verified_by"]}
                     )
                     logging.info("WORK24_SEARCH_RESULT term=%s found=%s",
                                  term,len(found))
                     if not found:
                         result["errors"].append("search_"+term+":no_result_links")
-                    for record in found[:per_term]:
+                    for record in found:
+                        if len(candidates)>=max_attempts:break
                         record["search_term"]=term
                         candidates.setdefault(record["source_id"],record)
                 except Exception as exc:
@@ -322,8 +344,12 @@ def collect(pages=1,limit=10,queries=None):
             # own JavaScript result paging; separate queries are real and
             # transparent while deeper paging remains a later adapter.
             if pages>1:result["errors"].append("multi_page_pagination_not_yet_implemented")
-            result["examined"]=min(len(candidates),limit)
-            for card in list(candidates.values())[:limit]:
+            result["discovered"]=len(candidates)
+            ordered=sorted(candidates.values(),
+                key=lambda x:{"VALIDATION":0,"CJK":1}.get(x["infoTypeCd"],2))
+            for card in ordered[:max_attempts]:
+                if result["saved"]>=limit:break
+                result["examined"]+=1
                 try:
                     detail=read_detail(page,card)
                     detail["meta"]["search_term"]=card["search_term"]
