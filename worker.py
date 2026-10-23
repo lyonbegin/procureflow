@@ -275,6 +275,27 @@ def main():
                 jid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES (%s,%s::jsonb,%s) RETURNING id",
                     ('market_'+site,json.dumps(cfg),f'Initial {site} real public-source test')).fetchone()['id']
                 logging.info('MARKET_SMOKE_QUEUED job=%s source=%s',jid,site)
+    # One-time public G2B opening page verification, no service key.
+    # These are publicly observed real bid identifiers, not procurement
+    # announcements, and the test is read-only.
+    with session() as db:
+        marker="g2b-public-opening-web-smoke-20261023-v1"
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"status":"queued","source":"public_g2b_web"}')
+        ).fetchone()
+        if claimed:
+            cfg={"bid_numbers":["R26BK01787048-000","R26BK01783626-000"],
+                 "pages":1,"days":1,"categories":["goods","service"],
+                 "kinds":["opening","award"],"test":marker}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('g2b_bid_results',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg,ensure_ascii=False),
+                 "G2B public WebSquare opening result smoke test")
+            ).fetchone()["id"]
+            logging.info("G2B_BID_WEB_SMOKE_QUEUED job=%s",jid)
     while not STOP:
         try:
             job=get_next_job()
@@ -286,7 +307,8 @@ def main():
                         result=g2b_bid_collector.collect(
                             days=cfg.get('days',7),pages=cfg.get('pages',1),
                             categories=cfg.get('categories') or ['goods','service'],
-                            kinds=cfg.get('kinds') or ['award','opening'])
+                            kinds=cfg.get('kinds') or ['award','opening'],
+                            bid_numbers=cfg.get('bid_numbers') or None)
                         update(job['id'],checked=result['examined'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
