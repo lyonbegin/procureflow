@@ -640,7 +640,7 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None,
                 time.sleep(.5)
             result["status"]=("collected" if result["saved"] and not result["errors"]
                               else "partial" if result["saved"]
-                              else "error")
+                              else "error" if result["errors"] else "empty")
             result["published_opening_records"]=sum(1 for x in result["bid_details"]
                                                   if x["bidders"]>0)
         except Exception as exc:
