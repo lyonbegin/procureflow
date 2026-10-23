@@ -25,7 +25,9 @@ pre{font:13px/1.65 "Malgun Gothic",sans-serif;white-space:pre-wrap;overflow-wrap
 <label>검색어<input id="keyword" placeholder="기술·프로젝트·회사명"></label>
 <button id="search">DB 조회</button>
 <button id="collect">공개 상세페이지 다시 수집</button>
+<label>시작 페이지 <input id="pageStart" type="number" min="1" value="1" style="width:90px"></label>
 <span id="status"></span>
+<p class="stats" id="scheduleStatus">민간 파트너·포트폴리오 자동수집 진행상황 조회 중</p>
 <p class="stats" id="stats"></p>
 <small>전체 공개본문·기술스택·작업사례·경력·평가·공개 이미지·관련 링크를 확인합니다. 비공개·로그인 전용 항목은 임의 생성하지 않습니다.</small></section>
 <div class="grid"><section class="list"><h3>수집된 상세자료 <span id="total"></span></h3><div id="items"></div></section>
@@ -67,15 +69,28 @@ const images=meta.images||[];if(images.length)block+='<p>공개 이미지: '+ima
 el('structured').innerHTML=block;
 el('detailBody').textContent=item.body||'본문 저장 없음';
 }catch(e){el('detailBody').textContent='상세 읽기 오류: '+e.message}}
-async function getStats(){try{let v=await api('/api/private/completeness');el('stats').textContent=[...(v.freemoa||[]).map(x=>x.source+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건'),...(v.wishket||[]).map(x=>'위시켓 '+x.kind+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건')].join(' / ')}catch(e){el('stats').textContent=e.message}}
+async function getStats(){try{let v=await api('/api/private/completeness');let linked=v.wishket_public_partner_links||{};
+el('stats').textContent=[...(v.freemoa||[]).map(x=>x.source+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건'),
+...(v.wishket||[]).map(x=>'위시켓 '+x.kind+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건'),
+'위시켓 공개 파트너 연결 '+(linked.linked_partners||0)+'개 · 공개 수행 프로젝트 '+(linked.linked_portfolios||0)+'건'].join(' / ');
+}catch(e){el('stats').textContent=e.message}}
+async function getSchedule(){try{
+const v=await api('/api/private/schedule');
+const names={wishket_portfolios:'위시켓 포트폴리오',freemoa_partners:'프리모아 파트너',freemoa_portfolios:'프리모아 포트폴리오'};
+const parts=(v.sources||[]).map(x=>{const name=x.key.split(':').at(-1),s=x.state||{};
+return (names[name]||name)+' 마지막 '+(s.last_page||'-')+'페이지 · 다음 '+(s.next_page||'-')+'페이지 · '+(s.last_state||'대기')});
+el('scheduleStatus').textContent=(v.enabled?'자동수집 사용 중':'자동수집 중지')+
+' · '+v.check_interval_minutes+'분 단위 확인 · '+(parts.join(' / ')||'최초 수집 예약 중');
+}catch(e){el('scheduleStatus').textContent='수집진행 조회 오류: '+e.message}}
 el('search').onclick=listRecords;
 el('keyword').onkeydown=e=>{if(e.key==='Enter')listRecords()};
 el('source').onchange=()=>{listRecords();};
 el('collect').onclick=async()=>{const w=which();try{
 let route=w.source==='wishket_partner_reference'?'/api/wishket/collect':w.source==='wishket'?'/api/wishket/collect':'/api/market/collect';
-let data=w.source==='wishket_partner_reference'?{kind:'portfolios',pages:2,limit:24}:w.source==='wishket'?{kind:w.kind,pages:1,limit:12}:{source:w.source,pages:1,limit:12};
+let pageStart=Math.max(1,Number(el('pageStart').value)||1);
+let data=w.source==='wishket_partner_reference'?{kind:'portfolios',pages:2,limit:24,page_start:pageStart}:w.source==='wishket'?{kind:w.kind,pages:1,limit:12,page_start:pageStart}:{source:w.source,pages:1,limit:12,page_start:pageStart};
 let job=await api(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 el('status').textContent='상세 크롤링 Job #'+job.job_id+' 접수';
 }catch(e){el('status').textContent=e.message}};
-listRecords();getStats();
+listRecords();getStats();getSchedule();
 </script></body></html>
