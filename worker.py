@@ -279,7 +279,7 @@ def main():
     # These are publicly observed real bid identifiers, not procurement
     # announcements, and the test is read-only.
     with session() as db:
-        marker="g2b-public-opening-sitemap-20261023-v4"
+        marker="g2b-public-opening-chrome-20261023-v5"
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
