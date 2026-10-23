@@ -426,6 +426,21 @@ def main():
                 (json.dumps(cfg),"Wishket portfolio full details and verified public author links")
             ).fetchone()["id"]
             logging.info("WISHKET_PUBLIC_AUTHOR_LINKS_QUEUED job=%s",jid)
+    with session() as db:
+        marker='freemoa-portfolio-public-media-20261024-v7'
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"origin":"public_project_summary_with_media"}')
+        ).fetchone()
+        if claimed:
+            cfg={"pages":1,"limit":10,"test":marker}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('market_freemoa_portfolios',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg),"Freemoa public portfolio modal project details and image/link capture")
+            ).fetchone()["id"]
+            logging.info("FREEMOA_PUBLIC_MEDIA_QUEUED job=%s",jid)
     while not STOP:
         try:
             # PostgreSQL cursor and advisory lock make Railway restarts safe.
