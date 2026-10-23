@@ -1,58 +1,35 @@
-"""Contract regressions for official G2B award/opening data adapter."""
-import os
+"""G2B browser-origin opening-results scraper regression tests."""
 import unittest
-from unittest.mock import patch
-from g2b_bid_collector import (
-    OPERATIONS,configured,credentials,normalize_item,parse_response,collect
-)
+from g2b_bid_collector import normalize_id,normalize_item,configured,_final_award,ID_ONLY_RE
 
 class G2BBidResultContracts(unittest.TestCase):
-    def test_bid_result_operations_are_distinct_from_announcements(self):
-        self.assertEqual(OPERATIONS[("service","award")],"getScsbidListSttusServc")
-        self.assertEqual(OPERATIONS[("goods","opening")],"getOpengResultListInfoThng")
-        self.assertEqual(len(OPERATIONS),4)
+    def test_no_public_data_api_key_needed(self):
+        self.assertTrue(configured())
 
-    def test_no_key_never_claims_empty_results(self):
-        with patch.dict(os.environ,{},clear=True):
-            self.assertFalse(configured())
-            with self.assertRaisesRegex(RuntimeError,"g2b_bid_api_key_missing"):
-                credentials()
-            with self.assertRaisesRegex(RuntimeError,"g2b_bid_api_key_missing"):
-                collect()
+    def test_actual_g2b_bid_identifiers(self):
+        self.assertEqual(normalize_id("R26BK01787048-000"),("R26BK01787048","000"))
+        self.assertEqual(normalize_id("R26BK01783626"),("R26BK01783626","000"))
+        self.assertEqual(normalize_id("20240516360-000"),("20240516360","000"))
+        self.assertIsNone(normalize_id("R26DD20902084"))
+        self.assertIsNone(normalize_id("javascript:alert(1)"))
 
-    def test_official_response_and_paginated_count(self):
-        data={"response":{"header":{"resultCode":"00"},
-             "body":{"totalCount":2,"items":{"item":[
-               {"bidNtceNo":"R26BK00000001","bidNtceNm":"미화 일반용역","sucsfbidAmt":"1200000"},
-               {"bidNtceNo":"R26BK00000002","bidNtceNm":"서버 구축","sucsfbidAmt":"2300000"}
-             ]}}}}
-        rows,total=parse_response(data)
-        self.assertEqual(total,2)
-        self.assertEqual(len(rows),2)
-        self.assertEqual(rows[0]["bidNtceNo"],"R26BK00000001")
+    def test_different_bidder_rows_not_merged(self):
+        base={"bid_no":"R26BK01787048","bid_ord":"000","bid_name":"물품구매",
+              "onbsRnkg":"1","bzmnRegNo":"0000000001","grpNm":"A사",
+              "bdngAmt":"1000000","bdrt":"89.22","participant_count":"3"}
+        first=normalize_item(base,"unspecified","opening","g2b_web_opening",0)
+        second=normalize_item({**base,"onbsRnkg":"2","grpNm":"B사",
+                               "bzmnRegNo":"0000000002"},
+                              "unspecified","opening","g2b_web_opening",1)
+        self.assertNotEqual(first["record_key"],second["record_key"])
+        self.assertEqual(first["company"],"A사")
+        self.assertEqual(first["rate"],"89.22")
 
-    def test_api_error_is_not_zero_results(self):
-        payload={"response":{"header":{"resultCode":"30","resultMsg":"invalid key"},"body":{}}}
-        with self.assertRaisesRegex(RuntimeError,"g2b_bid_api_result_30"):
-            parse_response(payload)
-
-    def test_compound_execution_key_and_no_contact_fields(self):
-        first={"bidNtceNo":"R26BK00123456","bidNtceOrd":"00",
-               "bidClsfcNo":"01","rbidNo":"000","bidNtceNm":"입찰명",
-               "sucsfbidAmt":"100000000","fnlSucsfbdCorpNm":"법인 A",
-               "buyerEmail":"secret@example.org","buyerPhone":"01012345678"}
-        a=normalize_item(first,"service","award","getScsbidListSttusServc",0)
-        b=normalize_item({**first,"bidClsfcNo":"02"},"service","award","getScsbidListSttusServc",0)
-        self.assertNotEqual(a["record_key"],b["record_key"])
-        self.assertEqual(a["company"],"법인 A")
-        self.assertNotIn("buyerEmail",a["raw"])
-        self.assertNotIn("buyerPhone",a["raw"])
-
-    def test_empty_genuine_response_remains_separate_from_missing_key(self):
-        rows,total=parse_response({"response":{"header":{"resultCode":"00"},
-                             "body":{"items":{},"totalCount":0}}})
-        self.assertEqual(rows,[])
-        self.assertEqual(total,0)
+    def test_first_place_is_not_final_award(self):
+        self.assertIsNone(_final_award({"bidPbancNm":"구매"},{}))
+        self.assertIsNone(_final_award({"fnlSucsfbdCorpNm":"A사"},{}))
+        self.assertEqual(_final_award({"fnlSucsfbdCorpNm":"A사",
+                     "progress":"최종낙찰확정"},{}),"A사")
 
 if __name__=="__main__":
     unittest.main()
