@@ -88,6 +88,20 @@ class Work24ContractTests(unittest.TestCase):
         self.assertIn('result["examined"]+=1',detail)
         self.assertIn('if result["saved"]>=limit:break',detail)
 
+    def test_g2b_bid_result_collection_contract(self):
+        from g2b_bid_collector import parse_response, normalize_item, OPERATIONS
+        self.assertIn(("service","award"), OPERATIONS)
+        payload={"response":{"header":{"resultCode":"00"},
+           "body":{"totalCount":1,"items":{"item":[{
+             "bidNtceNo":"R26BK00965123","bidNtceNm":"용역",
+             "sucsfbidAmt":"1000000","fnlSucsfbdCorpNm":"법인"}]}}}}
+        records,total=parse_response(payload)
+        self.assertEqual(total,1)
+        row=normalize_item(records[0],"service","award",
+                           OPERATIONS[("service","award")],0)
+        self.assertEqual(row["bid_ntce_no"],"R26BK00965123")
+        self.assertEqual(row["amount"],"1000000")
+
     def test_no_automatic_bidding_or_pii_getters(self):
         import inspect
         from work24_collector import collect
