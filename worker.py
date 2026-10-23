@@ -393,6 +393,21 @@ def main():
                  "Freemoa public JS portfolio modal full detail retry")
             ).fetchone()['id']
             logging.info('FREEMOA_MODAL_V3_QUEUED job=%s',jid)
+    with session() as db:
+        marker='private-freemoa-verified-dialogs-20261024-v4'
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"state":"queued","goal":"verify expanded portfolio dialogs"}')
+        ).fetchone()
+        if claimed:
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('market_freemoa_portfolios',%s::jsonb,%s) RETURNING id",
+                (json.dumps({'pages':1,'limit':10,'test':marker}),
+                 "Freemoa JS portfolio true project summaries only")
+            ).fetchone()['id']
+            logging.info("FREEMOA_VERIFIED_DIALOGS_QUEUED job=%s",jid)
     last_g2b_schedule=0
     while not STOP:
         try:
