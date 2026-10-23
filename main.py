@@ -226,6 +226,12 @@ def publicly_linked_partners(q:str="",limit:int=Query(50,ge=1,le=200),
             "classification":"public portfolio-to-partner reference only; full partner profile requires login"}
 
 
+@app.get("/api/private/schedule")
+def private_supply_schedule_status():
+    import private_supply_schedule
+    return private_supply_schedule.status()
+
+
 @app.get("/api/private/completeness")
 def private_completeness():
     with session() as c:
