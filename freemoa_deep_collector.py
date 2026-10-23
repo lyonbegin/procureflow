@@ -181,35 +181,77 @@ def collect(source,pages=1,limit=10):
                             result["errors"].append(fno+":"+type(ex).__name__+":"+str(ex)[:100])
                     if result["saved"]>=limit:break
                 else:
-                    urls,diagnostic=_discover_portfolios(page,limit)
-                    result["diagnostics"].append({"page":n,"portfolio_links":len(urls),
-                                                  "card_dom":diagnostic})
+                    ids,diagnostic=_discover_portfolios(page,limit)
+                    result["discovered"]+=len(ids)
+                    result["diagnostics"].append({
+                        "page":n,"js_portfolio_cards":len(ids),
+                        "card_dom":diagnostic[:8]})
                     logging.info("FREEMOA_PORTFOLIO_LIST_DIAG %s",
-                                 json.dumps(result["diagnostics"][-1],ensure_ascii=False)[:2600])
-                    for detail in urls:
-                        if detail in seen:continue
-                        seen.add(detail)
+                                 json.dumps(result["diagnostics"][-1],
+                                            ensure_ascii=False)[:2000])
+                    for portfolio_id in ids:
+                        if portfolio_id in seen:continue
+                        seen.add(portfolio_id)
+                        if result["saved"]>=limit:break
                         try:
-                            dr=page.goto(detail,wait_until="domcontentloaded",timeout=25000)
-                            if not dr or dr.status>=400:continue
-                            body=_text_evidence(page)
-                            if body["body_length"]<250:continue
-                            meta={"origin":"public_portfolio_detail",
-                                  "sections":body["sections"],
-                                  "technologies":body["technologies"],
-                                  "images":body["images"][:40],
-                                  "public_links":body["links"][:45],
-                                  "body_length":body["body_length"]}
-                            title=next((v for v in body["headings"] if len(v)>4),page.title())
-                            fresh=_upsert(source,"portfolio_reference",detail,title,
-                                          body["text"],meta)
+                            # Reload to close previous modal before click.
+                            rr=page.goto(url,wait_until="domcontentloaded",
+                                         timeout=26000)
+                            if not rr or rr.status>=400:continue
+                            page.wait_for_timeout(600)
+                            cards=page.locator('[onclick*="showPortfolio"]')
+                            target=None
+                            for ci in range(min(cards.count(),150)):
+                                x=cards.nth(ci)
+                                event=x.get_attribute("onclick") or ""
+                                if re.search(r"showPortfolio\s*\(\s*['\"]?"+
+                                             re.escape(portfolio_id)+r"\b",event):
+                                    target=x
+                                    break
+                            if target is None:
+                                result["errors"].append("missing_js_card:"+portfolio_id)
+                                continue
+                            label=target.inner_text(timeout=1800).strip()
+                            target.click(timeout=4500)
+                            page.wait_for_timeout(1000)
+                            modal,candidates=_visible_modal(page)
+                            parsed=parse_public_sections(modal)
+                            if parsed["body_length"]<230:
+                                result["errors"].append("modal_no_real_detail:"+portfolio_id)
+                                logging.warning(
+                                    "FREEMOA_MODAL_EMPTY id=%s nodes=%s",
+                                    portfolio_id,json.dumps([
+                                        {"selector":x["selector"],"length":len(x["text"])}
+                                        for x in candidates],ensure_ascii=False)[:700])
+                                continue
+                            title=label.split("\n")[0].strip().lstrip("+").strip()
+                            if not title:title="프리모아 포트폴리오 "+portfolio_id
+                            # Modal has no URL; store truthful source page + real ID.
+                            source_url=ROOT+"/m7/s712"
+                            meta={"origin":"public_javascript_portfolio_modal",
+                                  "portfolio_id":portfolio_id,
+                                  "source_page":source_url,
+                                  "card_label":label[:300],
+                                  "sections":parsed["sections"],
+                                  "technologies":parsed["technologies"],
+                                  "body_length":parsed["body_length"],
+                                  "modal_structure":[{"selector":x["selector"],
+                                    "body_length":len(x["text"])} for x in candidates]}
+                            fresh=_upsert(source,"portfolio_reference",source_url,
+                                          title,parsed["text"],meta,
+                                          source_id=portfolio_id)
                             result["saved"]+=1
                             result["new"]+=int(fresh)
-                            result["details"].append({"url":detail,"fresh":fresh,
-                                                      "body_length":body["body_length"]})
+                            result["details"].append({
+                                "portfolio_id":portfolio_id,
+                                "title":title[:130],
+                                "body_length":parsed["body_length"],
+                                "fresh":fresh})
+                            logging.info("FREEMOA_PORTFOLIO_DEEP id=%s length=%s new=%s",
+                                         portfolio_id,parsed["body_length"],fresh)
                         except Exception as ex:
-                            result["errors"].append("portfolio:"+type(ex).__name__+
-                                                     ":"+str(ex)[:100])
+                            result["errors"].append("portfolio_"+portfolio_id+":"+
+                                  type(ex).__name__+":"+str(ex)[:95])
                     if result["saved"]>=limit:break
             result["status"]=("collected" if result["saved"] and not result["errors"]
                               else "partial" if result["saved"]
