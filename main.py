@@ -331,8 +331,8 @@ def g2b_schedule_status():
 
 class BidHistoricalWindow(BaseModel):
     kind:str=Field("award",pattern="^(award|opening)$")
-    start_date:str=Field(...,pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
-    end_date:str=Field(...,pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
+    start_date:str=Field(...,pattern="^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    end_date:str=Field(...,pattern="^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     page_start:int=Field(1,ge=1,le=10000)
     pages:int=Field(2,ge=1,le=10)
 
