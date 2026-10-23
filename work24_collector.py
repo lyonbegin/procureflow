@@ -260,10 +260,12 @@ def search_keyword(page,term: str) -> dict:
     control=page.evaluate("""() => {
       const anchor=document.querySelector('#srcKeyword');
       if (!anchor) return {status:'no_srcKeyword'};
-      const chain=new Map();let d=0;
-      for(let n=anchor;n;n=n.parentElement)chain.set(n,d++);
-      const distance=b=>{let y=b,k=0;for(;y;y=y.parentElement,k++)
-          if(chain.has(y))return k+chain.get(y);return 10000};
+      const ancestors=[];
+      for(let n=anchor;n;n=n.parentElement)ancestors.push(n);
+      const distance=b=>{let y=b,k=0;for(;y;y=y.parentElement,k++){
+          const i=ancestors.indexOf(y);
+          if(i>=0)return k+i;
+      }return 10000};
       const candidates=[...document.querySelectorAll('button,a,input[type="button"],input[type="submit"]')]
           .filter(x=>/^\s*검색\s*$/.test((x.innerText||x.value||x.getAttribute('aria-label')||'').trim()))
           .filter(x=>!!(x.offsetWidth||x.offsetHeight||x.getClientRects().length))
