@@ -57,6 +57,20 @@ class G2BBidResultContracts(unittest.TestCase):
         self.assertEqual(first["company"],"A사")
         self.assertEqual(first["rate"],"89.22")
 
+    def test_verified_websquare_business_categories(self):
+        from g2b_bid_collector import business_category,normalize_public_listing
+        self.assertEqual(business_category("01"),"goods")
+        self.assertEqual(business_category("03"),"service")
+        self.assertEqual(business_category("07"),"unspecified")
+        listing={"bid_no":"R26BK01787048","bid_ord":"000",
+                 "bid_clsfc_no":"1","bid_progress_ord":"000",
+                 "business_code":"01","status":"개찰완료",
+                 "title":"실제 공고명","agency":"수요기관"}
+        item=normalize_public_listing(listing)
+        self.assertEqual(item["category"],"goods")
+        self.assertEqual(item["agency"],"수요기관")
+        self.assertEqual(item["result_kind"],"opening_status")
+
     def test_first_place_is_not_final_award(self):
         self.assertIsNone(_final_award({"bidPbancNm":"구매"},{}))
         self.assertIsNone(_final_award({"fnlSucsfbdCorpNm":"A사"},{}))
