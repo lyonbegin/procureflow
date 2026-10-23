@@ -248,17 +248,26 @@ def collect(source,pages=1,limit=10):
                             page.on("response",capture)
                             target.evaluate("(e)=>e.click()")
                             page.wait_for_timeout(1900)
-                            expanded=_expand_public_modal(page)
                             modal,candidates=_visible_modal(page)
                             if not modal:
-                                page.wait_for_timeout(900)
+                                page.wait_for_timeout(850)
                                 modal,candidates=_visible_modal(page)
+                            # Expand only AFTER the real project-summary panel
+                            # is identified; broad global clicks can change
+                            # unrelated search-list paging.
+                            expanded=0
+                            if modal:
+                                expanded=_expand_public_modal(page)
+                                if expanded:
+                                    expanded_text,_=_visible_modal(page)
+                                    if expanded_text and len(expanded_text)>len(modal):
+                                        modal=expanded_text
                             if not modal and len(ctx.pages)>before_pages:
                                 popped=ctx.pages[-1]
                                 popped.wait_for_load_state("domcontentloaded",timeout=6000)
                                 modal=popped.locator("body").inner_text(timeout=4500)[:27000]
                             after=page.locator("body").inner_text(timeout=3500)
-                            if not modal and len(after)>len(before)+220:
+                            if not modal and after!=before:
                                 idx=after.find("프로젝트 요약")
                                 if idx>=0:
                                     modal=after[idx:idx+18000]
