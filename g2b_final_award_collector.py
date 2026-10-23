@@ -14,6 +14,7 @@ import time
 from playwright.sync_api import sync_playwright
 from g2b_award_web_collector import BASE,LIST_URL,DETAIL_URL,HEADERS,FINAL_STATUS,_request
 from g2b_bid_collector import save_batch
+from g2b_date_windows import window
 
 CATEGORY_BY_CODE={"조070001":"goods","조070002":"service"}
 DETAIL_HEADERS={k:v for k,v in HEADERS.items() if k not in ("Menu-Info","Target-Id")}
@@ -73,18 +74,21 @@ def normalized_confirmed_award(listing,detail):
     }
 
 
-def collect(days=21,pages=2,limit=30):
+def collect(days=21,pages=2,limit=30,start_date=None,end_date=None,page_start=1):
     """Read-only search of officially selected winners, bounded by date/pages."""
     days=max(1,min(int(days),60))
     pages=max(1,min(int(pages),5))
     limit=max(1,min(int(limit),100))
-    now=datetime.now(timezone(timedelta(hours=9)))
-    pub_from=(now-timedelta(days=days+30)).strftime("%Y%m%d")
-    open_from=(now-timedelta(days=days)).strftime("%Y%m%d")
-    today=now.strftime("%Y%m%d")
+    first_day,last_day=window(days,start_date,end_date,max_span_days=60)
+    pub_from=(first_day-timedelta(days=30)).strftime("%Y%m%d")
+    open_from=first_day.strftime("%Y%m%d")
+    today=last_day.strftime("%Y%m%d")
+    page_start=max(1,min(int(page_start),10000))
     out={"source":"g2b","adapter":"g2b_nuri_web_final_awards",
          "status":"started","discovered":0,"checked":0,"confirmed":0,
-         "saved":0,"new":0,"errors":[],"not_final":[],"pages":[]}
+         "saved":0,"new":0,"errors":[],"not_final":[],"pages":[],
+         "window_start":first_day.isoformat(),"window_end":last_day.isoformat(),
+         "page_start":page_start,"has_more":False,"last_page":page_start}
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
@@ -102,7 +106,7 @@ def collect(days=21,pages=2,limit=30):
                 "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"",
                 "pbancPstgYn":"Y","frgnrRprsvYn":""}
             seen=set()
-            for page_no in range(1,pages+1):
+            for page_no in range(page_start,page_start+pages):
                 params["currentPage"]=page_no
                 response=_request(ctx,LIST_URL,{"dlParamM":params},HEADERS)
                 if isinstance(response,dict):
@@ -113,6 +117,8 @@ def collect(days=21,pages=2,limit=30):
                 if not isinstance(candidates,list):
                     raise RuntimeError("invalid_award_list")
                 out["pages"].append({"page":page_no,"returned":len(candidates)})
+                out["last_page"]=page_no
+                out["has_more"]=len(candidates)>=20
                 for record in candidates:
                     if len(seen)>=limit:break
                     if not isinstance(record,dict):continue
