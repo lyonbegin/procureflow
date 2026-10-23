@@ -25,7 +25,7 @@ def status(jid):
     with session() as db:return db.execute('SELECT state FROM procureflow.jobs WHERE id=%s',(jid,)).fetchone()
 
 def done(jid,state,message):
-    with session() as db:db.execute("UPDATE procureflow.jobs SET state=%s,message=%s,last_error=%s,finished_at=now() WHERE id=%s AND state='running'",(state,message[:500],message[:1000] if state=='failed' else '',jid))
+    with session() as db:db.execute("UPDATE procureflow.jobs SET state=%s,message=%s,last_error=%s,finished_at=now() WHERE id=%s AND state='running'",(state,message[:500],message[:1000] if state in ('failed','completed_partial') else '',jid))
 
 def transport_probe(host):
     """Diagnose Railway outbound TCP/TLS separately from original browser collection."""
@@ -312,8 +312,10 @@ def main():
                         update(job['id'],checked=result['examined'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
-                        done(job['id'],'completed' if result['status']=='collected' else 'failed',
-                             json.dumps(result,ensure_ascii=False))
+                        job_state=('completed' if result['status']=='collected'
+                                   else 'completed_partial' if result['status']=='partial'
+                                   else 'failed')
+                        done(job['id'],job_state,json.dumps(result,ensure_ascii=False))
                         logging.info('G2B_BID_JOB_RESULT %s',json.dumps(result,ensure_ascii=False)[:3500])
                     elif job['source']=='wishket':
                         import wishket_collector
