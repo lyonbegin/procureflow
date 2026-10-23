@@ -136,8 +136,9 @@ def site_probes():
 
 class WishketRun(BaseModel):
     kind:str="portfolios"
-    pages:int=Field(2,ge=1,le=500)
-    limit:int=Field(30,ge=1,le=5000)
+    pages:int=Field(2,ge=1,le=40)
+    limit:int=Field(30,ge=1,le=300)
+    page_start:int=Field(1,ge=1,le=100000)
 @app.post("/api/wishket/collect")
 def wishket_collect(req:WishketRun,authorization:str|None=Header(None)):
     guard(authorization)
@@ -172,6 +173,7 @@ class MarketRun(BaseModel):
     source:str
     pages:int=Field(1,ge=1,le=20)
     limit:int=Field(8,ge=1,le=200)
+    page_start:int=Field(1,ge=1,le=100000)
     queries:list[str]=Field(default_factory=list,max_length=12)
 
 @app.get("/api/private/detail")
