@@ -304,6 +304,23 @@ def collect(source,pages=1,limit=10):
                                 portfolio_id)
                             # Modal has no URL; store truthful source page + real ID.
                             source_url=ROOT+"/m7/s712"
+                            media=page.evaluate("""() => {
+                                const nodes=[...document.querySelectorAll(
+                                    '[role="dialog"],.modal,.modal-dialog,[id*="portfolio"],[id*="Portfolio"]')]
+                                   .filter(e=>e.getClientRects().length && (e.innerText||'').includes('프로젝트 요약'));
+                                const parent=nodes.sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length)[0];
+                                if(!parent)return {images:[],links:[]};
+                                const images=[...parent.querySelectorAll('img[src]')]
+                                  .filter(e=>e.getClientRects().length)
+                                  .map(e=>({url:(e.currentSrc||e.src||'').slice(0,700),
+                                           alt:(e.alt||'').slice(0,200)}))
+                                  .filter(e=>/^https:\\/\\//.test(e.url)).slice(0,60);
+                                const links=[...parent.querySelectorAll('a[href]')]
+                                  .map(e=>({url:(e.href||'').slice(0,700),
+                                           label:(e.innerText||'').slice(0,160)}))
+                                  .filter(e=>/^https:\\/\\//.test(e.url)).slice(0,40);
+                                return {images,links}
+                            }""")
                             meta={"origin":"public_javascript_portfolio_modal",
                                   "portfolio_id":portfolio_id,
                                   "source_page":source_url,
@@ -313,6 +330,8 @@ def collect(source,pages=1,limit=10):
                                   "sections":parsed["sections"],
                                   "technologies":parsed["technologies"],
                                   "body_length":parsed["body_length"],
+                                  "images":media["images"],
+                                  "public_links":media["links"],
                                   "modal_structure":[{"selector":x["selector"],
                                     "body_length":len(x["text"])} for x in candidates]}
                             fresh=_upsert(source,"portfolio_reference",source_url,
