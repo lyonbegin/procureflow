@@ -178,12 +178,17 @@ def save_public_partner_reference(partner_url,portfolio_url,portfolio_body,portf
     return bool(row["fresh"])
 
 
-def collect(kind="portfolios",pages=2,limit=30):
+def collect(kind="portfolios",pages=2,limit=30,page_start=1):
     if kind not in KINDS:raise ValueError("unsupported kind")
     path,pattern=KINDS[kind]
     pages=max(1,min(40,int(pages)))
+    page_start=max(1,min(100000,int(page_start)))
     limit=max(1,min(300,int(limit)))
     count=0
+    new_count=0
+    page_stats=[]
+    seen_page_fingerprints=set()
+    has_more=False
     examined=0
     errors=[]
     blocked=[]
@@ -193,7 +198,7 @@ def collect(kind="portfolios",pages=2,limit=30):
         ctx=browser.new_context(locale="ko-KR",viewport={"width":1366,"height":900})
         page=ctx.new_page()
         try:
-            for number in range(1,pages+1):
+            for number in range(page_start,page_start+pages):
                 url=ROOT+path
                 if kind=="portfolios":
                     url=ROOT+"/partners/wishket-portfolio/?tab=all&page="+str(number)
@@ -220,10 +225,18 @@ def collect(kind="portfolios",pages=2,limit=30):
                             except Exception as ex:
                                 errors.append("partner_discovery:"+type(ex).__name__)
                         items=list(dict.fromkeys(items))
+                    if items:
+                        fingerprint="|".join(items[:20])
+                        if fingerprint in seen_page_fingerprints:
+                            page_stats.append({"page":number,"items":len(items),
+                                               "repeated_listing":True})
+                            has_more=False
+                            break
+                        seen_page_fingerprints.add(fingerprint)
                     found.extend(items)
-                    if not items:
-                        errors.append("no_public_detail_links_page_"+str(number))
-                        break
+                    page_stats.append({"page":number,"items":len(items)})
+                    has_more=len(items)>=10
+                    if not items:break
                     for url in items:
                         if count>=limit:break
                         examined+=1
@@ -235,6 +248,7 @@ def collect(kind="portfolios",pages=2,limit=30):
                             page.wait_for_timeout(350)
                             record=_save(kind,url,number,page)
                             count+=1
+                            new_count+=int(record["fresh"])
                             logging.info("WISHKET_DETAIL kind=%s url=%s body_length=%s skills=%s partners=%s",
                                 kind,url,record["body_length"],len(record["technologies"]),
                                 record["related_partner_count"])
@@ -248,7 +262,12 @@ def collect(kind="portfolios",pages=2,limit=30):
             ctx.close()
             browser.close()
     result={"kind":kind,"status":"collected" if count and not errors else
-            "partial" if count else "login_required" if blocked else "error",
-            "saved":count,"examined":examined,"discovered":len(set(found)),
+            "partial" if count else "login_required" if blocked else
+            "error" if errors else "empty",
+            "saved":count,"new":new_count,"examined":examined,
+            "discovered":len(set(found)),
+            "page_start":page_start,
+            "last_page":page_stats[-1]["page"] if page_stats else page_start,
+            "has_more":bool(has_more),"pages":page_stats,
             "restricted":blocked[:25],"errors":errors[:20]}
     return result
