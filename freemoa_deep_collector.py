@@ -137,13 +137,29 @@ def _visible_modal(page):
          .slice(0,12);
     }""")
     selected=next((x["text"] for x in data if
-                   "프로젝트 요약" in x["text"] or "진행기간" in x["text"]), "")
-    if not selected:
-        selected=next((x["text"] for x in data if
-            "포트폴리오 타이틀이 입력되는 공간" not in x["text"]
-            and len(x["text"])>330 and
-            any(k in x["text"] for k in ("프로젝트","개발","디자인","작업"))),"")
+                  "프로젝트 요약" in x["text"]
+                  and "포트폴리오 타이틀이 입력되는 공간" not in x["text"][:140]),"")
     return selected,data[:10]
+
+
+def _expand_public_modal(page):
+    try:
+        count=page.evaluate("""() => {
+           let clicked=0;
+           for(const e of [...document.querySelectorAll('a,button,span,div')]){
+              if(clicked>=4)break;
+              if(!e.getClientRects().length)continue;
+              const t=(e.innerText||'').trim();
+              if((t==='펼치기'||t==='+ 펼치기'||t==='더보기')
+                && e.closest('[class*="portfolio"],[class*="modal"],[role="dialog"]')){
+                  e.click();clicked++;
+              }
+           }
+           return clicked;
+        }""")
+        if count:page.wait_for_timeout(350)
+        return count
+    except Exception:return 0
 
 
 def collect(source,pages=1,limit=10):
@@ -232,14 +248,20 @@ def collect(source,pages=1,limit=10):
                             page.on("response",capture)
                             target.evaluate("(e)=>e.click()")
                             page.wait_for_timeout(1900)
+                            expanded=_expand_public_modal(page)
                             modal,candidates=_visible_modal(page)
+                            if not modal:
+                                page.wait_for_timeout(900)
+                                modal,candidates=_visible_modal(page)
                             if not modal and len(ctx.pages)>before_pages:
                                 popped=ctx.pages[-1]
                                 popped.wait_for_load_state("domcontentloaded",timeout=6000)
                                 modal=popped.locator("body").inner_text(timeout=4500)[:27000]
                             after=page.locator("body").inner_text(timeout=3500)
                             if not modal and len(after)>len(before)+220:
-                                modal=after[-20000:]
+                                idx=after.find("프로젝트 요약")
+                                if idx>=0:
+                                    modal=after[idx:idx+18000]
                             if not modal:
                                 logging.info("FREEMOA_MODAL_DOM_DIAG id=%s changed=%s before=%s after=%s nodes=%s network=%s",
                                     portfolio_id,before!=after,len(before),len(after),
@@ -264,6 +286,8 @@ def collect(source,pages=1,limit=10):
                                   "portfolio_id":portfolio_id,
                                   "source_page":source_url,
                                   "card_label":label[:300],
+                                  "verified_project_summary":True,
+                                  "expanded_more":expanded,
                                   "sections":parsed["sections"],
                                   "technologies":parsed["technologies"],
                                   "body_length":parsed["body_length"],
