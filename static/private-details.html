@@ -19,7 +19,8 @@ pre{font:13px/1.65 "Malgun Gothic",sans-serif;white-space:pre-wrap;overflow-wrap
 <option value="freemoa_partners">프리모아 파트너</option>
 <option value="freemoa_portfolios">프리모아 포트폴리오</option>
 <option value="wishket_portfolios">위시켓 포트폴리오</option>
-<option value="wishket_partners">위시켓 파트너</option>
+<option value="wishket_partners">위시켓 파트너 프로필 (로그인 제한)</option>
+<option value="wishket_public_links">위시켓 공개 포트폴리오·파트너 연결정보</option>
 </select></label>
 <label>검색어<input id="keyword" placeholder="기술·프로젝트·회사명"></label>
 <button id="search">DB 조회</button>
@@ -36,11 +37,13 @@ pre{font:13px/1.65 "Malgun Gothic",sans-serif;white-space:pre-wrap;overflow-wrap
 const el=id=>document.getElementById(id);
 const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 async function api(url,opt){const r=await fetch(url,opt);let d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d}
-function which(){let v=el('source').value;return v.startsWith('wishket_')?{source:'wishket',kind:v.slice(8)}:{source:v,kind:''}}
+function which(){let v=el('source').value;if(v==='wishket_public_links')return {source:'wishket_partner_reference',kind:'public_portfolio_evidence'};return v.startsWith('wishket_')?{source:'wishket',kind:v.slice(8)}:{source:v,kind:''}}
 function kindLabel(x){return x.kind||x.source||''}
 async function listRecords(){try{
 const w=which();const q=new URLSearchParams({limit:100,q:el('keyword').value});
-const d=await api(w.source==='wishket'?'/api/wishket/records?'+new URLSearchParams({...Object.fromEntries(q),kind:w.kind}):'/api/market/records?'+new URLSearchParams({...Object.fromEntries(q),source:w.source}));
+const d=await api(w.source==='wishket_partner_reference'?'/api/private/linked-partners?'+q:
+w.source==='wishket'?'/api/wishket/records?'+new URLSearchParams({...Object.fromEntries(q),kind:w.kind}):
+'/api/market/records?'+new URLSearchParams({...Object.fromEntries(q),source:w.source}));
 el('total').textContent=d.total+'건';
 el('status').textContent='저장된 자료 조회 완료';
 el('items').innerHTML='';
@@ -56,7 +59,9 @@ el('detailTitle').textContent=item.title||obj.title;
 el('detailMeta').innerHTML='<a href="'+esc(item.url)+'" target="_blank" rel="noopener noreferrer">원문 공개페이지 열기</a> · 저장본문 '+d.body_length+'자 · '+esc(item.kind||'');
 const sections=meta.sections||{};
 let block='<p><strong>기술:</strong> '+esc((meta.technologies||[]).join(', ')||'본문에서 추출되지 않음')+'</p>';
-block+='<p><strong>관련 포트폴리오/파트너 링크:</strong> '+esc((meta.partner_profile_urls||[]).length||meta.portfolio_reference_count||0)+'</p>';
+block+='<p><strong>관련 포트폴리오/파트너 링크:</strong> '+esc((meta.partner_profile_urls||[]).length||meta.portfolio_reference_count||meta.public_portfolio_count||0)+'</p>';
+if(meta.profile_access==='login_required')block+='<p><strong>프로필 원문:</strong> 로그인 필요 — 아래 내용은 공개 포트폴리오 연결정보이며 전체 프로필이 아닙니다.</p>';
+for(const project of (meta.public_portfolios||[]))block+='<details><summary>'+esc(project.title||project.url)+'</summary><p><a href="'+esc(project.url)+'" target="_blank" rel="noopener">실제 공개 포트폴리오</a></p><pre>'+esc(JSON.stringify(project.sections||{},null,2))+'</pre></details>';
 for(const [key,val] of Object.entries(sections).slice(0,10))block+='<details><summary>'+esc(key)+'</summary><pre>'+esc(String(val).slice(0,2100))+'</pre></details>';
 const images=meta.images||[];if(images.length)block+='<p>공개 이미지: '+images.length+'개</p>';
 el('structured').innerHTML=block;
@@ -67,8 +72,8 @@ el('search').onclick=listRecords;
 el('keyword').onkeydown=e=>{if(e.key==='Enter')listRecords()};
 el('source').onchange=()=>{listRecords();};
 el('collect').onclick=async()=>{const w=which();try{
-let route=w.source==='wishket'?'/api/wishket/collect':'/api/market/collect';
-let data=w.source==='wishket'?{kind:w.kind,pages:1,limit:12}:{source:w.source,pages:1,limit:12};
+let route=w.source==='wishket_partner_reference'?'/api/wishket/collect':w.source==='wishket'?'/api/wishket/collect':'/api/market/collect';
+let data=w.source==='wishket_partner_reference'?{kind:'portfolios',pages:2,limit:24}:w.source==='wishket'?{kind:w.kind,pages:1,limit:12}:{source:w.source,pages:1,limit:12};
 let job=await api(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 el('status').textContent='상세 크롤링 Job #'+job.job_id+' 접수';
 }catch(e){el('status').textContent=e.message}};
