@@ -211,9 +211,11 @@ def bid_results_status():
             FROM procureflow.jobs WHERE source='g2b_bid_results'
             ORDER BY id DESC LIMIT 3
         """).fetchall()
-    return {"status":"ok","api_key_configured":configured(),
-            "source":"PPS 나라장터 낙찰정보서비스",
-            "source_page":"https://www.data.go.kr/data/15129397/openapi.do",
+    return {"status":"ok","api_key_configured":False,
+            "api_key_required":False,
+            "source":"나라장터 공개 개찰결과분류조회 웹 화면",
+            "source_mode":"g2b_web_scrape",
+            "source_page":"https://www.g2b.go.kr/",
             "counts":rows,"total":sum(x["count"] for x in rows),
             "last_updated":last["latest"],"recent_jobs":jobs,
             "bidder_ranks":"not_yet_integrated"}
@@ -225,7 +227,7 @@ def bid_results(category:str="",kind:str="",q:str="",bid_no:str="",
     guard(authorization)
     where=[];values=[]
     if category:
-        if category not in ("goods","service"):raise HTTPException(400,"Invalid category")
+        if category not in ("goods","service","unspecified"):raise HTTPException(400,"Invalid category")
         where.append("category=%s");values.append(category)
     if kind:
         if kind not in ("award","opening"):raise HTTPException(400,"Invalid kind")
@@ -252,13 +254,12 @@ class BidCollectRun(BaseModel):
     pages:int=Field(1,ge=1,le=10)
     categories:list[str]=Field(default_factory=lambda:["goods","service"])
     kinds:list[str]=Field(default_factory=lambda:["award","opening"])
+    bid_numbers:list[str]=Field(default_factory=list,max_length=60)
 
 @app.post("/api/bids/collect")
 def collect_bid_results(req:BidCollectRun,authorization:str|None=Header(None)):
     guard(authorization)
-    from g2b_bid_collector import configured
-    if not configured():
-        raise HTTPException(503,"G2B_BID_API_KEY required in Railway api and worker")
+    # Uses public G2B WebSquare pages; no public-data OpenAPI key required.
     if not req.categories or any(x not in ("goods","service") for x in req.categories):
         raise HTTPException(400,"Invalid bid categories")
     if not req.kinds or any(x not in ("award","opening") for x in req.kinds):
