@@ -393,6 +393,11 @@ def normalize_item(record, category, kind, operation, index):
     }
 
 
+def detail_eligible(status):
+    """A re-bid or failed opening is a status record, not a completed award."""
+    return str(status or "").strip() not in ("재입찰","유찰","개찰전","개찰예정")
+
+
 def business_category(code):
     """Only label business codes whose meaning is independently established."""
     return {"01":"goods","03":"service"}.get(str(code or "").strip(),"unspecified")
@@ -559,6 +564,13 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
                              len(found),ls,ln)
             for item in found:
                 bid_no,bid_ord=item["bid_no"],item["bid_ord"]
+                if not detail_eligible(item.get("status")):
+                    result.setdefault("status_only",[]).append({
+                        "bid_no":bid_no,"bid_ord":bid_ord,
+                        "reason":str(item.get("status"))[:40]})
+                    logging.info("G2B_BID_STATUS_ONLY no=%s status=%s",
+                                 bid_no,item.get("status"))
+                    continue
                 try:
                     entry=fetch_opening(ctx,bid_no,bid_ord,max_pages,
                                         listing=item)
