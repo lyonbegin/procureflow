@@ -378,6 +378,21 @@ def main():
                 ).fetchone()['id']
                 logging.info('PRIVATE_DEEP_V2_QUEUED job=%s source=%s kind=%s',
                              jid,source,cfg.get('kind',''))
+    with session() as db:
+        marker='private-freemoa-modal-domclick-20261024-v3'
+        claim=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"state":"queued","goal":"actual JS portfolio popup details"}')
+        ).fetchone()
+        if claim:
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('market_freemoa_portfolios',%s::jsonb,%s) RETURNING id",
+                (json.dumps({'pages':1,'limit':3,'test':marker}),
+                 "Freemoa public JS portfolio modal full detail retry")
+            ).fetchone()['id']
+            logging.info('FREEMOA_MODAL_V3_QUEUED job=%s',jid)
     last_g2b_schedule=0
     while not STOP:
         try:
