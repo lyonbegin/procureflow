@@ -194,6 +194,88 @@ def market_collect(req:MarketRun,authorization:str|None=Header(None)):
             (job_source,json.dumps(req.model_dump()),"Private source Headless Chromium collection")).fetchone()["id"]
     return {"job_id":jid,"source":req.source,"state":"queued"}
 
+# Bid opening and award results are a separate lifecycle stage from notices.
+# The official public-data service key is present only in Railway variables.
+@app.get("/api/bids/status")
+def bid_results_status():
+    from g2b_bid_collector import configured
+    with session() as c:
+        rows=c.execute("""
+            SELECT category,result_kind,count(*) AS count
+            FROM procureflow.bid_results
+            GROUP BY category,result_kind ORDER BY category,result_kind
+        """).fetchall()
+        last=c.execute("SELECT max(last_seen) AS latest FROM procureflow.bid_results").fetchone()
+        jobs=c.execute("""
+            SELECT id,state,checked,added,duplicates,last_error,finished_at
+            FROM procureflow.jobs WHERE source='g2b_bid_results'
+            ORDER BY id DESC LIMIT 3
+        """).fetchall()
+    return {"status":"ok","api_key_configured":configured(),
+            "source":"PPS 나라장터 낙찰정보서비스",
+            "source_page":"https://www.data.go.kr/data/15129397/openapi.do",
+            "counts":rows,"total":sum(x["count"] for x in rows),
+            "last_updated":last["latest"],"recent_jobs":jobs,
+            "bidder_ranks":"not_yet_integrated"}
+
+@app.get("/api/bids")
+def bid_results(category:str="",kind:str="",q:str="",bid_no:str="",
+                limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0),
+                authorization:str|None=Header(None)):
+    guard(authorization)
+    where=[];values=[]
+    if category:
+        if category not in ("goods","service"):raise HTTPException(400,"Invalid category")
+        where.append("category=%s");values.append(category)
+    if kind:
+        if kind not in ("award","opening"):raise HTTPException(400,"Invalid kind")
+        where.append("result_kind=%s");values.append(kind)
+    if q:
+        where.append("(title ILIKE %s OR company ILIKE %s OR agency ILIKE %s)")
+        values.extend([f"%{q}%"]*3)
+    if bid_no:
+        where.append("bid_ntce_no=%s");values.append(bid_no)
+    sql=(" WHERE "+" AND ".join(where)) if where else ""
+    with session() as c:
+        total=c.execute("SELECT count(*) AS n FROM procureflow.bid_results"+sql,values).fetchone()["n"]
+        items=c.execute("""
+            SELECT source,category,result_kind,operation,bid_ntce_no,bid_ntce_ord,
+                   bid_clsfc_no,rbid_no,title,agency,company,amount,rate,rank,
+                   participation_count,result_status,last_seen
+            FROM procureflow.bid_results
+        """+sql+" ORDER BY last_seen DESC LIMIT %s OFFSET %s",
+            values+[limit,offset]).fetchall()
+    return {"total":total,"items":items}
+
+class BidCollectRun(BaseModel):
+    days:int=Field(7,ge=1,le=31)
+    pages:int=Field(1,ge=1,le=10)
+    categories:list[str]=Field(default_factory=lambda:["goods","service"])
+    kinds:list[str]=Field(default_factory=lambda:["award","opening"])
+
+@app.post("/api/bids/collect")
+def collect_bid_results(req:BidCollectRun,authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_bid_collector import configured
+    if not configured():
+        raise HTTPException(503,"G2B_BID_API_KEY required in Railway api and worker")
+    if not req.categories or any(x not in ("goods","service") for x in req.categories):
+        raise HTTPException(400,"Invalid bid categories")
+    if not req.kinds or any(x not in ("award","opening") for x in req.kinds):
+        raise HTTPException(400,"Invalid bid result kinds")
+    with session() as c:
+        active=c.execute("""
+            SELECT id FROM procureflow.jobs
+            WHERE source='g2b_bid_results' AND state IN ('queued','running') LIMIT 1
+        """).fetchone()
+        if active:raise HTTPException(409,"Bid result collector already active")
+        jid=c.execute("""
+            INSERT INTO procureflow.jobs(source,config,message)
+            VALUES ('g2b_bid_results',%s::jsonb,'Official G2B bid results: award and opening')
+            RETURNING id
+        """,(json.dumps(req.model_dump()),)).fetchone()["id"]
+    return {"job_id":jid,"state":"queued","source":"g2b_bid_results"}
+
 @app.get("/api/analysis/summary")
 def analysis_summary():
     """Aggregated live counts for the existing FastAPI dashboard.
