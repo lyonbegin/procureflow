@@ -80,6 +80,25 @@ def tick(session,now=None):
         claimed=db.execute(
             "SELECT pg_try_advisory_xact_lock(20261023,7311) AS claimed").fetchone()
         if not claimed["claimed"]:return None
+        # Reconcile a verified successful crawl whose Worker state was
+        # incorrectly overwritten by an overlapping Railway deployment.
+        # A missing finished_at plus a persisted collected checkpoint is
+        # required, so legitimate failed jobs stay failed.
+        repaired=db.execute("""
+            UPDATE procureflow.jobs j
+            SET state='completed',finished_at=s.updated_at,
+                message='Recovered from verified successful G2B scheduler checkpoint',
+                last_error=''
+            FROM procureflow.settings s
+            WHERE s.key LIKE 'g2b:schedule:%'
+              AND j.id=(s.value->>'last_job')::bigint
+              AND j.state='failed' AND j.finished_at IS NULL
+              AND s.value->>'last_state' IN ('collected','empty')
+            RETURNING j.id
+        """).fetchall()
+        if repaired:
+            logging.info("G2B_SCHEDULER_RECONCILED jobs=%s",
+                         [x["id"] for x in repaired])
         active=db.execute("""
            SELECT id FROM procureflow.jobs
            WHERE source IN ('g2b_bid_results','g2b_final_awards')
