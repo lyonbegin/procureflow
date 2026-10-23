@@ -312,12 +312,41 @@ def main():
                  "G2B final-award public-web status and winner-code probe")
             ).fetchone()["id"]
             logging.info("G2B_FINAL_AWARD_PROBE_QUEUED job=%s",jid)
+    with session() as db:
+        marker="g2b-final-awards-save-verified-20261023-v1"
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"status":"queued","source":"nuri_verified_awards"}')
+        ).fetchone()
+        if claimed:
+            cfg={"days":21,"pages":2,"limit":30,"test":marker}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('g2b_final_awards',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg,ensure_ascii=False),"G2B final winner and amount real web save")
+            ).fetchone()["id"]
+            logging.info("G2B_FINAL_AWARDS_QUEUED job=%s",jid)
     while not STOP:
         try:
             job=get_next_job()
             if job:
                 try:
-                    if job['source']=='g2b_final_award_probe':
+                    if job['source']=='g2b_final_awards':
+                        import g2b_final_award_collector
+                        cfg=job.get('config') or {}
+                        result=g2b_final_award_collector.collect(
+                            days=cfg.get('days',21),pages=cfg.get('pages',2),
+                            limit=cfg.get('limit',30))
+                        update(job['id'],checked=result['checked'],added=result['new'],
+                               duplicates=result['saved']-result['new'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['status']=='collected'
+                             else 'completed_partial' if result['status']=='partial'
+                             else 'failed',json.dumps(result,ensure_ascii=False))
+                        logging.info('G2B_FINAL_AWARDS_JOB_RESULT %s',
+                                     json.dumps(result,ensure_ascii=False)[:3200])
+                    elif job['source']=='g2b_final_award_probe':
                         import g2b_award_web_collector
                         cfg=job.get('config') or {}
                         result=g2b_award_web_collector.probe(
