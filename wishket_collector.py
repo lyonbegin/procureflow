@@ -138,7 +138,15 @@ def save_public_partner_reference(partner_url,portfolio_url,portfolio_body,portf
         """,(name,)).fetchone()
         old=existing["meta"] if existing else {}
         works=old.get("public_portfolios") or []
-        if not any(x.get("url")==portfolio_url for x in works):
+        existing_work=next((x for x in works if x.get("url")==portfolio_url),None)
+        if existing_work:
+            existing_work.update({
+                "title":portfolio_evidence.get("heading","")[:300],
+                "technologies":portfolio_evidence.get("technologies",[])[:25],
+                "sections":portfolio_evidence.get("sections",{}),
+                "portfolio_body_length":len(portfolio_body),
+                "public_project_text":portfolio_body[:14000]})
+        else:
             works.append({"url":portfolio_url,
                           "title":portfolio_evidence.get("heading","")[:300],
                           "technologies":portfolio_evidence.get("technologies",[])[:25],
