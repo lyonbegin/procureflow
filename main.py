@@ -220,9 +220,9 @@ def bid_results_status():
         """).fetchone()
         last=c.execute("SELECT max(last_seen) AS latest FROM procureflow.bid_results").fetchone()
         jobs=c.execute("""
-            SELECT id,state,checked,added,duplicates,
+            SELECT id,source,state,checked,added,duplicates,
                    left(last_error,240) AS last_error,finished_at
-            FROM procureflow.jobs WHERE source='g2b_bid_results'
+            FROM procureflow.jobs WHERE source IN ('g2b_bid_results','g2b_final_awards')
             ORDER BY id DESC LIMIT 3
         """).fetchall()
     return {"status":"ok","api_key_configured":False,
@@ -294,6 +294,30 @@ def collect_bid_results(req:BidCollectRun,authorization:str|None=Header(None)):
             RETURNING id
         """,(json.dumps(req.model_dump()),)).fetchone()["id"]
     return {"job_id":jid,"state":"queued","source":"g2b_bid_results"}
+
+class AwardCollectRun(BaseModel):
+    days:int=Field(21,ge=1,le=60)
+    pages:int=Field(2,ge=1,le=5)
+    limit:int=Field(30,ge=1,le=100)
+
+@app.post("/api/bids/awards/collect")
+def start_verified_final_award_collection(req:AwardCollectRun,
+                                          authorization:str|None=Header(None)):
+    guard(authorization)
+    with session() as c:
+        active=c.execute("""
+          SELECT id FROM procureflow.jobs
+          WHERE source='g2b_final_awards' AND state IN ('queued','running')
+          LIMIT 1
+        """).fetchone()
+        if active:raise HTTPException(409,"Final-award web crawl already active")
+        jid=c.execute("""
+          INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('g2b_final_awards',%s::jsonb,'Verified final award public web crawl')
+          RETURNING id
+        """,(json.dumps(req.model_dump()),)).fetchone()["id"]
+    return {"job_id":jid,"state":"queued","source":"g2b_final_awards"}
+
 
 @app.get("/api/analysis/summary")
 def analysis_summary():
