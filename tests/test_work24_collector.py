@@ -84,9 +84,9 @@ class Work24ContractTests(unittest.TestCase):
         self.assertIn("search_keyword_not_verified",src)
         self.assertIn("search_keyword_mismatch",src)
         detail=inspect.getsource(collect)
-        self.assertIn("result[\\"discovered\\"]",detail)
-        self.assertIn("result[\\"examined\\"]+=1",detail)
-        self.assertIn("if result[\\"saved\\"]>=limit:break",detail)
+        self.assertIn('result["discovered"]',detail)
+        self.assertIn('result["examined"]+=1',detail)
+        self.assertIn('if result["saved"]>=limit:break',detail)
 
     def test_no_automatic_bidding_or_pii_getters(self):
         import inspect
