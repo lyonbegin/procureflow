@@ -35,6 +35,29 @@ def _is_login(page,response,kind):
     return (kind=="partners" and
             ("로그인" in text and len(text)<600 and "파트너" not in text))
 
+def _real_portfolio_title(body,page):
+    """Use the actual visible project heading, never the partner account name."""
+    text=(body or "").replace("\r","")
+    patterns=(
+        r"(?:^|\n)플러스\s*\n([^\n]{7,230})\s*\n(?:URL 복사|개발|디자인|기획)",
+        r"(?:^|\n)플러스\s*\n([^\n]{7,230})\s*\n"
+    )
+    for pat in patterns:
+        m=re.search(pat,text,re.M)
+        if m:
+            name=m.group(1).strip()
+            if name not in ("포트폴리오","위시켓") and "회원가입" not in name:
+                return name[:280]
+    try:
+        og=page.locator('meta[property="og:title"]').first.get_attribute(
+            "content",timeout=700)
+        if og and "위시켓" in og:
+            name=og.split("| 위시켓")[0].strip()
+            if name and "파트너스" not in name:return name[:280]
+    except Exception:pass
+    return None
+
+
 def _save(kind,detail_url,listing_page,page):
     detail=public_page_extract(page)
     parsed=parse_public_sections(page.locator("body").inner_text(timeout=6500))
@@ -45,9 +68,11 @@ def _save(kind,detail_url,listing_page,page):
     if len(raw_text)<260:raise RuntimeError("wishket_detail_insufficient")
     # The actual portfolio title is in the visible heading, not the
     # generic partner's browser tab text.
-    title=next((h for h in headings if len(h)>5 and
-                h not in ("포트폴리오","프로젝트 찾기","파트너스 찾기")),
-               page.title())[:350]
+    title=(_real_portfolio_title(raw_text,page) if kind=="portfolios" else None)
+    if not title:
+        title=next((h for h in headings if len(h)>5 and
+                    h not in ("포트폴리오","프로젝트 찾기","파트너스 찾기")),
+                   page.title())[:350]
     customers=[m.group(2).strip() for m in CUSTOMER.finditer(raw_text)
                if "로그인" not in m.group(2)]
     author_urls=list(dict.fromkeys(
