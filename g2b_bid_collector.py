@@ -212,10 +212,24 @@ def fetch_opening(context, bid_no, bid_ord="000", max_pages=2):
             "bidPrgrsOrd":"000","prcmBsneSeCd":"",
             "bidPgstCd":"개찰완료","bzmnRegNo":"","reOpenPbancYN":"",
             "currentPage":page_no,"recordCountPerPage":"999"}}
-        response=context.request.post(OPENING_URL,data=json.dumps(payload),
-            headers={"Content-Type":"application/json","Menu-Info":MENU_INFO,
-                     "User-Agent":"Mozilla/5.0","Referer":BASE},timeout=30000)
-        result=_read_json(response)
+        result=None
+        # Public WebSquare returns an explicit 'no opening data' response
+        # for some procurement classes. Try the site's known goods/service
+        # classification codes before treating the detail as unavailable.
+        for business_code in ("","01","03"):
+            payload["dlSrchOnbsRsltBidInM"]["prcmBsneSeCd"]=business_code
+            response=context.request.post(OPENING_URL,data=json.dumps(payload),
+                headers={"Content-Type":"application/json","Menu-Info":MENU_INFO,
+                         "User-Agent":"Mozilla/5.0","Referer":BASE},timeout=30000)
+            try:
+                result=_read_json(response)
+                logging.info("G2B_BID_CLASS_MATCH no=%s code=%s",
+                             bid_no,business_code or "default")
+                break
+            except LookupError:
+                continue
+        if result is None:
+            raise LookupError("opening_details_not_published")
         if not first_info:
             first_info={k:result.get(k) or {} for k in ("bidInfo","etcData")}
             logging.info("G2B_OPENING_DETAIL_STRUCTURE bid=%s keys=%s bid_info_fields=%s etc_fields=%s",
