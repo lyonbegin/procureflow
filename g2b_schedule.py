@@ -15,7 +15,7 @@ PREFIX="g2b:schedule:"
 # Conservative defaults keep public WebSquare traffic bounded.
 REFRESH_HOURS=6
 BACKFILL_MINUTES=20
-EARLIEST=date(2026,1,1)
+EARLIEST=date.fromisoformat(os.getenv("G2B_BACKFILL_EARLIEST","2024-01-01"))
 
 
 def config(kind,mode,cursor=None,now=None):
