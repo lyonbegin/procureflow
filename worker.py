@@ -279,14 +279,16 @@ def main():
     # These are publicly observed real bid identifiers, not procurement
     # announcements, and the test is read-only.
     with session() as db:
-        marker="g2b-public-opening-chrome-20261023-v5"
+        marker="g2b-open-2026-classification-smoke-20261023-v6"
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
             (marker,'{"status":"queued","source":"public_g2b_web"}')
         ).fetchone()
         if claimed:
-            cfg={"pages":1,"days":2,"categories":["goods","service"],
+            cfg={"pages":1,"days":2,
+                 "bid_numbers":["R26BK01488269-000","R26BK01787048-000"],
+                 "categories":["goods","service"],
                  "kinds":["opening","award"],"test":marker}
             jid=db.execute(
                 "INSERT INTO procureflow.jobs(source,config,message) "
