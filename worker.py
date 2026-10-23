@@ -409,6 +409,23 @@ def main():
             ).fetchone()['id']
             logging.info("FREEMOA_VERIFIED_DIALOGS_QUEUED job=%s",jid)
     last_g2b_schedule=0
+    # Revisit public Wishket portfolio pages to resolve real author-to-work
+    # relationships, without treating login-restricted profiles as public.
+    with session() as db:
+        marker='wishket-public-author-work-links-20261024-v1'
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"source":"wishket","mode":"public_project_author_links"}')
+        ).fetchone()
+        if claimed:
+            cfg={"kind":"portfolios","pages":3,"limit":36,"test":marker}
+            jid=db.execute(
+                "INSERT INTO procureflow.jobs(source,config,message) "
+                "VALUES ('wishket',%s::jsonb,%s) RETURNING id",
+                (json.dumps(cfg),"Wishket portfolio full details and verified public author links")
+            ).fetchone()["id"]
+            logging.info("WISHKET_PUBLIC_AUTHOR_LINKS_QUEUED job=%s",jid)
     while not STOP:
         try:
             # PostgreSQL cursor and advisory lock make Railway restarts safe.
