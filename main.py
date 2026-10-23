@@ -226,6 +226,16 @@ def private_completeness():
             WHERE source IN ('freemoa_partners','freemoa_portfolios')
             GROUP BY source,kind
         """).fetchall()
+        public_partner_links=c.execute("""
+            SELECT count(*) AS linked_partners,
+                   sum(coalesce(jsonb_array_length(meta->'public_portfolios'),0))
+                       AS linked_portfolios,
+                   count(*) FILTER (WHERE coalesce(meta->>'profile_access','')
+                                        ='login_required') AS login_restricted
+            FROM procureflow.market_records
+            WHERE source='wishket_partner_reference'
+              AND kind='public_portfolio_evidence'
+        """).fetchone()
         wishket=c.execute("""
             SELECT kind,count(*) AS records,
                    count(*) FILTER (WHERE length(body)>=1000) AS detailed,
@@ -237,7 +247,8 @@ def private_completeness():
             GROUP BY kind
         """).fetchall()
     return {"freemoa":markets,"wishket":wishket,
-            "definition":"detailed means >=1000 saved public characters, not a guarantee of every field; login-hidden material is excluded"}
+            "wishket_public_partner_links":public_partner_links,
+            "definition":"detailed means >=1000 saved public characters; Freemoa shorter records are publicly verified modal summaries, not complete project dossiers. Wishket partner profile bodies require login; linked public portfolios are separately counted and never represented as full profiles."}
 
 
 @app.get("/api/market/sources")
