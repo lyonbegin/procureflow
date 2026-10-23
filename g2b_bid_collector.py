@@ -426,6 +426,45 @@ def normalize_public_listing(item):
     }
 
 
+def remove_superseded_bid_rows():
+    """Prune obsolete legacy default-class rows only when identical bidders
+    are present with a more specific classification and the *same* amount.
+    Does not merge different bid numbers, bidder ranks or amounts.
+    """
+    with session() as db:
+        row=db.execute("""
+            WITH deleted AS (
+                DELETE FROM procureflow.bid_results stale
+                USING procureflow.bid_results current
+                WHERE stale.source='g2b' AND current.source='g2b'
+                  AND stale.result_kind='opening'
+                  AND current.result_kind='opening'
+                  AND stale.record_key<>current.record_key
+                  AND stale.bid_ntce_no=current.bid_ntce_no
+                  AND stale.bid_ntce_ord=current.bid_ntce_ord
+                  AND stale.company=current.company
+                  AND stale.company<>''
+                  AND stale.rank=current.rank
+                  AND stale.amount=current.amount
+                  AND stale.amount<>''
+                  AND (
+                    (stale.category='unspecified'
+                     AND current.category IN ('goods','service'))
+                    OR (stale.bid_clsfc_no IN ('','0')
+                        AND current.bid_clsfc_no NOT IN ('','0'))
+                  )
+                  AND NOT (
+                    current.category='unspecified'
+                    AND stale.category IN ('goods','service'))
+                RETURNING stale.record_key
+            )
+            SELECT count(*) AS removed FROM deleted
+        """).fetchone()
+    removed=row["removed"]
+    if removed:logging.info("G2B_BID_DEDUP_CLEANUP obsolete_removed=%s",removed)
+    return removed
+
+
 def save_batch(items):
     items=[x for x in items if x]
     if not items:return 0,0
@@ -475,6 +514,7 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
     result={"source":"g2b","adapter":"g2b_public_web","status":"started",
             "examined":0,"saved":0,"new":0,"pages_checked":0,
             "discovered":0,"errors":[],"bid_details":[],"final_winners":0}
+    result["obsolete_rows_removed"]=remove_superseded_bid_rows()
     with sync_playwright() as driver:
         browser=driver.chromium.launch(headless=True,args=[
             "--no-sandbox","--disable-dev-shm-usage"])
@@ -535,6 +575,7 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
                                 "bidClsfNo":item.get("bid_clsfc_no","0"),
                                 "bidPrgrsOrd":item.get("bid_progress_ord","000"),
                                 "bid_name":title,"result_status":status,
+                                "agency":item.get("agency") or bid_info.get("dmstNm") or "",
                                 "participant_count":entry["total"]}
                         raw_items.append(normalize_item(sample,
                                         business_category(item.get("business_code")),
