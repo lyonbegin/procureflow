@@ -123,6 +123,13 @@ def _discover_portfolios(page,limit):
     return results[:limit],[{"event":x["event"][:120],
                              "label":x["label"][:180]} for x in cards[:10]]
 
+def portfolio_title_from_card(label,portfolio_id):
+    """Use real visible card label, never an invented generic title."""
+    title=re.split(r"\s*#",label or "",maxsplit=1)[0]
+    title=title.lstrip("+").strip()
+    return title[:280] if title else "프리모아 포트폴리오 "+str(portfolio_id)
+
+
 def _visible_modal(page):
     """Read the actual visible portfolio modal after clicking the source card."""
     data=page.evaluate("""() => {
@@ -203,6 +210,11 @@ def collect(source,pages=1,limit=10):
                     if result["saved"]>=limit:break
                 else:
                     ids,diagnostic=_discover_portfolios(page,limit)
+                    source_labels={}
+                    for original in diagnostic:
+                        found=re.search(r"showPortfolio\s*\(\s*['\"]?(\d+)",
+                                        original["event"])
+                        if found:source_labels[found.group(1)]=original["label"]
                     result["discovered"]+=len(ids)
                     result["diagnostics"].append({
                         "page":n,"js_portfolio_cards":len(ids),
@@ -287,8 +299,9 @@ def collect(source,pages=1,limit=10):
                                         {"selector":x["selector"],"length":len(x["text"])}
                                         for x in candidates],ensure_ascii=False)[:700])
                                 continue
-                            title=label.split("\n")[0].strip().lstrip("+").strip()
-                            if not title:title="프리모아 포트폴리오 "+portfolio_id
+                            title=portfolio_title_from_card(
+                                label if label else source_labels.get(portfolio_id,""),
+                                portfolio_id)
                             # Modal has no URL; store truthful source page + real ID.
                             source_url=ROOT+"/m7/s712"
                             meta={"origin":"public_javascript_portfolio_modal",
