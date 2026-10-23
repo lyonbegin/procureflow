@@ -281,6 +281,34 @@ def search_keyword(page,term: str) -> dict:
         raise RuntimeError("search_form_keyword_mismatch")
     verified_by="url" if url_term==term else "form" if form_term==term else ""
     if not verified_by:
+        # Only introspect search-control attributes; never inspect credentials,
+        # email, contact data, cookies, hidden state or the full HTML body.
+        try:
+            ui=page.evaluate("""() => ({
+              inputs:[...document.querySelectorAll('input')]
+                .filter(e=>/keyword|srch|검색어|여러 단어/i.test(
+                  [e.name,e.id,e.placeholder].join(' ')))
+                .slice(0,20).map(e=>({name:e.name,id:e.id,type:e.type,
+                  placeholder:(e.placeholder||'').slice(0,85),
+                  shown:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length),
+                  form:e.form?.id||''})),
+              controls:[...document.querySelectorAll('button,input[type="button"],input[type="submit"],a')]
+                .filter(e=>/검색|search/i.test(
+                  [e.id,e.name,e.innerText,e.value].join(' ').slice(0,70)))
+                .slice(0,18).map(e=>({tag:e.tagName,id:e.id,name:e.name||'',
+                  label:(e.innerText||e.value||'').trim().slice(0,40),
+                  onclick:(e.getAttribute('onclick')||'').slice(0,100),
+                  form:e.closest('form')?.id||''})),
+              forms:[...document.querySelectorAll('form')]
+                .map(f=>({id:f.id,name:f.name,action:(f.getAttribute('action')||'').slice(0,100)}))
+                .filter(f=>/search|srch|keyword|emp/i.test([f.id,f.name,f.action].join(' ')))
+                .slice(0,10),
+              paramNames:[...new URLSearchParams(location.search).keys()].filter(k=>/key|srch|search/i.test(k)).slice(0,20)
+            })""")
+            logging.warning("WORK24_SEARCH_FORM_DIAG term=%s info=%s",
+                            term,json.dumps(ui,ensure_ascii=False)[:3700])
+        except Exception as diag_exc:
+            logging.warning("WORK24_SEARCH_FORM_DIAG error=%s",type(diag_exc).__name__)
         raise RuntimeError("search_keyword_not_verified")
     found=list_links(page)
     if not found:
