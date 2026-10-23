@@ -327,8 +327,17 @@ def main():
                 (json.dumps(cfg,ensure_ascii=False),"G2B final winner and amount real web save")
             ).fetchone()["id"]
             logging.info("G2B_FINAL_AWARDS_QUEUED job=%s",jid)
+    last_g2b_schedule=0
     while not STOP:
         try:
+            # PostgreSQL cursor and advisory lock make Railway restarts safe.
+            if time.monotonic()-last_g2b_schedule>=60:
+                last_g2b_schedule=time.monotonic()
+                try:
+                    import g2b_schedule
+                    g2b_schedule.tick(session)
+                except Exception:
+                    logging.exception("G2B_SCHEDULE_TICK_ERROR")
             job=get_next_job()
             if job:
                 try:
@@ -337,13 +346,18 @@ def main():
                         cfg=job.get('config') or {}
                         result=g2b_final_award_collector.collect(
                             days=cfg.get('days',21),pages=cfg.get('pages',2),
-                            limit=cfg.get('limit',30))
+                            limit=cfg.get('limit',30),
+                            start_date=cfg.get('start_date'),
+                            end_date=cfg.get('end_date'),
+                            page_start=cfg.get('page_start',1))
                         update(job['id'],checked=result['checked'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
                         done(job['id'],'completed' if result['status']=='collected'
                              else 'completed_partial' if result['status']=='partial'
                              else 'failed',json.dumps(result,ensure_ascii=False))
+                        import g2b_schedule
+                        g2b_schedule.finished(session,job,result)
                         logging.info('G2B_FINAL_AWARDS_JOB_RESULT %s',
                                      json.dumps(result,ensure_ascii=False)[:3200])
                     elif job['source']=='g2b_final_award_probe':
@@ -366,7 +380,10 @@ def main():
                             days=cfg.get('days',7),pages=cfg.get('pages',1),
                             categories=cfg.get('categories') or ['goods','service'],
                             kinds=cfg.get('kinds') or ['award','opening'],
-                            bid_numbers=cfg.get('bid_numbers') or None)
+                            bid_numbers=cfg.get('bid_numbers') or None,
+                            start_date=cfg.get('start_date'),
+                            end_date=cfg.get('end_date'),
+                            page_start=cfg.get('page_start',1))
                         update(job['id'],checked=result['examined'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
@@ -374,6 +391,8 @@ def main():
                                    else 'completed_partial' if result['status']=='partial'
                                    else 'failed')
                         done(job['id'],job_state,json.dumps(result,ensure_ascii=False))
+                        import g2b_schedule
+                        g2b_schedule.finished(session,job,result)
                         logging.info('G2B_BID_JOB_RESULT %s',json.dumps(result,ensure_ascii=False)[:3500])
                     elif job['source']=='wishket':
                         import wishket_collector
