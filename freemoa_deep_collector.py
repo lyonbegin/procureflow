@@ -138,7 +138,12 @@ def _visible_modal(page):
     }""")
     selected=next((x["text"] for x in data if
                    "프로젝트 요약" in x["text"] or "진행기간" in x["text"]), "")
-    return selected,data[:6]
+    if not selected:
+        selected=next((x["text"] for x in data if
+            "포트폴리오 타이틀이 입력되는 공간" not in x["text"]
+            and len(x["text"])>330 and
+            any(k in x["text"] for k in ("프로젝트","개발","디자인","작업"))),"")
+    return selected,data[:10]
 
 
 def collect(source,pages=1,limit=10):
@@ -212,9 +217,36 @@ def collect(source,pages=1,limit=10):
                                 result["errors"].append("missing_js_card:"+portfolio_id)
                                 continue
                             label=target.inner_text(timeout=1800).strip()
-                            target.click(timeout=4500)
-                            page.wait_for_timeout(1000)
+                            before=page.locator("body").inner_text(timeout=3500)
+                            # A JavaScript-bound card can be hidden under a
+                            # large floating layer; dispatch its own DOM click
+                            # rather than requiring a physical pointer hit.
+                            before_pages=len(ctx.pages)
+                            network=[]
+                            def capture(resp):
+                                if any(k in resp.url.lower() for k in
+                                       ("portfolio","/m7/","/api/")):
+                                    network.append({
+                                        "url":resp.url.split("?")[0][:160],
+                                        "status":resp.status})
+                            page.on("response",capture)
+                            target.evaluate("(e)=>e.click()")
+                            page.wait_for_timeout(1900)
                             modal,candidates=_visible_modal(page)
+                            if not modal and len(ctx.pages)>before_pages:
+                                popped=ctx.pages[-1]
+                                popped.wait_for_load_state("domcontentloaded",timeout=6000)
+                                modal=popped.locator("body").inner_text(timeout=4500)[:27000]
+                            after=page.locator("body").inner_text(timeout=3500)
+                            if not modal and len(after)>len(before)+220:
+                                modal=after[-20000:]
+                            if not modal:
+                                logging.info("FREEMOA_MODAL_DOM_DIAG id=%s changed=%s before=%s after=%s nodes=%s network=%s",
+                                    portfolio_id,before!=after,len(before),len(after),
+                                    json.dumps([{"id":x["selector"],"length":len(x["text"]),
+                                                 "sample":x["text"][:170]} for x in candidates[:7]],
+                                               ensure_ascii=False)[:1150],
+                                    json.dumps(network[:6],ensure_ascii=False)[:700])
                             parsed=parse_public_sections(modal)
                             if parsed["body_length"]<230:
                                 result["errors"].append("modal_no_real_detail:"+portfolio_id)
