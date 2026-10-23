@@ -14,6 +14,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 from db import session
+from g2b_date_windows import window
 
 BASE = "https://www.g2b.go.kr/"
 OPENING_URL = "https://www.g2b.go.kr/pb/pbo/pboc/OnbsRslt/selectOnbsRsltSbidGods.do"
@@ -44,21 +45,24 @@ LIST_MENU = '{"menuNo":"01522","menuCangVal":"PBOC006_01","bsneClsfCd":"%EC%97%8
 LIST_SUBMISSION = "mf_wfm_container_selectOnbsRsltClsfList"
 
 
-def fetch_opening_listing(context, days=7, pages=1, max_results=60):
+def fetch_opening_listing(context, days=7, pages=1, max_results=60,
+                          start_date=None, end_date=None, page_start=1,
+                          stats=None):
     """Read an actual dated G2B opening-results list via its public web form.
 
     Avoid WebSquare GNB navigation: Railway Chrome can load a blank document
     even when the same-origin JSON submission is available. Errors are not
     indistinguishable from a legitimate empty search.
     """
-    now=datetime.now(timezone(timedelta(hours=9)))
-    start=(now-timedelta(days=max(1,min(int(days),31)))).strftime("%Y%m%d")
-    end=now.strftime("%Y%m%d")
+    first_day,last_day=window(days,start_date,end_date,max_span_days=31)
+    start=first_day.strftime("%Y%m%d")
+    end=last_day.strftime("%Y%m%d")
     # WebSquare firstIndex/lastIndex bounds: use 10 distinct records per page.
     batch=10
     output=[]
     total=None
-    for page_number in range(1,max(1,min(int(pages),10))+1):
+    page_start=max(1,min(int(page_start),10000))
+    for page_number in range(page_start,page_start+max(1,min(int(pages),10))):
         first=1+(page_number-1)*batch
         payload={"dlSrchOnbsRsltClsfListInM":{
             "bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
@@ -119,6 +123,10 @@ def fetch_opening_listing(context, days=7, pages=1, max_results=60):
                          sorted(items[0].keys())[:85],
                          {k:items[0].get(k) for k in ("bidPgstCd","prcmBsneSeCd",
                                                       "bidClsfNo","bidPrgrsOrd")})
+        if stats is not None:
+            stats["last_page"]=page_number
+            stats["last_page_size"]=len(items)
+            stats["has_more"]=len(items)==batch
         if len(output)>=max_results or len(items)<batch:break
     dedup={}
     for item in output:
@@ -512,13 +520,19 @@ def _final_award(bid_info, etc_data):
     return None
 
 
-def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
+def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None,
+            start_date=None,end_date=None,page_start=1):
     """Scrape public opening results; official public-data API not used."""
-    limit=max(1,min(60,int(pages)*10))
+    limit=max(1,min(100,int(pages)*10))
+    first_day,last_day=window(days,start_date,end_date,max_span_days=31)
+    page_start=max(1,min(int(page_start),10000))
+    listing_stats={}
     max_pages=max(1,min(3,int(pages)))
     result={"source":"g2b","adapter":"g2b_public_web","status":"started",
             "examined":0,"saved":0,"new":0,"pages_checked":0,
-            "discovered":0,"errors":[],"bid_details":[],"final_winners":0}
+            "discovered":0,"errors":[],"bid_details":[],"final_winners":0,
+            "window_start":first_day.isoformat(),
+            "window_end":last_day.isoformat(),"page_start":page_start}
     result["obsolete_rows_removed"]=remove_superseded_bid_rows()
     with sync_playwright() as driver:
         browser=driver.chromium.launch(headless=True,args=[
@@ -543,7 +557,11 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
             else:
                 try:
                     found=fetch_opening_listing(ctx,days=days,pages=pages,
-                                                 max_results=limit)
+                                                 max_results=limit,
+                                                 start_date=first_day.isoformat(),
+                                                 end_date=last_day.isoformat(),
+                                                 page_start=page_start,
+                                                 stats=listing_stats)
                 except Exception as exc:
                     result["errors"].append("discovery:"+type(exc).__name__+
                                             ":"+str(exc)[:85])
@@ -552,6 +570,8 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
             for x in found:dedup[(x["bid_no"],x["bid_ord"])]=x
             found=list(dedup.values())[:limit]
             result["discovered"]=len(found)
+            result["has_more"]=bool(listing_stats.get("has_more",False))
+            result["last_page"]=listing_stats.get("last_page",page_start)
             # Persist only website-observed grid statuses. Directly supplied
             # sample numbers are NOT evidence of a current opening listing.
             if not bid_numbers and found:
