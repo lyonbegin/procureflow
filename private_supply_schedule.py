@@ -83,6 +83,25 @@ def tick():
         return jid
 
 
+def progress_for_result(first_page,result,previous_fingerprint=""):
+    """Determine next *complete* listing page, never from row names alone."""
+    errors=result.get("errors") or []
+    saved=int(result.get("saved") or 0)
+    success=(result.get("status") in ("collected","partial","empty")
+             and (saved>0 or not errors))
+    last_page=max(1,int(result.get("last_page") or first_page))
+    fp=result.get("page_fingerprint") or ""
+    # A provider might ignore ?page=N and return page 1 repeatedly.
+    repeated=bool(fp and fp==previous_fingerprint and first_page>1)
+    if not success:
+        return {"next_page":first_page,"cycle_complete":False,
+                "advance":False,"repeated":repeated}
+    more=bool(result.get("has_more")) and not repeated
+    return {"next_page":last_page+1 if more else 1,
+            "cycle_complete":not more,
+            "advance":True,"repeated":repeated}
+
+
 def finished(job,result):
     cfg=job.get("config") or {}
     key=cfg.get("schedule_key")
@@ -94,29 +113,23 @@ def finished(job,result):
             logging.warning("PRIVATE_SUPPLY_STALE_RESULT job=%s current=%s",
                             job["id"],state.get("last_job"))
             return
-        good=result.get("status") in ("collected","empty","partial")
         errors=result.get("errors") or []
         saved=int(result.get("saved") or 0)
-        successful=good and (saved>0 or not errors)
         first_page=int(cfg.get("page_start") or 1)
         last_page=int(result.get("last_page") or first_page)
         fp=result.get("page_fingerprint") or ""
-        repeated=bool(fp and fp==state.get("last_fingerprint")
-                      and first_page>1)
-        has_more=bool(result.get("has_more")) and not repeated
+        progress=progress_for_result(first_page,result,state.get("last_fingerprint",""))
         new_state={**state,"last_finished":now.isoformat(),
                    "last_state":result.get("status"),
                    "last_saved":saved,"last_new":int(result.get("new") or 0),
                    "last_errors":errors[:5],
                    "last_page":last_page,
-                   "last_fingerprint":fp or state.get("last_fingerprint","")}
-        if successful:
-            new_state["cycle_complete"]=not has_more
-            new_state["next_page"]=last_page+1 if has_more else 1
-            if not has_more:new_state["cycle_completed_at"]=now.isoformat()
-        else:
-            new_state["cycle_complete"]=False
-            new_state["next_page"]=first_page
+                   "last_fingerprint":fp or state.get("last_fingerprint",""),
+                   "next_page":progress["next_page"],
+                   "cycle_complete":progress["cycle_complete"],
+                   "repeated_page":progress["repeated"]}
+        if progress["advance"] and progress["cycle_complete"]:
+            new_state["cycle_completed_at"]=now.isoformat()
         _write(db,key,new_state)
         logging.info("PRIVATE_SUPPLY_SCHEDULE_RESULT job=%s kind=%s saved=%s new=%s status=%s next_page=%s cycle_complete=%s",
                      job["id"],key.split(":")[-1],saved,new_state["last_new"],
