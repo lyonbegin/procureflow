@@ -190,6 +190,7 @@ def private_full_detail(source:str,source_id:str="",kind:str="",
                 WHERE kind=%s AND source_id=%s
             """,(kind,source_id)).fetchone()
     elif source in ("freemoa","freemoa_partners","freemoa_portfolios",
+                    "wishket_partner_reference",
                     "kmong_enterprise","work24","wanted_gigs"):
         if not source_id:raise HTTPException(400,"source_id required")
         with session() as c:
@@ -203,6 +204,26 @@ def private_full_detail(source:str,source_id:str="",kind:str="",
     if not item:raise HTTPException(404,"No saved public detail for record")
     return {"record":item,"body_length":len(item["body"] or ""),
             "is_list_only":len((item["body"] or "").strip())<260}
+
+
+@app.get("/api/private/linked-partners")
+def publicly_linked_partners(q:str="",limit:int=Query(50,ge=1,le=200),
+                             offset:int=Query(0,ge=0)):
+    where="source='wishket_partner_reference' AND kind='public_portfolio_evidence'"
+    vals=[]
+    if q:
+        where+=" AND (title ILIKE %s OR body ILIKE %s)"
+        vals=[f"%{q}%",f"%{q}%"]
+    with session() as c:
+        total=c.execute("SELECT count(*) AS n FROM procureflow.market_records WHERE "+where,vals).fetchone()["n"]
+        rows=c.execute("""
+            SELECT source,kind,source_id,title,url,
+                   LEFT(body,800) AS excerpt,meta,last_seen
+            FROM procureflow.market_records
+            WHERE """+where+" ORDER BY last_seen DESC LIMIT %s OFFSET %s",
+            vals+[limit,offset]).fetchall()
+    return {"total":total,"items":rows,
+            "classification":"public portfolio-to-partner reference only; full partner profile requires login"}
 
 
 @app.get("/api/private/completeness")
