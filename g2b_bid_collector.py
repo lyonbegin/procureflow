@@ -366,7 +366,9 @@ def normalize_item(record, category, kind, operation, index):
     name=str(record.get("grpNm") or record.get("fnlSucsfbdCorpNm") or record.get("company") or "")
     amount=str(record.get("bdngAmt") or record.get("sucsfbidAmt") or record.get("amount") or "")
     rate=str(record.get("bdrt") or record.get("sucsfbidRate") or "")
-    identifier="|".join((category,kind,bid_no,bid_ord,clsfc,rebid,
+    # Keep the original unspecified-category identity stable as category
+    # metadata is enriched later; classification must not duplicate a bid.
+    identifier="|".join(("unspecified",kind,bid_no,bid_ord,clsfc,rebid,
                           rank,bizno,name,str(index) if not (rank or bizno or name) else ""))
     key=hashlib.sha256(identifier.encode()).hexdigest()[:40]
     safe={"bid_no":bid_no,"bid_ord":bid_ord,"bid_clsfc_no":clsfc,"rbid_no":rebid,
@@ -442,6 +444,7 @@ def save_batch(items):
                         %(company)s,%(amount)s,%(participation_count)s,
                         %(rate)s,%(rank)s,%(result_status)s,%(raw)s::jsonb)
                 ON CONFLICT(source,record_key) DO UPDATE SET
+                    category=excluded.category,
                     title=excluded.title,agency=excluded.agency,
                     company=excluded.company,amount=excluded.amount,
                     participation_count=excluded.participation_count,
