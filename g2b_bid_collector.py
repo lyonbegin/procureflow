@@ -321,10 +321,17 @@ def fetch_opening(context, bid_no, bid_ord="000", max_pages=2, listing=None):
             raise LookupError("opening_details_not_published")
         if not first_info:
             first_info={k:result.get(k) or {} for k in ("bidInfo","etcData")}
-            logging.info("G2B_OPENING_DETAIL_STRUCTURE bid=%s keys=%s bid_info_fields=%s etc_fields=%s",
-                         bid_no,sorted(result.keys()),
-                         sorted(first_info["bidInfo"].keys()) if isinstance(first_info["bidInfo"],dict) else [],
-                         sorted(first_info["etcData"].keys()) if isinstance(first_info["etcData"],dict) else [])
+            relevant=re.compile(r"scsbd|sfbr|winner|wncr|award|sucsf|slctn|pgst|stts",re.I)
+            bid_fields=(sorted(k for k in first_info["bidInfo"] if relevant.search(k))
+                        if isinstance(first_info["bidInfo"],dict) else [])
+            logging.info("G2B_OPENING_DETAIL_STRUCTURE bid=%s response_keys=%s winner_related_fields=%s",
+                         bid_no,sorted(result.keys()),bid_fields[:45])
+        if page_no==1 and result.get("successBidInfo"):
+            example=result["successBidInfo"][0]
+            logging.info("G2B_OPENING_BIDDER_FIELDS bid=%s keys=%s winner_related_values=%s",
+                         bid_no,sorted(example.keys())[:95],
+                         {k:str(v)[:70] for k,v in example.items()
+                          if re.search(r"sfbr|slctn|sucsf|winn|scsbd|pgst|stts",k,re.I)})
         records=result.get("successBidInfo") or []
         if not isinstance(records,list):
             raise RuntimeError("g2b_opening_invalid_bidder_structure")
@@ -542,6 +549,8 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
             result["status"]=("collected" if result["saved"] and not result["errors"]
                               else "partial" if result["saved"]
                               else "error")
+            result["published_opening_records"]=sum(1 for x in result["bid_details"]
+                                                  if x["bidders"]>0)
         except Exception as exc:
             result["status"]="error"
             result["errors"].append("collector:"+type(exc).__name__+":"+str(exc)[:115])
