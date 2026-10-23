@@ -1,0 +1,30 @@
+name: G2B Archive and Scheduler Contracts
+on:
+  push:
+    branches: [main]
+    paths:
+      - "g2b_date_windows.py"
+      - "g2b_schedule.py"
+      - "g2b_bid_collector.py"
+      - "g2b_final_award_collector.py"
+      - "main.py"
+      - "worker.py"
+      - "tests/test_g2b_archive_scheduler.py"
+      - ".github/workflows/g2b-archive-tests.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive-cursors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check -r requirements.txt
+      - name: Compile the live API and worker
+        run: python -m py_compile main.py worker.py g2b_date_windows.py g2b_schedule.py g2b_bid_collector.py g2b_final_award_collector.py
+      - name: Verify historical date windows, pages and resuming cursor
+        run: python -m unittest discover -s tests -p 'test_g2b_archive_scheduler.py' -v
