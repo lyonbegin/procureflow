@@ -1,0 +1,76 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 민간 파트너·포트폴리오 상세관리</title>
+<style>
+body{font:14px/1.55 system-ui,"Malgun Gothic",sans-serif;background:#f4f6fa;color:#182536;margin:auto;max-width:1390px;padding:20px}
+a{color:#175b9a}section{border:1px solid #dce2e9;background:white;border-radius:8px;padding:14px;margin:12px 0}
+label{display:inline-flex;flex-direction:column;margin:5px}button,input,select{font:inherit;padding:8px;border:1px solid #cdd6df;border-radius:5px}
+button{background:#175b9a;color:white;cursor:pointer}button:disabled{opacity:.55}
+.grid{display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:12px}
+.list{height:70vh;overflow:auto}.record{padding:12px;border-bottom:1px solid #e4e7ed;cursor:pointer}
+.record:hover{background:#f1f5fa}.record h4{margin:0}.meta{color:#566879;font-size:12px}
+pre{font:13px/1.65 "Malgun Gothic",sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;margin:0}
+.stats{font-size:13px;color:#41546b}small{color:#617188}
+@media(max-width:850px){.grid{grid-template-columns:1fr}.list{height:35vh}}
+</style></head><body>
+<p><a href="/">← ProcureFlow 메인</a></p>
+<h2>민간 파트너·포트폴리오 전체 상세정보</h2>
+<section><label>수집원<select id="source">
+<option value="freemoa_partners">프리모아 파트너</option>
+<option value="freemoa_portfolios">프리모아 포트폴리오</option>
+<option value="wishket_portfolios">위시켓 포트폴리오</option>
+<option value="wishket_partners">위시켓 파트너</option>
+</select></label>
+<label>검색어<input id="keyword" placeholder="기술·프로젝트·회사명"></label>
+<button id="search">DB 조회</button>
+<button id="collect">공개 상세페이지 다시 수집</button>
+<span id="status"></span>
+<p class="stats" id="stats"></p>
+<small>전체 공개본문·기술스택·작업사례·경력·평가·공개 이미지·관련 링크를 확인합니다. 비공개·로그인 전용 항목은 임의 생성하지 않습니다.</small></section>
+<div class="grid"><section class="list"><h3>수집된 상세자료 <span id="total"></span></h3><div id="items"></div></section>
+<section><h3 id="detailTitle">왼쪽 자료를 선택하십시오.</h3>
+<div id="detailMeta" class="meta"></div>
+<div id="structured"></div>
+<h4>공개 원문 본문</h4><pre id="detailBody"></pre></section></div>
+<script>
+const el=id=>document.getElementById(id);
+const esc=v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+async function api(url,opt){const r=await fetch(url,opt);let d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d}
+function which(){let v=el('source').value;return v.startsWith('wishket_')?{source:'wishket',kind:v.slice(8)}:{source:v,kind:''}}
+function kindLabel(x){return x.kind||x.source||''}
+async function listRecords(){try{
+const w=which();const q=new URLSearchParams({limit:100,q:el('keyword').value});
+const d=await api(w.source==='wishket'?'/api/wishket/records?'+new URLSearchParams({...Object.fromEntries(q),kind:w.kind}):'/api/market/records?'+new URLSearchParams({...Object.fromEntries(q),source:w.source}));
+el('total').textContent=d.total+'건';
+el('status').textContent='저장된 자료 조회 완료';
+el('items').innerHTML='';
+for(const obj of d.items||[]){let div=document.createElement('div');div.className='record';
+div.innerHTML='<h4>'+esc(obj.title||'(제목 없음)')+'</h4><div class="meta">'+esc(obj.url)+'</div><div>'+esc((obj.excerpt||'').slice(0,150))+'</div>';
+div.onclick=()=>loadDetail(w,obj);el('items').appendChild(div)}
+}catch(e){el('status').textContent='조회 오류: '+e.message}}
+async function loadDetail(w,obj){try{
+let q=new URLSearchParams({source:w.source,source_id:obj.source_id,kind:w.kind});
+const d=await api('/api/private/detail?'+q);
+const item=d.record,meta=item.meta||item.raw||{};
+el('detailTitle').textContent=item.title||obj.title;
+el('detailMeta').innerHTML='<a href="'+esc(item.url)+'" target="_blank" rel="noopener noreferrer">원문 공개페이지 열기</a> · 저장본문 '+d.body_length+'자 · '+esc(item.kind||'');
+const sections=meta.sections||{};
+let block='<p><strong>기술:</strong> '+esc((meta.technologies||[]).join(', ')||'본문에서 추출되지 않음')+'</p>';
+block+='<p><strong>관련 포트폴리오/파트너 링크:</strong> '+esc((meta.partner_profile_urls||[]).length||meta.portfolio_reference_count||0)+'</p>';
+for(const [key,val] of Object.entries(sections).slice(0,10))block+='<details><summary>'+esc(key)+'</summary><pre>'+esc(String(val).slice(0,2100))+'</pre></details>';
+const images=meta.images||[];if(images.length)block+='<p>공개 이미지: '+images.length+'개</p>';
+el('structured').innerHTML=block;
+el('detailBody').textContent=item.body||'본문 저장 없음';
+}catch(e){el('detailBody').textContent='상세 읽기 오류: '+e.message}}
+async function getStats(){try{let v=await api('/api/private/completeness');el('stats').textContent=[...(v.freemoa||[]).map(x=>x.source+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건'),...(v.wishket||[]).map(x=>'위시켓 '+x.kind+' '+x.records+'건 · 본문 1000자 이상 '+x.detailed+'건')].join(' / ')}catch(e){el('stats').textContent=e.message}}
+el('search').onclick=listRecords;
+el('keyword').onkeydown=e=>{if(e.key==='Enter')listRecords()};
+el('source').onchange=()=>{listRecords();};
+el('collect').onclick=async()=>{const w=which();try{
+let route=w.source==='wishket'?'/api/wishket/collect':'/api/market/collect';
+let data=w.source==='wishket'?{kind:w.kind,pages:1,limit:12}:{source:w.source,pages:1,limit:12};
+let job=await api(route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+el('status').textContent='상세 크롤링 Job #'+job.job_id+' 접수';
+}catch(e){el('status').textContent=e.message}};
+listRecords();getStats();
+</script></body></html>
