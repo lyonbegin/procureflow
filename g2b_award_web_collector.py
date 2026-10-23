@@ -37,7 +37,14 @@ def _request(ctx,url,payload,headers):
         raise RuntimeError("award_web_http_"+str(response.status))
     try:data=response.json()
     except ValueError:raise RuntimeError("award_web_non_json") from None
-    if not isinstance(data,dict) or not isinstance(data.get("result"),dict):
+    if not isinstance(data,dict):
+        raise RuntimeError("award_web_bad_schema")
+    if data.get("ErrorCode") not in (None,0,"0"):
+        raise RuntimeError("award_web_result_error_"+str(data.get("ErrorCode"))[:20])
+    if not isinstance(data.get("result"),(dict,list)):
+        logging.warning("G2B_AWARD_RESPONSE_DIAG keys=%s code=%s msg=%s",
+                        sorted(data.keys())[:20],str(data.get("ErrorCode"))[:20],
+                        str(data.get("ErrorMsg"))[:130])
         raise RuntimeError("award_web_bad_schema")
     return data["result"]
 
@@ -65,14 +72,23 @@ def probe(days=21,max_list=15,max_details=3):
                      "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"","pbancPstgYn":"Y",
                      "frgnrRprsvYn":""}
             result=_request(ctx,LIST_URL,{"dlParamM":request},HEADERS)
-            logging.info("G2B_AWARD_LIST_STRUCTURE keys=%s",sorted(result.keys())[:35])
-            lists=[(key,value) for key,value in result.items()
-                   if isinstance(value,list) and value and isinstance(value[0],dict)]
-            if not lists:
+            if isinstance(result,list):
+                list_key,items="result",result
+            else:
+                lists=[(key,value) for key,value in result.items()
+                       if isinstance(value,list) and value and isinstance(value[0],dict)]
+                if not lists:
+                    out["status"]="empty"
+                    out["reason"]="no_award_rows_in_date_range"
+                    out["response_keys"]=sorted(result.keys())[:30]
+                    return out
+                list_key,items=max(lists,key=lambda entry:len(entry[1]))
+            logging.info("G2B_AWARD_LIST_STRUCTURE result_type=%s selected_key=%s items=%s",
+                         type(result).__name__,list_key,len(items))
+            if not items:
                 out["status"]="empty"
                 out["reason"]="no_award_rows_in_date_range"
                 return out
-            list_key,items=max(lists,key=lambda entry:len(entry[1]))
             out["response_list_key"]=list_key
             out["result_count"]=len(items)
             out["list_field_names"]=sorted(items[0].keys())[:80]
