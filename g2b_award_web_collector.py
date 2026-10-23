@@ -64,7 +64,7 @@ def probe(days=21,max_list=15,max_details=3):
                      "pbancSttsCd":"","pbancKndCd":"","stdCtrtMthdCd":"",
                      "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"","pbancPstgYn":"Y",
                      "frgnrRprsvYn":""}
-            result=_request(ctx,LIST_URL,request,HEADERS)
+            result=_request(ctx,LIST_URL,{"dlParamM":request},HEADERS)
             logging.info("G2B_AWARD_LIST_STRUCTURE keys=%s",sorted(result.keys())[:35])
             lists=[(key,value) for key,value in result.items()
                    if isinstance(value,list) and value and isinstance(value[0],dict)]
