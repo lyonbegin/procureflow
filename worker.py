@@ -356,6 +356,28 @@ def main():
                      'Private public full detail and card-path diagnostic')
                 ).fetchone()['id']
                 logging.info('PRIVATE_DEEP_SMOKE_QUEUED job=%s source=%s',jid,source)
+    # Public detailed profiles and real JS portfolio modals; bounded jobs.
+    with session() as db:
+        marker='private-supplier-full-detail-20261024-v2'
+        claimed=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"state":"queued","mode":"js_portfolio_and_full_detail"}')
+        ).fetchone()
+        if claimed:
+            for source,cfg in (
+                ('market_freemoa_portfolios',{'pages':1,'limit':5}),
+                ('wishket',{'kind':'portfolios','pages':2,'limit':12}),
+                ('wishket',{'kind':'partners','pages':1,'limit':5})
+            ):
+                jid=db.execute(
+                    "INSERT INTO procureflow.jobs(source,config,message) "
+                    "VALUES (%s,%s::jsonb,%s) RETURNING id",
+                    (source,json.dumps({**cfg,'test':marker}),
+                     'Private full public portfolio or partner detail verification')
+                ).fetchone()['id']
+                logging.info('PRIVATE_DEEP_V2_QUEUED job=%s source=%s kind=%s',
+                             jid,source,cfg.get('kind',''))
     last_g2b_schedule=0
     while not STOP:
         try:
