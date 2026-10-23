@@ -335,6 +335,27 @@ def main():
                 (json.dumps(cfg,ensure_ascii=False),"G2B final winner and amount real web save")
             ).fetchone()["id"]
             logging.info("G2B_FINAL_AWARDS_QUEUED job=%s",jid)
+    # Upgrade sparse market records with public detailed sections.
+    with session() as db:
+        marker='private-supplier-full-detail-20261024-v1'
+        fresh=db.execute(
+            "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
+            "ON CONFLICT(key) DO NOTHING RETURNING key",
+            (marker,'{"state":"queued","intent":"complete_public_partner_portfolio_details"}')
+        ).fetchone()
+        if fresh:
+            for source,cfg in (
+                ('market_freemoa_partners',{'pages':1,'limit':3}),
+                ('market_freemoa_portfolios',{'pages':1,'limit':6})
+            ):
+                config={**cfg,'source':source.removeprefix('market_'),'test':marker}
+                jid=db.execute(
+                    "INSERT INTO procureflow.jobs(source,config,message) "
+                    "VALUES (%s,%s::jsonb,%s) RETURNING id",
+                    (source,json.dumps(config,ensure_ascii=False),
+                     'Private public full detail and card-path diagnostic')
+                ).fetchone()['id']
+                logging.info('PRIVATE_DEEP_SMOKE_QUEUED job=%s source=%s',jid,source)
     last_g2b_schedule=0
     while not STOP:
         try:
@@ -402,6 +423,20 @@ def main():
                         import g2b_schedule
                         g2b_schedule.finished(session,job,result)
                         logging.info('G2B_BID_JOB_RESULT %s',json.dumps(result,ensure_ascii=False)[:3500])
+                    elif job['source'] in ('market_freemoa_partners','market_freemoa_portfolios'):
+                        import freemoa_deep_collector
+                        cfg=job.get('config') or {}
+                        site=job['source'][len('market_'):]
+                        result=freemoa_deep_collector.collect(
+                            site,pages=cfg.get('pages',1),limit=cfg.get('limit',10))
+                        update(job['id'],checked=result['discovered'],added=result['new'],
+                               duplicates=result['saved']-result['new'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['status']=='collected'
+                             else 'completed_partial' if result['status']=='partial'
+                             else 'failed',json.dumps(result,ensure_ascii=False))
+                        logging.info('FREEMOA_DEEP_JOB %s',
+                                     json.dumps(result,ensure_ascii=False)[:5000])
                     elif job['source']=='wishket':
                         import wishket_collector
                         cfg=job.get('config') or {}
