@@ -109,8 +109,11 @@ def discover_visible_bids(page, limit=30):
                         .slice(0,12).map(e=>({text:(e.textContent||'').trim().slice(0,30),
                                              id:(e.id||'').slice(0,75)}))""")
                 except Exception:pass
-            logging.warning("G2B_OPENING_NAV_DIAG target=%s controls=%s",
-                            names[0],json.dumps(visible,ensure_ascii=False)[:1500])
+            logging.warning("G2B_OPENING_NAV_DIAG target=%s title=%s body=%s controls=%s",
+                            names[0],page.title()[:100],
+                            (page.locator("body").inner_text(timeout=1200)[:220]
+                             if page.locator("body").count() else ""),
+                            json.dumps(visible,ensure_ascii=False)[:1500])
             raise RuntimeError("g2b_opening_menu_not_visible_"+names[0])
     frame=None
     for fr in [page,*page.frames]:
@@ -343,7 +346,10 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None):
         browser=driver.chromium.launch(headless=True,args=[
             "--no-sandbox","--disable-dev-shm-usage"])
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul",
-                                viewport={"width":1440,"height":900})
+                                viewport={"width":1440,"height":900},
+                                user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                            "Chrome/154.0.0.0 Safari/537.36"))
         page=ctx.new_page()
         try:
             response=page.goto(BASE,wait_until="domcontentloaded",timeout=45000)
