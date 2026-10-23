@@ -64,6 +64,22 @@ def initialize():
               (SELECT 1 FROM procureflow.market_records x
                WHERE x.source='freemoa' AND x.kind='expert_supply'
                  AND x.source_id=market_records.source_id)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS procureflow.bid_results
+            (source text NOT NULL DEFAULT 'g2b', record_key text NOT NULL,
+             category text NOT NULL, result_kind text NOT NULL,
+             operation text NOT NULL, bid_ntce_no text NOT NULL,
+             bid_ntce_ord text NOT NULL DEFAULT '', bid_clsfc_no text NOT NULL DEFAULT '',
+             rbid_no text NOT NULL DEFAULT '', title text NOT NULL DEFAULT '',
+             agency text NOT NULL DEFAULT '', company text NOT NULL DEFAULT '',
+             amount text NOT NULL DEFAULT '', participation_count text NOT NULL DEFAULT '',
+             rate text NOT NULL DEFAULT '', rank text NOT NULL DEFAULT '',
+             result_status text NOT NULL DEFAULT '',
+             raw jsonb NOT NULL DEFAULT '{}'::jsonb,
+             first_seen timestamptz NOT NULL DEFAULT now(),
+             last_seen timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (source,record_key))""")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pf_bid_results_no ON procureflow.bid_results(source,bid_ntce_no)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_pf_bid_results_kind ON procureflow.bid_results(result_kind,category,last_seen DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_tenders_date ON procureflow.tenders(notice_date DESC)")
 def store(con, row):
     record=dict(row)
