@@ -412,14 +412,14 @@ def main():
     # Revisit public Wishket portfolio pages to resolve real author-to-work
     # relationships, without treating login-restricted profiles as public.
     with session() as db:
-        marker='wishket-public-author-work-links-20261024-v1'
+        marker='wishket-public-author-full-project-text-20261024-v2'
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
             (marker,'{"source":"wishket","mode":"public_project_author_links"}')
         ).fetchone()
         if claimed:
-            cfg={"kind":"portfolios","pages":3,"limit":36,"test":marker}
+            cfg={"kind":"portfolios","pages":2,"limit":24,"test":marker}
             jid=db.execute(
                 "INSERT INTO procureflow.jobs(source,config,message) "
                 "VALUES ('wishket',%s::jsonb,%s) RETURNING id",
