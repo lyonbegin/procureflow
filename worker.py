@@ -279,14 +279,14 @@ def main():
     # These are publicly observed real bid identifiers, not procurement
     # announcements, and the test is read-only.
     with session() as db:
-        marker="g2b-websquare-native-list-smoke-20261023-v7"
+        marker="g2b-websquare-pagination-winner-fields-20261023-v8"
         claimed=db.execute(
             "INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) "
             "ON CONFLICT(key) DO NOTHING RETURNING key",
             (marker,'{"status":"queued","source":"public_g2b_web"}')
         ).fetchone()
         if claimed:
-            cfg={"pages":1,"days":2,
+            cfg={"pages":2,"days":3,
                  "categories":["goods","service"],
                  "kinds":["opening","award"],"test":marker}
             jid=db.execute(
