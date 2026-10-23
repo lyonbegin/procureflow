@@ -41,26 +41,76 @@ def discover_visible_bids(page, limit=30):
     """Navigate observed public G2B menu and extract IDs ONLY from the results grid."""
     steps=(("입찰",),("입찰개찰/낙찰","입찰개찰·낙찰"),("개찰결과분류조회",))
     page.goto(BASE,wait_until="domcontentloaded",timeout=40000)
-    page.wait_for_timeout(1700)
+    page.wait_for_timeout(1000)
     actions=[]
+    def scan_click(name):
+        # Match exact text of *navigation controls*, not arbitrary page copy.
+        script="""(target) => {
+          const all=[...document.querySelectorAll('a,button,[role="button"]')];
+          const matches=all.filter(e=>(e.textContent||'').replace(/\\s+/g,' ').trim()===target);
+          const ranked=matches.map(e=>{
+            const id=e.id||'';
+            const rects=e.getClientRects();
+            const visible=rects.length>0;
+            let score=(id.includes('gnbMenu')?50:0)+(id.includes('genMenu')?25:0)+
+                      (visible?15:0)+(id.includes('btn_menuLvl')?10:0);
+            return {e,score};
+          }).sort((a,b)=>b.score-a.score);
+          if(!ranked.length)return {clicked:false,count:0};
+          const e=ranked[0].e;
+          e.click();
+          return {clicked:true,count:matches.length,id:(e.id||'').slice(0,100)};
+        }"""
+        for fr in page.frames:
+            try:
+                out=fr.evaluate(script,name)
+                if out.get("clicked"):
+                    logging.info("G2B_OPENING_MENU label=%s target=%s",name,out["id"])
+                    return True
+            except Exception:pass
+        return False
+
+    def open_sitemap():
+        selectors=('button:has-text("사이트맵")','a:has-text("사이트맵")',
+                   'button[title*="사이트맵"]','a[title*="사이트맵"]',
+                   'button[title*="전체메뉴"]','a[title*="전체메뉴"]')
+        for fr in page.frames:
+            for css in selectors:
+                try:
+                    loc=fr.locator(css)
+                    for i in range(min(loc.count(),3)):
+                        if loc.nth(i).is_visible():
+                            loc.nth(i).click(timeout=1800)
+                            logging.info("G2B_OPENING_SITEMAP_OPENED selector=%s",css)
+                            return True
+                except Exception:pass
+        return False
+
     for names in steps:
         clicked=False
-        for name in names:
-            for fr in [page,*page.frames]:
-                try:
-                    matches=fr.get_by_text(name,exact=True)
-                    for idx in range(min(matches.count(),12)):
-                        loc=matches.nth(idx)
-                        if loc.is_visible(timeout=700):
-                            loc.click(timeout=3500)
-                            clicked=True
-                            actions.append(name)
-                            page.wait_for_timeout(650)
-                            break
-                    if clicked: break
-                except Exception:pass
-            if clicked: break
+        # G2B asynchronously initializes WebSquare GNB; wait for its DOM
+        # instead of requiring immediate visually accessible labels.
+        for attempt in range(18):
+            for name in names:
+                if scan_click(name):
+                    actions.append(name)
+                    clicked=True
+                    page.wait_for_timeout(900)
+                    break
+            if clicked:break
+            if attempt==7:open_sitemap()
+            page.wait_for_timeout(350)
         if not clicked:
+            visible=[]
+            for fr in page.frames:
+                try:
+                    visible+=fr.locator('a,button').evaluate_all(
+                        """els=>els.filter(e=>/입찰|개찰|낙찰/.test(e.textContent||''))
+                        .slice(0,12).map(e=>({text:(e.textContent||'').trim().slice(0,30),
+                                             id:(e.id||'').slice(0,75)}))""")
+                except Exception:pass
+            logging.warning("G2B_OPENING_NAV_DIAG target=%s controls=%s",
+                            names[0],json.dumps(visible,ensure_ascii=False)[:1500])
             raise RuntimeError("g2b_opening_menu_not_visible_"+names[0])
     frame=None
     for fr in [page,*page.frames]:
