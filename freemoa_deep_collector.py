@@ -376,7 +376,7 @@ def collect(source,pages=1,limit=10,page_start=1):
                     if result["saved"]>=limit:break
             result["status"]=("collected" if result["saved"] and not result["errors"]
                               else "partial" if result["saved"]
-                              else "discovery_only" if not result["errors"]
+                              else "empty" if not result["errors"]
                               else "error")
         except Exception as ex:
             result["status"]="error"
