@@ -71,6 +71,13 @@ class G2BBidResultContracts(unittest.TestCase):
         self.assertEqual(item["agency"],"수요기관")
         self.assertEqual(item["result_kind"],"opening_status")
 
+    def test_rebid_and_failed_auction_are_status_only(self):
+        from g2b_bid_collector import detail_eligible
+        self.assertFalse(detail_eligible("재입찰"))
+        self.assertFalse(detail_eligible("유찰"))
+        self.assertTrue(detail_eligible("개찰완료"))
+        self.assertTrue(detail_eligible(""))
+
     def test_first_place_is_not_final_award(self):
         self.assertIsNone(_final_award({"bidPbancNm":"구매"},{}))
         self.assertIsNone(_final_award({"fnlSucsfbdCorpNm":"A사"},{}))
