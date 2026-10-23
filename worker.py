@@ -441,8 +441,16 @@ def main():
                 (json.dumps(cfg),"Freemoa public portfolio modal project details and image/link capture")
             ).fetchone()["id"]
             logging.info("FREEMOA_PUBLIC_MEDIA_QUEUED job=%s",jid)
+    last_private_schedule=0
     while not STOP:
         try:
+            if time.monotonic()-last_private_schedule>=75:
+                last_private_schedule=time.monotonic()
+                try:
+                    import private_supply_schedule
+                    private_supply_schedule.tick()
+                except Exception:
+                    logging.exception("PRIVATE_SUPPLY_SCHEDULE_TICK_ERROR")
             # PostgreSQL cursor and advisory lock make Railway restarts safe.
             if time.monotonic()-last_g2b_schedule>=60:
                 last_g2b_schedule=time.monotonic()
@@ -512,21 +520,33 @@ def main():
                         cfg=job.get('config') or {}
                         site=job['source'][len('market_'):]
                         result=freemoa_deep_collector.collect(
-                            site,pages=cfg.get('pages',1),limit=cfg.get('limit',10))
+                            site,pages=cfg.get('pages',1),limit=cfg.get('limit',10),
+                            page_start=cfg.get('page_start',1))
                         update(job['id'],checked=result['discovered'],added=result['new'],
                                duplicates=result['saved']-result['new'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
                         done(job['id'],'completed' if result['status']=='collected'
                              else 'completed_partial' if result['status']=='partial'
                              else 'failed',json.dumps(result,ensure_ascii=False))
+                        import private_supply_schedule
+                        private_supply_schedule.finished(job,result)
                         logging.info('FREEMOA_DEEP_JOB %s',
                                      json.dumps(result,ensure_ascii=False)[:5000])
                     elif job['source']=='wishket':
                         import wishket_collector
                         cfg=job.get('config') or {}
-                        result=wishket_collector.collect(kind=cfg.get('kind','portfolios'),pages=cfg.get('pages',2),limit=cfg.get('limit',30))
-                        update(job['id'],checked=result['saved'],added=result['saved'],message=json.dumps(result,ensure_ascii=False)[:450])
-                        done(job['id'],'completed' if not result['errors'] else 'failed',json.dumps(result,ensure_ascii=False))
+                        result=wishket_collector.collect(
+                            kind=cfg.get('kind','portfolios'),pages=cfg.get('pages',2),
+                            limit=cfg.get('limit',30),page_start=cfg.get('page_start',1))
+                        update(job['id'],checked=result['examined'],
+                               added=result['new'],
+                               duplicates=result['saved']-result['new'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['status'] in ('collected','empty')
+                             else 'completed_partial' if result['status']=='partial'
+                             else 'failed',json.dumps(result,ensure_ascii=False))
+                        import private_supply_schedule
+                        private_supply_schedule.finished(job,result)
                         logging.info('WISHKET_JOB_RESULT %s',json.dumps(result,ensure_ascii=False))
                     elif job['source'].startswith('market_'):
                         import market_collector
