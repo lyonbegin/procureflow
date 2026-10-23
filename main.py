@@ -15,7 +15,13 @@ def guard(value):
     if not secrets.compare_digest((value or "").removeprefix("Bearer ").strip(),key):
         raise HTTPException(401,"Access denied")
 @app.get("/",response_class=HTMLResponse)
-def home():return (Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
+def home():
+    raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
+    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a></section>",1)
+
+@app.get("/bids",response_class=HTMLResponse)
+def bid_results_web():
+    return (Path(__file__).parent/"static/bids.html").read_text(encoding="utf-8")
 @app.get("/health")
 def health():
     try:
@@ -218,7 +224,7 @@ def bid_results_status():
             "source_page":"https://www.g2b.go.kr/",
             "counts":rows,"total":sum(x["count"] for x in rows),
             "last_updated":last["latest"],"recent_jobs":jobs,
-            "bidder_ranks":"not_yet_integrated"}
+            "bidder_ranks":"stored_when_publicly_available"}
 
 @app.get("/api/bids")
 def bid_results(category:str="",kind:str="",q:str="",bid_no:str="",
@@ -230,7 +236,7 @@ def bid_results(category:str="",kind:str="",q:str="",bid_no:str="",
         if category not in ("goods","service","unspecified"):raise HTTPException(400,"Invalid category")
         where.append("category=%s");values.append(category)
     if kind:
-        if kind not in ("award","opening"):raise HTTPException(400,"Invalid kind")
+        if kind not in ("award","opening","opening_status"):raise HTTPException(400,"Invalid kind")
         where.append("result_kind=%s");values.append(kind)
     if q:
         where.append("(title ILIKE %s OR company ILIKE %s OR agency ILIKE %s)")
