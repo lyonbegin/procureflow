@@ -179,27 +179,51 @@ def refresh_existing_evidence(bid_no=SINGLE_CASE):
             _ev(c,bid_no,"history_10years_progress","121_months",False,
                 str(complete)+"/121월 원본 검증 완료",details={"completed":complete,
                     "total":121,"states":windows})
+        # Drop incorrect 8-digit-based opening evidence created by the old
+        # notice-list-to-bid join. No classification from headline/parent8.
+        c.execute("""DELETE FROM procureflow.g2b_case_evidence
+          WHERE bid_no=%s AND (
+           (evidence_type='opening_evidence' AND reference='linked_opening_database')
+           OR (evidence_type='historical_bidders_linked' AND reference='existing_opening_db')
+           OR (evidence_type='award_evidence' AND reference='existing_award_db'))
+        """,(bid_no,))
+        from g2b_exact_outcome_history import ensure_schema as exact_result_schema
+        exact_result_schema()
         associated=c.execute("""SELECT r.bid_ntce_no AS bid_no,
            count(*) FILTER(WHERE r.result_kind='opening' AND r.company<>'') AS bidder_rows,
            count(*) FILTER(WHERE r.result_kind='award') AS award_rows
            FROM procureflow.bid_results r
+           JOIN procureflow.g2b_case_outcome_verification v
+             ON v.bid_no=r.bid_ntce_no AND v.bid_ord=r.bid_ntce_ord
+              AND v.case_bid_no=%s AND v.status='verified_exact_10'
+           JOIN procureflow.g2b_notice_categories cat
+             ON cat.bid_no=v.bid_no AND cat.bid_ord=v.bid_ord
+               AND cat.code_type='detail10' AND cat.code='8111159901'
+               AND cat.evidence_level='official_direct'
            JOIN procureflow.g2b_case_10yr_history h
-             ON h.hist_notice_no=r.bid_ntce_no AND h.hist_notice_ord=r.bid_ntce_ord
-           WHERE h.case_bid_no=%s GROUP BY r.bid_ntce_no""",(bid_no,)).fetchall()
+             ON h.case_bid_no=v.case_bid_no
+              AND h.hist_notice_no=v.bid_no AND h.hist_notice_ord=v.bid_ord
+           WHERE r.source='g2b' AND r.result_kind IN('opening','award')
+             AND h.published_on BETWEEN %s AND %s
+             AND r.bid_ntce_no<>%s
+           GROUP BY r.bid_ntce_no""",(bid_no,BEGIN,END,bid_no)).fetchall()
         count_bidder=sum(x["bidder_rows"] for x in associated)
         count_award=sum(x["award_rows"] for x in associated)
         if count_bidder>0:
             _ev(c,bid_no,"opening_evidence","linked_opening_database",True,
-                "연결된 과거 개찰 투찰기록 "+str(count_bidder)+"행",
-                details={"matched":associated,"bidder_rows":count_bidder})
+                "10자리 세부품명 확인 후 실제 개찰 투찰기록 "+str(count_bidder)+"행",
+                details={"matched":associated,"bidder_rows":count_bidder,
+                         "detail10":"8111159901"})
             _ev(c,bid_no,"historical_bidders_linked","existing_opening_db",True,
-                "과거 입찰 중 투찰업체 행 "+str(count_bidder),
-                details={"matched_notices":associated,"rows":count_bidder})
+                "10자리 세부품명 일치 과거 투찰업체 "+str(count_bidder)+"행",
+                details={"matched_notices":associated,"rows":count_bidder,
+                         "detail10":"8111159901"})
         if count_award>0:
             _ev(c,bid_no,"award_evidence","existing_award_db",True,
-                "과거 입찰 중 확정 낙찰 행 "+str(count_award),
-                details={"award_rows":count_award})
-    return {"case":bid_no,"history_notices":h["historical_notices_stored"],
+                "10자리 세부품명 검증 후 확정 낙찰 "+str(count_award)+"행",
+                details={"award_rows":count_award,"detail10":"8111159901"})
+    return {"case":bid_no,"notice_candidates_not_outcomes":h["historical_notices_stored"],
+            "exact_detail_product_code":"8111159901",
             "verified_windows":complete,"total_windows":121,
             "linked_bidder_rows":count_bidder,"linked_award_rows":count_award,
             "official_current_notice":bool(exists and isinstance(exists["raw"],dict)
@@ -276,8 +300,6 @@ def _display_feature_state(f,group_state,evidence):
     # A test/UI/collector skeleton never equals business acceptance.
     if kind=="history" and n in (33,34,35,38,39,41,42,43,44,45,47):
         return "partial" if "historical_notice" in actual else "missing"
-    if kind=="matching" and n in (52,53,55) and "historical_notice" in actual:
-        return "partial"
     if kind=="operations" and n in (95,96,97,98) and "history_10years_progress" in actual:
         return "partial"
     return "missing"
