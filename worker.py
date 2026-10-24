@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='browser_probe' THEN 0 ELSE 1 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -166,6 +166,16 @@ def main():
     if not (base / "g2b_headless_collect.py").is_file() or not (base / "kapt_headless_collect.py").is_file():
         raise RuntimeError("Original V13.1/V14 collector source missing")
     initialize()
+    from db import ensure_browser_diagnostics
+    ensure_browser_diagnostics()
+    # One-time real public K-apt diagnostic with persisted screenshots.
+    # A versioned DB marker prevents duplicate automatic jobs on Railway restarts.
+    with session() as db:
+        marker='browser:kapt:20261020165014951:v1'
+        existing=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued","read_only":true}')).fetchone()
+        if existing:
+            jobid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('browser_probe',%s::jsonb,%s) RETURNING id",(json.dumps({"external_id":"20261020165014951","source":"kapt","bootstrap":marker}),"K-apt staged screenshot + DOM/network diagnostics (no bid actions)")).fetchone()['id']
+            logging.info("PF_BROWSER_BOOTSTRAP_QUEUED job=%s",jobid)
     with session() as db:
         # A new Railway replica can overlap with the old replica. Never
         # fail another replica's live running job merely because we restarted.
@@ -481,7 +491,14 @@ def main():
             job=get_next_job()
             if job:
                 try:
-                    if job['source']=='g2b_final_awards':
+                    if job['source']=='browser_probe':
+                        import browser_diagnostics
+                        cfg=job.get('config') or {}
+                        result=browser_diagnostics.collect(job['id'],cfg.get('external_id',''))
+                        update(job['id'],checked=result['screen_stage_count'],added=sum(1 for x in result['screenshots_saved'] if x['bytes']),message=json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
+                        done(job['id'],'completed' if result['status']=='collected' else 'completed_partial' if result['status']=='partial' else 'failed',json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
+                        logging.info("PF_BROWSER_JOB_RESULT %s",json.dumps({k:result[k] for k in ('status','screenshots_saved','errors','blocked_network')},ensure_ascii=False)[:3500])
+                    elif job['source']=='g2b_final_awards':
                         import g2b_final_award_collector
                         cfg=job.get('config') or {}
                         result=g2b_final_award_collector.collect(
