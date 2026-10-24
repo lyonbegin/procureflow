@@ -42,9 +42,16 @@ def run(limit=4):
                ON audit.bid_no=h.hist_notice_no
             WHERE h.case_bid_no=%s AND h.classification8='81111599'
               AND h.hist_notice_no ~ '^R[0-9]{2}BK[0-9]{8}$'
+              AND h.published_on <= CURRENT_DATE - INTERVAL '10 days'
               AND (audit.bid_no IS NULL OR
                    (audit.status='error' AND audit.attempt_count<3))
-            ORDER BY h.published_on DESC,h.hist_notice_no DESC LIMIT %s""",
+            ORDER BY CASE WHEN EXISTS (
+                   SELECT 1 FROM procureflow.bid_results r
+                   WHERE r.source='g2b' AND r.bid_ntce_no=h.hist_notice_no
+                     AND r.bid_ntce_ord=h.hist_notice_ord
+                     AND r.result_kind='opening' AND r.result_status='개찰완료'
+                 ) THEN 0 ELSE 1 END,
+                 h.published_on DESC,h.hist_notice_no DESC LIMIT %s""",
             (CASE_BID,limit)).fetchall()
     result={"selected_bid":CASE_BID,"attempted":0,"saved_bidder_rows":0,
             "new_bidder_rows":0,"confirmed_winners":0,"notices":[],"errors":[],
