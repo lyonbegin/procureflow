@@ -9,6 +9,8 @@ from db import session,initialize
 app=FastAPI(title="ProcureFlow",version="0.2")
 from g2b_feature_api import router as g2b_feature_router
 app.include_router(g2b_feature_router)
+from g2b_workflow_ops import router as g2b_workflow_router
+app.include_router(g2b_workflow_router)
 
 # React Flow is the primary workbench; the preexisting FastAPI, DB and Worker
 # retain ownership of every real operation. Built assets are shipped inside

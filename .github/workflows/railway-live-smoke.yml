@@ -1,0 +1,26 @@
+name: ProcureFlow Railway public read-only deployment check
+on:
+  push:
+    branches: [main]
+    paths:
+      - "main.py"
+      - "frontend/**"
+      - "Dockerfile"
+      - "g2b_workflow_ops.py"
+      - "g2b_feature_api.py"
+      - "scripts/railway_live_probe.py"
+      - ".github/workflows/railway-live-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Probe actual public Railway endpoint (read-only)
+        run: python scripts/railway_live_probe.py
