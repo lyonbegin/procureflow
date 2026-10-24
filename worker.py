@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_category_secondary' THEN 0 WHEN source='browser_probe' THEN 1 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_single_case_10y' THEN 0 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -170,6 +170,22 @@ def main():
     initialize()
     from g2b_categories import ensure_schema
     ensure_schema()
+    from g2b_case_10y import ensure_schema as ensure_10y_case_schema
+    ensure_10y_case_schema()
+    # The user selected exactly one current G2B tender and a ten-year
+    # category-only historical window. Never select other cases automatically.
+    with session() as db:
+        marker="g2b-single-case-81111599-seed-20261024-v1"
+        claim=db.execute("""INSERT INTO procureflow.settings(key,value)
+             VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
+             """,(marker,'{"bid_no":"R26BK01787028","category8":"81111599","years":10}')).fetchone()
+        if claim:
+            jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+              VALUES ('g2b_single_case_10y',%s::jsonb,%s) RETURNING id
+              """,(json.dumps({"bid_no":"R26BK01787028","category":"81111599",
+                                "limit":13}),
+                  "User-selected G2B notice: 10-year exact 81111599 category historical seed")).fetchone()["id"]
+            logging.info("G2B_SINGLE_CASE_10Y_SEED_JOB job=%s",jid)
     # User-requested one-time category backfill for existing historical G2B
     # notices. Separate from the stopped tender-agent reassignment service.
     with session() as db:
@@ -529,6 +545,17 @@ def main():
                         update(job['id'],checked=result['screen_stage_count'],added=sum(1 for x in result['screenshots_saved'] if x['bytes']),message=json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         done(job['id'],'completed' if result['status']=='collected' else 'completed_partial' if result['status']=='partial' else 'failed',json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         logging.info("PF_BROWSER_JOB_RESULT %s",json.dumps({k:result[k] for k in ('status','screenshots_saved','errors','blocked_network')},ensure_ascii=False)[:3500])
+                    elif job['source']=='g2b_single_case_10y':
+                        import g2b_case_10y
+                        cfg=job.get('config') or {}
+                        result=g2b_case_10y.ingest_known_secondary(
+                            limit=cfg.get('limit',13))
+                        update(job['id'],checked=result['attempted'],added=result['saved'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],'completed' if result['saved'] else 'completed_partial',
+                             json.dumps(result,ensure_ascii=False))
+                        logging.info("G2B_SINGLE_CASE_10Y_RESULT %s",
+                                     json.dumps(result,ensure_ascii=False)[:5400])
                     elif job['source']=='g2b_category_secondary':
                         import g2b_secondary_category
                         cfg=job.get('config') or {}
