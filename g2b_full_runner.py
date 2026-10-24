@@ -69,13 +69,15 @@ def documents_batch():
         except Exception as exc:
             visited.append({"file_id":item["file_id"],"status":"error",
                   "reason":type(exc).__name__+":"+str(exc)[:100]})
+    from g2b_original_reparse import run as reparse_original_documents
+    parse_results=reparse_original_documents()
     updated=list_documents(CASE_BID)
     return {"status":"verified" if updated["all_documents_text_extracted"]
              else "partial","attempted":len(visited),
              "files_listed":updated["files_listed"],
              "downloaded":updated["files_downloaded"],
              "all_parsed":updated["all_documents_text_extracted"],
-             "results":visited}
+             "parse_results":parse_results,"results":visited}
 
 def one_phase(phase):
     if phase=="discover":return discover_new_bids()
