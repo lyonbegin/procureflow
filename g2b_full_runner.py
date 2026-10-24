@@ -46,9 +46,23 @@ def historical_month_batch():
     from g2b_official_notices import api_key
     if not api_key():
         from g2b_category_index import crawl_next_page
-        result=crawl_next_page()
-        result["status"]="partial_secondary_index_only"
-        return result
+        pages=[]
+        # Three bounded real public-search pages per job, each with 20 verified
+        # source notices; cursor is committed after each fully scanned page.
+        for _ in range(3):
+            result=crawl_next_page()
+            pages.append(result)
+            if result.get("next_page")==result.get("page") or result.get("errors"):
+                break
+        return {"status":"partial_secondary_index_only",
+                "pages":[{"page":p["page"],"listed":p.get("listed",0),
+                          "checked":p["checked"],"saved":p["saved"],
+                          "next_page":p.get("next_page"),
+                          "errors":p["errors"]} for p in pages],
+                "checked":sum(p["checked"] for p in pages),
+                "newly_saved":sum(p["saved"] for p in pages),
+                "next_page":pages[-1].get("next_page"),
+                "official_10_year_complete":False}
     return scan_month(row["first_day"],pages_max=8)
 
 def discover_new_bids():
