@@ -662,3 +662,40 @@ def browser_screenshot(job_id:int,stage:str):
     if not r or not r["image"]:raise HTTPException(404,"Screenshot not available")
     return Response(content=bytes(r["image"]),media_type=r["content_type"],
                     headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/browser/probes/{job_id}/summary")
+def browser_probe_summary(job_id:int):
+    """Compact JSON intended for direct automated QA and AI analysis."""
+    with session() as db:
+        j=db.execute("""
+          SELECT id,state,config->>'external_id' AS notice_id,
+                 checked,added,last_error,finished_at
+          FROM procureflow.jobs
+          WHERE id=%s AND source='browser_probe'
+        """,(job_id,)).fetchone()
+        if not j:raise HTTPException(404,"Browser probe not found")
+        rr=db.execute("SELECT report FROM procureflow.browser_reports WHERE job_id=%s",(job_id,)).fetchone()
+        captures=db.execute("""
+          SELECT stage,octet_length(image) AS image_bytes,snapshot
+          FROM procureflow.browser_captures WHERE job_id=%s
+          ORDER BY created_at,stage
+        """,(job_id,)).fetchall()
+    report=rr["report"] if rr else {}
+    return {
+      "job":j, "status":report.get("status"),
+      "unsafe_actions_executed":False,
+      "blocked_network":report.get("blocked_network",[])[:50],
+      "errors":report.get("errors",[])[:25],
+      "screens":[
+        {"step":c["stage"],"image_bytes":c["image_bytes"],
+         "image_url":f"/api/browser/images/{job_id}/{c['stage']}",
+         "title":c["snapshot"].get("title"),
+         "content_length":c["snapshot"].get("content_length"),
+         "text_excerpt":c["snapshot"].get("text","")[:1600],
+         "attachment_links":c["snapshot"].get("link_candidates",[])[:20],
+         "controls":c["snapshot"].get("controls",[])[:35],
+         "tables":c["snapshot"].get("tables",[])[:3]}
+        for c in captures
+      ]
+    }
