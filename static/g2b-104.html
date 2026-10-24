@@ -6,11 +6,11 @@
 <div id="error"></div>
 <section><div class="meters"><div class="metric"><span class="sub">전체 기능</span><b>104</b></div><div class="metric"><span class="sub">원본검증 완료</span><b class="verified" id="verified">-</b></div><div class="metric"><span class="sub">부분 확보</span><b class="partial" id="partial">-</b></div><div class="metric"><span class="sub">증빙 부족</span><b class="missing" id="missing">-</b></div><div class="metric"><span class="sub">신규 G2B 공고 DB</span><b id="actual">-</b></div></div><p id="status" class="sub">운영 데이터 조회 중</p></section>
 <section><h2>7개 처리 영역 · 실측 단계별 부족 증빙</h2><div class="cols" id="phases"></div></section>
-<section><h2>선택 공고의 동일 카테고리 과거 10년 자동검색</h2>
-<p id="hist-summary" class="sub">실제 저장 DB 검색 중</p><p id="opening-summary" class="sub">실제 개찰·투찰 결합 확인 중</p>
-<p class="sub">2016.10.24~2026.10.24 · 전국 · 81111599 분류코드 정확 일치 · 공식 API 121개월 전수검증과 공개 색인 수집은 구분</p>
-<div class="scroll"><table><thead><tr><th>공고일</th><th>공고번호</th><th>공고명</th><th>기관</th></tr></thead><tbody id="hist-rows"></tbody></table></div>
-<p><a href="/api/g2b/cases/R26BK01787028/history10y?limit=100">전체 확보 공고 원본 JSON</a> · <a href="/api/g2b/full/category-index">페이지별 자동 실행·재시작 위치</a> · <a href="/api/g2b/full/historical-opening-matches">과거 실제 투찰업체·낙찰업체 연결</a></p></section>
+<section><h2>세부품명번호 8111159901 · 최근 10년 실제 입찰·낙찰 결과</h2>
+<p id="hist-summary" class="sub">실제 개찰·낙찰 DB를 조회 중</p>
+<p class="sub">기간 2016.10.24~2026.10.24 · 전국 발주기관 · 공식 원본에서 세부품명번호가 검증된 과거 입찰만 포함 · 공고목록 건수는 실적이 아닙니다.</p>
+<div class="scroll"><table><thead><tr><th>공고번호·개찰</th><th>투찰업체</th><th>투찰금액</th><th>투찰률</th><th>순위</th><th>결과</th></tr></thead><tbody id="hist-rows"><tr><td colspan="6">실제 결과 확인 중</td></tr></tbody></table></div>
+<p><a href="/api/g2b/full/exact-outcomes">10년 실제 입찰·낙찰 결과 원본 JSON</a></p></section>
 <section><div class="controls"><h2>전체 104개 기능별 실증 기록</h2><div><label for="filter">보기　</label><select id="filter"><option value="all">전체 기능</option><option value="missing">미완료</option><option value="partial">부분 구현</option><option value="verified">원본검증 완료</option></select> <button id="refresh" type="button">DB 새로고침</button> <a href="/api/g2b/full/proposal.docx">제안서 검토용 초안</a></div></div><div class="scroll"><table><thead><tr><th>번호</th><th>기능</th><th>검증 상태</th><th>영역</th></tr></thead><tbody id="features"></tbody></table></div></section>
 <section><h2>자동 처리 결과 및 작업 이력</h2><pre id="runs" style="white-space:pre-wrap;overflow:auto;font-size:12px"></pre></section>
 <section><h2>첨부파일·입찰 적격성·투찰금액</h2><div id="documents" class="sub"></div><p><a href="/api/g2b/full/readiness">최종 참가 준비 검증 JSON</a> · <a href="/api/g2b/full/price">근거 기반 투찰가격 산정 JSON</a> · <a href="/api/g2b/full/notices/status">공식 공고 수집현황</a></p></section>
@@ -22,7 +22,7 @@ function escapeText(t){return String(t??"").replaceAll("&","&amp;").replaceAll("
 function render(){const filter=byId("filter").value;const rows=filter==="all"?all:all.filter(x=>x.acceptance_state===filter);
 byId("features").innerHTML=rows.map(x=>'<tr><td>'+x.number+'</td><td>'+escapeText(x.label)+'</td><td><span class="'+x.acceptance_state+'">'+(statusName[x.acceptance_state]||x.acceptance_state)+'</span></td><td>'+escapeText(phaseName[x.group])+'</td></tr>').join("");
 }
-async function load(){try{const [r,notices,docs,histReq,indexReq,openingReq]=await Promise.all([fetch("/api/g2b/full/case"),fetch("/api/g2b/full/notices/status"),fetch("/api/g2b/full/documents"),fetch("/api/g2b/cases/R26BK01787028/history10y?limit=100"),fetch("/api/g2b/full/category-index"),fetch("/api/g2b/full/historical-opening-matches")]);if(!r.ok||!notices.ok||!docs.ok)throw Error("서버 요청 실패");
+async function load(){try{const [r,notices,docs,histReq]=await Promise.all([fetch("/api/g2b/full/case"),fetch("/api/g2b/full/notices/status"),fetch("/api/g2b/full/documents"),fetch("/api/g2b/full/exact-outcomes")]);if(!r.ok||!notices.ok||!docs.ok)throw Error("서버 요청 실패");
 const d=await r.json(),n=await notices.json(),f=await docs.json();all=d.feature_acceptance||[];
 for(const status of ["verified","partial","missing"])byId(status).textContent=all.filter(x=>x.acceptance_state===status).length;
 byId("actual").textContent=n.actual_new_style_notice_rows;
@@ -30,15 +30,14 @@ byId("status").textContent="PostgreSQL 증빙 "+d.evidence.length+"건 · 총 "+
 byId("phases").innerHTML=d.phases.map(x=>'<div class="phase"><b>'+escapeText(phaseName[x.key])+'</b>　<span class="'+(x.ready?"verified":"blocked")+'">'+(x.ready?"검증 완료":"미완료")+'</span><p class="sub">'+escapeText(x.missing_evidence.join(" · ")||"필요한 원본 증빙 확보")+'</p></div>').join("");
 byId("runs").textContent=JSON.stringify(d.runs.slice(0,8).map(x=>({phase:x.phase,status:x.state,at:x.created_at,error:x.error,result:x.result})),null,2);
 const history=histReq.ok?await histReq.json():null;
-const index=indexReq.ok?await indexReq.json():null;
-const state=index&&index.cursor&&index.cursor.value||{};
-const opening=openingReq.ok?await openingReq.json():null;
-if(opening)byId("opening-summary").textContent="실제 투찰업체 기록 "+opening.opening_bidder_rows+"행 · 확정낙찰 "+opening.confirmed_award_rows+"행 (원본 개찰 DB 기준)";
 if(history){
-  const count=history.historical_notices_stored||0;
-  const completed=(history.monthly_window_states||[]).filter(x=>x.status==="completed").reduce((a,x)=>a+x.windows,0);
-  byId("hist-summary").textContent="실제 저장 "+count+"건 · 공개 목록 다음 검색 "+(state.page||1)+"페이지 · 공식 월별 검증 "+completed+"/121개 완료";
-  byId("hist-rows").innerHTML=(history.history||[]).map(x=>'<tr><td>'+escapeText(x.published_on||"")+'</td><td>'+escapeText(x.hist_notice_no)+'</td><td><a target="_blank" rel="noopener" href="'+escapeText(x.source_url||"#")+'">'+escapeText(x.title||"")+'</a></td><td>'+escapeText(x.agency||"")+'</td></tr>').join("");
+  const totals=history.verified_exact_code_history_and_result_counts||{};
+  const statuses=history.verification_states||[];
+  const verified=statuses.filter(x=>x.status==="verified_exact_10").reduce((a,x)=>a+x.n,0);
+  const scope="검증된 과거 입찰 "+(totals.verified_notice_rounds||0)+"건 · 실제 투찰업체 행 "+(totals.opening_bidder_rows||0)+"건 · 투찰금액 확보 "+(totals.opening_amount_rows||0)+"건 · 최종낙찰 "+(totals.confirmed_award_rows||0)+"건";
+  byId("hist-summary").textContent=scope+" · 세부코드 원본검증 "+verified+"건 · 10년 전수조회는 미완료";
+  const list=history.actual_opening_and_award_rows||[];
+  byId("hist-rows").innerHTML=list.length?list.map(x=>'<tr><td>'+escapeText(x.bid_ntce_no+"-"+x.bid_ntce_ord)+'</td><td>'+escapeText(x.company||"")+'</td><td>'+escapeText(x.amount||"금액 미확보")+'</td><td>'+escapeText(x.rate||"-")+'</td><td>'+escapeText(x.rank||"-")+'</td><td>'+escapeText(x.result_kind==="award"?"최종 낙찰확정":"개찰 투찰")+'</td></tr>').join(""):'<tr><td colspan="6">10자리 세부품명번호가 공식 원본으로 검증되고 실제 개찰·낙찰 결과가 연결된 데이터가 아직 없습니다.</td></tr>';
 }
 byId("documents").textContent="원본 첨부목록 "+f.files_listed+"개 · 실제 저장 "+f.files_downloaded+"개 · 전체 텍스트 추출 "+(f.all_documents_text_extracted?"완료":"미완료");
 byId("error").textContent="";render();
