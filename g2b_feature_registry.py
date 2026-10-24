@@ -27,10 +27,10 @@ GROUPS=[
 "공고번호별 과거 개찰조회","신규 공고와 과거 결과 연결"
 ]),
 ("matching",[
-"선택 공고 분류 자동확보","동일 8자리 품목 과거 검색","동일 10자리 세부품명 검색",
-"구·신형 공고번호 결합","선택 공고 10년 검색기간 생성","월별 전체 페이지 실제 검색",
-"동일 분류 과거 공고 DB 저장","개찰·투찰·낙찰 결과 연결","발주기관 과거이력",
-"발주기관 코드별 분석","참가업체 반복입찰 분석","근거 있는 과거 경쟁 분석 저장"
+"선택 공고 10자리 세부품명번호 원본 확인","해당 세부품명 10년 개찰결과 전체 확보","해당 세부품명 10년 확정 낙찰결과 전체 확보",
+"구형·신형 과거 개찰 공고번호 통합","선택 세부품명 10년 개찰기간 구간 관리","모든 구간의 실제 개찰·낙찰 결과 순회",
+"과거 참가업체·투찰금액·순위 저장","과거 확정 낙찰업체·낙찰금액 대조","동일 발주기관의 실제 개찰·낙찰 분석",
+"발주기관 코드별 확정 결과 집계","정확 일치 세부종목의 반복 참가업체 분석","10년 투찰·낙찰 실적 근거 보고서 저장"
 ]),
 ("eligibility",[
 "필수 입찰참가 자격 추출","자사 업종등록 대조","지역제한 적격성 검증",
@@ -148,3 +148,22 @@ FEATURE_GATES[18]=("notice_official","notice_raw_json")
 FEATURE_GATES[30]=("attachments_complete","attachment_revision_history")
 FEATURE_GATES[51]=("classification_verified","historical_detail10_match")
 FEATURE_GATES[56]=("historical_bidders_linked","award_evidence")
+
+# History acceptance is about ACTUAL opening and confirmed-award evidence,
+# not historical public tender headings or a broad eight-digit code.
+REQUIREMENTS["history"]=("outcome_10years_complete","opening_evidence","award_evidence")
+REQUIREMENTS["matching"]=("classification_verified","outcome_10years_complete",
+                          "historical_bidders_linked","award_evidence")
+FEATURE_GATES[46]=("outcome_10years_complete",)
+FEATURE_GATES[49]=("classification_verified",)
+FEATURE_GATES[50]=("outcome_10years_complete","opening_evidence")
+FEATURE_GATES[51]=("outcome_10years_complete","award_evidence")
+FEATURE_GATES[52]=("historic_old_and_new_opening_verified",)
+FEATURE_GATES[53]=("outcome_window_register",)
+FEATURE_GATES[54]=("outcome_10years_complete",)
+FEATURE_GATES[55]=("opening_evidence","historical_bidders_linked")
+FEATURE_GATES[56]=("award_evidence",)
+FEATURE_GATES[57]=("verified_agency_opening_history",)
+FEATURE_GATES[58]=("verified_agency_code_results",)
+FEATURE_GATES[59]=("verified_detail10_company_stats",)
+FEATURE_GATES[60]=("verified_detail10_outcome_report",)
