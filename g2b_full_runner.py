@@ -45,8 +45,10 @@ def historical_month_batch():
     if not row:return {"status":"verified","window_coverage":"121/121"}
     from g2b_official_notices import api_key
     if not api_key():
-        from g2b_category_index import crawl_one_index_page
-        return crawl_one_index_page(page=1,limit=20)
+        from g2b_category_index import crawl_next_page
+        result=crawl_next_page()
+        result["status"]="partial_secondary_index_only"
+        return result
     return scan_month(row["first_day"],pages_max=8)
 
 def discover_new_bids():
