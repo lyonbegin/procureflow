@@ -173,17 +173,17 @@ def main():
     # User-requested one-time category backfill for existing historical G2B
     # notices. Separate from the stopped tender-agent reassignment service.
     with session() as db:
-        marker="g2b-category-public-trial-20261024-v2"
+        marker="g2b-category-public-trial-20261024-v3"
         created=db.execute("""
           INSERT INTO procureflow.settings(key,value)
           VALUES (%s,%s::jsonb)
           ON CONFLICT(key) DO NOTHING RETURNING key
-        """,(marker,'{"scope":"historic_G2B_category_only","batch":12}')).fetchone()
+        """,(marker,'{"scope":"historic_G2B_category_only","batch":30}')).fetchone()
         if created:
             jid=db.execute("""
                INSERT INTO procureflow.jobs(source,config,message)
                VALUES ('g2b_category_secondary',%s::jsonb,%s) RETURNING id
-            """,(json.dumps({"limit":12,"version":"trial-20261024-v2"}),
+            """,(json.dumps({"limit":30,"version":"trial-20261024-v3"}),
                   "Historical G2B category code pilot: public mirrored official data")).fetchone()["id"]
             logging.info("G2B_CATEGORY_TRIAL_QUEUED job=%s",jid)
     from db import ensure_browser_diagnostics
