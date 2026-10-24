@@ -212,6 +212,17 @@ def main():
                   (json.dumps({"phase":"evidence","bid_no":"R26BK01787028"}),
                    "Extract 8111159901 official code and rules from saved G2B originals")).fetchone()["id"]
             logging.info("G2B_ORIGINAL_DETAIL_CODE_JOB=%s",nid)
+    with session() as db:
+        marker="g2b-81111599-official-history-detail-20261024-v1"
+        enabled=db.execute("""INSERT INTO procureflow.settings(key,value)
+             VALUES(%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
+             (marker,'{"case":"R26BK01787028","phase":"opening_details"}')).fetchone()
+        if enabled:
+            job_id=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+                VALUES('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+                (json.dumps({"phase":"opening_details","bid_no":"R26BK01787028"}),
+                 "Actual Nuri opening detail enrichment for 81111599 historical notices")).fetchone()["id"]
+            logging.info("G2B_OFFICIAL_HISTORY_DETAIL_JOB=%s",job_id)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
     # The user selected exactly one current G2B tender and a ten-year
