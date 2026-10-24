@@ -621,6 +621,31 @@ def main():
                         update(job['id'],checked=result['screen_stage_count'],added=sum(1 for x in result['screenshots_saved'] if x['bytes']),message=json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         done(job['id'],'completed' if result['status']=='collected' else 'completed_partial' if result['status']=='partial' else 'failed',json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         logging.info("PF_BROWSER_JOB_RESULT %s",json.dumps({k:result[k] for k in ('status','screenshots_saved','errors','blocked_network')},ensure_ascii=False)[:3500])
+                    elif job['source']=='g2b_feature':
+                        from g2b_feature_api import execute_one
+                        cfg=job.get('config') or {}
+                        result=execute_one(cfg.get('bid_no',''),int(cfg['feature_no']),
+                                           cfg.get('parameters') or {})
+                        state=result['state']
+                        update(job['id'],checked=1,
+                               message=json.dumps({
+                                   "feature_no":result['feature_no'],
+                                   "state":state,
+                                   "acceptance_state":result.get('acceptance_state'),
+                                   "run_id":result.get('run_id'),
+                                   "missing_evidence":result.get('missing_evidence',[])
+                               },ensure_ascii=False)[:450])
+                        done(job['id'],
+                             'completed' if state=='verified'
+                             else 'failed' if state=='error'
+                             else 'completed_partial',
+                             json.dumps(result,ensure_ascii=False,default=str))
+                        logging.info('G2B_FEATURE_104_RESULT %s',
+                                     json.dumps({
+                                       "feature":result['feature_no'],
+                                       "state":state,
+                                       "run_id":result.get('run_id')
+                                     },ensure_ascii=False))
                     elif job['source']=='g2b_full_case':
                         import g2b_full_runner
                         cfg=job.get('config') or {}
