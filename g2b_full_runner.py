@@ -43,6 +43,10 @@ def historical_month_batch():
           WHERE case_bid_no=%s AND status NOT IN ('completed')
           ORDER BY first_day LIMIT 1""",(CASE_BID,)).fetchone()
     if not row:return {"status":"verified","window_coverage":"121/121"}
+    from g2b_official_notices import api_key
+    if not api_key():
+        from g2b_category_index import crawl_one_index_page
+        return crawl_one_index_page(page=1,limit=20)
     return scan_month(row["first_day"],pages_max=8)
 
 def discover_new_bids():
