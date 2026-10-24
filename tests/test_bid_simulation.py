@@ -16,3 +16,10 @@ def test_deadline_requires_exact_time():
     assert deadline_state("2026-10-26 17:00:00", now) == "open_by_recorded_deadline"
     assert deadline_state("202610", now) == "unverified"
     assert deadline_state("2026-10-20 17:00:00", now) == "past_recorded_deadline"
+
+
+def test_order_request_cannot_pass_bid_gate():
+    from bid_simulation import record_type
+    assert record_type("g2b", "R26DD20902084") == "g2b_order_request_not_bid_notice"
+    assert record_type("g2b", "R26BK01760142") == "g2b_bid_notice"
+    assert record_type("kapt", "20261020165014951") == "kapt_bid_notice"
