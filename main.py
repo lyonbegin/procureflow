@@ -1101,7 +1101,7 @@ def full_g2b_proposal_docx():
                  "X-ProcureFlow-Draft-Only":"true"})
 
 class FullBidAction(BaseModel):
-    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|documents|evidence|readiness)$")
+    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|opening_details|documents|evidence|readiness)$")
 
 @app.post("/api/g2b/full/run")
 def full_g2b_run(req:FullBidAction,authorization:str|None=Header(None)):
@@ -1244,3 +1244,23 @@ def g2b_case_actual_historical_bids(limit:int=Query(100,ge=1,le=500)):
             "opening_bidder_rows":sum(x["result_kind"]=="opening" for x in rows),
             "confirmed_award_rows":sum(x["result_kind"]=="award" for x in rows),
             "opening_is_not_award":True,"records":rows}
+
+
+@app.get("/api/g2b/full/historical-opening-enrichment")
+def g2b_full_official_opening_enrichment_status():
+    """Actual official Nuri per-notice read outcomes, including no-result/error."""
+    from g2b_historical_detail_enrich import ensure_schema
+    ensure_schema()
+    with session() as con:
+        totals=con.execute("""SELECT status,count(*) AS notices,
+                 sum(bidders) AS bidder_rows,
+                 count(*) FILTER(WHERE winner_verified) AS winners
+               FROM procureflow.g2b_case_opening_enrich_audit
+               GROUP BY status ORDER BY status""").fetchall()
+        examples=con.execute("""SELECT bid_no,status,attempt_count,bidders,
+                   winner_verified,error,updated_at
+               FROM procureflow.g2b_case_opening_enrich_audit
+               ORDER BY updated_at DESC LIMIT 20""").fetchall()
+    return {"case":"R26BK01787028","official_nuri_detail":True,
+            "results":totals,"recent_checked":examples,
+            "rank_1_not_confirmed_winner":True}
