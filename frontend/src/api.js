@@ -25,6 +25,10 @@ export async function readJson(path, { method = 'GET', token = '', body, signal 
 
 export const api = {
   catalog: () => readJson(CASE_API + '/features'),
+  plan: () => readJson(CASE_API + '/workflow/plan'),
+  advance: (featureNo, token) => readJson(CASE_API + '/workflow/advance', {
+    method: 'POST', token, body: { confirm_feature_no: featureNo },
+  }),
   feature: (id, opts = {}) => readJson(CASE_API + '/features/' + id, opts),
   runs: (id) => readJson(CASE_API + '/features/' + id + '/runs?limit=15'),
   run: (id, mode, parameters, token) => readJson(
