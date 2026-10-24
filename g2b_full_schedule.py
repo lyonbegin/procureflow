@@ -13,7 +13,6 @@ KEY="g2b:full:scheduled"
 LOCK1,LOCK2=20261024,104
 
 def tick(session):
-    if not api_key():return {"status":"blocked_missing_official_api_key"}
     with session() as c:
         lock=c.execute("SELECT pg_try_advisory_xact_lock(%s,%s) AS ok",
                        (LOCK1,LOCK2)).fetchone()
@@ -29,7 +28,7 @@ def tick(session):
         last=state.get("last_queued")
         if last:
             try:
-                if (now-datetime.fromisoformat(last)).total_seconds()<900:
+                if (now-datetime.fromisoformat(last)).total_seconds()<300:
                     return {"status":"not_due"}
             except (ValueError,TypeError):pass
         waiting=c.execute("""SELECT count(*) AS n
@@ -41,11 +40,24 @@ def tick(session):
             try:
                 discovery_due=(now-datetime.fromisoformat(recent))>=timedelta(hours=2)
             except (ValueError,TypeError):pass
-        phase="discover" if discovery_due else "ten_year" if waiting else "notice"
-        meta={"bid_no":"R26BK01787028","phase":phase,"origin":"official_schedule"}
+        if not api_key():
+            # Public code-validated index can progress without the DATA_GO_KR key,
+            # but it does NOT mark the 121 official month windows as completed.
+            public=c.execute("""SELECT value FROM procureflow.settings
+               WHERE key='g2b:single:81111599:secondary_index_cursor'""").fetchone()
+            public_state=public["value"] if public else {}
+            if public_state.get("exhausted"):
+                return {"status":"secondary_index_exhausted",
+                        "official_ten_year_unverified":True}
+            phase="ten_year"
+            origin="secondary_category_fallback"
+        else:
+            phase="discover" if discovery_due else "ten_year" if waiting else "notice"
+            origin="official_schedule"
+        meta={"bid_no":"R26BK01787028","phase":phase,"origin":origin}
         job_id=c.execute("""INSERT INTO procureflow.jobs(source,config,message)
            VALUES ('g2b_full_case',%s::jsonb,%s) RETURNING id""",
-           (json.dumps(meta),"Selected G2B category 81111599 official schedule")).fetchone()["id"]
+           (json.dumps(meta),"Selected G2B 81111599 category automatic scheduler")).fetchone()["id"]
         state.update({"last_queued":now.isoformat(),"last_phase":phase,
                       "last_job":job_id})
         if phase=="discover":state["last_discovery"]=now.isoformat()
