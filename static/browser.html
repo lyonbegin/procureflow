@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProcureFlow · 자체 Headless 브라우저 진단</title>
+<style>
+:root{font-family:system-ui,"Malgun Gothic",sans-serif;color:#19273b;background:#f4f6fa}
+*{box-sizing:border-box}body{margin:0}
+header{padding:18px 26px;background:#14263d;color:white}
+header h1{font-size:24px;margin:0 0 8px}header small{color:#d8e3f5}
+main{max-width:1400px;margin:20px auto;padding:0 18px}
+section{border:1px solid #dce3ee;background:white;padding:17px 19px;border-radius:12px;margin:14px 0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+input,select,button{padding:9px 10px;border:1px solid #bfcbd9;border-radius:7px;font:inherit}
+button{background:#12649e;color:white;border:0;cursor:pointer}
+button:hover{background:#0b4976}button:disabled{opacity:.55}
+input[type=text]{width:220px}
+#adminToken{width:230px}
+.small,small{font-size:13px;color:#66768a}
+.error{color:#a52222}
+.good{color:#0d6d4b}
+.warn{color:#9b620a}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.card{border:1px solid #dde4ed;border-radius:10px;overflow:hidden}
+.card img{width:100%;height:240px;object-fit:contain;background:#e9edf3;display:block;cursor:zoom-in}
+.card summary,.card h3{padding:10px;margin:0;font-size:16px}
+.card p{padding:0 10px}table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border-bottom:1px solid #dfe6ed;padding:10px;text-align:left}
+th{background:#f4f6f9}pre{white-space:pre-wrap;word-break:break-word;font-size:12px;background:#f5f7f9;padding:11px;border-radius:8px;max-height:400px;overflow:auto}
+a{color:#175c93} .hint{border-left:4px solid #cc9334;padding:8px 14px;background:#faf7ed}
+@media(max-width:760px){.cards{grid-template-columns:1fr}.card img{height:200px}}
+</style></head>
+<body>
+<header><h1>ProcureFlow · 자체 Headless Chromium 브라우저 검증</h1>
+<small>Railway Playwright Worker → PostgreSQL 캡처 보관 → FastAPI 조회 · 유료 외부 브라우저 불필요</small></header>
+<main>
+<section>
+<h2>공개 K-apt 페이지 진단</h2>
+<div class="row">
+<label>공고번호 <input type="text" id="notice" value="20261020165014951"></label>
+<label>관리자 인증키 <input type="password" id="adminToken" placeholder="관리자 키(재실행 시)"></label>
+<button onclick="requestProbe()">새 스크린샷 수집</button>
+<button onclick="refresh()">결과 새로고침</button>
+<span class="small" id="queueMsg"></span>
+</div>
+<p class="hint">입찰참가·응찰·투찰·서명·로그인·서류업로드·제출 버튼을 <strong>누르지 않습니다.</strong> 공개 화면의 목록, 상세, 첨부 위치와 버튼 노출 여부만 읽고 저장합니다.</p>
+<div id="summary" class="small">운영 서버 진단 이력을 조회 중입니다.</div>
+</section>
+<section><h2>실행 이력</h2>
+<div style="overflow:auto"><table><thead><tr><th>Job</th><th>공고번호</th><th>상태</th><th>캡처 수</th><th>시작</th><th>오류</th><th>결과</th></tr></thead>
+<tbody id="jobs"></tbody></table></div></section>
+<section id="detail" hidden>
+<h2 id="detailHeading">캡처 및 DOM 분석</h2>
+<div class="row" id="reportStatus"></div>
+<h3>실제 캡처 화면 (클릭 시 원본 이미지)</h3>
+<div class="cards" id="screens"></div>
+<h3>단계별 DOM·콘솔·네트워크</h3>
+<div id="snapshots"></div>
+</section>
+<p><a href="/">← 통합 대시보드</a> · <a href="/simulate">입찰 적격성 시뮬레이션</a> · <a href="/bids">개찰·낙찰 분석</a></p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const formatDate=(val)=>val?new Date(val).toLocaleString('ko-KR'):'-';
+const stageNames={public_list:'01 · 공고목록',notice_detail:'02 · 공고 상세',attachments_area:'03 · 첨부 영역',before_participation:'04 · 참가 직전 안전정지'};
+const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[x]));
+async function get(url,opt={}){
+ const r=await fetch(url,opt),v=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(r.status+': '+JSON.stringify(v).slice(0,450));
+ return v;
+}
+async function refresh(){
+ try{
+ const d=await get('/api/browser/probes');
+ $('jobs').replaceChildren();
+ $('summary').textContent='검증 실행 '+d.items.length+'건 · Playwright 자체 브라우저 · 실제 제출 0건';
+ for(const x of d.items){
+  let tr=document.createElement('tr');
+  for(const value of [x.id,x.notice_id,x.state,x.checked,formatDate(x.started_at),x.last_error||'-']){
+   const td=document.createElement('td');td.textContent=value??'-';tr.append(td);
+  }
+  const cell=document.createElement('td'),btn=document.createElement('button');
+  btn.textContent='캡처 분석';btn.onclick=()=>openReport(x.id);cell.append(btn);tr.append(cell);$('jobs').append(tr);
+ }
+ if(d.items.length)await openReport(d.items[0].id);
+ }catch(e){$('summary').textContent='조회 오류: '+e.message;$('summary').className='error'}
+}
+async function openReport(id){
+ try{
+ const data=await get('/api/browser/probes/'+id);
+ $('detail').hidden=false;$('detailHeading').textContent='Job '+id+' · 단계별 화면 검증';
+ const r=data.report||{};
+ $('reportStatus').textContent='상태 '+(data.job.state||'미시작')+' / 스크린샷 '+(data.captures||[]).length+
+ '장 / 브라우저 오류 '+(r.ui_errors_count??'-')+'건 / 차단된 네트워크 '+(r.network_block_count??'-')+
+ '건 / 안전 게이트 '+(r.participation_gate||'진행 전');
+ $('screens').replaceChildren();$('snapshots').replaceChildren();
+ for(const shot of (data.captures||[])){
+  const card=document.createElement('div');card.className='card';
+  const name=document.createElement('h3');name.textContent=stageNames[shot.stage]||shot.stage;
+  const img=document.createElement('img');img.src=shot.screenshot_url;img.alt=shot.stage+' 캡처';
+  img.onclick=()=>window.open(shot.screenshot_url,'_blank','noopener');
+  const info=document.createElement('p');info.className='small';info.textContent=(shot.bytes||0).toLocaleString()+' bytes · '+formatDate(shot.created_at);
+  card.append(name,img,info);$('screens').append(card);
+  const box=document.createElement('details');box.open=(shot.stage==='notice_detail'||shot.stage==='before_participation');
+  const title=document.createElement('summary');title.textContent=(stageNames[shot.stage]||shot.stage)+' — 화면구조, 버튼, 네트워크 오류';box.append(title);
+  const p=document.createElement('pre');p.textContent=JSON.stringify(shot.snapshot,null,2);box.append(p);$('snapshots').append(box);
+ }
+ if(r.blocked_network?.length){
+  const err=document.createElement('pre');err.textContent='차단된 비읽기 요청 / 외부 도메인\n'+JSON.stringify(r.blocked_network.slice(0,60),null,2);$('snapshots').append(err)
+ }
+ if(r.errors?.length){
+  const err=document.createElement('pre');err.textContent='진단 중 오류\n'+JSON.stringify(r.errors,null,2);$('snapshots').append(err)
+ }
+ }catch(e){$('queueMsg').textContent='상세 조회 오류: '+e.message;$('queueMsg').className='error'}
+}
+async function requestProbe(){
+ $('queueMsg').textContent='작업 요청 중...';
+ const key=$('adminToken').value.trim(),num=$('notice').value.trim();
+ try{
+ const d=await get('/api/browser/probes',{method:'POST',
+ headers:{'Content-Type':'application/json',...(key?{'Authorization':key.startsWith('Bearer ')?key:'Bearer '+key}:{})},
+ body:JSON.stringify({source:'kapt',external_id:num})});
+ $('queueMsg').textContent='Job '+d.job_id+' 접수 · 실제 제출 기능 없음';
+ await refresh();
+ }catch(e){$('queueMsg').textContent=e.message;$('queueMsg').className='error'}
+}
+window.addEventListener('load',refresh);
+</script>
+</body></html>
