@@ -93,6 +93,9 @@ def ensure_agent_schema():
         )""")
         c.execute("CREATE INDEX IF NOT EXISTS ix_pf_agent_events_recent ON procureflow.agent_events(id DESC)")
         c.execute("CREATE INDEX IF NOT EXISTS ix_pf_agent_retry ON procureflow.agent_cases(state,next_attempt_at)")
+        # Operator starts an agent explicitly. An idle process is not an active agent.
+        c.execute("""ALTER TABLE procureflow.agent_slots
+              ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT false""")
         c.execute("CREATE INDEX IF NOT EXISTS ix_pf_agent_slots_lease ON procureflow.agent_slots(lease_until)")
         for n in range(1,AGENT_COUNT+1):
             c.execute("INSERT INTO procureflow.agent_slots(slot_id) VALUES (%s) ON CONFLICT DO NOTHING",(n,))
@@ -120,10 +123,27 @@ def _touch(slot,source,external_id,phase,label,progress,action):
         _log(db,slot,source,external_id,phase,action[:400])
 
 
+def _deadline_at(text):
+    """Parse confirmed Korean-local deadline; never prioritize malformed deadlines."""
+    value=str(text or "").strip()
+    try:
+        if re.fullmatch(r"\d{12}",value):
+            dt=datetime.strptime(value,"%Y%m%d%H%M")
+        elif re.fullmatch(r"\d{14}",value):
+            dt=datetime.strptime(value,"%Y%m%d%H%M%S")
+        elif re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?",value):
+            dt=datetime.fromisoformat(value)
+        else:
+            return None
+        return dt.replace(tzinfo=KST) if dt.tzinfo is None else dt.astimezone(KST)
+    except (ValueError,TypeError,OverflowError):
+        return None
+
+
 def _get_candidate(db,slot):
-    # At most 500 most-recent open actual K-apt numeric bids from this
-    # bounded pilot. Future G2B notice collectors feed the same queue.
-    # Deadline must be explicit and in the future.
+    # All eligible open bids, ordered by the CLOSEST deadline, not by
+    # most recently posted announcement. Different agents never share a
+    # claimed bid, and completed cases are retried only when due.
     rows=db.execute("""SELECT t.source,t.external_id,t.title,t.agency,
                             t.category,t.deadline,t.notice_date,t.last_seen,
                             ac.state AS agent_state,ac.next_attempt_at,
@@ -137,15 +157,18 @@ def _get_candidate(db,slot):
           AND (ac.state IS NULL OR (
                 ac.state IN ('needs_evidence','retryable')
                 AND ac.next_attempt_at<=now()))
-        ORDER BY CASE WHEN ac.state IS NULL THEN 0 ELSE 1 END,
-                 regexp_replace(t.notice_date,'[^0-9]','','g') DESC,
+        ORDER BY regexp_replace(t.notice_date,'[^0-9]','','g') DESC,
                  t.first_seen DESC
-        LIMIT 500""").fetchall()
+        LIMIT 10000""").fetchall()
+    candidates=[]
+    now=datetime.now(KST)
     for row in rows:
-        if deadline_state(row["deadline"]) != "open_by_recorded_deadline":
-            continue
-        if row["source"]=="kapt" and not row["external_id"].isdigit():
-            continue
+        deadline=_deadline_at(row["deadline"])
+        if deadline and deadline>now:
+            candidates.append((deadline,row["attempts"],row["source"],
+                               row["external_id"],row))
+    candidates.sort(key=lambda p:p[:4])
+    for _,__,___,____,row in candidates:
         # Claim atomically using the same PG transaction and unique case key.
         res=db.execute("""INSERT INTO procureflow.agent_cases
            (source,external_id,state,last_agent,attempt,last_started_at)
@@ -169,6 +192,8 @@ def claim(slot):
         owned=db.execute("""SELECT * FROM procureflow.agent_slots
           WHERE slot_id=%s FOR UPDATE""",(slot,)).fetchone()
         if not owned:return None
+        if not owned["enabled"]:
+            return None
         if owned["owner_id"] and owned["owner_id"]!=RUN_ID and owned["lease_until"] and owned["lease_until"]>datetime.now(timezone.utc):
             return None
         if owned["source"] and owned["external_id"] and owned["status"]=="running":
@@ -181,9 +206,11 @@ def claim(slot):
         row,attempt=_get_candidate(db,slot)
         if not row:
             db.execute("""UPDATE procureflow.agent_slots
-             SET status='idle',source='',external_id='',owner_id='',
-                 phase='waiting',phase_label='신규 공고 대기',progress=0,
-                 current_action='새 입찰공고 또는 보완 재시도 대기',updated_at=now()
+             SET status='waiting',source='',external_id='',owner_id='',
+                 phase='waiting',phase_label='마감 임박 공고 대기',progress=0,
+                 heartbeat_at=now(),
+                 current_action='추가 배정 가능한 미처리 공고 또는 보완 시점 대기',
+                 updated_at=now()
              WHERE slot_id=%s""",(slot,))
             return None
         db.execute("""UPDATE procureflow.agent_slots SET
@@ -379,18 +406,29 @@ def run_case(slot,row):
     finally:
         with session() as db:
             db.execute("""UPDATE procureflow.agent_slots SET
-                status='idle',source='',external_id='',owner_id='',
-                phase='waiting',phase_label='다음 입찰공고 배정',
-                progress=0,current_action='다음 공고 선택 중',
+                status=CASE WHEN enabled THEN 'waiting' ELSE 'disabled' END,
+                source='',external_id='',owner_id='',
+                phase='waiting',
+                phase_label=CASE WHEN enabled THEN '다음 마감 임박 공고 배정'
+                                 ELSE '사용자에 의해 중지' END,
+                progress=0,
+                current_action=CASE WHEN enabled THEN '다음 미처리 공고 검색 중'
+                                    ELSE '사용자 요청으로 다음 공고 자동배정 중지' END,
                 heartbeat_at=now(),lease_until=NULL,
                 finished_cases=finished_cases+1,updated_at=now()
                 WHERE slot_id=%s AND owner_id=%s""",(slot,RUN_ID))
 
 
 def slot_main(slot):
-    logger.info("AGENT_SLOT_STARTED slot=%d instance=%s",slot,RUN_ID[:8])
+    logger.info("AGENT_SLOT_LISTENER_READY slot=%d instance=%s - NOT ACTIVE",slot,RUN_ID[:8])
     while not STOP.is_set():
         try:
+            # Idle listener does nothing until the user presses [에이전트 추가].
+            with session() as db:
+                active=db.execute("SELECT enabled FROM procureflow.agent_slots WHERE slot_id=%s",(slot,)).fetchone()
+            if not active or not active["enabled"]:
+                STOP.wait(3)
+                continue
             case=claim(slot)
             if case:
                 run_case(slot,case)
@@ -399,6 +437,51 @@ def slot_main(slot):
         except Exception:
             logger.exception("AGENT_SLOT_FAILURE slot=%s",slot)
             STOP.wait(8)
+
+
+def activate_one():
+    """Operator-triggered creation of exactly one active autonomous agent."""
+    with session() as db:
+        db.execute("SELECT pg_advisory_xact_lock(%s)",(ASSIGN_LOCK,))
+        row=db.execute("""SELECT slot_id FROM procureflow.agent_slots
+             WHERE enabled=false ORDER BY slot_id FOR UPDATE SKIP LOCKED LIMIT 1""").fetchone()
+        if not row:
+            raise ValueError("최대 3개 에이전트가 이미 활성화되어 있습니다")
+        slot=row["slot_id"]
+        db.execute("""UPDATE procureflow.agent_slots SET
+           enabled=true,status='waiting',source='',external_id='',owner_id='',
+           phase='waiting',phase_label='마감 임박 공고 배정 대기',
+           current_action='사용자 추가 명령 수락 · 마감일 빠른 순으로 배정 예정',
+           progress=0,last_error='',started_at=NULL,lease_until=NULL,
+           updated_at=now()
+           WHERE slot_id=%s AND enabled=false""",(slot,))
+        _log(db,slot,"","","activate","사용자 [에이전트 추가] 명령으로 에이전트 활성화")
+        return {"slot_id":slot,"enabled":True,"active_count":db.execute(
+              "SELECT count(*) AS n FROM procureflow.agent_slots WHERE enabled"
+            ).fetchone()["n"],"message":f"에이전트 {slot} 활성화. 마감 임박 공고부터 자동 배정"}
+
+
+def deactivate_one(slot):
+    """Stop AFTER the current case; never spawn a replacement for this slot."""
+    if slot not in range(1,AGENT_COUNT+1):
+        raise ValueError("에이전트 번호가 잘못되었습니다")
+    with session() as db:
+        db.execute("SELECT pg_advisory_xact_lock(%s)",(ASSIGN_LOCK,))
+        found=db.execute("SELECT enabled,status,source,external_id FROM procureflow.agent_slots WHERE slot_id=%s FOR UPDATE",(slot,)).fetchone()
+        if not found or not found["enabled"]:
+            raise ValueError("이 에이전트는 비활성 상태입니다")
+        in_progress=found["status"]=="running"
+        db.execute("""UPDATE procureflow.agent_slots SET
+          enabled=false,updated_at=now(),
+          current_action=%s,
+          status=CASE WHEN status='running' THEN status ELSE 'disabled' END
+          WHERE slot_id=%s""",(
+             "현재 공고 수집 회차 종료 후 중지" if in_progress else "사용자가 에이전트 중지",slot))
+        _log(db,slot,found["source"],found["external_id"],
+             "deactivate","사용자 요청: "+("현재 회차 완료 후 자동배정 중지" if in_progress else "즉시 대기 중지"))
+        return {"slot_id":slot,"enabled":False,
+                "finishing_current_case":in_progress,"message":
+                "현재 공고 처리 후 추가 배정 없이 종료" if in_progress else "에이전트 비활성화"}
 
 
 def run():
