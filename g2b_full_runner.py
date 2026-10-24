@@ -79,7 +79,14 @@ def documents_batch():
 
 def one_phase(phase):
     if phase=="discover":return discover_new_bids()
-    if phase=="notice":return official_selected_notice()
+    if phase=="notice":
+        official=official_selected_notice()
+        if official.get("status")=="verified":return official
+        from g2b_selected_public import ingest_selected_public
+        secondary=ingest_selected_public()
+        return {"status":"partial" if secondary.get("status")=="collected_secondary_public"
+                else "blocked","official":official,"secondary":secondary,
+                "source_qualification":"secondary_public_not_official_verified"}
     if phase=="ten_year":return historical_month_batch()
     if phase=="documents":return documents_batch()
     if phase=="evidence":
@@ -93,7 +100,7 @@ def one_phase(phase):
 def execute(phase="all"):
     if phase not in ("all","discover","notice","ten_year","documents","evidence","readiness"):
         raise ValueError("unknown phase")
-    phases=("discover","notice","ten_year","documents","evidence","readiness") if phase=="all" else (phase,)
+    phases=("discover","notice","documents","ten_year","evidence","readiness") if phase=="all" else (phase,)
     results={}
     for key in phases:
         with session() as c:
