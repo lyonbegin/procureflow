@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 경비용역 투찰가 및 제안서 시뮬레이션</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6f9;color:#172337;font:15px system-ui,"Malgun Gothic",sans-serif}
+header{padding:22px 26px;background:#17283d;color:white}header h1{font-size:23px;margin:0 0 8px}
+main{max-width:1170px;margin:20px auto;padding:0 16px}
+section{border:1px solid #d6dfea;background:white;border-radius:12px;padding:18px;margin:14px 0}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.tile{background:#edf2f7;border-radius:8px;padding:12px}.tile strong{display:block;font-size:23px;margin-top:5px}
+label{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+input,select,button{border-radius:7px;border:1px solid #b9c8d7;padding:9px;font:inherit}
+input{max-width:130px}button{border:0;background:#126aa0;color:white;cursor:pointer;padding:10px 16px}
+.warn{color:#982b21}.muted{color:#64748b;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:10px;text-align:left;border-bottom:1px solid #e2e8f0}
+th{background:#f4f6f9}.section{margin:16px 0;border-top:1px solid #e1e7ee;padding-top:12px}
+.section h3{font-size:16px;margin:0 0 6px}.section p{line-height:1.7;white-space:pre-wrap;margin:0}
+a{color:#145f9c}.alert{background:#fff8e8;border-left:3px solid #d09c34;padding:11px 13px}
+@media(max-width:650px){input{max-width:90px}}
+</style></head>
+<body>
+<header><h1>ProcureFlow · 실제 K-apt 공고 원가 및 제안서 검증</h1><div>공고 20261020165014951 · 보문센트럴아이파크 경비용역 재공고 · 제출 금지 시뮬레이션</div></header>
+<main><section>
+<h2>산출 가정 변경</h2>
+<div class="row">
+<label>직책수당(1인/월) <input id="role" type="number" value="0" min="0" max="1000000"></label>
+<label>대체인력 추가비(현장/월) <input id="relief" type="number" value="0" min="0" max="3000000"></label>
+<label>일반관리비 % <input id="admin" type="number" value="3" min="3" max="25" step="0.1"></label>
+<label>기업이윤 % <input id="profit" type="number" value="3" min="3" max="25" step="0.1"></label>
+<label>공통비 적용 <select id="scope"><option value="site">현장 1회</option><option value="each_worker">인원별 2회</option></select></label>
+<button id="recalc">재계산</button>
+</div><p class="alert"><b>원가 시나리오일 뿐 확정 투찰가격이 아닙니다.</b> 실제 사업자 허가·수행계약·산출표 원본·견적·VAT·인력·4대보험을 확인하지 않았습니다.</p>
+<div class="kpis" id="totals"></div><div class="muted" id="status"></div>
+</section>
+<section><h2>공고 필수 산출내역서 계산표</h2><div style="overflow:auto"><table><thead><tr><th>구분</th><th>원가</th><th>단위</th><th>공고 산식</th></tr></thead><tbody id="costrows"></tbody></table></div></section>
+<section><h2>기준 변경 비교 시나리오</h2><div style="overflow:auto"><table><thead><tr><th>시나리오</th><th>월 용역비</th><th>연간 12개월</th><th>심사상태</th></tr></thead><tbody id="scenarios"></tbody></table></div></section>
+<section><h2>사업제안서 검토 초안</h2><p class="muted">업체 소개, 수행실적, 인력·장비 보유, 협력사 계약은 실제 증빙 확보 전까지 기입하지 않습니다.</p><div id="proposal"></div></section>
+<section><h2>제출을 차단하는 미완료 항목</h2><ol id="blocks"></ol><p class="alert">파일첨부 원본 및 실제 업체 자격 증빙이 없어 사업제안서는 <b>작성 초안</b>, 투찰가격은 <b>계산 모델</b>이며 입찰서·산출내역서 실제 제출 파일은 발급되지 않았습니다.</p></section>
+<p><a href="/browser">실제 Headless 브라우저 캡처</a> · <a href="/simulate">입찰 진행 단계</a> · <a href="/">ProcureFlow 대시보드</a></p></main>
+<script>
+const $=id=>document.getElementById(id);
+const money=v=>Number(v||0).toLocaleString("ko-KR")+"원";
+const td=(tr,text)=>{let c=document.createElement("td");c.textContent=text;tr.append(c)};
+const clear=id=>$(id).replaceChildren();
+async function api(url){let r=await fetch(url);let j=await r.json();if(!r.ok)throw Error(JSON.stringify(j));return j}
+async function calc(){
+ try{
+ const params=new URLSearchParams({role_allowance_krw:$("role").value,relief_staff_monthly_krw:$("relief").value,admin_pct:$("admin").value,profit_pct:$("profit").value,common_cost_scope:$("scope").value});
+ const p=await api("/api/simulation/price-preview?"+params);
+ clear("totals"); clear("costrows");clear("blocks");
+ for(let [key,value] of [["월 예상 산출비",p.totals.monthly_total_krw],["연간 원가 기준",p.totals.annual_total_krw],["입찰보증금 5%",p.totals.tender_bond_5pct_krw],["이행보증금 10%",p.totals.performance_bond_10pct_krw]]){
+  let el=document.createElement("div");el.className="tile";let lab=document.createElement("span"),v=document.createElement("strong");lab.textContent=key;v.textContent=money(value);el.append(lab,v);$("totals").append(el);
+ }
+ for(let row of p.rows){let tr=document.createElement("tr");[row.name,money(row.amount),row.unit,row.basis].forEach(val=>td(tr,val));$("costrows").append(tr)}
+ for(let why of p.hard_blocks){let li=document.createElement("li");li.textContent=why;$("blocks").append(li)}
+ $("status").textContent="사업자 입찰 가능: 아니요 · 제출 가능: 아니요 · 부가세: 미결정 · 출처: K-apt 공고의 공개 추출 텍스트";
+ }catch(e){$("status").textContent="계산 오류: "+e.message;$("status").className="warn"}
+}
+async function init(){
+ $("recalc").onclick=calc;
+ await calc();
+ try{
+  const ss=await api("/api/simulation/price-scenarios");
+  clear("scenarios");
+  for(let r of ss.scenarios){let tr=document.createElement("tr");[r.scenario,money(r.monthly_krw),money(r.annual_krw),"미확정·제출 금지"].forEach(v=>td(tr,v));$("scenarios").append(tr)}
+  const draft=await api("/api/simulation/proposal-draft");clear("proposal");
+  for(const sec of draft.sections){let b=document.createElement("div");b.className="section";let h=document.createElement("h3"),p=document.createElement("p"),source=document.createElement("p");h.textContent=sec.title;p.textContent=sec.body;source.className="muted";source.textContent="근거: "+sec.evidence;b.append(h,p,source);$("proposal").append(b)}
+ }catch(e){console.error(e)}
+}
+init();
+</script></body></html>
