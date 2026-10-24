@@ -60,3 +60,24 @@ def crawl_one_index_page(page=1,limit=20):
                     if len(result["errors"])<5:result["errors"].append(type(exc).__name__+":"+str(exc)[:90])
         finally:ctx.dispose()
     return result
+
+def crawl_next_page():
+    """Persist a strict page cursor, advancing only after every link was checked."""
+    import json
+    key="g2b:single:81111599:secondary_index_cursor"
+    with session() as db:
+        row=db.execute("SELECT value FROM procureflow.settings WHERE key=%s",(key,)).fetchone()
+        page=max(1,int((row["value"] if row else {}).get("page",1)))
+    result=crawl_one_index_page(page=page,limit=20)
+    if result.get("listed",0)>0 and result["checked"]>=result["listed"] and not result["errors"]:
+        with session() as db:
+            db.execute("""INSERT INTO procureflow.settings(key,value)
+               VALUES (%s,%s::jsonb) ON CONFLICT(key) DO UPDATE
+               SET value=excluded.value,updated_at=now()""",
+               (key,json.dumps({"page":page+1,"last_checked":page,
+                                 "saved":result["saved"],"category":"81111599"})))
+        result["next_page"]=page+1
+    else:
+        result["next_page"]=page
+        result["cursor_advanced"]=False
+    return result
