@@ -969,3 +969,18 @@ def g2b_similarity_backtest():
     from g2b_similarity import run_postgres_backtest
     return run_postgres_backtest()
 
+
+
+@app.get("/api/g2b/similarity/notice")
+def g2b_historical_similarity_notice(
+    bid_no:str=Query(...,min_length=12,max_length=16),
+    bid_ord:str=Query("000",min_length=3,max_length=3)):
+    """Explain one real historical G2B execution; strictly prior opening data."""
+    from g2b_similarity import analyze_one_historical_bid
+    try:
+        return analyze_one_historical_bid(bid_no,bid_ord)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
