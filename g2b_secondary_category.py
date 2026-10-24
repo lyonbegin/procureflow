@@ -40,7 +40,7 @@ def enrich_saved_bid_notices(limit=12):
               WHERE r.source='g2b' AND r.result_kind IN ('opening_status','award')
                 AND r.bid_ntce_no ~ '^R[0-9]{2}BK[0-9]{8}$'
                 AND c.bid_no IS NULL
-              ORDER BY r.bid_ntce_no,r.bid_ntce_ord,r.title DESC
+              ORDER BY r.bid_ntce_no DESC,r.bid_ntce_ord DESC,r.title DESC
               LIMIT %s""",(limit,)).fetchall()
     result={"attempted":0,"enriched":0,"codes":0,"sources":[],
             "statuses":{},"errors":[],"official_direct":False}
