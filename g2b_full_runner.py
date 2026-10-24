@@ -112,6 +112,9 @@ def one_phase(phase):
                 else "blocked","official":official,"secondary":secondary,
                 "source_qualification":"secondary_public_not_official_verified"}
     if phase=="ten_year":return historical_month_batch()
+    if phase=="opening_details":
+        from g2b_historical_detail_enrich import run as enrich
+        return enrich(limit=4)
     if phase=="documents":return documents_batch()
     if phase=="evidence":
         from g2b_original_facts import run as parse_original_facts
@@ -128,9 +131,9 @@ def one_phase(phase):
     raise ValueError("unsupported phase "+phase)
 
 def execute(phase="all"):
-    if phase not in ("all","discover","notice","ten_year","documents","evidence","readiness"):
+    if phase not in ("all","discover","notice","ten_year","opening_details","documents","evidence","readiness"):
         raise ValueError("unknown phase")
-    phases=("discover","notice","documents","ten_year","evidence","readiness") if phase=="all" else (phase,)
+    phases=("discover","notice","documents","ten_year","opening_details","evidence","readiness") if phase=="all" else (phase,)
     results={}
     for key in phases:
         with session() as c:
