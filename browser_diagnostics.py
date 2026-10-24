@@ -19,11 +19,18 @@ from db import session
 KAPT_ROOT = "https://www.k-apt.go.kr"
 LIST_URL = KAPT_ROOT + "/bid/bidList.do"
 ALLOWED_HOSTS = {"www.k-apt.go.kr", "k-apt.go.kr"}
-# Look only; never operate controls whose purpose may commit a procurement action.
-BLOCKED_PATH = re.compile(
-    r"(submit|submission|upload|participat|apply|join|contract|sign|payment|login|logout|"
-    r"bidReg|bidWrite|bidInsert|bidUpdate|bidSave|bidDelete|bidSend|tenderSubmit|bidAttend)",
+# For static GET resources, filenames such as fileUpload.js are safe to LOAD.
+# Safety is enforced at the network method/endpoint boundary, not by a
+# naive filename substring search, which previously broke real K-apt rendering.
+STATIC_CDN_HOSTS = {"fonts.googleapis.com", "fonts.gstatic.com",
+                    "dapi.kakao.com", "t1.daumcdn.net"}
+BLOCKED_NAVIGATION = re.compile(
+    r"(?:/login/|/logout/|/payment/|/bid/[^/]*(?:submit|join|participat|apply|write|insert|update|delete|save|send|sign|attend)\.do$)",
     re.I,
+)
+READ_ONLY_POST = re.compile(
+    r"(?:/bid/(?:bidList|bidDetail|bidResultList)\.do|"
+    r"/cmmn/bjd/getBjdList\.do)$", re.I
 )
 KAPT_ID = re.compile(r"^(?:[0-9]{14,20}|kg2b_[0-9]{1,15})$")
 STAGES = ("public_list", "notice_detail", "attachments_area", "before_participation")
@@ -39,22 +46,23 @@ def safe_request(route, blocked):
     req = route.request
     parsed = urlparse(req.url)
     method = req.method.upper()
-    # Disallow all external host requests and outgoing procurement write calls.
-    # K-apt itself uses read-only POSTs for some detail/search XHRs.
-    is_safe_origin = parsed.scheme == "https" and parsed.hostname in ALLOWED_HOSTS
     path = parsed.path or "/"
-    read_post = (method == "POST" and is_safe_origin and bool(
-        re.search(r"/bid/(bidList|bidDetail|bidResultList)\.do$", path, re.I)
-    ))
+    origin_ok = parsed.scheme == "https" and parsed.hostname in ALLOWED_HOSTS
+    static_ok = parsed.scheme == "https" and parsed.hostname in STATIC_CDN_HOSTS
     allowed = (
-        is_safe_origin and not BLOCKED_PATH.search(path)
-        and (method in ("GET", "HEAD") or read_post)
+        method in ("GET", "HEAD") and (
+            (origin_ok and not BLOCKED_NAVIGATION.search(path)) or static_ok
+        )
+    ) or (
+        method == "POST" and origin_ok
+        and bool(READ_ONLY_POST.search(path))
+        and not BLOCKED_NAVIGATION.search(path)
     )
     if allowed:
         route.continue_()
     else:
-        blocked.append({"method": method, "path": path[:140],
-                        "reason": "non_readonly_or_off_origin"})
+        blocked.append({"method":method,"host":parsed.hostname or "",
+                        "path":path[:140], "reason":"non_readonly_or_off_origin"})
         route.abort(error_code="blockedbyclient")
 
 
