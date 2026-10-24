@@ -52,21 +52,26 @@ button:hover{background:#eef5fb}button:disabled{opacity:.4}
 </style></head>
 <body><header><div class="top">
 <div><div class="brand">ProcureFlow <small>자율 입찰 에이전트 관제</small></div>
-<div style="color:#b9cad8;font-size:12px;margin-top:5px">공고 1건 = 전담 에이전트 1개 · 3개 동시 처리 · 완료 후 다음 공고 자동 배정</div></div>
+<div style="color:#b9cad8;font-size:12px;margin-top:5px">최초 실행 0개 · [+ 에이전트 추가] 1회마다 1개 활성화 · 최대 3개 · 마감 임박 공고 우선 배정</div></div>
 <nav><a href="/">전체 입찰 현황</a><a href="/agents">실행 중 에이전트</a><a href="/browser">브라우저 증빙</a><a href="/operations">수집기 관리</a></nav>
 </div></header>
 <main><div class="headline"><div><h1>동시 실행 에이전트</h1>
 <div class="muted">PostgreSQL 실제 실행 상태와 이벤트 로그를 3초마다 자동 갱신합니다. 미확보 원본이나 견적은 완료로 표시하지 않습니다.</div></div>
-<div><button id="refresh">즉시 갱신</button><div id="updated" class="muted">연결 중…</div></div></div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<input id="agentToken" type="password" placeholder="관리자 API 토큰" autocomplete="off" aria-label="관리자 API 토큰" style="padding:9px;border:1px solid #b8d0e0;border-radius:7px;min-width:155px;width:165px">
+<button id="agentAdd" style="background:#1873a7;color:white;border-color:#1873a7;font-weight:650">+ 에이전트 추가</button>
+<button id="refresh">즉시 갱신</button>
+<div id="updated" class="muted">연결 중…</div></div></div>
+<div id="agentCommand" role="status" aria-live="polite" class="muted" style="margin:8px 0">시작 전: 활성 에이전트 0개 · 추가 버튼을 눌러야 실행됩니다.</div>
 <div class="metrics">
-<div class="metric"><strong id="nRunning">—</strong><span>실제 담당 공고 처리 중</span></div>
-<div class="metric"><strong id="nSlots">3</strong><span>에이전트 슬롯</span></div>
+<div class="metric"><strong id="nRunning">—</strong><span>현재 공고를 처리 중</span></div>
+<div class="metric"><strong id="nSlots">3</strong><span>사용자가 활성화한 에이전트</span></div>
 <div class="metric"><strong id="nProcessed">—</strong><span>자료수집 회차 완료</span></div>
 <div class="metric"><strong id="nOutstanding">—</strong><span>원본·증빙 보완대기</span></div>
 <div class="metric"><strong id="nRetry">—</strong><span>오류 후 재시도 예정</span></div>
 </div>
 <section class="agent-grid" id="agentGrid"><div class="panel">에이전트 상태 연결 중</div></section>
-<div class="warn"><b>자율 처리 범위:</b> 공고별 상세·첨부영역 읽기, 공식 화면 캡처, 중복검사, 과거 낙찰이력 결합, 자사자격·실견적·원가의 증빙 유무 검증, 오류기록·재시도·다음 공고 자동 배정. <b>실제 입찰참가 클릭·투찰·제출 및 ChatGPT API 최종 제안서 작성은 현재 실행하지 않습니다.</b> 자료수집 회차가 끝난 공고는 누락자료가 있는 상태 그대로 DB에 보존합니다.</div>
+<div class="warn"><b>실행 정책:</b> 사용자가 [+ 에이전트 추가]를 누르기 전에는 어떤 에이전트도 공고를 가져가지 않습니다. 버튼을 누를 때마다 하나만 활성화되고, 이미 다른 에이전트가 맡은 공고는 배제하며 마감시각이 가장 빠른 공고를 가져옵니다. 한 건의 자료수집 회차를 끝내면 활성 상태를 유지한 채 다음 공고를 자동 배정합니다.<hr style="border:0;border-top:1px solid #efdcae;margin:8px 0"><b>자율 처리 범위:</b> 공고별 상세·첨부영역 읽기, 공식 화면 캡처, 중복검사, 과거 낙찰이력 결합, 자사자격·실견적·원가의 증빙 유무 검증, 오류기록·재시도·다음 공고 자동 배정. <b>실제 입찰참가 클릭·투찰·제출 및 ChatGPT API 최종 제안서 작성은 현재 실행하지 않습니다.</b> 자료수집 회차가 끝난 공고는 누락자료가 있는 상태 그대로 DB에 보존합니다.</div>
 <div class="tables">
 <section class="panel"><h2>에이전트별 실시간 작업 로그</h2>
 <div id="apiStatus" class="muted">DB 연결 확인 중</div>
@@ -86,12 +91,13 @@ let latest=0,loading=false,eventsSeen=0;
 async function getData(){const r=await fetch("/api/agents/live?event_limit=130",{cache:"no-store"});const j=await r.json();if(!r.ok)throw Error(JSON.stringify(j).slice(0,280));return j}
 function card(s,steps){
  const node=mk("article",undefined,"agent");const head=mk("div",undefined,"agent-head");
+ if(!s.enabled)node.style.opacity="0.67";
  head.append(mk("span","에이전트 "+s.slot_id,"agent-name"));
  const active=s.status==="running",fresh=s.heartbeat_at&&(Date.now()-new Date(s.heartbeat_at).getTime()<5*60*1000);
- const status=!active?"대기/다음 공고":fresh?"실행 중":"하트비트 지연";
+ const status=!s.enabled?"미활성":!active?"다음 공고 대기":fresh?"실행 중":"하트비트 지연";
  head.append(mk("span",status,"status "+(!active?"waiting":fresh?"running":"stale")));
  node.append(head);
- node.append(mk("div",s.title||"새 입찰공고 자동 배정 대기","agent-title"));
+ node.append(mk("div",s.title||(s.enabled?"마감 임박 입찰공고 배정 대기":"[+ 에이전트 추가]를 누르면 활성화됩니다"),"agent-title"));
  node.append(mk("div",s.agency?(s.agency+" · "+s.source.toUpperCase()):"담당 공고 없음","fact"));
  node.append(mk("div",s.external_id||"","fact"));
  node.append(mk("div",s.phase_label||"대기","step"));
@@ -105,11 +111,12 @@ function card(s,steps){
  if(s.case_verified!=null)badges.append(mk("span","검증 "+N(s.case_verified)+" · 부분 "+N(s.case_partial),"badge"));
  node.append(badges);
  const ft=mk("div",undefined,"agent-footer");
- ft.append(mk("div",s.current_action||"새 공고 자동 배정 중","agent-action"));
+ ft.append(mk("div",s.enabled?(s.current_action||"마감 임박 공고 검색 중"):"사용자가 추가하기 전까지 작업을 시작하지 않습니다.","agent-action"));
  ft.append(mk("div","작업 시작 "+fmt(s.started_at),"muted"));
  ft.append(mk("div","최근 하트비트 "+fmt(s.heartbeat_at),"muted"));
  if(s.last_error)ft.append(mk("div",s.last_error,"log-err"));
  if(s.source&&s.external_id){const link=mk("a","현재 공고 상세보기 ↗");link.href="/?source="+encodeURIComponent(s.source)+"&external_id="+encodeURIComponent(s.external_id);ft.append(link)}
+ if(s.enabled){let b=mk("button","이 에이전트 중지");b.onclick=()=>command("/api/agents/"+s.slot_id+"/stop","에이전트 "+s.slot_id+" 중지");ft.append(b)}
  node.append(ft);return node
 }
 function events(rows){
@@ -134,17 +141,33 @@ async function refresh(){
  const data=await getData();const grid=E("agentGrid");grid.replaceChildren();
  for(const slot of data.slots||[])grid.append(card(slot,data.steps||[]));
  E("nRunning").textContent=N(data.actual_running);
- E("nSlots").textContent=N(data.desired_concurrency);
+ E("nSlots").textContent=N(data.activated_agents);E("agentAdd").disabled=(data.available_additions<=0);
  E("nProcessed").textContent=N((data.slots||[]).reduce((sum,s)=>sum+(s.finished_cases||0),0));
  const counts={};for(const r of data.case_counts||[])counts[r.state]=r.total;
  E("nOutstanding").textContent=N(counts.needs_evidence);
  E("nRetry").textContent=N(counts.retryable);
  events(data.event_items||[]);cases(data.recent_cases||[]);
  E("updated").textContent="DB 동기화 "+new Date().toLocaleString("ko-KR")+" · 자동 3초";
- E("apiStatus").textContent="이벤트 "+(data.event_items||[]).length+"개 표시 · 별도 Railway 3개 에이전트 서비스";
+ E("apiStatus").textContent="이벤트 "+(data.event_items||[]).length+"개 표시 · 활성 "+data.activated_agents+" / 최대 "+data.maximum_agents+"개";
  latest=Date.now();
  }catch(e){E("updated").textContent="연결 오류: "+e.message;E("apiStatus").textContent="DB 조회 오류";E("apiStatus").className="log-err"}
  finally{loading=false}
 }
+async function command(url,label){
+ let btn=E("agentAdd");btn.disabled=true;
+ const key=E("agentToken").value.trim();
+ E("agentCommand").textContent=label+" 명령 처리 중";
+ try{
+  const res=await fetch(url,{method:"POST",headers:key?{"Authorization":key.startsWith("Bearer ")?key:"Bearer "+key}:{}});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok)throw Error(typeof data.detail==="string"?data.detail:JSON.stringify(data));
+  E("agentCommand").textContent=data.message||"명령 완료";
+  await refresh();
+ }catch(error){
+  E("agentCommand").textContent=label+" 실행 실패: "+error.message;
+  E("agentCommand").className="log-err";
+ }finally{btn.disabled=false}
+}
+E("agentAdd").onclick=()=>command("/api/agents/add","에이전트 1개 추가");
 E("refresh").onclick=refresh;refresh();setInterval(refresh,3000);
 </script></body></html>
