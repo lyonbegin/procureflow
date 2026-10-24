@@ -11,7 +11,7 @@ from hashlib import sha256
 from decimal import Decimal,InvalidOperation
 import json,re
 from db import session
-from g2b_feature_registry import FEATURES,REQUIREMENTS,GROUPS
+from g2b_feature_registry import FEATURES,REQUIREMENTS,GROUPS,FEATURE_GATES
 from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,status as history_status
 
 SOURCE_RE=re.compile(r"^(?:R\d{2}BK\d{8}|\d{11})$")
@@ -268,9 +268,11 @@ def _ready(evidence):
 
 def _display_feature_state(f,group_state,evidence):
     kind=f["group"]
-    if group_state[kind]["verified"]:return "verified"
     n=f["number"]
     actual={x["evidence_type"] for x in evidence}
+    verified={x["evidence_type"] for x in evidence if x["verified_source"]}
+    needed=set(FEATURE_GATES[n])
+    if needed and needed<=verified:return "verified"
     # A test/UI/collector skeleton never equals business acceptance.
     if kind=="history" and n in (33,34,35,38,39,41,42,43,44,45,47):
         return "partial" if "historical_notice" in actual else "missing"
@@ -306,7 +308,7 @@ def dashboard(bid_no=SINGLE_CASE,event_limit=25):
              "end":GROUP_RANGES[key][1],"ready":groups[key]["verified"],
              "missing_evidence":groups[key]["missing"]}
              for key,_ in GROUPS]
-    all_final=all(x["verified"] for x in groups.values())
+    all_final=all(f["acceptance_state"]=="verified" for f in features)
     return {"case":dict(row),"source":"live_procureflow_postgresql",
             "overview":material,"catalog_size":len(FEATURES),
             "feature_acceptance":features,"phases":stages,
