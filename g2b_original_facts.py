@@ -40,6 +40,12 @@ def run():
         method=capture("contract_method",r"(소액\s*수의\s*전자견적서\s*제출|수의견적\s*제출\s*방식)")
         small=capture("company_restrictions",r"(소기업.{0,140}?소상공인확인서)")
         floor=capture("price_rules",r"낙찰\s*하한율?\s*[:：]?\s*(88(?:\.0+)?)\s*%")
+        if code and re.search(r"세\\s*부품명번호\\s*[:：]?\\s*8111159901|세부품명번호\\s*[:：]?\\s*8111159901",text):
+            from g2b_categories import upsert_verified_codes
+            upsert_verified_codes(SINGLE_CASE,"000","service",
+                    {"dtilPrdctClsfcNo":"8111159901",
+                     "prdctClsfcNo":"81111599"},
+                    doc["url"],evidence_level="official_direct")
         if not proofs:continue
         with session() as db:
             for proof in proofs:
