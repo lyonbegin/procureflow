@@ -44,13 +44,13 @@ def extract_hwp5(raw, max_text=800000):
                     index+=length
                     if tag==67:
                         value=item.decode("utf-16-le","ignore")
-                        value="".join(ch if ord(ch)>=32 or ch in "\\n\\r\\t"
+                        value="".join(ch if ord(ch)>=32 or ch in (chr(10),chr(13),chr(9))
                                       else " " for ch in value)
                         value=re.sub(r" {3,}","  ",value).strip()
                         if value:parts.append(value)
                     if sum(len(t) for t in parts)>max_text:break
                 if sum(len(t) for t in parts)>max_text:break
-            result="\\n".join(parts)[:max_text]
+            result=chr(10).join(parts)[:max_text]
             if len(result)<40 or not re.search(r"[가-힣]{2,}",result):
                 return "hwp_text_not_decoded",result
             return "parsed",result
