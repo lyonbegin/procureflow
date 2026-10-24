@@ -92,7 +92,10 @@ def one_phase(phase):
     if phase=="ten_year":return historical_month_batch()
     if phase=="documents":return documents_batch()
     if phase=="evidence":
-        return {"status":"partial","facts":refresh_existing_evidence()}
+        from g2b_original_facts import run as parse_original_facts
+        original=parse_original_facts()
+        linked=refresh_existing_evidence()
+        return {"status":"partial","original_rules":original,"facts":linked}
     if phase=="readiness":
         r=readiness_check()
         return {"status":"verified" if r["status"]=="ready" else "blocked",
