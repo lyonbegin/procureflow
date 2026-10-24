@@ -36,3 +36,11 @@ def test_multi_codes_and_no_headline_semantics():
        {"dtilPrdctClsfcNo":"4617161001"}]})
     assert sorted(z["code"] for z in x)==["4617161001","4617161002"]
     assert extract_codes({"bidPbancNm":"카메라 4617161001 구매"})==[]
+
+
+def test_public_category_secondary_parser_requires_id_and_label():
+    from g2b_secondary_category import parse_category_labels
+    html="<h1>영상감시장치</h1><table><tr><td>공고번호</td><td>R26BK01768963</td></tr><tr><td>분류</td><td>영상감시장치 (4617162201)</td></tr></table>"
+    assert parse_category_labels(html,"R26BK01768963")==["4617162201"]
+    assert parse_category_labels(html,"R26BK00000001")==[]
+    assert parse_category_labels("<h1>영상감시장치 4617162201</h1>R26BK01768963","R26BK01768963")==[]
