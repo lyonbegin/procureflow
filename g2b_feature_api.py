@@ -200,7 +200,8 @@ def feature_contract(number: int, context: dict, snapshot: dict) -> dict:
         },
         "execution": {
             "action": action,
-            "collection_implemented": action != "verify_stored_evidence",
+            "execution_kind": ("evidence_check_only" if action == "verify_stored_evidence" else "shared_existing_collector_or_evaluator"),
+            "business_acceptance_requires_independent_evidence": True,
             "explanation": "Only individually verified evidence gates determine acceptance. "
                            "Shared source collectors may refresh facts for several functions.",
             "never_submit_bid": True,
