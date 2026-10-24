@@ -81,6 +81,28 @@ def initialize():
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_bid_results_no ON procureflow.bid_results(source,bid_ntce_no)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_bid_results_kind ON procureflow.bid_results(result_kind,category,last_seen DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS ix_pf_tenders_date ON procureflow.tenders(notice_date DESC)")
+def ensure_browser_diagnostics():
+    """Public-only browser forensic captures in the existing isolated schema."""
+    with connect() as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS procureflow")
+        con.execute("""
+          CREATE TABLE IF NOT EXISTS procureflow.browser_captures(
+            job_id bigint NOT NULL REFERENCES procureflow.jobs(id) ON DELETE CASCADE,
+            stage text NOT NULL,
+            content_type text NOT NULL DEFAULT 'image/jpeg',
+            image bytea NOT NULL DEFAULT ''::bytea,
+            snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            PRIMARY KEY(job_id,stage))
+        """)
+        con.execute("""
+          CREATE TABLE IF NOT EXISTS procureflow.browser_reports(
+            job_id bigint PRIMARY KEY REFERENCES procureflow.jobs(id) ON DELETE CASCADE,
+            report jsonb NOT NULL DEFAULT '{}'::jsonb,
+            updated_at timestamptz NOT NULL DEFAULT now())
+        """)
+
+
 def store(con, row):
     record=dict(row)
     record['raw']=json.dumps(record.get('raw',{}),ensure_ascii=False)
