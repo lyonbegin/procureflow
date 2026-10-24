@@ -92,7 +92,9 @@ def extract_file(filename,raw):
             try:return "parsed",raw.decode(encoding)[:MAX_TEXT]
             except UnicodeDecodeError:pass
         return "unknown_encoding",""
-    if ext=="hwp":return "binary_saved_hwp_parser_required",""
+    if ext=="hwp":
+        from g2b_hwp5 import extract_hwp5
+        return extract_hwp5(raw,MAX_TEXT)
     return "unsupported_document_format",""
 
 def _government(url):
