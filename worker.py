@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='browser_probe' THEN 0 ELSE 1 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='browser_probe' THEN 0 WHEN source='kapt' THEN 1 ELSE 2 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -453,6 +453,7 @@ def main():
             jobid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('browser_probe',%s::jsonb,%s) RETURNING id",(json.dumps({"external_id":"20261020165014951","source":"kapt","bootstrap":marker}),"K-apt native Chromium staged forensic snapshots; NO participation")).fetchone()['id']
             logging.info("PF_BROWSER_ATTACHMENT_XHR_TRACE_QUEUED job=%s",jobid)
     last_private_schedule=0
+    last_kapt_schedule=0
     last_orphan_check=0
     while not STOP:
         try:
@@ -481,6 +482,15 @@ def main():
                     private_supply_schedule.tick()
                 except Exception:
                     logging.exception("PRIVATE_SUPPLY_SCHEDULE_TICK_ERROR")
+            # Keep the workbench's latest K-apt public tenders fresh, using the
+            # existing collector, with a DB lock and one queued batch per 30 min.
+            if time.monotonic()-last_kapt_schedule>=90:
+                last_kapt_schedule=time.monotonic()
+                try:
+                    import kapt_schedule
+                    kapt_schedule.tick(session)
+                except Exception:
+                    logging.exception("KAPT_NOTICE_REFRESH_TICK_ERROR")
             # PostgreSQL cursor and advisory lock make Railway restarts safe.
             if time.monotonic()-last_g2b_schedule>=60:
                 last_g2b_schedule=time.monotonic()
