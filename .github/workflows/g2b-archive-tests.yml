@@ -16,7 +16,13 @@ on:
       - "tests/test_g2b_selected_public.py"
       - "g2b_full_schedule.py"
       - "static/g2b-104.html"
-      - "tests/test_g2b_full_pipeline.py tests/test_g2b_selected_public.py"
+      - "tests/test_g2b_full_pipeline.py"
+      - "tests/test_g2b_selected_public.py"
+      - "g2b_category_index.py"
+      - "g2b_scope_analysis.py"
+      - "g2b_original_facts.py"
+      - "g2b_hwp5.py"
+      - "g2b_original_reparse.py"
       - "requirements.txt"
       - "g2b_case_10y.py"
       - "g2b_case_10y_official.py"
@@ -46,8 +52,8 @@ jobs:
       - name: Install dependencies
         run: pip install --disable-pip-version-check -r requirements.txt pytest
       - name: Compile the live API and worker
-        run: python -m py_compile main.py worker.py g2b_date_windows.py g2b_schedule.py g2b_bid_collector.py g2b_final_award_collector.py g2b_feature_registry.py g2b_official_notices.py g2b_case_engine.py g2b_documents.py g2b_bid_package.py g2b_full_runner.py g2b_full_schedule.py
+        run: python -m py_compile main.py worker.py g2b_date_windows.py g2b_schedule.py g2b_bid_collector.py g2b_final_award_collector.py g2b_feature_registry.py g2b_official_notices.py g2b_case_engine.py g2b_documents.py g2b_bid_package.py g2b_full_runner.py g2b_full_schedule.py g2b_category_index.py g2b_scope_analysis.py g2b_original_facts.py g2b_hwp5.py g2b_original_reparse.py
       - name: Verify leakage-free G2B bidder similarity tests
-        run: python -m pytest -q tests/test_g2b_similarity.py tests/test_g2b_categories.py tests/test_g2b_case_10y.py tests/test_g2b_case_10y_official.py tests/test_g2b_full_pipeline.py
+        run: python -m pytest -q tests/test_g2b_similarity.py tests/test_g2b_categories.py tests/test_g2b_case_10y.py tests/test_g2b_case_10y_official.py tests/test_g2b_full_pipeline.py tests/test_g2b_selected_public.py
       - name: Verify historical date windows, pages and resuming cursor
         run: python -m unittest discover -s tests -p 'test_g2b_archive_scheduler.py' -v
