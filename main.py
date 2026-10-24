@@ -1218,3 +1218,29 @@ def g2b_full_actual_scope():
             "scope":row["structured"],"source_url":row["source_url"],
             "content_sha":row["content_sha"],"recorded_at":row["recorded_at"],
             "actual_supplier_costs_verified":False,"submitted":False}
+
+
+@app.get("/api/g2b/full/historical-opening-matches")
+def g2b_case_actual_historical_bids(limit:int=Query(100,ge=1,le=500)):
+    """Exact notice/round joins only; rank-1 opening is not a final award."""
+    with session() as con:
+        rows=con.execute("""SELECT h.hist_notice_no AS bid_no,
+           h.hist_notice_ord AS bid_ord,h.published_on,
+           h.title AS historical_notice_title,h.source_url,
+           r.bid_clsfc_no,r.rbid_no,r.result_kind,r.company,
+           r.amount,r.rate,r.rank,r.result_status,
+           r.agency,r.record_key,r.first_seen
+           FROM procureflow.g2b_case_10yr_history h
+           JOIN procureflow.bid_results r
+             ON r.source='g2b' AND r.bid_ntce_no=h.hist_notice_no
+            AND r.bid_ntce_ord=h.hist_notice_ord
+           WHERE h.case_bid_no='R26BK01787028'
+             AND h.classification8='81111599'
+             AND r.result_kind IN ('opening','award')
+           ORDER BY r.first_seen DESC,r.record_key LIMIT %s""",
+           (limit,)).fetchall()
+    return {"selected_notice":"R26BK01787028","category":"81111599",
+            "records_returned":len(rows),
+            "opening_bidder_rows":sum(x["result_kind"]=="opening" for x in rows),
+            "confirmed_award_rows":sum(x["result_kind"]=="award" for x in rows),
+            "opening_is_not_award":True,"records":rows}
