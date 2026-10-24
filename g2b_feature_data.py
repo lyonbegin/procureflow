@@ -255,6 +255,11 @@ def _history_data(measure: str, context: dict) -> dict:
     selected = context["bid_no"]
     if selected != CASE_BID:
         raise ValueError("only selected case")
+    if (not context.get("original_notice_verified") or
+            SUB10 not in (context.get("official_detail10") or [])):
+        return {"data": None, "source": "official_g2b_notice",
+                "reason": "selected_original_detail10_not_verified",
+                "configured_code_is_not_original_evidence": SUB10}
     outcome = actual_result_status(100)
     summary = outcome["verified_exact_code_history_and_result_counts"]
     rows = [dict(x) for x in outcome["actual_opening_and_award_rows"]]
