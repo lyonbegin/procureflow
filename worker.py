@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_full_case' THEN 0 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_feature' THEN 0 WHEN source='g2b_full_case' THEN 1 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -627,6 +627,15 @@ def main():
                         result=execute_one(cfg.get('bid_no',''),int(cfg['feature_no']),
                                            cfg.get('parameters') or {})
                         state=result['state']
+                        # Persist the exact execution-run identifier before
+                        # shortening job.messages; UI can retrieve full source
+                        # evidence/error JSON from the associated run row.
+                        with session() as conn:
+                            conn.execute("""UPDATE procureflow.jobs
+                                  SET config=jsonb_set(config,'{run_id}',
+                                      to_jsonb(%s::bigint),true)
+                                  WHERE id=%s AND source='g2b_feature'""",
+                                         (result['run_id'],job['id']))
                         update(job['id'],checked=1,
                                message=json.dumps({
                                    "feature_no":result['feature_no'],
