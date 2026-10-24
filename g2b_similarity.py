@@ -172,6 +172,11 @@ def backtest(rows):
     no_date=len(with_bidders)-len(dated)
     all_firms=Counter(name for g in with_bidders for name in g["bidders"])
     repeat=sum(1 for v in all_firms.values() if v>=2)
+    def bidder_bands(items):
+        return {"single_bidder":sum(len(g["bidders"])==1 for g in items),
+                "two_to_four":sum(2<=len(g["bidders"])<=4 for g in items),
+                "five_to_nineteen":sum(5<=len(g["bidders"])<20 for g in items),
+                "twenty_plus":sum(len(g["bidders"])>=20 for g in items)}
     coverage={
         "raw_rows":len(rows),"executions":len(groups),
         "executions_with_bidders":len(with_bidders),
@@ -182,6 +187,11 @@ def backtest(rows):
         "distinct_bidder_names":len(all_firms),
         "repeat_bidder_names_2plus":repeat,
         "repeat_bidder_fraction":round(repeat/len(all_firms),4) if all_firms else 0,
+        "bidder_distribution":bidder_bands(with_bidders),
+        "dated_bidder_distribution":bidder_bands(dated),
+        "opening_date_range":{
+            "min":dated[0]["date"].isoformat() if dated else None,
+            "max":dated[-1]["date"].isoformat() if dated else None},
         "bidder_offers":sum(g["offers"] for g in groups),
         "offers_with_business_no":sum(g["with_business_no"] for g in groups),
         "observed_award_rows":sum(g["awards"] for g in groups),
@@ -225,6 +235,8 @@ def backtest(rows):
     matrix=defaultdict(lambda:defaultdict(float))
     counts_eval=defaultdict(int)
     samples=[]
+    by_segment=defaultdict(lambda:{"n":0,"similarity_any_hit":0,"baseline_any_hit":0,
+                                   "similarity_recall_sum":0.0,"baseline_recall_sum":0.0})
     for target in evals:
         older=[g for g in dated if g["date"]<target["date"]]
         if len(older)<9:continue
@@ -238,9 +250,26 @@ def backtest(rows):
                 metric=_measure(pred,true,k)
                 for name,value in metric.items():
                     matrix[label][f"{name}@{k}"]+=value
+        v=_measure(model,true,10)
+        b=_measure(baseline,true,10)
+        segments=[
+            "single_bidder" if len(true)==1 else
+            "2_to_4_bidders" if len(true)<=4 else
+            "5_to_19_bidders" if len(true)<20 else "20plus_bidders",
+            "category_known" if target["category"] else "category_unknown",
+            "similar_history_present" if features["similar_executions"] else
+            "no_similar_history",
+            "generic_agency" if _norm(target["agency"]) in
+            ("각수요기관","수요기관") else "named_agency"
+        ]
+        for tag in segments:
+            part=by_segment[tag]
+            part["n"]+=1
+            part["similarity_any_hit"]+=v["any_hit"]
+            part["baseline_any_hit"]+=b["any_hit"]
+            part["similarity_recall_sum"]+=v["recall"]
+            part["baseline_recall_sum"]+=b["recall"]
         if len(samples)<12:
-            v=_measure(model,true,10)
-            b=_measure(baseline,true,10)
             samples.append({"bid_no":target["no"],"bid_ord":target["ord"],
                 "opening_date":target["date"].isoformat(),
                 "title":target["title"][:110],
@@ -274,6 +303,14 @@ def backtest(rows):
     output["holdout_total"]=len(evals)
     output["results"]=results
     output["samples"]=samples
+    output["segments"]={
+       name:{"evaluated":part["n"],
+             "model_hit_at_10":round(part["similarity_any_hit"]/part["n"],4),
+             "baseline_hit_at_10":round(part["baseline_any_hit"]/part["n"],4),
+             "model_mean_recall_at_10":round(part["similarity_recall_sum"]/part["n"],4),
+             "baseline_mean_recall_at_10":round(part["baseline_recall_sum"]/part["n"],4)}
+       for name,part in sorted(by_segment.items()) if part["n"]
+    }
     output["diagnosis"]={
         "delta_hit_at_10":round(results["similarity"]["hit_at_10"]-
                                 results["popularity_baseline"]["hit_at_10"],4),
@@ -299,3 +336,62 @@ def run_postgres_backtest():
                     ORDER BY bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no
                 """).fetchall()
     return backtest(rows)
+
+
+def analyze_one_historical_bid(bid_no, bid_ord="000"):
+    """Inspect a single recorded opening using only earlier comparable openings.
+
+    Returns the actual neighboring historical bid IDs and bidder candidates.
+    Read-only. Not a live-bid estimator when no current G2B notice is stored.
+    """
+    if not re.fullmatch(r"R\d{2}BK\d{8}",bid_no or ""):
+        raise ValueError("official R..BK bid number required")
+    if not re.fullmatch(r"\d{3}",bid_ord or ""):
+        raise ValueError("3-digit bid order required")
+    with session() as con:
+        rows=con.execute("""SELECT bid_ntce_no,bid_ntce_ord,bid_clsfc_no,rbid_no,
+                           title,agency,category,result_kind,company,amount,rank,raw
+                           FROM procureflow.bid_results
+                           WHERE source='g2b' AND result_kind IN
+                           ('opening','opening_status','award')
+                        """).fetchall()
+    groups,_=_build_cases(rows)
+    matching=[g for g in groups if g["no"]==bid_no and g["ord"]==bid_ord
+              and g["date"] and g["bidders"]]
+    if not matching:
+        raise LookupError("no recorded opening date and bidders for this execution")
+    target=sorted(matching,key=lambda g:(g["date"],g["key"]))[0]
+    older=[g for g in groups if g["date"] and g["date"]<target["date"] and g["bidders"]]
+    candidate_scores=sorted(
+        [(score,g) for g in older
+         if (score:=_score(target,g)) is not None],
+        key=lambda z:(-z[0],z[1]["key"]))[:25]
+    company_weights=Counter()
+    for score,g in candidate_scores:
+        for bidder in g["bidders"]:company_weights[bidder]+=score/100
+    predictions=sorted(company_weights.items(),key=lambda z:(-z[1],z[0]))[:10]
+    return {
+        "status":"historical_as_of_opening_date",
+        "not_a_current_tender":True,
+        "source":"real_procureflow_postgresql",
+        "bid_no":target["no"],"bid_ord":target["ord"],
+        "opening_at":target["date"].isoformat(),
+        "title":target["title"],"agency":target["agency"],
+        "category":target["category"] or "unspecified",
+        "strictly_older_executions":len(older),
+        "similar_historical_executions":[
+            {"bid_no":g["no"],"bid_ord":g["ord"],"title":g["title"][:160],
+             "agency":g["agency"][:90],"category":g["category"] or "unspecified",
+             "opening_at":g["date"].isoformat(),
+             "similarity_score":round(score,2),
+             "observed_bidders":len(g["bidders"])}
+            for score,g in candidate_scores[:15]
+        ],
+        "predicted_bidder_names":[
+            {"company":name,"ranking_score":round(score,4),
+             "was_actual_participant":name in target["bidders"]}
+            for name,score in predictions],
+        "actual_bidder_count":len(target["bidders"]),
+        "correct_top10":sum(x in target["bidders"] for x,_ in predictions),
+        "notes":"Only opening-result bidder names; no item classification code, base amount, or verified bid constraints."
+    }
