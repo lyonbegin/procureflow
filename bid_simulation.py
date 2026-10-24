@@ -22,6 +22,20 @@ def topic_for(title):
     return next((word for word in TOPICS if word in text), "")
 
 
+
+
+def record_type(source, external_id):
+    """Separate G2B order requests from actual bid announcements.
+
+    Legacy G2B collector stores oder_requests / dlOderReqL (R..DD).
+    No record from that source is evidence of an open bid announcement.
+    """
+    if source == "kapt":
+        return "kapt_bid_notice"
+    if source == "g2b" and re.fullmatch(r"R\d{2}BK\d+", external_id):
+        return "g2b_bid_notice"
+    return "g2b_order_request_not_bid_notice"
+
 def money_number(value):
     text = str(value or "").strip().replace(",", "").replace("원", "")
     return int(text) if re.fullmatch(r"\d+", text) else None
@@ -96,6 +110,8 @@ def preview(session, source, external_id):
     observed_prices = [money_number(x["amount"]) for x in awards]
     observed_prices = [x for x in observed_prices if x is not None]
     deadline = deadline_state(tender["deadline"])
+    notice_kind = record_type(source, external_id)
+    is_bid_notice = notice_kind in ("kapt_bid_notice", "g2b_bid_notice")
     matched_companies = [
         {"name": x["company"], "historical_appearances": x["appearances"]}
         for x in participation
@@ -114,9 +130,13 @@ def preview(session, source, external_id):
         for row in awards[:25]
     ]
     steps = [
-        stage("new_notice", "complete",
-              "Stored tender record, original identity and first/last seen timestamps",
-              "Refresh notices and reconcile current official detail"),
+        stage("new_notice", "complete" if is_bid_notice else "blocked",
+              ("Stored bid listing; primary detail and last-seen timestamp available"
+               if is_bid_notice else
+               "G2B order request (OderReq/dlOderReqL), NOT a public bid notice"),
+              ("Refresh official bid notice detail"
+               if is_bid_notice else
+               "Collect actual BidPbanc/bid notice and match order request to bid number")),
         stage("competition", "partial" if winners else "blocked",
               f"{len(awards)} confirmed G2B awards on matching agency or topic; "
               f"{len(matched_companies)} historically observed competing companies",
@@ -150,6 +170,8 @@ def preview(session, source, external_id):
         "mode": "READ_ONLY_NO_SUBMISSION",
         "case": dict(tender),
         "topic": topic,
+        "record_type": notice_kind,
+        "is_verified_bid_notice_type": is_bid_notice,
         "deadline_verification": deadline,
         "historical_competition": {
             "source": "g2b_confirmed_awards_and_opening_rows",
