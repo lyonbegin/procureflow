@@ -18,6 +18,7 @@ def ensure_schema():
           bid_no text PRIMARY KEY,
           source text NOT NULL DEFAULT 'nuri_official_public_detail',
           status text NOT NULL DEFAULT 'pending',
+          attempt_count int NOT NULL DEFAULT 0,
           bidders int NOT NULL DEFAULT 0,
           winner_verified boolean NOT NULL DEFAULT false,
           error text NOT NULL DEFAULT '',
@@ -41,7 +42,8 @@ def run(limit=4):
                ON audit.bid_no=h.hist_notice_no
             WHERE h.case_bid_no=%s AND h.classification8='81111599'
               AND h.hist_notice_no ~ '^R[0-9]{2}BK[0-9]{8}$'
-              AND audit.bid_no IS NULL
+              AND (audit.bid_no IS NULL OR
+                   (audit.status='error' AND audit.attempt_count<3))
             ORDER BY h.published_on DESC,h.hist_notice_no DESC LIMIT %s""",
             (CASE_BID,limit)).fetchall()
     result={"selected_bid":CASE_BID,"attempted":0,"saved_bidder_rows":0,
@@ -104,10 +106,12 @@ def run(limit=4):
                     if len(result["errors"])<12:result["errors"].append(no+":"+error)
                 with session() as db:
                     db.execute("""INSERT INTO procureflow.g2b_case_opening_enrich_audit
-                        (bid_no,status,bidders,winner_verified,error)
-                        VALUES (%s,%s,%s,%s,%s)
+                        (bid_no,status,attempt_count,bidders,winner_verified,error)
+                        VALUES (%s,%s,1,%s,%s,%s)
                         ON CONFLICT(bid_no) DO UPDATE SET
-                          status=excluded.status,bidders=excluded.bidders,
+                          status=excluded.status,
+                          attempt_count=procureflow.g2b_case_opening_enrich_audit.attempt_count+1,
+                          bidders=excluded.bidders,
                           winner_verified=excluded.winner_verified,
                           error=excluded.error,updated_at=now()
                         """,(no,status,total,is_winner,error))
