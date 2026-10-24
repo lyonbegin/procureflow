@@ -37,7 +37,8 @@ def crawl_one_index_page(page=1,limit=20):
             for address in hrefs[:max(1,min(20,int(limit)))]:
                 try:
                     doc=ctx.get(address)
-                    if doc.status!=200:continue
+                    if doc.status!=200:
+                        raise RuntimeError("category_detail_http_"+str(doc.status))
                     obj,err=parse_8digit_notice(doc.text(),address)
                     result["checked"]+=1
                     if not obj:continue
@@ -80,4 +81,15 @@ def crawl_next_page():
     else:
         result["next_page"]=page
         result["cursor_advanced"]=False
+        if result.get("listed")==0 and not result["errors"]:
+            result["status"]="secondary_index_no_more_links"
+            result["not_official_complete"]=True
+            # The public listing ended, but 121 monthly official windows stay pending.
+            with session() as db:
+                db.execute("""INSERT INTO procureflow.settings(key,value)
+                   VALUES (%s,%s::jsonb) ON CONFLICT(key) DO UPDATE SET
+                   value=excluded.value,updated_at=now()""",
+                   (key,json.dumps({"page":page,"exhausted":True,
+                                    "last_checked":page-1,"category":"81111599",
+                                    "official_ten_year_complete":False})))
     return result
