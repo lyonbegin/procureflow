@@ -69,7 +69,19 @@ def crawl_next_page():
     with session() as db:
         row=db.execute("SELECT value FROM procureflow.settings WHERE key=%s",(key,)).fetchone()
         page=max(1,int((row["value"] if row else {}).get("page",1)))
+    with session() as db:
+        before=db.execute("""SELECT count(*) AS n
+           FROM procureflow.g2b_case_10yr_history
+           WHERE case_bid_no=%s AND classification8=%s""",
+           (CASE_BID,CAT8)).fetchone()["n"]
     result=crawl_one_index_page(page=page,limit=20)
+    with session() as db:
+        after=db.execute("""SELECT count(*) AS n
+           FROM procureflow.g2b_case_10yr_history
+           WHERE case_bid_no=%s AND classification8=%s""",
+           (CASE_BID,CAT8)).fetchone()["n"]
+    result["new_distinct_notices"]=max(0,after-before)
+    result["matched_upserted"]=result["saved"]
     if result.get("listed",0)>0 and result["checked"]>=result["listed"] and not result["errors"]:
         with session() as db:
             db.execute("""INSERT INTO procureflow.settings(key,value)
