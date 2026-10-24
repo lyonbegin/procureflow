@@ -6,7 +6,10 @@ from pydantic import BaseModel,Field
 from db import session,initialize
 app=FastAPI(title="ProcureFlow",version="0.1")
 @app.on_event("startup")
-def startup(): initialize()
+def startup():
+    initialize()
+    from db import ensure_browser_diagnostics
+    ensure_browser_diagnostics()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
