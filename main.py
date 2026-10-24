@@ -590,7 +590,12 @@ class BrowserProbeRun(BaseModel):
 @app.post("/api/browser/probes")
 def request_browser_probe(req:BrowserProbeRun,authorization:str|None=Header(None)):
     """Bounded official K-apt public-only browser, no free-form URL or actions."""
-    guard(authorization)
+    # Keep browser execution privileged even when legacy TEST_MODE=1.
+    admin=os.getenv("ADMIN_TOKEN","")
+    supplied=(authorization or "").removeprefix("Bearer ").strip()
+    if not admin:raise HTTPException(503,"ADMIN_TOKEN not configured")
+    if not secrets.compare_digest(supplied,admin):
+        raise HTTPException(401,"Administrator authorization required")
     from db import ensure_browser_diagnostics
     from browser_diagnostics import validate_id
     try:validate_id(req.external_id)
