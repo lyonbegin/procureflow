@@ -151,6 +151,16 @@ class FeatureAPITest(unittest.TestCase):
         self.assertFalse(result["independent_acceptance"])
         self.assertIsNone(result["data"])
 
+    def test_history_cannot_use_configured_code_as_original_evidence(self):
+        unverified = {**CONTEXT, "original_notice_verified": False,
+                      "official_detail10": []}
+        with patch("g2b_exact_outcome_history.actual_result_status",
+                   side_effect=AssertionError("must not read unverified category")):
+            result = feature_observation(50, unverified)
+        self.assertEqual(result["status"], "missing")
+        self.assertEqual(result["notes"]["reason"],
+                         "selected_original_detail10_not_verified")
+
     def test_suppliers_refuse_unverified_selected_code(self):
         untrusted = {**CONTEXT, "original_notice_verified": False,
                      "official_detail10": []}
