@@ -1159,8 +1159,11 @@ def g2b_full_g2b_scheduled_status():
     from g2b_official_notices import api_key
     with session() as c:
         row=c.execute("SELECT value,updated_at FROM procureflow.settings WHERE key=%s",(KEY,)).fetchone()
-    return {"enabled":bool(api_key()),"case":"R26BK01787028",
+    return {"enabled":True,"official_api_key_present":bool(api_key()),
+            "secondary_public_category_crawler_active":not bool(api_key()),
+            "case":"R26BK01787028",
             "state":dict(row) if row else {},
+            "official_10_year_complete":False,
             "ready_for_bid_submission":False}
 
 
