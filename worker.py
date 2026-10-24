@@ -202,7 +202,7 @@ def main():
                "Verify exact-category pagination continues from previous page")).fetchone()["id"]
             logging.info("G2B_CATEGORY_NEXT_PAGE_QUEUED job=%s",next_id)
     with session() as db:
-        marker="g2b-8111159901-original-evidence-20261024-v1"
+        marker="g2b-8111159901-original-evidence-20261024-v2"
         claim=db.execute("""INSERT INTO procureflow.settings(key,value)
                 VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
                 (marker,'{"case":"R26BK01787028","phase":"evidence"}')).fetchone()
