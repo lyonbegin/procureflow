@@ -600,8 +600,15 @@ def main():
                         cfg=job.get('config') or {}
                         result=g2b_full_runner.execute(phase=cfg.get('phase','all'))
                         verified=sum(x['state']=='verified' for x in result['results'].values())
-                        update(job['id'],checked=len(result['results']),added=verified,
+                        new_notices=sum(int(x.get('result',{}).get('newly_saved',0))
+                                        for x in result['results'].values())
+                        source_checked=sum(int(x.get('result',{}).get('checked',0))
+                                           for x in result['results'].values())
+                        update(job['id'],checked=source_checked or len(result['results']),
+                               added=new_notices,
                           message=json.dumps({"overall":result['status'],
+                                              "verified_phases":verified,
+                                              "new_historical_notices":new_notices,
                                               "phases":{k:v['state'] for k,v in
                                                         result['results'].items()}},
                                              ensure_ascii=False)[:450])
