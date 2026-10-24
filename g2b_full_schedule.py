@@ -49,8 +49,12 @@ def tick(session):
             if public_state.get("exhausted"):
                 return {"status":"secondary_index_exhausted",
                         "official_ten_year_unverified":True}
-            phase="ten_year"
-            origin="secondary_category_fallback"
+            cycle=int(state.get("cycles",0))+1
+            # Every fourth bounded job checks genuinely opened past G2B
+            # notices for detailed bidders/final awards from official Nuri.
+            phase="opening_details" if cycle%4==0 else "ten_year"
+            state["cycles"]=cycle
+            origin="secondary_category_and_official_opening_fallback"
         else:
             phase="discover" if discovery_due else "ten_year" if waiting else "notice"
             origin="official_schedule"
