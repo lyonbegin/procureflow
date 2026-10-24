@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 입찰 사전검증</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6f9;color:#172337;font:15px system-ui,Arial,sans-serif}
+header{padding:20px 24px;background:#17283d;color:white}header h1{font-size:23px;margin:0 0 6px}
+main{max-width:1150px;margin:20px auto;padding:0 15px}section{border:1px solid #d6dfea;background:white;border-radius:12px;padding:18px;margin:13px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}label{display:flex;gap:6px;align-items:center}
+input,select,button{font:inherit;border-radius:6px;padding:9px;border:1px solid #c0cada}
+input[name=external_id]{min-width:260px;flex:1}input[name=token]{min-width:160px;flex:1}
+button{background:#185da0;color:#fff;cursor:pointer;border:0;padding:10px 22px}button:hover{background:#09467e}
+small,.muted{color:#64748b}.warn{color:#9c2525}.ok{color:#146c45}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.tile{background:#f1f5fa;border-radius:8px;padding:12px}.tile b{display:block;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:9px;border-bottom:1px solid #e1e7f0;text-align:left;vertical-align:top}
+th{background:#f4f6f9}.stage{display:grid;grid-template-columns:200px minmax(150px,1fr) minmax(220px,1.2fr);gap:12px;padding:12px 3px;border-bottom:1px solid #e2e7ee}
+.stage b{font-weight:600}.stage .flag{font-size:12px;color:#ac5d07}a{color:#145c9b}
+@media(max-width:670px){.stage{grid-template-columns:1fr}.row label{width:100%}input[name=external_id]{min-width:0}}
+</style></head>
+<body>
+<header><h1>ProcureFlow · 실제 공고 기반 입찰 사전검증</h1>
+<div>신규공고 → 경쟁·낙찰이력 → 첨부·자격 → 수행전략·공급처·원가 → 최종서류 → 참가 직전 중단</div></header>
+<main>
+<section><strong>대상 공고</strong>
+<form id="search"><div class="row"><label>플랫폼 <select name="source"><option value="kapt">K-apt 공동주택</option><option value="g2b">나라장터 G2B</option></select></label>
+<label>공고번호 <input name="external_id" value="20261020165014951" required></label>
+<button type="submit">실제 DB로 시뮬레이션</button></div><div class="row"><label>운영 관리자 키 <input name="token" type="password" placeholder="인증 활성화 시 입력"></label></div></form>
+<small>저장된 사실만 분석합니다. 외부 사이트의 입찰참가 버튼을 클릭하거나 제출 요청을 전송하지 않습니다.</small>
+<p id="error" role="alert" class="warn"></p></section>
+<section id="caseSection" hidden><h2>공고 기본정보</h2><div id="caseInfo" class="kpis"></div></section>
+<section id="historySection" hidden><h2>과거 유사 입찰 및 경쟁업체</h2><p id="historySummary" class="muted"></p>
+<div style="overflow:auto"><table><thead><tr><th>과거 공고번호</th><th>과거 공고명</th><th>낙찰업체</th><th>낙찰금액 (원)</th><th>연관 근거</th></tr></thead><tbody id="awardRows"></tbody></table></div>
+<h3>과거 개찰 참여업체</h3><div id="bidderInfo" class="muted"></div></section>
+<section id="stagesSection" hidden><h2>9단계 증빙 검증</h2><p>실제 서류와 확인자료가 없는 단계는 <b>미완료</b>로 처리합니다.</p><div id="stages"></div></section>
+<section id="gateSection" hidden><h2>최종 입찰참가 직전 게이트</h2><div id="gate" class="warn"></div>
+<p><strong>안전 정지:</strong> 이 화면에는 실제 입찰참가·투찰·제출 기능을 구현하지 않았습니다.</p></section>
+<p><a href="/">← ProcureFlow 운영 대시보드</a> · <a href="/bids">개찰·낙찰 이력</a></p>
+</main>
+<script>
+const form=document.getElementById('search');
+const $=id=>document.getElementById(id);
+const human={
+new_notice:'신규공고 인식',competition:'과거 경쟁업체·낙찰 분석',
+notice_and_attachments:'공고 원문·첨부파일 전수 확보',
+qualification:'실제 입찰참가 자격',delivery_and_suppliers:'수행전략·공급업체',
+cost_and_price:'원가·투찰가격',gpt_analysis:'GPT API 근거 분석',
+final_documents:'최종 입찰서·제출서류',pre_participation_gate:'입찰참가 직전 안전 정지'};
+function putTile(target,label,value){
+ const tile=document.createElement('div');tile.className='tile';
+ const name=document.createElement('small');name.textContent=label;
+ const body=document.createElement('b');body.textContent=String(value??'자료 없음');
+ tile.append(name,body);target.append(tile);
+}
+function cells(tr,values){for(const value of values){const td=document.createElement('td');td.textContent=String(value??'');tr.append(td)}}
+form.addEventListener('submit',async event=>{
+ event.preventDefault();$('error').textContent='';
+ for(const id of ['caseSection','historySection','stagesSection','gateSection'])$(id).hidden=true;
+ const vals=new FormData(form),p=new URLSearchParams({source:vals.get('source'),external_id:vals.get('external_id')});
+ try{
+  const key=String(vals.get('token')||'').trim();
+  const res=await fetch('/api/simulation/preview?'+p,{headers:key?{Authorization:key.startsWith('Bearer ')?key:'Bearer '+key}:{}});
+  const d=await res.json();if(!res.ok)throw Error(res.status+' '+JSON.stringify(d));
+  const c=d.case,h=d.historical_competition;
+  $('caseInfo').replaceChildren();
+  for(const [k,v] of [['공고번호',c.external_id],['공고명',c.title],['발주처',c.agency],['분류',c.category],['입찰방법',c.method],['공고 등록일',c.notice_date],['마감일시',c.deadline],['마감시간 검증',d.deadline_verification],['최초 수집',c.first_seen],['최종 확인',c.last_seen]])putTile($('caseInfo'),k,v);
+  $('caseSection').hidden=false;
+  $('historySummary').textContent='원천: 나라장터 확정 낙찰·개찰자료 / 검색기준: 동일 발주처 또는 명시된 서비스 주제 "'+(d.topic||'없음')+'" / 연결 확정낙찰 '+h.matched_award_count+'건. 이력은 해당 신규 공고의 참가자 예측이나 투찰가격을 보증하지 않습니다.';
+  $('awardRows').replaceChildren();
+  for(const r of h.confirmed_winners){const tr=document.createElement('tr');cells(tr,[r.bid_number,r.title,r.company,r.amount_krw?.toLocaleString('ko-KR')||'미공개',r.match_reason==='exact_agency'?'발주처 동일':'업무 주제 일치']);$('awardRows').append(tr)}
+  $('bidderInfo').textContent=(h.historical_participants||[]).map(r=>r.name+' ('+r.historical_appearances+'개 과거 입찰)').join(' · ')||'연결된 개찰 참여업체 정보 없음';
+  $('historySection').hidden=false;$('stages').replaceChildren();
+  for(const s of d.stages){
+   const item=document.createElement('div');item.className='stage';
+   const name=document.createElement('b');name.textContent=human[s.id]||s.id;
+   const obs=document.createElement('div');obs.textContent=s.observation;
+   const action=document.createElement('div');action.textContent='다음 조치: '+s.required_next;
+   const state=document.createElement('span');state.className='flag';state.textContent=' · '+({complete:'자료 기록',partial:'부분 완료',blocked:'진행 차단'}[s.state]||s.state);
+   name.append(state);item.append(name,obs,action);$('stages').append(item);
+  }
+  $('stagesSection').hidden=false;
+  $('gate').textContent='입찰 준비 완료: 아니요 / 입찰참가 클릭: 아니요 / 실제 제출: 아니요 / 외부 제출 요청: 0건';
+  $('gateSection').hidden=false;
+ }catch(e){$('error').textContent='실행 실패: '+e.message}
+});
+window.addEventListener('load',()=>form.requestSubmit());
+</script>
+</body></html>
