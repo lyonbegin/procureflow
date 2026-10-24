@@ -106,6 +106,63 @@ def refresh_existing_evidence(bid_no=SINGLE_CASE):
             _ev(c,bid_no,"notice_official","official_bid_notice",official,
                 "공식 G2B 입찰공고 원본" if official else "비검증 발주요청",
                 "https://www.g2b.go.kr/",dict(exists))
+        if exists and isinstance(exists["raw"],dict) and exists["raw"].get("bidNtceNo")==bid_no:
+            if exists.get("agency"):
+                _ev(c,bid_no,"agency","official_agency",True,
+                    exists["agency"],"https://apis.data.go.kr/",
+                    {"agency":exists["agency"],
+                     "agency_code":exists["raw"].get("ntceInsttCd")})
+            if exists.get("deadline"):
+                _ev(c,bid_no,"deadline","official_deadline",True,
+                    exists["deadline"],"https://apis.data.go.kr/",
+                    {"deadline":exists["deadline"]})
+            budget=next((exists["raw"].get(k) for k in (
+                "asignBdgtAmt","bdgtAmt","presmptPrce")
+                if exists["raw"].get(k)),None)
+            if budget is not None:
+                _ev(c,bid_no,"budget_observed","official_budget",True,
+                    "공식 공고 금액", "https://apis.data.go.kr/",
+                    {"field":"first_available_original_budget_field","amount":budget})
+            if exists["raw"].get("scsbidLwltRate"):
+                _ev(c,bid_no,"price_rules_observed","original_bid_rate",True,
+                    "낙찰하한율 원본", "https://apis.data.go.kr/",
+                    {"raw_rate":exists["raw"]["scsbidLwltRate"]})
+            for field,ev_kind in (("ntceInsttCd","agency_code"),
+                                  ("bidQlfctRgstDt","qualification_deadline"),
+                                  ("cntrctCnclsMthdNm","contract_terms"),
+                                  ("bidMethdNm","bid_method")):
+                if exists["raw"].get(field):
+                    _ev(c,bid_no,ev_kind,field,True,
+                        str(exists["raw"][field]),"https://apis.data.go.kr/",
+                        {"field":field,"value":exists["raw"][field]})
+        cats=c.execute("""SELECT code_type,code,evidence_level,source_uri
+                    FROM procureflow.g2b_notice_categories
+                    WHERE bid_no=%s AND bid_ord='000'""",(bid_no,)).fetchall()
+        official_cats=[x for x in cats if x["evidence_level"]=="official_direct"]
+        if official_cats:
+            _ev(c,bid_no,"classification_verified","official_codes",True,
+                "공식 세부 분류코드","https://apis.data.go.kr/",
+                {"codes":[dict(x) for x in official_cats]})
+        index=c.execute("""SELECT count(*) n FROM
+               procureflow.g2b_notice_source_files
+               WHERE bid_no=%s AND bid_ord='000'""",(bid_no,)).fetchone()["n"]
+        files=c.execute("""SELECT extraction_state,url,sha256,filename
+               FROM procureflow.g2b_case_documents WHERE bid_no=%s""",
+               (bid_no,)).fetchall()
+        if index>0:
+            _ev(c,bid_no,"attachment_index","official_links",True,
+                str(index)+"개 첨부 후보 목록","https://apis.data.go.kr/",
+                {"listed":index})
+        if index>0 and len(files)==index:
+            _ev(c,bid_no,"attachments_complete","all_original_files",True,
+                str(index)+"개 원본 파일 해시와 바이너리 보관",
+                "https://www.g2b.go.kr/",
+                {"files":[dict(x) for x in files]})
+            if all(x["extraction_state"]=="parsed" for x in files):
+                _ev(c,bid_no,"attachment_text","all_docs_parsed",True,
+                    "첨부 문서 텍스트와 표 추출 완료",
+                    "https://www.g2b.go.kr/",
+                    {"files":[x["filename"] for x in files]})
         for row in h["history"]:
             _ev(c,bid_no,"historical_notice",row["hist_notice_no"],
                 row["evidence"]=="official_openapi_explicit_code",
@@ -132,6 +189,9 @@ def refresh_existing_evidence(bid_no=SINGLE_CASE):
         count_bidder=sum(x["bidder_rows"] for x in associated)
         count_award=sum(x["award_rows"] for x in associated)
         if count_bidder>0:
+            _ev(c,bid_no,"opening_evidence","linked_opening_database",True,
+                "연결된 과거 개찰 투찰기록 "+str(count_bidder)+"행",
+                details={"matched":associated,"bidder_rows":count_bidder})
             _ev(c,bid_no,"historical_bidders_linked","existing_opening_db",True,
                 "과거 입찰 중 투찰업체 행 "+str(count_bidder),
                 details={"matched_notices":associated,"rows":count_bidder})
