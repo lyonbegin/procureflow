@@ -176,8 +176,10 @@ def main():
     ensure_notice_schema()
     ensure_documents()
     ensure_engine()
+    # Avoid publishing a new job while an old Railway replica is still active.
+    time.sleep(27)
     with session() as db:
-        marker="g2b-one-tender-104-feature-test-20261024-v1"
+        marker="g2b-one-tender-104-feature-test-20261024-v2"
         claim=db.execute("""INSERT INTO procureflow.settings(key,value)
             VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
         """,(marker,'{"source":"R26BK01787028","intent":"execute_real_104_step_acceptance"}')).fetchone()
