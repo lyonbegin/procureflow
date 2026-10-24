@@ -15,6 +15,9 @@ def startup():
     ensure_workbench()
     from agent_orchestrator import ensure_agent_schema
     ensure_agent_schema()
+    from g2b_categories import ensure_schema, recover_from_existing_raw
+    ensure_schema()
+    recover_from_existing_raw()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
@@ -991,3 +994,20 @@ def g2b_category_source_probe(limit:int=Query(2,ge=1,le=5)):
     """Read-only verification of explicit classification fields in official G2B response."""
     from g2b_category_probe import probe_categories
     return probe_categories(limit)
+
+
+@app.get("/api/g2b/categories/coverage")
+def g2b_categories_coverage():
+    from g2b_categories import coverage
+    return coverage()
+
+
+@app.get("/api/g2b/categories/similar")
+def g2b_categories_similar(
+    bid_no:str|None=None,bid_ord:str="000",
+    detail_code:str|None=None,limit:int=Query(50,ge=1,le=200)):
+    from g2b_categories import exact_matches
+    try:
+        return exact_matches(bid_no,bid_ord,detail_code,limit)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
