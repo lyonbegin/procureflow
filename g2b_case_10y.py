@@ -210,3 +210,45 @@ def status(limit=100):
             "exhaustive_ten_year_search_complete":False,
             "qualification":"verified classification in indexed secondary pages; not full G2B universe",
             "history":rows,"llm_used":False,"title_similarity_used":False}
+
+
+# Explicitly observed historical secondary-public tender records. These are
+# not crawler-confirmed official API results; provenance is never upgraded.
+# Original published dates, numeric legacy notice IDs and classification
+# appear in the cited public summary URLs, without title-based classification.
+OBSERVED_HISTORIC_SOURCES=(
+    ("20200604893","2020-06-03","통합전산시스템 구축","신용회복위원회",15900548600,"https://sujubut.com/bid/domestic/2903402/"),
+    ("20210348177","2021-04-01","차세대 정보시스템 구축 용역","대구공공시설관리공단",3515869320,"https://sujubut.com/bid/domestic/2344204/"),
+    ("20210901370","2021-09-02","2021 3D 메타버스 온라인 컨벤션 구축 용역","(재)울산창조경제혁신센터",63000000,"https://sujubut.com/bid/domestic/2530913/"),
+    ("20221015994","2022-10-17","국방의료정보체계 성능개선 사업","국방부 국군의무사령부",28326962660,"https://sujubut.com/bid/domestic/2095935/"),
+    ("20230444198","2023-04-27","차세대 통합정보시스템 구축 사업","한국광기술원",3418276000,"https://sujubut.com/bid/domestic/1355173/"),
+    ("20230436110","2023-04-21","2023 부산국제마케팅광고제 통합 홈페이지 유지보수 사업","사단법인 부산국제마케팅광고제조직위원회",111197570,"https://sujubut.com/bid/domestic/1352562/"),
+    ("20240723607","2024-07-19","디지털 혁신을 위한 차세대 정보시스템 구축 사업","주택도시보증공사",70137902750,"https://sujubut.com/bid/domestic/972286/"),
+    ("20240913450","2024-09-12","고객관리시스템 구축 용역","과학기술정책연구원",86000000,"https://sujubut.com/bid/domestic/1042508/"),
+    ("20240924109","2024-09-26","고객관리시스템 구축 용역(재공고)","과학기술정책연구원",86000000,"https://sujubut.com/bid/domestic/1044945/"),
+)
+
+def ingest_observed_secondary_sources():
+    """Persist precisely cited older records as secondary evidence, not API results."""
+    ensure_schema()
+    count=0
+    with session() as con:
+        for no,dt,title,agency,amount,uri in OBSERVED_HISTORIC_SOURCES:
+            day=date.fromisoformat(dt)
+            if not (NO_RE.fullmatch(no) and BEGIN<=day<=END and
+                    urlparse(uri).hostname=="sujubut.com"):
+                raise ValueError("historic source evidence validation failed")
+            con.execute("""INSERT INTO procureflow.g2b_case_10yr_history(
+               case_bid_no,hist_notice_no,hist_notice_ord,classification8,
+               published_on,title,agency,amount,source_url,evidence)
+               VALUES(%s,%s,'000',%s,%s,%s,%s,%s,%s,'secondary_public_index_observed')
+               ON CONFLICT(case_bid_no,hist_notice_no,hist_notice_ord)
+               DO UPDATE SET published_on=excluded.published_on,
+                 title=excluded.title,agency=excluded.agency,
+                 amount=excluded.amount,source_url=excluded.source_url,
+                 evidence=excluded.evidence,collected_at=now()
+               """,(CASE_BID,no,CAT8,day,title,agency,amount,uri))
+            count+=1
+    return {"inserted_or_refreshed":count,"target":CASE_BID,
+            "evidence":"secondary_public_index_observed",
+            "official_openapi_confirmed":False}
