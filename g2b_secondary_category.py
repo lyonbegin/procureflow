@@ -37,9 +37,12 @@ def enrich_saved_bid_notices(limit=12):
               LEFT JOIN procureflow.g2b_notice_categories c
                 ON c.bid_no=r.bid_ntce_no AND c.bid_ord=r.bid_ntce_ord
                 AND c.code_type='detail10'
+              LEFT JOIN procureflow.g2b_category_audit a
+                ON a.bid_no=r.bid_ntce_no AND a.bid_ord=r.bid_ntce_ord
+                AND a.result LIKE 'secondary_%'
               WHERE r.source='g2b' AND r.result_kind IN ('opening_status','award')
                 AND r.bid_ntce_no ~ '^R[0-9]{2}BK[0-9]{8}$'
-                AND c.bid_no IS NULL
+                AND c.bid_no IS NULL AND a.bid_no IS NULL
               ORDER BY r.bid_ntce_no DESC,r.bid_ntce_ord DESC,r.title DESC
               LIMIT %s""",(limit,)).fetchall()
     result={"attempted":0,"enriched":0,"codes":0,"sources":[],
@@ -77,6 +80,16 @@ def enrich_saved_bid_notices(limit=12):
                     status="error"
                     if len(result["errors"])<12:
                         result["errors"].append(bid_no+":"+type(exc).__name__+":"+str(exc)[:120])
+                if status!="category_saved":
+                    with session() as db:
+                        db.execute("""INSERT INTO procureflow.g2b_category_audit
+                         (bid_no,bid_ord,source_uri,result,reason,matched_codes)
+                         VALUES (%s,%s,%s,%s,%s,0)
+                         ON CONFLICT(bid_no,bid_ord) DO UPDATE SET
+                           source_uri=excluded.source_uri,result=excluded.result,
+                           reason=excluded.reason,checked_at=now()
+                         """,(bid_no,row["bid_ntce_ord"],url,
+                              "secondary_"+status,"public source returned "+status))
                 result["statuses"][status]=result["statuses"].get(status,0)+1
                 logging.info("G2B_MIRRORED_CATEGORY bid=%s status=%s",bid_no,status)
                 time.sleep(.5)
