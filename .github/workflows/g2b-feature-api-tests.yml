@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - "g2b_feature_api.py"
+      - "g2b_workflow_ops.py"
+      - "tests/test_g2b_workflow_ops.py"
       - "g2b_feature_data.py"
       - "g2b_documents.py"
       - "g2b_feature_registry.py"
@@ -26,6 +28,6 @@ jobs:
       - name: Install API and test requirements
         run: pip install --disable-pip-version-check -r requirements.txt pytest httpx
       - name: Compile all involved modules
-        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_workflow_ops.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
       - name: Verify 104 individual endpoints and parameter protections
-        run: python -m pytest -q tests/test_g2b_feature_api.py
+        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_workflow_ops.py
