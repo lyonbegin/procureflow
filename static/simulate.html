@@ -61,7 +61,7 @@ form.addEventListener('submit',async event=>{
   const d=await res.json();if(!res.ok)throw Error(res.status+' '+JSON.stringify(d));
   const c=d.case,h=d.historical_competition;
   $('caseInfo').replaceChildren();
-  for(const [k,v] of [['공고번호',c.external_id],['공고명',c.title],['발주처',c.agency],['분류',c.category],['입찰방법',c.method],['공고 등록일',c.notice_date],['마감일시',c.deadline],['마감시간 검증',d.deadline_verification],['최초 수집',c.first_seen],['최종 확인',c.last_seen]])putTile($('caseInfo'),k,v);
+  for(const [k,v] of [['기록 종류',d.record_type],['공고번호',c.external_id],['공고명',c.title],['발주처',c.agency],['분류',c.category],['입찰방법',c.method],['공고 등록일',c.notice_date],['마감일시',c.deadline],['마감시간 검증',d.deadline_verification],['최초 수집',c.first_seen],['최종 확인',c.last_seen]])putTile($('caseInfo'),k,v);
   $('caseSection').hidden=false;
   $('historySummary').textContent='원천: 나라장터 확정 낙찰·개찰자료 / 검색기준: 동일 발주처 또는 명시된 서비스 주제 "'+(d.topic||'없음')+'" / 연결 확정낙찰 '+h.matched_award_count+'건. 이력은 해당 신규 공고의 참가자 예측이나 투찰가격을 보증하지 않습니다.';
   $('awardRows').replaceChildren();
