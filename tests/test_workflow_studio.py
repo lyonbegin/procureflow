@@ -39,6 +39,29 @@ def test_legacy_workbench_survives_and_separate_pages_stay_registered():
         assert required in paths
 
 
+def test_standalone_flow_has_independent_route_and_same_compiled_app():
+    client = TestClient(app)
+    result = client.get("/flow")
+    assert result.status_code == 200
+    assert "text/html" in result.headers["content-type"]
+    assert '<div id="root"></div>' in result.text
+    assert "/studio/assets/" in result.text
+    assert result.headers["cache-control"] == "no-cache"
+    assert result.text == client.get("/").text
+
+
+def test_fullscreen_flow_preserves_existing_main_and_legacy():
+    client = TestClient(app)
+    assert client.get("/").status_code == 200
+    assert client.get("/legacy/workbench").status_code == 200
+    source = (Path(__file__).resolve().parents[1] / "frontend/src/FlowWorkspace.jsx").read_text()
+    assert "flow-workspace-stage" in source
+    assert "flow-workspace-inspector-frame" in source
+    assert "flow-workspace-library" in source
+    assert "flow-workspace-console" in source
+    assert "renderCanvas" in source and "renderInspector" in source
+
+
 def test_104_per_feature_get_and_post_routes_preserved():
     urls = {getattr(route, "path", "") for route in app.routes}
     for number in range(1, 105):
