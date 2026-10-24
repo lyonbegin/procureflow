@@ -26,6 +26,8 @@ def startup():
     ensure_documents()
     from g2b_case_engine import ensure_engine
     ensure_engine()
+    from g2b_exact_outcome_history import ensure_schema as ensure_exact_results
+    ensure_exact_results()
     # One specific user-selected case only; import cited legacy notice evidence.
     with session() as db:
         observed=db.execute("""INSERT INTO procureflow.settings(key,value)
@@ -1101,7 +1103,7 @@ def full_g2b_proposal_docx():
                  "X-ProcureFlow-Draft-Only":"true"})
 
 class FullBidAction(BaseModel):
-    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|opening_details|documents|evidence|readiness)$")
+    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|opening_details|exact_outcomes|documents|evidence|readiness)$")
 
 @app.post("/api/g2b/full/run")
 def full_g2b_run(req:FullBidAction,authorization:str|None=Header(None)):
