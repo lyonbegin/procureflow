@@ -60,7 +60,7 @@ footer{font-size:12px;color:#728397;padding:25px 0}
 </style></head>
 <body><header><div class="top"><div><div class="brand">ProcureFlow <small>입찰 통합관리</small></div>
 <div class="subtitle">최신 공고 → 증빙 확보 → 자격·원가 검증 → ChatGPT API 입력 준비</div></div>
-<nav><a href="/operations">수집기 관리</a><a href="/browser">Headless 캡처</a><a href="/simulate">입찰 시뮬레이션</a><a href="/prepare">가격·제안서 초안</a></nav></div></header>
+<nav><a href="/bids">종료 입찰·개찰·낙찰결과</a><a href="/operations">수집기 관리</a><a href="/browser">Headless 캡처</a><a href="/simulate">입찰 시뮬레이션</a><a href="/prepare">가격·제안서 초안</a></nav></div></header>
 <main><div class="headerrow"><div><h1>발주 및 입찰 진행현황</h1>
 <div class="muted">실제 입찰공고만 표시 · 접수 마감은 투찰 완료가 아닙니다 · 데이터는 운영 DB의 최종 수집 기준입니다</div></div>
 <div><button class="primary" id="refresh">목록 새로고침</button><div id="refreshed" class="muted"></div></div></div>
@@ -133,6 +133,9 @@ let pb=make("div",undefined,"pbar"),fill=make("span");fill.style.width=(x.eviden
 c=cell(tr);c.append(make("span",x.proposal_status,"flag"));
 E("list").append(tr)}
 E("empty").hidden=data.items.length!==0;
+E("empty").replaceChildren();
+E("empty").append(make("div",filter==="closed"?"현재 공고 목록에서 마감된 건이 없습니다. 과거 개찰·낙찰 이력은 별도 결과 DB를 이용합니다.":"검색조건에 해당하는 공고가 없습니다.","muted"));
+if(filter==="closed"){let a=make("a","과거 개찰·낙찰 결과 보기 →");a.href="/bids";E("empty").append(a)}
 E("listinfo").textContent="검색 "+N(data.total)+"건 · 현재 저장된 공고 기준"+(data.truncated?" · 5000건 표시한계":"");
 E("pages").textContent=(data.total?N(data.offset+1):"0")+"–"+N(Math.min(data.total,data.offset+data.limit))+" / "+N(data.total);
 E("prev").disabled=page===0;E("next").disabled=(page+1)*50>=data.total;
