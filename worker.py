@@ -447,11 +447,11 @@ def main():
     # has had time to drain. This prevents old worker versions from treating
     # the 'browser_probe' source as a generic K-apt collector.
     with session() as db:
-        marker='browser:kapt:20261020165014951:v4'
+        marker='browser:kapt:20261020165014951:v5'
         reserved=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued","read_only":true}')).fetchone()
         if reserved:
             jobid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('browser_probe',%s::jsonb,%s) RETURNING id",(json.dumps({"external_id":"20261020165014951","source":"kapt","bootstrap":marker}),"K-apt native Chromium staged forensic snapshots; NO participation")).fetchone()['id']
-            logging.info("PF_BROWSER_V2_QUEUED job=%s",jobid)
+            logging.info("PF_BROWSER_ATTACHMENT_XHR_TRACE_QUEUED job=%s",jobid)
     last_private_schedule=0
     last_orphan_check=0
     while not STOP:
