@@ -18,6 +18,8 @@ def startup():
     from g2b_categories import ensure_schema, recover_from_existing_raw
     ensure_schema()
     recover_from_existing_raw()
+    from g2b_case_10y import ensure_schema as ensure_single_case_history
+    ensure_single_case_history()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
@@ -1018,3 +1020,10 @@ def g2b_official_notice_probe():
     """Read-only official notice page field diagnostics."""
     from g2b_category_probe import probe_official_notice_detail
     return probe_official_notice_detail()
+
+
+@app.get("/api/g2b/cases/R26BK01787028/history10y")
+def g2b_selected_bid_history_10y(limit:int=Query(100,ge=1,le=1000)):
+    """Selected tender only. Exact category 81111599, nationwide 2016-2026."""
+    from g2b_case_10y import status
+    return status(limit)
