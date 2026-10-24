@@ -704,3 +704,28 @@ def browser_probe_summary(job_id:int):
         for c in captures
       ]
     }
+
+
+@app.get("/api/browser/image-chunk/{job_id}/{stage}")
+def browser_image_chunk(job_id:int,stage:str,
+                        offset:int=Query(0,ge=0,le=2000000),
+                        size:int=Query(22000,ge=1,le=30000)):
+    """Base64 image chunks for AI clients that can read JSON but not binary URLs.
+
+    Only public K-apt screenshots, bounded chunks. Never runs a new browser.
+    """
+    import base64
+    if stage not in ("public_list","notice_detail","attachments_area","before_participation"):
+        raise HTTPException(404,"Unknown screenshot stage")
+    with session() as db:
+        row=db.execute("""
+          SELECT image FROM procureflow.browser_captures
+          WHERE job_id=%s AND stage=%s
+        """,(job_id,stage)).fetchone()
+    if not row or not row["image"]:raise HTTPException(404,"Screenshot not stored")
+    b64=base64.b64encode(bytes(row["image"])).decode("ascii")
+    return {"job_id":job_id,"stage":stage,
+            "offset":offset,"total":len(b64),
+            "base64_chunk":b64[offset:offset+size],
+            "has_more":offset+size<len(b64),
+            "content_type":"image/jpeg"}
