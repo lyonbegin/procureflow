@@ -442,8 +442,27 @@ def main():
             ).fetchone()["id"]
             logging.info("FREEMOA_PUBLIC_MEDIA_QUEUED job=%s",jid)
     last_private_schedule=0
+    last_orphan_check=0
     while not STOP:
         try:
+            # A failed/restarted Railway worker can leave a PostgreSQL job
+            # 'running' forever, blocking every historical backfill tick.
+            # With one worker process, this branch runs only BETWEEN jobs.
+            # Existing 90-minute startup recovery remains in place.
+            if time.monotonic()-last_orphan_check>=60:
+                last_orphan_check=time.monotonic()
+                with session() as db:
+                    orphaned=db.execute("""
+                        UPDATE procureflow.jobs
+                        SET state='failed',finished_at=now(),
+                            last_error='orphaned_running_job_over_90_minutes',
+                            message='Stale job after worker interruption; safe to reschedule'
+                        WHERE state='running'
+                          AND started_at < now() - interval '90 minutes'
+                        RETURNING id,source
+                    """).fetchall()
+                    if orphaned:
+                        logging.warning("PROCUREFLOW_ORPHANED_JOBS %s",orphaned)
             if time.monotonic()-last_private_schedule>=75:
                 last_private_schedule=time.monotonic()
                 try:
