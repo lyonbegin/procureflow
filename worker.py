@@ -179,7 +179,7 @@ def main():
     # Avoid publishing a new job while an old Railway replica is still active.
     time.sleep(27)
     with session() as db:
-        marker="g2b-one-tender-104-feature-test-20261024-v2"
+        marker="g2b-one-tender-104-feature-test-20261024-v3"
         claim=db.execute("""INSERT INTO procureflow.settings(key,value)
             VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
         """,(marker,'{"source":"R26BK01787028","intent":"execute_real_104_step_acceptance"}')).fetchone()
@@ -510,8 +510,16 @@ def main():
     last_private_schedule=0
     last_kapt_schedule=0
     last_orphan_check=0
+    last_full_schedule=0
     while not STOP:
         try:
+            if time.monotonic()-last_full_schedule>=90:
+                last_full_schedule=time.monotonic()
+                try:
+                    import g2b_full_schedule
+                    g2b_full_schedule.tick(session)
+                except Exception:
+                    logging.exception("G2B_FULL_SCHEDULE_ERROR")
             # A failed/restarted Railway worker can leave a PostgreSQL job
             # 'running' forever, blocking every historical backfill tick.
             # With one worker process, this branch runs only BETWEEN jobs.
