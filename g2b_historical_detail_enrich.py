@@ -110,7 +110,7 @@ def run(limit=4):
                         VALUES (%s,%s,1,%s,%s,%s)
                         ON CONFLICT(bid_no) DO UPDATE SET
                           status=excluded.status,
-                          attempt_count=procureflow.g2b_case_opening_enrich_audit.attempt_count+1,
+                          attempt_count=g2b_case_opening_enrich_audit.attempt_count+1,
                           bidders=excluded.bidders,
                           winner_verified=excluded.winner_verified,
                           error=excluded.error,updated_at=now()
