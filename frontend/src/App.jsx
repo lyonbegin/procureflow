@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api, SELECTED_BID } from './api.js';
 import FlowWorkspace from './FlowWorkspace.jsx';
+import NodeLabPanel from './NodeLabPanel.jsx';
 import { isStandaloneFlowPath } from './flowWorkspace.js';
 import {
   GROUPS, GROUP_BY_ID, TOTAL_FEATURES,
@@ -352,7 +353,7 @@ function Inspector({
             <span>{GROUP_BY_ID[selected.group]?.title}</span></div>
         </div>
         <div className="inspector-tabs" role="tablist">
-          {['설정', '결과', '이력'].map((name, index) => <button key={name}
+          {['설정', '결과', '이력', 'API 테스트'].map((name, index) => <button key={name}
             role="tab" aria-selected={tab === index}
             className={tab === index ? 'active' : ''}
             onClick={() => { setTab(index); if (index === 2) runHistory(selectedNumber); }}>{name}</button>)}
@@ -403,6 +404,8 @@ function Inspector({
             acceptance_state: detail?.acceptance_state || selected.acceptance_state,
           })}</pre>
         </div>}
+        {tab === 3 && <NodeLabPanel featureNo={selectedNumber}
+          token={token} onTokenChange={setToken}/>}
         {tab === 2 && <div className="inspector-tab-content">
           <div className="inspector-section-heading">개별 실행 기록</div>
           {runsLoading && <div className="load-note"><LoaderCircle size={15} className="spinning"/>로그 조회 중…</div>}
