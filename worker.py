@@ -175,7 +175,7 @@ def main():
     # The user selected exactly one current G2B tender and a ten-year
     # category-only historical window. Never select other cases automatically.
     with session() as db:
-        marker="g2b-single-case-81111599-seed-20261024-v2"
+        marker="g2b-single-case-81111599-seed-20261024-v3"
         claim=db.execute("""INSERT INTO procureflow.settings(key,value)
              VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
              """,(marker,'{"bid_no":"R26BK01787028","category8":"81111599","years":10}')).fetchone()
@@ -548,9 +548,12 @@ def main():
                     elif job['source']=='g2b_single_case_10y':
                         import g2b_case_10y
                         cfg=job.get('config') or {}
+                        observed=g2b_case_10y.ingest_observed_secondary_sources()
                         result=g2b_case_10y.ingest_known_secondary(
                             limit=cfg.get('limit',13))
-                        update(job['id'],checked=result['attempted'],added=result['saved'],
+                        result['historical_indexed']=observed['inserted_or_refreshed']
+                        update(job['id'],checked=result['attempted'],
+                               added=result['saved']+observed['inserted_or_refreshed'],
                                message=json.dumps(result,ensure_ascii=False)[:450])
                         done(job['id'],'completed' if result['saved'] else 'completed_partial',
                              json.dumps(result,ensure_ascii=False))
