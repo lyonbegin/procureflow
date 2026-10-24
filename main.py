@@ -20,6 +20,15 @@ def startup():
     recover_from_existing_raw()
     from g2b_case_10y import ensure_schema as ensure_single_case_history
     ensure_single_case_history()
+    # One specific user-selected case only; import cited legacy notice evidence.
+    with session() as db:
+        observed=db.execute("""INSERT INTO procureflow.settings(key,value)
+           VALUES ('g2b-case-81111599-old-notice-index-20261024-v1',
+                   '{"provenance":"secondary_public_index_observed"}'::jsonb)
+           ON CONFLICT(key) DO NOTHING RETURNING key""").fetchone()
+    if observed:
+        from g2b_case_10y import ingest_observed_secondary_sources
+        ingest_observed_secondary_sources()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
