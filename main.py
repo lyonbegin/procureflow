@@ -984,3 +984,10 @@ def g2b_historical_similarity_notice(
     except ValueError as exc:
         raise HTTPException(400,str(exc)) from None
 
+
+
+@app.get("/api/g2b/categories/source-probe")
+def g2b_category_source_probe(limit:int=Query(2,ge=1,le=5)):
+    """Read-only verification of explicit classification fields in official G2B response."""
+    from g2b_category_probe import probe_categories
+    return probe_categories(limit)
