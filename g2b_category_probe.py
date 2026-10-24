@@ -74,6 +74,8 @@ def probe_categories(max_samples=3):
                           "error":type(exc).__name__+":"+str(exc)[:160]})
         finally:
             context.close();browser.close()
+    import logging,json
+    logging.warning('G2B_NOTICE_PUBLIC_PROBE %s',json.dumps(out,ensure_ascii=False)[:9600])
     return out
 
 
