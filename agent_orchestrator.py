@@ -159,7 +159,7 @@ def _get_candidate(db,slot):
                 AND ac.next_attempt_at<=now()))
         ORDER BY regexp_replace(t.notice_date,'[^0-9]','','g') DESC,
                  t.first_seen DESC
-        LIMIT 10000""").fetchall()
+        """).fetchall()
     candidates=[]
     now=datetime.now(KST)
     for row in rows:
