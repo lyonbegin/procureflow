@@ -8,7 +8,7 @@ import json
 import re
 from db import session, connect
 
-NOTICE_RE=re.compile(r"^R\d{2}BK\d{8}$")
+NOTICE_RE=re.compile(r"^(?:R\d{2}BK\d{8}|\d{11})$")
 DETAIL10_KEYS={"dtilprdctclsfcno","dtilprdlstclsfcno","dtilprdlstclsfno",
     "dtilprdctclsfno","detailprdctclsfcno","dtilprdctclsfcd"}
 PARENT8_KEYS={"prdctclsfcno","prdlstclsfcno","prdlstclsfno",
