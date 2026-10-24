@@ -41,6 +41,8 @@ def transport_probe(host):
 
 def run_job(job,base):
     jid,source,config=job['id'],job['source'],job.get('config') or {}
+    if source not in ('g2b','kapt'):
+        raise ValueError('Refuse legacy crawler fallback for source: '+str(source)[:60])
     probe=transport_probe("www.g2b.go.kr" if source=="g2b" else "www.k-apt.go.kr")
     logging.info('[network] %s',probe)
     update(jid,message=probe)
@@ -171,7 +173,7 @@ def main():
     # User-requested one-time category backfill for existing historical G2B
     # notices. Separate from the stopped tender-agent reassignment service.
     with session() as db:
-        marker="g2b-category-public-trial-20261024-v1"
+        marker="g2b-category-public-trial-20261024-v2"
         created=db.execute("""
           INSERT INTO procureflow.settings(key,value)
           VALUES (%s,%s::jsonb)
@@ -181,7 +183,7 @@ def main():
             jid=db.execute("""
                INSERT INTO procureflow.jobs(source,config,message)
                VALUES ('g2b_category_secondary',%s::jsonb,%s) RETURNING id
-            """,(json.dumps({"limit":12,"version":"trial-20261024-v1"}),
+            """,(json.dumps({"limit":12,"version":"trial-20261024-v2"}),
                   "Historical G2B category code pilot: public mirrored official data")).fetchone()["id"]
             logging.info("G2B_CATEGORY_TRIAL_QUEUED job=%s",jid)
     from db import ensure_browser_diagnostics
