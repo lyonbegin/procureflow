@@ -1151,6 +1151,12 @@ def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header
     except ValueError as exc:raise HTTPException(400,str(exc)) from None
 
 
+@app.get("/g2b-104-api",response_class=HTMLResponse)
+def g2b_individual_feature_api_inspector():
+    """Inspect the inputs, evidence and independently queued run of each function."""
+    return (Path(__file__).parent/"static/g2b-feature-api.html").read_text(encoding="utf-8")
+
+
 @app.get("/g2b-104",response_class=HTMLResponse)
 def g2b_full_104_dashboard():
     """Actual 104-feature progress, never a fake completed bid."""
