@@ -1162,7 +1162,9 @@ def g2b_full_g2b_scheduled_status():
     with session() as c:
         row=c.execute("SELECT value,updated_at FROM procureflow.settings WHERE key=%s",(KEY,)).fetchone()
     return {"enabled":True,"official_api_key_present":bool(api_key()),
-            "secondary_public_category_crawler_active":not bool(api_key()),
+            "secondary_public_category_crawler_active":False,
+            "ten_year_exact_outcome_collector_active":True,
+            "target_detail_product_code":"8111159901",
             "case":"R26BK01787028",
             "state":dict(row) if row else {},
             "official_10_year_complete":False,
@@ -1226,30 +1228,10 @@ def g2b_full_actual_scope():
 
 
 @app.get("/api/g2b/full/historical-opening-matches")
-def g2b_case_actual_historical_bids(limit:int=Query(100,ge=1,le=500)):
-    """Exact notice/round joins only; rank-1 opening is not a final award."""
-    with session() as con:
-        rows=con.execute("""SELECT h.hist_notice_no AS bid_no,
-           h.hist_notice_ord AS bid_ord,h.published_on,
-           h.title AS historical_notice_title,h.source_url,
-           r.bid_clsfc_no,r.rbid_no,r.result_kind,r.company,
-           r.amount,r.rate,r.rank,r.result_status,
-           r.agency,r.record_key,r.first_seen
-           FROM procureflow.g2b_case_10yr_history h
-           JOIN procureflow.bid_results r
-             ON r.source='g2b' AND r.bid_ntce_no=h.hist_notice_no
-            AND r.bid_ntce_ord=h.hist_notice_ord
-           WHERE h.case_bid_no='R26BK01787028'
-             AND h.classification8='81111599'
-             AND r.result_kind IN ('opening','award')
-           ORDER BY r.first_seen DESC,r.record_key LIMIT %s""",
-           (limit,)).fetchall()
-    return {"selected_notice":"R26BK01787028","category":"81111599",
-            "records_returned":len(rows),
-            "opening_bidder_rows":sum(x["result_kind"]=="opening" for x in rows),
-            "confirmed_award_rows":sum(x["result_kind"]=="award" for x in rows),
-            "opening_is_not_award":True,"records":rows}
-
+def g2b_case_exact_verified_historical_bids(limit:int=Query(100,ge=1,le=500)):
+    """Backward-compatible path returns only real 8111159901 results."""
+    from g2b_exact_outcome_history import actual_result_status
+    return actual_result_status(limit)
 
 @app.get("/api/g2b/full/historical-opening-enrichment")
 def g2b_full_official_opening_enrichment_status():
