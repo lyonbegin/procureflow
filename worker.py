@@ -213,7 +213,7 @@ def main():
                    "Extract 8111159901 official code and rules from saved G2B originals")).fetchone()["id"]
             logging.info("G2B_ORIGINAL_DETAIL_CODE_JOB=%s",nid)
     with session() as db:
-        marker="g2b-81111599-official-history-detail-20261024-v1"
+        marker="g2b-81111599-official-history-detail-20261024-v2"
         enabled=db.execute("""INSERT INTO procureflow.settings(key,value)
              VALUES(%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
              (marker,'{"case":"R26BK01787028","phase":"opening_details"}')).fetchone()
