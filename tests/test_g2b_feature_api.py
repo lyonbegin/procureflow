@@ -10,6 +10,7 @@ from g2b_feature_api import (
     normalize_params, collection_action, feature_contract
 )
 from g2b_feature_registry import FEATURE_GATES
+from g2b_feature_data import SELECTORS, feature_observation
 
 
 CONTEXT = {
@@ -45,6 +46,7 @@ class FeatureAPITest(unittest.TestCase):
             self.assertTrue(any(r.path == path and "GET" in r.methods for r in routes), path)
             self.assertTrue(any(r.path == path + "/run" and "POST" in r.methods for r in routes), path)
         self.assertEqual(len(CATALOG), 104)
+        self.assertEqual(len(SELECTORS), 104)
 
     def test_all_contracts_include_original_inputs_and_evidence(self):
         for feature_no in range(1, 105):
@@ -115,6 +117,38 @@ class FeatureAPITest(unittest.TestCase):
                          {"candidate_limit": 2})
         self.assertEqual(collection_action(50),
                          "collect_exact_ten_digit_outcomes")
+
+    def test_feature_outputs_are_distinct_for_each_id(self):
+        self.assertEqual(sorted(SELECTORS), list(range(1, 105)))
+        self.assertEqual(SELECTORS[50], ("outcomes", "exact_opening_coverage"))
+        self.assertEqual(SELECTORS[51], ("outcomes", "exact_award_coverage"))
+        self.assertEqual(SELECTORS[29], ("documents", "downloaded"))
+        self.assertEqual(SELECTORS[91], ("pricing", "approved_price"))
+
+    def test_missing_source_does_not_become_zero_or_verified(self):
+        with patch("g2b_feature_data._official_notice", return_value={}):
+            result = feature_observation(23, CONTEXT)
+        self.assertEqual(result["status"], "missing")
+        self.assertIsNone(result["data"])
+        self.assertFalse(result["independent_acceptance"])
+
+    def test_real_notice_fields_are_projected_and_not_guessed(self):
+        with patch("g2b_feature_data._official_notice",
+                   return_value={"bidNtceNo": "R26BK01787028",
+                                 "bidNtceNm": "실제 입찰 공고",
+                                 "ntceInsttNm": "검증기관"}):
+            result = feature_observation(7, CONTEXT)
+        self.assertEqual(result["data"], {"bidNtceNm": "실제 입찰 공고"})
+        with patch("g2b_feature_data._official_notice", return_value={}):
+            missing = feature_observation(7, CONTEXT)
+        self.assertEqual(missing["status"], "missing")
+
+    def test_source_failures_do_not_claim_completion(self):
+        with patch("g2b_feature_data._history_data", side_effect=RuntimeError("remote read unavailable")):
+            result = feature_observation(50, CONTEXT)
+        self.assertEqual(result["status"], "source_error")
+        self.assertFalse(result["independent_acceptance"])
+        self.assertIsNone(result["data"])
 
     def test_openapi_has_104_individual_operations(self):
         from fastapi.openapi.utils import get_openapi
