@@ -56,11 +56,13 @@ def historical_month_batch():
                 break
         return {"status":"partial_secondary_index_only",
                 "pages":[{"page":p["page"],"listed":p.get("listed",0),
-                          "checked":p["checked"],"saved":p["saved"],
+                          "checked":p["checked"],"matched_upserted":p["saved"],
+                          "new_distinct_notices":p.get("new_distinct_notices",0),
                           "next_page":p.get("next_page"),
                           "errors":p["errors"]} for p in pages],
                 "checked":sum(p["checked"] for p in pages),
-                "newly_saved":sum(p["saved"] for p in pages),
+                "newly_saved":sum(p.get("new_distinct_notices",0) for p in pages),
+                "matched_upserted":sum(p["saved"] for p in pages),
                 "next_page":pages[-1].get("next_page"),
                 "official_10_year_complete":False}
     return scan_month(row["first_day"],pages_max=8)
