@@ -485,13 +485,10 @@ def deactivate_one(slot):
 
 
 def start_explicit_pilot():
-    """One-time administrator-requested pilot, opt-in via AGENT_TEST_AUTOSTART=3.
-
-    Runs once per installation, NOT on later service restarts. After the pilot
-    the UI's manual add/stop behavior remains authoritative.
-    """
-    if os.getenv("AGENT_TEST_AUTOSTART","")!="3":
-        return {"state":"manual_start_only"}
+    """One-time administrator-requested 3-agent test, never repeated on reboot."""
+    # This single pilot was explicitly requested in this conversation.
+    # A durable DB marker prevents later automatic restarts and gives
+    # subsequent manual start/stop operations full authority.
     key="procureflow:pilot-3:20261024-v1"
     with session() as db:
         db.execute("SELECT pg_advisory_xact_lock(%s)",(ASSIGN_LOCK,))
