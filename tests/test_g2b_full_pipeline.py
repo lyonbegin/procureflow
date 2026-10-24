@@ -51,3 +51,15 @@ def test_no_arbitrary_download_hosts():
     assert not _government("https://example.com/signed.pdf")
     assert not _government("https://www.g2b.go.kr.attacker.example/f")
     assert _government("https://www.g2b.go.kr/official.pdf")
+
+
+def test_phase_complete_does_not_mark_unrelated_features():
+    dummy={name:{"verified":True,"missing":[]} for name in GROUP_RANGES}
+    evidence=[{"evidence_type":"notice_official","verified_source":True,
+               "state":"verified"}]
+    feature_3=FEATURES[2]
+    feature_9=FEATURES[8]
+    feature_10=FEATURES[9]
+    assert _display_feature_state(feature_3,dummy,evidence)=="verified"
+    assert _display_feature_state(feature_9,dummy,evidence)=="verified"
+    assert _display_feature_state(feature_10,dummy,evidence)!="verified"
