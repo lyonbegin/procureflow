@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='browser_probe' THEN 0 WHEN source='kapt' THEN 1 ELSE 2 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_category_secondary' THEN 0 WHEN source='browser_probe' THEN 1 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
