@@ -116,8 +116,11 @@ def one_phase(phase):
     if phase=="evidence":
         from g2b_original_facts import run as parse_original_facts
         original=parse_original_facts()
+        from g2b_scope_analysis import analyze as extract_actual_scope
+        scope=extract_actual_scope()
         linked=refresh_existing_evidence()
-        return {"status":"partial","original_rules":original,"facts":linked}
+        return {"status":"partial","original_rules":original,
+                "scope_analysis":scope,"facts":linked}
     if phase=="readiness":
         r=readiness_check()
         return {"status":"verified" if r["status"]=="ready" else "blocked",
