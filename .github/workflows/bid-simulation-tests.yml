@@ -4,6 +4,9 @@ on:
     paths:
       - 'bid_simulation.py'
       - 'workbench.py'
+      - 'agent_orchestrator.py'
+      - 'static/agents.html'
+      - 'tests/test_agent_activation.py'
       - 'static/workbench.html'
       - 'tests/test_workbench.py'
       - 'bid_price_engine.py'
@@ -24,5 +27,5 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -r requirements.txt pytest
-      - run: python -m pytest tests/test_bid_simulation.py tests/test_browser_diagnostics.py tests/test_bid_price_engine.py tests/test_workbench.py -q
-      - run: python -m py_compile bid_simulation.py bid_price_engine.py browser_diagnostics.py workbench.py db.py main.py worker.py
+      - run: python -m pytest tests/test_bid_simulation.py tests/test_browser_diagnostics.py tests/test_bid_price_engine.py tests/test_workbench.py tests/test_agent_activation.py -q
+      - run: python -m py_compile bid_simulation.py bid_price_engine.py browser_diagnostics.py workbench.py agent_orchestrator.py db.py main.py worker.py
