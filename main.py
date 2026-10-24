@@ -6,6 +6,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel,Field
 from db import session,initialize
 app=FastAPI(title="ProcureFlow",version="0.1")
+from g2b_feature_api import router as g2b_feature_router
+app.include_router(g2b_feature_router)
 @app.on_event("startup")
 def startup():
     initialize()
@@ -1147,6 +1149,12 @@ def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header
     from g2b_case_engine import put_decision
     try:return put_decision("R26BK01787028",req.kind,req.key,req.value)
     except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/g2b-104-api",response_class=HTMLResponse)
+def g2b_individual_feature_api_inspector():
+    """Inspect the inputs, evidence and independently queued run of each function."""
+    return (Path(__file__).parent/"static/g2b-feature-api.html").read_text(encoding="utf-8")
 
 
 @app.get("/g2b-104",response_class=HTMLResponse)
