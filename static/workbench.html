@@ -60,7 +60,7 @@ footer{font-size:12px;color:#728397;padding:25px 0}
 </style></head>
 <body><header><div class="top"><div><div class="brand">ProcureFlow <small>입찰 통합관리</small></div>
 <div class="subtitle">최신 공고 → 증빙 확보 → 자격·원가 검증 → ChatGPT API 입력 준비</div></div>
-<nav><a href="/bids">종료 입찰·개찰·낙찰결과</a><a href="/operations">수집기 관리</a><a href="/browser">Headless 캡처</a><a href="/simulate">입찰 시뮬레이션</a><a href="/prepare">가격·제안서 초안</a></nav></div></header>
+<nav><a href="/agents">실행 중 에이전트 3개</a><a href="/bids">종료 입찰·개찰·낙찰결과</a><a href="/operations">수집기 관리</a><a href="/browser">Headless 캡처</a><a href="/simulate">입찰 시뮬레이션</a><a href="/prepare">가격·제안서 초안</a></nav></div></header>
 <main><div class="headerrow"><div><h1>발주 및 입찰 진행현황</h1>
 <div class="muted">실제 입찰공고만 표시 · 접수 마감은 투찰 완료가 아닙니다 · 데이터는 운영 DB의 최종 수집 기준입니다</div></div>
 <div><button class="primary" id="refresh">목록 새로고침</button><div id="refreshed" class="muted"></div></div></div>
@@ -200,7 +200,14 @@ E("find").onclick=()=>{page=0;load()};
 E("query").onkeydown=e=>{if(e.key==="Enter")E("find").click()};
 E("prev").onclick=()=>{page=Math.max(0,page-1);load()};E("next").onclick=()=>{page++;load()};
 E("source").onchange=()=>{page=0;load()};E("category").onchange=()=>{page=0;load()};
-async function init(){await load();try{const d=await req("/api/workbench/overview?filter_state=collecting&limit=1");if(d.items[0])openDetail(d.items[0].source,d.items[0].external_id)}catch(e){}
+async function init(){await load();
+const qp=new URLSearchParams(location.search);
+const deeplinkSource=qp.get("source"),deeplinkID=qp.get("external_id");
+if(["kapt","g2b"].includes(deeplinkSource)&&deeplinkID){
+ await openDetail(deeplinkSource,deeplinkID);
+}else{
+ try{const d=await req("/api/workbench/overview?filter_state=started&limit=1");if(d.items[0])openDetail(d.items[0].source,d.items[0].external_id)}catch(e){}
+}
 setInterval(async()=>{await load();if(selected){const parts=selected.split("|");await openDetail(parts[0],parts[1],true)}},60000)}
 init();
 </script></body></html>
