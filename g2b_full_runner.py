@@ -36,36 +36,17 @@ def official_selected_notice():
         return {"status":"error","reason":type(exc).__name__+":"+str(exc)[:180]}
 
 def historical_month_batch():
-    """Exactly one incomplete monthly window per run, with resumable pagination."""
-    with session() as db:
-        row=db.execute("""SELECT first_day,status,page_cursor
-          FROM procureflow.g2b_case_10yr_windows
-          WHERE case_bid_no=%s AND status NOT IN ('completed')
-          ORDER BY first_day LIMIT 1""",(CASE_BID,)).fetchone()
-    if not row:return {"status":"verified","window_coverage":"121/121"}
-    from g2b_official_notices import api_key
-    if not api_key():
-        from g2b_category_index import crawl_next_page
-        pages=[]
-        # Three bounded real public-search pages per job, each with 20 verified
-        # source notices; cursor is committed after each fully scanned page.
-        for _ in range(3):
-            result=crawl_next_page()
-            pages.append(result)
-            if result.get("next_page")==result.get("page") or result.get("errors"):
-                break
-        return {"status":"partial_secondary_index_only",
-                "pages":[{"page":p["page"],"listed":p.get("listed",0),
-                          "checked":p["checked"],"matched_upserted":p["saved"],
-                          "new_distinct_notices":p.get("new_distinct_notices",0),
-                          "next_page":p.get("next_page"),
-                          "errors":p["errors"]} for p in pages],
-                "checked":sum(p["checked"] for p in pages),
-                "newly_saved":sum(p.get("new_distinct_notices",0) for p in pages),
-                "matched_upserted":sum(p["saved"] for p in pages),
-                "next_page":pages[-1].get("next_page"),
-                "official_10_year_complete":False}
-    return scan_month(row["first_day"],pages_max=8)
+    """Past ten-year exact 8111159901 BID/OPENING/AWARD results; no notice listing."""
+    from g2b_exact_outcome_history import run_batch
+    result=run_batch(limit=4,opening_limit=2)
+    return {"status":"partial_exact_results",
+            "detail_product_code":"8111159901",
+            "verified_detail_bids":result["verified_exact_code"],
+            "bidder_rows_saved":result["opening_bidder_rows_saved"],
+            "confirmed_final_awards":result["final_awards_verified"],
+            "verified_candidates_checked":result["candidate_checked"],
+            "outcome":result,"official_full_ten_year_complete":False}
+
 
 def discover_new_bids():
     """New G2B tender notices for goods+services, independent of old R..DD orders."""
@@ -111,7 +92,7 @@ def one_phase(phase):
         return {"status":"partial" if secondary.get("status")=="collected_secondary_public"
                 else "blocked","official":official,"secondary":secondary,
                 "source_qualification":"secondary_public_not_official_verified"}
-    if phase=="ten_year":return historical_month_batch()
+    if phase in ("ten_year","exact_outcomes"):return historical_month_batch()
     if phase=="opening_details":
         from g2b_historical_detail_enrich import run as enrich
         return enrich(limit=4)
