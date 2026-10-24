@@ -1200,3 +1200,21 @@ def g2b_full_original_text(file_id:str=Query(...,pattern="^official_attached_[1-
             "sha256":x["sha256"],"state":x["extraction_state"],
             "text":x["extracted_text"][:22000],
             "truncated":len(x["extracted_text"])>22000}
+
+
+@app.get("/api/g2b/full/scope")
+def g2b_full_actual_scope():
+    """Two real HWP+XLSX workstreams; allocated budgets are NOT supplier quotes."""
+    with session() as con:
+        row=con.execute("""SELECT state,structured,source_url,content_sha,recorded_at
+             FROM procureflow.g2b_case_evidence
+             WHERE bid_no='R26BK01787028'
+             AND evidence_type='scope_requirements'
+             AND reference='hwp_real_scope'""").fetchone()
+    if not row:
+        return {"status":"waiting_for_original_scope_analysis",
+                "bid_no":"R26BK01787028","actual_costs_known":False}
+    return {"status":"source_verified","case":"R26BK01787028",
+            "scope":row["structured"],"source_url":row["source_url"],
+            "content_sha":row["content_sha"],"recorded_at":row["recorded_at"],
+            "actual_supplier_costs_verified":False,"submitted":False}
