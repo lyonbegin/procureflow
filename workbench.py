@@ -137,7 +137,8 @@ def _latest_probes(db):
           EXISTS(SELECT 1 FROM procureflow.browser_captures bc
                   WHERE bc.job_id=j.id AND bc.stage='notice_detail'
                     AND octet_length(bc.image)>0
-                    AND bc.snapshot->>'text' LIKE '%%'||j.config->>'external_id'||'%%'
+                    AND position((j.config->>'external_id')
+                                 IN COALESCE(bc.snapshot->>'text',''))>0
                 ) AS has_detail,
           j.started_at,j.finished_at
       FROM procureflow.jobs j
@@ -318,7 +319,15 @@ def change_workflow(source,external_id,action):
                 SET state='paused',updated_at=now() WHERE source=%s AND external_id=%s
                 RETURNING state""",(source,external_id)).fetchone()
             if not exists:raise ValueError("Start the tender case before pausing")
-            return {"state":"paused","job_id":None,"collection_started":False}
+            cancelled=db.execute("""UPDATE procureflow.jobs
+                   SET state='cancelled',message='Cancelled by workbench pause',
+                       finished_at=now()
+                   WHERE source='browser_probe'
+                     AND config->>'external_id'=%s AND state='queued'
+                   RETURNING id""",(external_id,)).fetchall()
+            return {"state":"paused","job_id":None,"collection_started":False,
+                    "message":("수집 보류. 대기 작업 "+str(len(cancelled))+
+                               "건 취소. 이미 실행 중인 수집은 현재 단계까지 진행됩니다")}
         record=db.execute("""INSERT INTO procureflow.case_workflows
             (source,external_id,state) VALUES (%s,%s,'collecting')
             ON CONFLICT(source,external_id) DO UPDATE
