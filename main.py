@@ -1011,3 +1011,10 @@ def g2b_categories_similar(
         return exact_matches(bid_no,bid_ord,detail_code,limit)
     except ValueError as exc:
         raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/categories/official-notice-probe")
+def g2b_official_notice_probe():
+    """Read-only official notice page field diagnostics."""
+    from g2b_category_probe import probe_official_notice_detail
+    return probe_official_notice_detail()
