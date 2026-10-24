@@ -79,3 +79,55 @@ REQUIREMENTS={
 "operations":("final_package","final_validation")}
 def features_by_group():
     return {key:[x for x in FEATURES if x["group"]==key] for key,_ in GROUPS}
+
+
+# Each of 104 functions has its OWN acceptance evidence; fulfilling one phase
+# cannot accidentally mark every function in that phase as completed.
+_FEATURE_GATES_BY_GROUP={
+"notice":[
+"notice_official","notice_sync_completed","notice_official","notice_official",
+"notice_official","deadline","notice_official","agency","notice_official",
+"classification_verified","notice_official","notice_change","notice_change",
+"notice_revision","notice_dedup","notice_job_created"],
+"detail":[
+"detail_original","detail_original","classification_verified","agency_code",
+"contract_terms","award_method","verified_base_amount","region_codes",
+"industry_codes","company_restrictions","contract_terms",
+"attachment_index","attachments_complete","attachments_complete",
+"attachment_text","detail_attachment_reconciliation"],
+"history":[
+"opening_evidence","historical_bidders_linked","opening_evidence","bid_rates",
+"bid_rank","award_evidence","award_evidence","supplier_registry",
+"opening_dedup","opening_execution","opening_raw","opening_refresh",
+"opening_backfill","history_10years_complete","opening_evidence",
+"historical_bidders_linked"],
+"matching":[
+"classification_verified","history_10years_complete",
+"classification_verified","history_legacy_mapped",
+"history_window_register","history_10years_complete",
+"history_10years_complete","historical_bidders_linked",
+"agency_history","agency_code","competitor_analysis","analysis_report"],
+"eligibility":[
+"requirements","company_registration","region_codes","company_size",
+"company_registration","qualification_evaluation","joint_bid_rules",
+"bid_bond_rules","required_forms","eligibility_documents",
+"supplier_evidence","supplier_evidence","supplier_evidence",
+"supplier_quotes","supplier_quotes","supplier_quotes"],
+"pricing":[
+"verified_base_amount","verified_base_amount","attachment_text",
+"supplier_quotes","labor_cost","materials_cost","general_overhead",
+"tax_rules","cost_breakdown","award_evidence","bid_rates",
+"price_rules","price_scenarios","price_scenarios","approved_bid_price",
+"proposal_draft","required_forms","final_validation"],
+"operations":[
+"case_dashboard","phase_tracking","worker_executed","run_log",
+"assigned_agent","evidence_aggregation","workflow_controls",
+"retry_and_approval","manual_participation_ready","final_validation"]
+}
+FEATURE_GATES={}
+for group,labels in GROUPS:
+    a,b=GROUP_BOUNDS[group]
+    required=_FEATURE_GATES_BY_GROUP[group]
+    assert len(required)==len(labels)
+    FEATURE_GATES.update({a+i:(required[i],) for i in range(len(labels))})
+assert len(FEATURE_GATES)==104
