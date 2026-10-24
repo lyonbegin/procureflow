@@ -1145,3 +1145,9 @@ def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header
     from g2b_case_engine import put_decision
     try:return put_decision("R26BK01787028",req.kind,req.key,req.value)
     except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/g2b-104",response_class=HTMLResponse)
+def g2b_full_104_dashboard():
+    """Actual 104-feature progress, never a fake completed bid."""
+    return (Path(__file__).parent/"static/g2b-104.html").read_text(encoding="utf-8")
