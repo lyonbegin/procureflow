@@ -75,3 +75,58 @@ def probe_categories(max_samples=3):
         finally:
             context.close();browser.close()
     return out
+
+
+def probe_official_notice_detail():
+    """Inspect official G2B PNPE027_01 deep link, response endpoint list and text.
+    Never click participate or submit, never download attachments.
+    """
+    with session() as con:
+        bid=con.execute("""SELECT bid_ntce_no,bid_ntce_ord,title
+              FROM procureflow.bid_results WHERE source='g2b'
+              AND result_kind='award' ORDER BY first_seen DESC LIMIT 1""").fetchone()
+    if not bid:return {"status":"no_bid_records"}
+    url=("https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo="+
+         bid["bid_ntce_no"]+"&bidPbancOrd="+(bid["bid_ntce_ord"] or "000"))
+    requests=[]
+    response_fields=[]
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+        context=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul",
+                                    viewport={"width":1365,"height":850})
+        page=context.new_page()
+        def on_resp(resp):
+            from urllib.parse import urlparse
+            host=urlparse(resp.url).hostname or ""
+            if not host.endswith("g2b.go.kr"):return
+            path=urlparse(resp.url).path
+            if len(requests)<100:
+                requests.append({"method":resp.request.method,"path":path[:220],
+                                 "status":resp.status})
+            if ("select" in path.lower() or "detail" in path.lower() or "detl" in path.lower()) and len(response_fields)<20:
+                try:
+                    typ=resp.headers.get("content-type","")
+                    if "json" not in typ:return
+                    obj=resp.json()
+                    response_fields.append({"path":path[:180],
+                        "keys":sorted(obj.keys())[:40] if isinstance(obj,dict) else [],
+                        "code_fields":inspect_tree(obj,limit=40)})
+                except Exception:pass
+        page.on("response",on_resp)
+        err=""
+        http_status=None
+        try:
+            response=page.goto(url,wait_until="domcontentloaded",timeout=38000)
+            http_status=response.status if response else None
+            page.wait_for_timeout(5500)
+            body=page.locator("body").inner_text(timeout=1500)[:1100] if page.locator("body").count() else ""
+        except Exception as exc:
+            err=type(exc).__name__+":"+str(exc)[:170]
+            try:body=page.locator("body").inner_text(timeout=1200)[:1000]
+            except Exception:body=""
+        out={"notice_id":bid["bid_ntce_no"],"url":url,
+             "http_status":http_status,"error":err,"body_excerpt":body,
+             "final_url":page.url,"public_responses":requests,
+             "json_detail_fields":response_fields}
+        context.close();browser.close()
+    return out
