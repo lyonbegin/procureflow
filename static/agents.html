@@ -71,9 +71,9 @@ button:hover{background:#eef5fb}button:disabled{opacity:.4}
 <div class="metric"><strong id="nRetry">—</strong><span>오류 후 재시도 예정</span></div>
 </div>
 <section class="agent-grid" id="agentGrid"><div class="panel">에이전트 상태 연결 중</div></section>
-<div class="warn"><b>실행 정책:</b> 사용자가 [+ 에이전트 추가]를 누르기 전에는 어떤 에이전트도 공고를 가져가지 않습니다. 버튼을 누를 때마다 하나만 활성화되고, 이미 다른 에이전트가 맡은 공고는 배제하며 마감시각이 가장 빠른 공고를 가져옵니다. 한 건의 자료수집 회차를 끝내면 활성 상태를 유지한 채 다음 공고를 자동 배정합니다.<hr style="border:0;border-top:1px solid #efdcae;margin:8px 0"><b>자율 처리 범위:</b> 공고별 상세·첨부영역 읽기, 공식 화면 캡처, 중복검사, 과거 낙찰이력 결합, 자사자격·실견적·원가의 증빙 유무 검증, 오류기록·재시도·다음 공고 자동 배정. <b>실제 입찰참가 클릭·투찰·제출 및 ChatGPT API 최종 제안서 작성은 현재 실행하지 않습니다.</b> 자료수집 회차가 끝난 공고는 누락자료가 있는 상태 그대로 DB에 보존합니다.</div>
+<div class="warn" id="pilotSummary">공고별 상세원문과 저장된 증빙을 실제로 수집합니다. 현재 실행·실패·보완 대기 결과는 아래 표에 기록됩니다.</div>
 <div class="tables">
-<section class="panel"><h2>에이전트별 실시간 작업 로그</h2>
+<section class="panel"><h2>실제 수집 단계 및 실행 결과</h2>
 <div id="apiStatus" class="muted">DB 연결 확인 중</div>
 <div class="logs"><table><thead><tr><th>일시</th><th>에이전트</th><th>작업 단계</th><th>실행 내역 / 오류</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
 <section class="panel"><h2>최근 처리 공고 · 다음 보완 시각</h2>
@@ -146,6 +146,10 @@ async function refresh(){
  const counts={};for(const r of data.case_counts||[])counts[r.state]=r.total;
  E("nOutstanding").textContent=N(counts.needs_evidence);
  E("nRetry").textContent=N(counts.retryable);
+ E("agentCommand").textContent=(data.activated_agents===0?
+  "실행 중인 에이전트 0개 · 테스트 시작 전":
+  "실제 활성 에이전트 "+data.activated_agents+"개 · 현재 작업 중 "+data.actual_running+"개 · 작업이 끝나면 자동으로 다음 공고 처리");
+ E("pilotSummary").textContent="현재 "+data.actual_running+"개 에이전트가 독립적으로 실제 공고를 조사 중입니다. 검증 완료된 원본만 확보로 기록하며, 다음 작업은 마감시간이 빠른 순서로 자동 배정합니다.";
  events(data.event_items||[]);cases(data.recent_cases||[]);
  E("updated").textContent="DB 동기화 "+new Date().toLocaleString("ko-KR")+" · 자동 3초";
  E("apiStatus").textContent="이벤트 "+(data.event_items||[]).length+"개 표시 · 활성 "+data.activated_agents+" / 최대 "+data.maximum_agents+"개";
