@@ -27,9 +27,12 @@ def ensure_schema():
           business_type text NOT NULL DEFAULT '',code_type text NOT NULL,
           code text NOT NULL,source_field text NOT NULL,
           source_uri text NOT NULL,
+          evidence_level text NOT NULL DEFAULT 'official_direct',
           created_at timestamptz NOT NULL DEFAULT now(),
           PRIMARY KEY(bid_no,bid_ord,code_type,code)
         )""")
+        con.execute("""ALTER TABLE procureflow.g2b_notice_categories
+                  ADD COLUMN IF NOT EXISTS evidence_level text NOT NULL DEFAULT 'official_direct'""")
         con.execute("""CREATE INDEX IF NOT EXISTS ix_pf_g2b_category_lookup
                   ON procureflow.g2b_notice_categories(code_type,code,business_type)""")
         con.execute("""CREATE TABLE IF NOT EXISTS procureflow.g2b_category_audit(
@@ -73,26 +76,30 @@ def extract_codes(public_response):
     rec(public_response)
     return list(found.values())
 
-def upsert_verified_codes(bid_no,bid_ord,business_type,parsed,source_uri):
+def upsert_verified_codes(bid_no,bid_ord,business_type,parsed,source_uri,evidence_level="official_direct"):
     if not NOTICE_RE.fullmatch(bid_no or ""):raise ValueError("invalid G2B bid number")
     if not re.fullmatch(r"\d{3}",bid_ord or ""):raise ValueError("invalid G2B order")
-    if not (source_uri.startswith("https://www.g2b.go.kr/") or
-            source_uri.startswith("https://apis.data.go.kr/")):
-        raise ValueError("nonofficial category evidence source")
+    direct=(source_uri.startswith("https://www.g2b.go.kr/") or
+            source_uri.startswith("https://apis.data.go.kr/"))
+    secondary=source_uri.startswith("https://bid24.kr/b/")
+    if not ((direct and evidence_level=="official_direct") or
+            (secondary and evidence_level=="secondary_public")):
+        raise ValueError("unrecognized classification evidence source")
     allowed_type={"goods","service",""}.intersection({business_type})
     if not allowed_type:raise ValueError("unsupported business type")
     matches=extract_codes(parsed)
     with session() as con:
         for item in matches:
             con.execute("""INSERT INTO procureflow.g2b_notice_categories
-                (bid_no,bid_ord,business_type,code_type,code,source_field,source_uri)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                (bid_no,bid_ord,business_type,code_type,code,source_field,source_uri,evidence_level)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (bid_no,bid_ord,code_type,code) DO UPDATE SET
                   business_type=excluded.business_type,
                   source_field=excluded.source_field,
-                  source_uri=excluded.source_uri
+                  source_uri=excluded.source_uri,
+                  evidence_level=excluded.evidence_level
             """,(bid_no,bid_ord,business_type,item["code_type"],item["code"],
-                 item["source_field"],source_uri))
+                 item["source_field"],source_uri,evidence_level))
         con.execute("""INSERT INTO procureflow.g2b_category_audit
             (bid_no,bid_ord,source_uri,result,reason,matched_codes)
             VALUES (%s,%s,%s,%s,%s,%s)
@@ -150,7 +157,7 @@ def coverage():
         audit=con.execute("""SELECT result,count(*) AS count
                      FROM procureflow.g2b_category_audit GROUP BY result""").fetchall()
         examples=con.execute("""SELECT bid_no,bid_ord,code_type,code,business_type,
-                              source_field,source_uri
+                              source_field,source_uri,evidence_level
                      FROM procureflow.g2b_notice_categories
                      ORDER BY created_at DESC LIMIT 12""").fetchall()
     return {"source":"g2b","known_execution_groups":total,
