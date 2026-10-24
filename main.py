@@ -17,7 +17,7 @@ def guard(value):
 @app.get("/",response_class=HTMLResponse)
 def home():
     raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
-    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a></section>",1)
+    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a> · <a href='/browser'>Headless 화면·DOM·네트워크 진단</a></section>",1)
 
 @app.get("/private-details",response_class=HTMLResponse)
 def private_details_web():
@@ -572,3 +572,90 @@ def bid_simulation_preview(source:str=Query(...,pattern="^(g2b|kapt)$"),
         raise HTTPException(404,str(exc))
     except ValueError as exc:
         raise HTTPException(400,str(exc))
+
+
+@app.get("/browser",response_class=HTMLResponse)
+def browser_diagnostics_dashboard():
+    return (Path(__file__).parent/"static/browser.html").read_text(encoding="utf-8")
+
+
+class BrowserProbeRun(BaseModel):
+    source:str=Field("kapt",pattern="^kapt$")
+    external_id:str=Field(...,min_length=14,max_length=20)
+
+
+@app.post("/api/browser/probes")
+def request_browser_probe(req:BrowserProbeRun,authorization:str|None=Header(None)):
+    """Bounded official K-apt public-only browser, no free-form URL or actions."""
+    guard(authorization)
+    from db import ensure_browser_diagnostics
+    from browser_diagnostics import validate_id
+    try:validate_id(req.external_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    ensure_browser_diagnostics()
+    with session() as db:
+        active=db.execute("SELECT id FROM procureflow.jobs WHERE source='browser_probe' AND state IN ('queued','running') LIMIT 1").fetchone()
+        if active:raise HTTPException(409,"Browser diagnostic job already active: "+str(active["id"]))
+        jid=db.execute("""
+          INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('browser_probe',%s::jsonb,'Public K-apt readonly screenshot/DOM/network probe')
+          RETURNING id
+        """,(json.dumps(req.model_dump(),ensure_ascii=False),)).fetchone()["id"]
+    return {"job_id":jid,"state":"queued","mode":"READ_ONLY_NO_BID_ACTIONS"}
+
+
+@app.get("/api/browser/probes")
+def browser_probe_list():
+    with session() as db:
+        rows=db.execute("""
+          SELECT j.id,j.state,j.config->>'external_id' AS notice_id,j.checked,
+                 j.added,j.created_at,j.started_at,j.finished_at,
+                 left(j.last_error,400) AS last_error,
+                 coalesce(r.report->>'status','') AS browser_status,
+                 coalesce(r.report->>'participation_gate','') AS gate
+          FROM procureflow.jobs j
+          LEFT JOIN procureflow.browser_reports r ON r.job_id=j.id
+          WHERE j.source='browser_probe'
+          ORDER BY j.id DESC LIMIT 20
+        """).fetchall()
+    return {"items":rows,"engine":"internal_playwright","public_only":True,
+            "submission_actions_allowed":False}
+
+
+@app.get("/api/browser/probes/{job_id}")
+def browser_probe_detail(job_id:int):
+    with session() as db:
+        job=db.execute("""
+          SELECT id,state,config->>'external_id' AS notice_id,
+                 checked,added,created_at,started_at,finished_at,
+                 message,left(last_error,600) AS last_error
+          FROM procureflow.jobs WHERE id=%s AND source='browser_probe'
+        """,(job_id,)).fetchone()
+        if not job:raise HTTPException(404,"Browser diagnostic job not found")
+        report=db.execute("SELECT report FROM procureflow.browser_reports WHERE job_id=%s",(job_id,)).fetchone()
+        captures=db.execute("""
+          SELECT stage,created_at,octet_length(image) AS bytes,snapshot
+          FROM procureflow.browser_captures
+          WHERE job_id=%s ORDER BY created_at,stage
+        """,(job_id,)).fetchall()
+    return {
+        "job":job, "report": report["report"] if report else None,
+        "captures":[{**r,"screenshot_url":f"/api/browser/images/{job_id}/{r['stage']}"}
+                    for r in captures],
+        "unsafe_actions_executed":False
+    }
+
+
+@app.get("/api/browser/images/{job_id}/{stage}")
+def browser_screenshot(job_id:int,stage:str):
+    from fastapi.responses import Response
+    if stage not in ("public_list","notice_detail","attachments_area","before_participation"):
+        raise HTTPException(404,"Unknown capture stage")
+    with session() as db:
+        r=db.execute("""
+          SELECT image,content_type FROM procureflow.browser_captures
+          WHERE job_id=%s AND stage=%s
+        """,(job_id,stage)).fetchone()
+    if not r or not r["image"]:raise HTTPException(404,"Screenshot not available")
+    return Response(content=bytes(r["image"]),media_type=r["content_type"],
+                    headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
