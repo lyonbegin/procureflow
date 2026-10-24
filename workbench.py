@@ -93,7 +93,8 @@ def _state(t,c=None,has_browser=False,ready=False,final=False,submitted=False):
     if ready:return "ai_ready"
     if final:return "proposal_complete"
     if c and c["state"]=="paused":return "paused"
-    if c or has_browser:return "collecting"
+    if c:return "collecting"
+    if has_browser:return "evidence_partial"
     return "unstarted"
 
 def _preview_row(t,case,latest_capture,evidence):
@@ -174,10 +175,13 @@ def overview(q="",source="",category="",filter_state="all",limit=50,offset=0):
                probes.get(t["external_id"]) if t["source"]=="kapt" else None,
                em.get((t["source"],t["external_id"]),[]))
               for t in rows[:5000] if eligible(t)]
-    counts={k:0 for k in ("all","unstarted","collecting","paused","ai_ready","proposal_complete","closed","submitted","proposal_missing")}
+    counts={k:0 for k in ("all","unstarted","collecting","evidence_partial","started",
+                            "paused","ai_ready","proposal_complete","closed","submitted","proposal_missing")}
     for x in all_rows:
         counts["all"]+=1
         counts[x["work_state"]]+=1
+        if x["work_state"] in ("collecting","evidence_partial"):
+            counts["started"]+=1
         if x["proposal_status"]!="최종본 검증됨":counts["proposal_missing"]+=1
     result=all_rows
     if source in ("kapt","g2b"):result=[r for r in result if r["source"]==source]
@@ -186,6 +190,8 @@ def overview(q="",source="",category="",filter_state="all",limit=50,offset=0):
                   (r["title"]+" "+r["agency"]+" "+r["external_id"]).lower()]
     if filter_state=="proposal_missing":
         result=[r for r in result if r["proposal_status"]!="최종본 검증됨"]
+    elif filter_state=="started":
+        result=[r for r in result if r["work_state"] in ("collecting","evidence_partial")]
     elif filter_state in counts and filter_state!="all":
         result=[r for r in result if r["work_state"]==filter_state]
     result_len=len(result)
