@@ -30,7 +30,7 @@ BLOCKED_NAVIGATION = re.compile(
 )
 READ_ONLY_POST = re.compile(
     r"(?:/bid/(?:bidList|bidDetail|bidResultList)\.do|"
-    r"/cmmn/bjd/getBjdList\.do)$", re.I
+    r"/cmmn/bjd/getBjdList\.do|/bid/bidFileListData\.do)$", re.I
 )
 KAPT_ID = re.compile(r"^(?:[0-9]{14,20}|kg2b_[0-9]{1,15})$")
 STAGES = ("public_list", "notice_detail", "attachments_area", "before_participation")
