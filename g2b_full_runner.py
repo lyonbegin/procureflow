@@ -4,7 +4,7 @@ All steps operate on R26BK01787028. Each returns 'verified', 'partial' or
 'blocked' backed by database evidence; never treat a placeholder as success.
 """
 from __future__ import annotations
-from datetime import date
+from datetime import date,timedelta
 import json,logging,re
 from db import session
 from g2b_case_10y import CASE_BID
@@ -45,6 +45,16 @@ def historical_month_batch():
     if not row:return {"status":"verified","window_coverage":"121/121"}
     return scan_month(row["first_day"],pages_max=8)
 
+def discover_new_bids():
+    """New G2B tender notices for goods+services, independent of old R..DD orders."""
+    from g2b_official_notices import refresh_window
+    today=date.today()
+    return {"status":"partial","windows":[
+        refresh_window(kind,(today-timedelta(days=1)).isoformat(),
+                       today.isoformat(),limit_pages=5)
+        for kind in ("service","goods")]}
+
+
 def documents_batch():
     index=list_documents(CASE_BID)
     if not index["files_listed"]:
@@ -68,6 +78,7 @@ def documents_batch():
              "results":visited}
 
 def one_phase(phase):
+    if phase=="discover":return discover_new_bids()
     if phase=="notice":return official_selected_notice()
     if phase=="ten_year":return historical_month_batch()
     if phase=="documents":return documents_batch()
@@ -80,9 +91,9 @@ def one_phase(phase):
     raise ValueError("unsupported phase "+phase)
 
 def execute(phase="all"):
-    if phase not in ("all","notice","ten_year","documents","evidence","readiness"):
+    if phase not in ("all","discover","notice","ten_year","documents","evidence","readiness"):
         raise ValueError("unknown phase")
-    phases=("notice","ten_year","documents","evidence","readiness") if phase=="all" else (phase,)
+    phases=("discover","notice","ten_year","documents","evidence","readiness") if phase=="all" else (phase,)
     results={}
     for key in phases:
         with session() as c:
