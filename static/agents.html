@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 3개 자율 입찰 에이전트 실시간 관제</title>
+<style>
+:root{font:14px system-ui,"Malgun Gothic",sans-serif;color:#16283f;background:#f4f6f9}
+*{box-sizing:border-box}body{margin:0}header{background:#142a42;color:#fff;padding:21px 28px}
+.top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;max-width:1560px;margin:auto}
+.brand{font-size:23px;font-weight:750}.brand small{font-size:13px;color:#b5ccdc}
+header nav{display:flex;gap:17px;flex-wrap:wrap}a{color:#17669d;text-decoration:none}a:hover{text-decoration:underline}header a{color:#dcecf5}
+main{max-width:1560px;margin:19px auto;padding:0 20px}
+h1{margin:0 0 6px;font-size:23px}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px;margin:0 0 9px}
+.muted{font-size:12px;color:#6c7d92;line-height:1.6}
+.headline{display:flex;align-items:end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.panel{background:#fff;border:1px solid #e0e7ef;border-radius:12px;padding:17px;margin:13px 0;box-shadow:0 3px 13px #1b32400a}
+.metrics{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px;margin:14px 0}
+.metric{border:1px solid #e1e7ef;border-radius:10px;padding:14px;background:white}
+.metric strong{display:block;font-size:27px;line-height:1.2}.metric span{font-size:12px;color:#65788b}
+.agent-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.agent{border:1px solid #dfe7ef;border-radius:12px;padding:16px;background:white;min-height:335px}
+.agent-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.agent-name{font-size:18px;font-weight:750}
+.status{border:1px solid #d2dbe6;border-radius:6px;padding:4px 9px;background:#f1f4f6;color:#5e6c7a;font-size:11px}
+.status.running{background:#e5f5ed;border-color:#b7e2cb;color:#13764b}
+.status.waiting,.status.idle{background:#eaf2fb;color:#35658b}
+.status.stale{background:#fff3e6;color:#995d16}
+.agent-title{font-weight:720;font-size:15px;line-height:1.55;min-height:48px;margin:13px 0 4px}
+.fact{color:#62778c;font-size:12px;overflow-wrap:anywhere;line-height:1.55}
+.step{margin:16px 0 8px;font-size:13px;font-weight:700;color:#174c74}
+.bar{height:9px;background:#e8edf3;border-radius:6px;overflow:hidden}.bar i{display:block;background:#2789b9;height:100%;transition:width .3s}
+.agent-footer{margin-top:12px;border-top:1px solid #e5ebf1;padding-top:11px}
+.agent-action{min-height:36px;font-size:12px;color:#42566f;line-height:1.5}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin:11px 0}
+.badge{border:1px solid #dbe3ec;border-radius:6px;padding:3px 7px;font-size:11px;background:#f7f9fc}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#186a53}
+.dot{width:8px;height:8px;background:#25a16b;border-radius:50%;display:inline-block}
+.warn{border-left:3px solid #bd8b2d;background:#fff8e7;padding:12px;margin:12px 0;line-height:1.65;font-size:12px}
+.tables{display:grid;grid-template-columns:1.5fr 1fr;gap:13px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:10px 8px;text-align:left;border-bottom:1px solid #e8edf2;vertical-align:top}
+th{background:#f5f8fb;color:#61778b}td{color:#374e67;line-height:1.55}
+.logs{max-height:460px;overflow:auto}tr:hover{background:#f7fafc}
+.log-err{color:#a52c2c}.log-warn{color:#966016}
+.recent{max-height:380px;overflow:auto}
+button{font:inherit;padding:9px 13px;border:1px solid #b8d0e0;background:#fff;color:#155984;border-radius:7px;cursor:pointer}
+button:hover{background:#eef5fb}button:disabled{opacity:.4}
+#apiStatus{margin:5px 0;font-size:12px}
+.steps{display:flex;gap:4px;margin-top:13px}
+.steps span{height:5px;border-radius:4px;background:#e5ebf0;flex:1}
+.steps span.done{background:#3298b8}.steps span.active{background:#f6ab4e}
+@media(max-width:1100px){.agent-grid,.tables{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(3,1fr)}.agent{min-height:0}}
+@media(max-width:650px){.metrics{grid-template-columns:repeat(2,1fr)}main{padding:0 9px}.panel{padding:12px}}
+</style></head>
+<body><header><div class="top">
+<div><div class="brand">ProcureFlow <small>자율 입찰 에이전트 관제</small></div>
+<div style="color:#b9cad8;font-size:12px;margin-top:5px">공고 1건 = 전담 에이전트 1개 · 3개 동시 처리 · 완료 후 다음 공고 자동 배정</div></div>
+<nav><a href="/">전체 입찰 현황</a><a href="/agents">실행 중 에이전트</a><a href="/browser">브라우저 증빙</a><a href="/operations">수집기 관리</a></nav>
+</div></header>
+<main><div class="headline"><div><h1>동시 실행 에이전트</h1>
+<div class="muted">PostgreSQL 실제 실행 상태와 이벤트 로그를 3초마다 자동 갱신합니다. 미확보 원본이나 견적은 완료로 표시하지 않습니다.</div></div>
+<div><button id="refresh">즉시 갱신</button><div id="updated" class="muted">연결 중…</div></div></div>
+<div class="metrics">
+<div class="metric"><strong id="nRunning">—</strong><span>실제 담당 공고 처리 중</span></div>
+<div class="metric"><strong id="nSlots">3</strong><span>에이전트 슬롯</span></div>
+<div class="metric"><strong id="nProcessed">—</strong><span>자료수집 회차 완료</span></div>
+<div class="metric"><strong id="nOutstanding">—</strong><span>원본·증빙 보완대기</span></div>
+<div class="metric"><strong id="nRetry">—</strong><span>오류 후 재시도 예정</span></div>
+</div>
+<section class="agent-grid" id="agentGrid"><div class="panel">에이전트 상태 연결 중</div></section>
+<div class="warn"><b>자율 처리 범위:</b> 공고별 상세·첨부영역 읽기, 공식 화면 캡처, 중복검사, 과거 낙찰이력 결합, 자사자격·실견적·원가의 증빙 유무 검증, 오류기록·재시도·다음 공고 자동 배정. <b>실제 입찰참가 클릭·투찰·제출 및 ChatGPT API 최종 제안서 작성은 현재 실행하지 않습니다.</b> 자료수집 회차가 끝난 공고는 누락자료가 있는 상태 그대로 DB에 보존합니다.</div>
+<div class="tables">
+<section class="panel"><h2>에이전트별 실시간 작업 로그</h2>
+<div id="apiStatus" class="muted">DB 연결 확인 중</div>
+<div class="logs"><table><thead><tr><th>일시</th><th>에이전트</th><th>작업 단계</th><th>실행 내역 / 오류</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
+<section class="panel"><h2>최근 처리 공고 · 다음 보완 시각</h2>
+<div class="recent"><table><thead><tr><th>담당 공고</th><th>상태</th><th>확보/누락</th><th>다음 재시도</th></tr></thead><tbody id="recentRows"></tbody></table></div>
+<p class="muted">업무 종료란 1차 자료수집 회차 종료를 뜻합니다. 제출용 제안서 완료와는 구별합니다.</p></section>
+</div>
+<footer class="muted">에이전트는 고유 작업 기록과 DB 증빙을 유지합니다. 로그는 실제 서버 이벤트이고 임의 생성한 활동 내역을 표시하지 않습니다.</footer>
+</main>
+<script>
+const E=id=>document.getElementById(id),N=x=>Number(x||0).toLocaleString("ko-KR");
+const fmt=s=>{if(!s)return "-";let d=new Date(s);return isNaN(d)?String(s):d.toLocaleString("ko-KR",{hour12:false})};
+const mk=(tag,text,cls)=>{let t=document.createElement(tag);if(text!==undefined)t.textContent=String(text);if(cls)t.className=cls;return t};
+const phases={identify:"공고식별",notice:"발주처 확인",browser:"브라우저 수집",attachments:"첨부 분석",competition:"경쟁이력",qualification:"자격심사",partners:"협력사·인력",cost:"원가",ai_package:"AI 입력검증",release:"회차정리"};
+let latest=0,loading=false,eventsSeen=0;
+async function getData(){const r=await fetch("/api/agents/live?event_limit=130",{cache:"no-store"});const j=await r.json();if(!r.ok)throw Error(JSON.stringify(j).slice(0,280));return j}
+function card(s,steps){
+ const node=mk("article",undefined,"agent");const head=mk("div",undefined,"agent-head");
+ head.append(mk("span","에이전트 "+s.slot_id,"agent-name"));
+ const active=s.status==="running",fresh=s.heartbeat_at&&(Date.now()-new Date(s.heartbeat_at).getTime()<5*60*1000);
+ const status=!active?"대기/다음 공고":fresh?"실행 중":"하트비트 지연";
+ head.append(mk("span",status,"status "+(!active?"waiting":fresh?"running":"stale")));
+ node.append(head);
+ node.append(mk("div",s.title||"새 입찰공고 자동 배정 대기","agent-title"));
+ node.append(mk("div",s.agency?(s.agency+" · "+s.source.toUpperCase()):"담당 공고 없음","fact"));
+ node.append(mk("div",s.external_id||"","fact"));
+ node.append(mk("div",s.phase_label||"대기","step"));
+ const bg=mk("div",undefined,"bar"),bar=mk("i");bar.style.width=(active?100*(s.progress||0)/(s.phase_total||10):0)+"%";bg.append(bar);node.append(bg);
+ const stepBar=mk("div",undefined,"steps");
+ for(let i=0;i<steps.length;i++){const m=mk("span");if(active&&i<(s.progress||0))m.className="done";if(active&&i===(s.progress||0))m.className="active";stepBar.append(m)}
+ node.append(stepBar);
+ const badges=mk("div",undefined,"badges");
+ badges.append(mk("span","회차 완료 "+N(s.finished_cases),"badge"));
+ if(s.case_attempt)badges.append(mk("span","현재 "+s.case_attempt+"회차","badge"));
+ if(s.case_verified!=null)badges.append(mk("span","검증 "+N(s.case_verified)+" · 부분 "+N(s.case_partial),"badge"));
+ node.append(badges);
+ const ft=mk("div",undefined,"agent-footer");
+ ft.append(mk("div",s.current_action||"새 공고 자동 배정 중","agent-action"));
+ ft.append(mk("div","작업 시작 "+fmt(s.started_at),"muted"));
+ ft.append(mk("div","최근 하트비트 "+fmt(s.heartbeat_at),"muted"));
+ if(s.last_error)ft.append(mk("div",s.last_error,"log-err"));
+ if(s.source&&s.external_id){const link=mk("a","현재 공고 상세보기 ↗");link.href="/?source="+encodeURIComponent(s.source)+"&external_id="+encodeURIComponent(s.external_id);ft.append(link)}
+ node.append(ft);return node
+}
+function events(rows){
+ const t=E("eventRows");t.replaceChildren();
+ for(const x of rows){const tr=mk("tr");for(let [i,value] of [[0,fmt(x.created_at)],[1,"#"+x.slot_id],[2,phases[x.step]||x.step],[3,x.message]]){const td=mk("td",value,(i===3&&x.level==="warn"?"log-warn":i===3&&x.level==="error"?"log-err":""));tr.append(td)}t.append(tr)}
+ if(!rows.length){const tr=mk("tr"),cell=mk("td","에이전트 시작 전입니다. 실제 로그가 기록되면 표시됩니다.");cell.colSpan=4;tr.append(cell);t.append(tr)}
+}
+function cases(rows){
+ const t=E("recentRows");t.replaceChildren();for(const c of rows){
+ const tr=mk("tr"),a=mk("td"),link=mk("a",c.title||c.external_id);
+ link.href="/?source="+encodeURIComponent(c.source)+"&external_id="+encodeURIComponent(c.external_id);
+ a.append(link,mk("div",c.external_id,"muted"));tr.append(a);
+ tr.append(mk("td",c.state==="needs_evidence"?"자료 보완대기":c.state==="running"?"수집 중":c.state==="retryable"?"오류 재시도":c.state));
+ tr.append(mk("td",N(c.verified)+" / "+N(c.missing)));
+ tr.append(mk("td",fmt(c.next_attempt_at)));t.append(tr)
+ }
+ if(!rows.length){let tr=mk("tr"),td=mk("td","처리 이력 없음");td.colSpan=4;tr.append(td);t.append(tr)}
+}
+async function refresh(){
+ if(loading)return;loading=true;
+ try{
+ const data=await getData();const grid=E("agentGrid");grid.replaceChildren();
+ for(const slot of data.slots||[])grid.append(card(slot,data.steps||[]));
+ E("nRunning").textContent=N(data.actual_running);
+ E("nSlots").textContent=N(data.desired_concurrency);
+ E("nProcessed").textContent=N((data.slots||[]).reduce((sum,s)=>sum+(s.finished_cases||0),0));
+ const counts={};for(const r of data.case_counts||[])counts[r.state]=r.total;
+ E("nOutstanding").textContent=N(counts.needs_evidence);
+ E("nRetry").textContent=N(counts.retryable);
+ events(data.event_items||[]);cases(data.recent_cases||[]);
+ E("updated").textContent="DB 동기화 "+new Date().toLocaleString("ko-KR")+" · 자동 3초";
+ E("apiStatus").textContent="이벤트 "+(data.event_items||[]).length+"개 표시 · 별도 Railway 3개 에이전트 서비스";
+ latest=Date.now();
+ }catch(e){E("updated").textContent="연결 오류: "+e.message;E("apiStatus").textContent="DB 조회 오류";E("apiStatus").className="log-err"}
+ finally{loading=false}
+}
+E("refresh").onclick=refresh;refresh();setInterval(refresh,3000);
+</script></body></html>
