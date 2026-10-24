@@ -189,6 +189,18 @@ def main():
                (json.dumps({"phase":"all","bid_no":"R26BK01787028"}),
                "One selected real G2B tender: verify all 104 functional gates")).fetchone()["id"]
             logging.info("G2B_FULL_104_QUEUED job=%s",jid)
+    # Immediate page-two smoke after implementing the resumable category index.
+    with session() as db:
+        marker="g2b-81111599-autopage-verification-20261024-v1"
+        start=db.execute("""INSERT INTO procureflow.settings(key,value)
+            VALUES(%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
+            (marker,'{"bid_no":"R26BK01787028","phase":"ten_year"}')).fetchone()
+        if start:
+            next_id=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+              VALUES('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+              (json.dumps({"phase":"ten_year","bid_no":"R26BK01787028"}),
+               "Verify exact-category pagination continues from previous page")).fetchone()["id"]
+            logging.info("G2B_CATEGORY_NEXT_PAGE_QUEUED job=%s",next_id)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
     # The user selected exactly one current G2B tender and a ten-year
