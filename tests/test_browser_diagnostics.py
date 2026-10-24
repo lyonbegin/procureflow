@@ -30,6 +30,8 @@ class Route:
     ("GET","https://www.k-apt.go.kr/static/js/fileUpload.js","allowed"),
     ("GET","https://fonts.gstatic.com/ea/notosanskr/v2/NotoSansKR-Regular.woff2","allowed"),
     ("POST","https://www.k-apt.go.kr/cmmn/bjd/getBjdList.do","allowed"),
+    ("POST","https://www.k-apt.go.kr/bid/bidFileListData.do","allowed"),
+    ("POST","https://www.k-apt.go.kr/bid/bidFileUploadData.do","blocked:blockedbyclient"),
     ("GET","https://www.k-apt.go.kr/bid/bidJoin.do","blocked:blockedbyclient"),
     ("GET","http://www.k-apt.go.kr/bid/bidDetail.do","blocked:blockedbyclient"),
     ("GET","https://www.example.org/","blocked:blockedbyclient"),
