@@ -6,6 +6,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel,Field
 from db import session,initialize
 app=FastAPI(title="ProcureFlow",version="0.1")
+from g2b_feature_api import router as g2b_feature_router
+app.include_router(g2b_feature_router)
 @app.on_event("startup")
 def startup():
     initialize()
