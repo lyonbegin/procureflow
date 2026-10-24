@@ -209,7 +209,10 @@ def _documents_data(bid_no: str, measure: str) -> dict:
     downloaded_ids = {x["file_id"] for x in docs}
     file_count = len(index)
     # A record with no bytes or sha is NOT an acquired, integrity-verified file.
-    good = [x for x in docs if x.get("sha256") and (x.get("size_bytes") or 0) > 0
+    good = [x for x in docs if x.get("source_verified")
+            and x.get("sha256") and len(x["sha256"]) == 64
+            and (x.get("size_bytes") or 0) > 0
+            and x.get("bytes_saved") == x.get("size_bytes")
             and x.get("file_id") in {s["file_id"] for s in index}]
     parsed = [x for x in good if x.get("extraction_state") == "parsed" and
               (x.get("extracted_chars") or 0) > 0]
