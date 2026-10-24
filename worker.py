@@ -168,14 +168,6 @@ def main():
     initialize()
     from db import ensure_browser_diagnostics
     ensure_browser_diagnostics()
-    # One-time real public K-apt diagnostic with persisted screenshots.
-    # A versioned DB marker prevents duplicate automatic jobs on Railway restarts.
-    with session() as db:
-        marker='browser:kapt:20261020165014951:v1'
-        existing=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued","read_only":true}')).fetchone()
-        if existing:
-            jobid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('browser_probe',%s::jsonb,%s) RETURNING id",(json.dumps({"external_id":"20261020165014951","source":"kapt","bootstrap":marker}),"K-apt staged screenshot + DOM/network diagnostics (no bid actions)")).fetchone()['id']
-            logging.info("PF_BROWSER_BOOTSTRAP_QUEUED job=%s",jobid)
     with session() as db:
         # A new Railway replica can overlap with the old replica. Never
         # fail another replica's live running job merely because we restarted.
@@ -451,6 +443,15 @@ def main():
                 (json.dumps(cfg),"Freemoa public portfolio modal project details and image/link capture")
             ).fetchone()["id"]
             logging.info("FREEMOA_PUBLIC_MEDIA_QUEUED job=%s",jid)
+    # Queue forensic browser inspection only AFTER the previous Railway worker
+    # has had time to drain. This prevents old worker versions from treating
+    # the 'browser_probe' source as a generic K-apt collector.
+    with session() as db:
+        marker='browser:kapt:20261020165014951:v2'
+        reserved=db.execute("INSERT INTO procureflow.settings(key,value) VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key",(marker,'{"status":"queued","read_only":true}')).fetchone()
+        if reserved:
+            jobid=db.execute("INSERT INTO procureflow.jobs(source,config,message) VALUES ('browser_probe',%s::jsonb,%s) RETURNING id",(json.dumps({"external_id":"20261020165014951","source":"kapt","bootstrap":marker}),"K-apt native Chromium staged forensic snapshots; NO participation")).fetchone()['id']
+            logging.info("PF_BROWSER_V2_QUEUED job=%s",jobid)
     last_private_schedule=0
     last_orphan_check=0
     while not STOP:
