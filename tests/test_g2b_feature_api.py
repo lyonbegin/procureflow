@@ -64,7 +64,8 @@ class FeatureAPITest(unittest.TestCase):
     def test_get_endpoint_returns_contract(self):
         with patch("g2b_feature_api.notice_context", return_value=CONTEXT), patch(
             "g2b_feature_api._snapshot", return_value=SNAPSHOT
-        ):
+        ), patch("g2b_feature_data.feature_observation",
+                 return_value={"status": "missing", "data": None}):
             r = self.client.get("/api/g2b/cases/R26BK01787028/features/50")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["input_contract"]["auto_from_selected_notice"][0]["value"],
