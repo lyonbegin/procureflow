@@ -278,6 +278,8 @@ def actual_result_status(limit=200):
                 "opening_amount_rows":totals["opening_amount_rows"],
                 "confirmed_award_rows":totals["awards"]},
             "verification_states":by_state,
+            "scope_is_exact_product_8111159901":True,
+            "ten_year_coverage_completed":False,
             "actual_opening_and_award_rows":rows,
             "recent_collection_attempts":last,
             "ten_year_all_bids_verified":False,
@@ -404,7 +406,7 @@ def run_batch(limit=3,opening_limit=3):
                SELECT 1 FROM procureflow.g2b_case_outcome_attempts x
                WHERE x.case_bid_no=v.case_bid_no AND x.bid_no=v.bid_no
                  AND x.bid_ord=v.bid_ord AND x.stage='opening_collection'
-                 AND x.created_at>now()-interval '7 days')
+                 AND x.created_at>now()-interval '12 hours')
           ORDER BY v.checked_at DESC LIMIT %s""",
            (CASE_BID,max(1,min(8,int(opening_limit))))).fetchall()
     if eligible:
