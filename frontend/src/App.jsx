@@ -203,6 +203,43 @@ function SideMenu({ catalog, view, onGroup, query, setQuery, onFeature, mobileOp
   </aside>;
 }
 
+function NextStepBar({ plan, error, tokenReady, onInspect, onAdvance, busy, actionError }) {
+  const next = plan?.recommended_next;
+  if (!plan && !error) return <section className="next-step-bar loading-next">
+    <LoaderCircle size={17} className="spinning"/><span>현재 원본 증빙을 기준으로 다음 처리 단계 계산 중…</span>
+  </section>;
+  if (!plan) return <section className="next-step-bar blocked-next">
+    <AlertCircle size={17}/><div><strong>다음 실행 계획 조회 실패</strong><p>{error}</p></div>
+  </section>;
+  const actionable = next?.status === 'actionable' && plan.allowed_to_enqueue;
+  const competing = !!plan.active_jobs?.length;
+  const label = next?.status === 'actionable' ? '단일 작업 실행 가능'
+    : next?.status === 'manual_input_required' ? '증빙 자료 입력 필요'
+    : next?.status === 'manual_review_required' ? '최종 수동 검토'
+    : '선행 원본 확인 필요';
+  return <section className={`next-step-bar ${actionable ? 'ready-next' : 'blocked-next'}`}>
+    <div className="next-step-icon">{actionable ? <GitBranch size={19}/> : <AlertCircle size={19}/>}</div>
+    <div className="next-step-message">
+      <div className="next-step-top"><strong>다음 작업 추천</strong>
+        <span className="next-tag">{label}</span></div>
+      <p>{next?.group && GROUP_BY_ID[next.group] ? GROUP_BY_ID[next.group].title + ' · ' : ''}
+        {next?.feature_no ? '#' + String(next.feature_no).padStart(3, '0') + ' · ' : ''}
+        {next?.reason || '계획 없음'}</p>
+      {next?.required?.length > 0 && <small>부족한 원본/증빙: {next.required.join(', ')}</small>}
+      {competing && <small>실행 중인 기능 작업 {plan.active_jobs.length}건 · 중복 작업은 생성하지 않습니다.</small>}
+      {actionError && <small className="next-error" role="alert">{actionError}</small>}
+    </div>
+    {next?.feature_no && <div className="next-step-actions">
+      <button className="button secondary" onClick={() => onInspect(next.feature_no)}>
+        <SlidersHorizontal size={15}/>노드 열기</button>
+      {actionable && <button className="button primary" disabled={busy || !tokenReady}
+        title={tokenReady ? '현재 추천된 작업 1개만 실행' : '노드에서 관리자 토큰 입력 후 실행'}
+        onClick={onAdvance}>{busy ? <LoaderCircle size={15} className="spinning"/> : <Play size={15}/>}
+        다음 1단계 실행</button>}
+    </div>}
+  </section>;
+}
+
 function StatStrip({ catalog, isLoading }) {
   const stats = graphCounts(catalog);
   return <div className="stats-strip">
@@ -400,6 +437,8 @@ function Console({ open, setOpen, job, jobError, onRefresh, selectedNumber }) {
         <pre>{formatJson({
           state: job.state, message: job.message || job.job_status,
           error: job.error || null, job_id: job.job_id, completed_at: job.finished_at || null,
+          run_id: job.run_id || null,
+          execution_result: job.execution_result || null,
         })}</pre>
         {END_STATES.has(job.state) && <button className="button ghost" onClick={onRefresh}>
           <RefreshCw size={14}/>최신 증빙 다시 확인</button>}
@@ -415,6 +454,10 @@ function StudioApp() {
   const [context, setContext] = useState(null);
   const [catalogBusy, setCatalogBusy] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [plan, setPlan] = useState(null);
+  const [planError, setPlanError] = useState('');
+  const [advanceBusy, setAdvanceBusy] = useState(false);
+  const [advanceError, setAdvanceError] = useState('');
   const [lastRead, setLastRead] = useState(null);
   const [view, setView] = useState('overview');
   const [selectedNumber, setSelectedNumber] = useState(null);
@@ -452,6 +495,13 @@ function StudioApp() {
       setCatalog(data.features);
       setCatalogError('');
       setLastRead(new Date());
+      try {
+        const next = await api.plan();
+        setPlan(next);
+        setPlanError('');
+      } catch (error) {
+        setPlanError(error.message);
+      }
     } catch (err) {
       setCatalogError(err.message);
     } finally {
@@ -549,6 +599,31 @@ function StudioApp() {
     finally { setActionBusy(false); }
   }, [selectedNumber, inspector, token, params]);
 
+  const advanceOne = useCallback(async () => {
+    const next = plan?.recommended_next;
+    if (!next || !plan?.allowed_to_enqueue || !next.feature_no) return;
+    if (!token.trim()) {
+      openFeature(next.feature_no);
+      setAdvanceError('관리자 토큰 입력 후 실행할 수 있습니다.');
+      return;
+    }
+    setAdvanceBusy(true);
+    setAdvanceError('');
+    try {
+      const queued = await api.advance(next.feature_no, token);
+      setActiveJob({ job_id: queued.job_id, feature_no: queued.feature_no,
+        state: queued.job_status || 'queued', job_status: '추천 작업 1개 대기 등록됨' });
+      setConsoleOpen(true);
+      setPlan((previous) => previous && {
+        ...previous, allowed_to_enqueue: false,
+        active_jobs: [{ id: queued.job_id, feature_no: String(queued.feature_no), state: 'queued' }],
+      });
+    } catch (error) {
+      setAdvanceError(error.message);
+      await refresh(true);
+    } finally { setAdvanceBusy(false); }
+  }, [plan, token, openFeature, refresh]);
+
   useEffect(() => {
     if (!activeJob?.job_id || END_STATES.has(activeJob.state)) return;
     let alive = true;
@@ -610,6 +685,9 @@ function StudioApp() {
         {catalogError && <div className="fetch-error" role="alert"><AlertCircle size={18}/>
           <div><strong>운영 DB 연결 또는 104개 기능 조회 실패</strong><p>{catalogError} · 저장된 결과를 임의로 표시하지 않습니다.</p></div>
           <button className="button light" onClick={() => refresh()}>재시도</button></div>}
+        <NextStepBar plan={plan} error={planError} tokenReady={!!token.trim()}
+          onInspect={openFeature} onAdvance={advanceOne} busy={advanceBusy}
+          actionError={advanceError}/>
         <StatStrip catalog={catalog} isLoading={catalogBusy}/>
         <div className="work-area">
           <section className="canvas-column">
