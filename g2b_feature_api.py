@@ -207,7 +207,7 @@ def feature_contract(number: int, context: dict, snapshot: dict) -> dict:
             "never_submit_bid": True,
         },
         "output_contract": {
-            "GET": ["number", "name", "input_contract", "execution",
+            "GET": ["number", "name", "input_contract", "execution", "observation",
                     "acceptance_state", "verified_evidence", "missing_evidence", "source_context"],
             "POST": ["job_id", "job_status", "feature_no", "source_bid_no", "status_url"],
             "job_result": ["feature_no", "source_bid_no", "action", "state",
@@ -224,7 +224,10 @@ def inspect_feature(bid_no: str, number: int, context=None, snapshot=None) -> di
         raise HTTPException(404, "Unknown feature number")
     context = context if context is not None else notice_context(bid_no)
     snapshot = snapshot if snapshot is not None else _snapshot(bid_no)
-    return {**feature_contract(number, context, snapshot), "source_context": context}
+    from g2b_feature_data import feature_observation
+    return {**feature_contract(number, context, snapshot),
+            "source_context": context,
+            "observation": feature_observation(number, context)}
 
 
 @router.get("/{bid_no}/context", summary="Selected official tender facts for all 104 functions")
@@ -388,6 +391,7 @@ def execute_one(bid_no: str, number: int, parameters: dict | None = None) -> dic
             "missing_evidence": detail["missing_evidence"],
             "verified_evidence": detail["verified_evidence"],
             "collector_result": result,
+            "observation": detail["observation"],
             "submitted": False, "bid_participation_clicked": False,
         }
     except Exception as exc:
