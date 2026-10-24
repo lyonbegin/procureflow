@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse,parse_qsl
 
 from playwright.sync_api import sync_playwright
 
@@ -138,6 +138,8 @@ def collect(job_id, external_id):
     errors = []
     blocked = []
     steps = []
+    attachment_requests = []
+    attachment_responses = []
 
     def add(kind, **kwargs):
         if len(events) < 180:
@@ -165,10 +167,21 @@ def collect(job_id, external_id):
         page.on("console",lambda msg:add("console",level=msg.type,text=msg.text[:210])
                 if msg.type in ("error","warning") else None)
         page.on("pageerror",lambda error:add("pageerror",reason=str(error)[:230]))
-        page.on("response",lambda response:add(
-            "http",code=response.status,method=response.request.method,
-            path=urlparse(response.url).path[:150])
-            if response.status>=400 else None)
+        def record_filelist_request(request):
+            if urlparse(request.url).path == "/bid/bidFileListData.do":
+                attachment_requests.append(request)
+        def record_response(response):
+            if urlparse(response.url).path == "/bid/bidFileListData.do":
+                attachment_responses.append(response)
+                add("public_attachment_list_response",
+                    status=response.status,
+                    content_type=response.headers.get("content-type","")[:90])
+            if response.status>=400:
+                add("http",code=response.status,
+                    method=response.request.method,
+                    path=urlparse(response.url).path[:150])
+        page.on("request",record_filelist_request)
+        page.on("response",record_response)
         page.on("requestfailed",lambda request:add(
             "requestfailed",method=request.method,
             path=urlparse(request.url).path[:150],
@@ -209,6 +222,50 @@ def collect(job_id, external_id):
                 errors.append({"step":"before_participation","reason":
                                type(exc).__name__ + ": " + str(exc)[:240]})
         finally:
+            # Observe the official public read-only attachment-list XHR after
+            # normal page load. No extra click, form mutation or download.
+            attachment_evidence = []
+            for req in attachment_requests[:3]:
+                data = req.post_data or ""
+                fields = {}
+                try:
+                    parsed = json.loads(data)
+                    if isinstance(parsed,dict):
+                        fields = {str(k):str(v)[:80] for k,v in parsed.items()
+                                  if re.search("bidNum|fileGrp|fileGroup|atchFile|fileId",str(k),re.I)}
+                except (ValueError,TypeError):
+                    fields = {k:vals[:80] for k,vals in parse_qsl(data)
+                              if re.search("bidNum|fileGrp|fileGroup|atchFile|fileId",k,re.I)}
+                attachment_evidence.append({
+                    "request_path":"/bid/bidFileListData.do",
+                    "method":req.method,"request_size":len(data),
+                    "safe_identity_fields":fields,
+                    "contains_notice_id":external_id in data,
+                })
+            result["attachment_xhr_request"]=attachment_evidence
+            response_evidence = []
+            for response in attachment_responses[:3]:
+                item={"path":"/bid/bidFileListData.do",
+                      "status":response.status,
+                      "content_type":response.headers.get("content-type","")[:90]}
+                try:
+                    body=response.body()
+                    text_data=body[:2500].decode("utf-8",errors="replace")
+                    item["bytes"]=len(body)
+                    item["body_excerpt"]=text_data[:1200]
+                    try:
+                        payload=json.loads(text_data)
+                        item["payload_type"]=type(payload).__name__
+                        if isinstance(payload,dict):
+                            item["json_top_keys"]=list(payload)[:20]
+                        if isinstance(payload,list):
+                            item["list_items"]=len(payload)
+                    except ValueError:
+                        pass
+                except Exception as exc:
+                    item["body_read_error"]=type(exc).__name__+": "+str(exc)[:140]
+                response_evidence.append(item)
+            result["attachment_xhr_response"]=response_evidence
             ctx.close()
             browser.close()
     result["screenshots_saved"] = [
