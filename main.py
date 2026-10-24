@@ -12,6 +12,8 @@ def startup():
     ensure_browser_diagnostics()
     from workbench import ensure_workbench
     ensure_workbench()
+    from agent_orchestrator import ensure_agent_schema
+    ensure_agent_schema()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
@@ -851,3 +853,73 @@ def procurement_workbench_action(req:WorkbenchAction,
         raise HTTPException(404,str(exc)) from None
     except ValueError as exc:
         raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/agents",response_class=HTMLResponse)
+def autonomous_agent_monitor():
+    """Live autonomous three-agent operations display (no user clicks needed)."""
+    return (Path(__file__).parent/"static/agents.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/agents/live")
+def autonomous_agents_live(
+    event_limit:int=Query(90,ge=1,le=200),
+):
+    """PostgreSQL-backed near-real-time agent status, cases, and event log."""
+    from agent_orchestrator import AGENT_COUNT,PHASES
+    with session() as db:
+        slots=db.execute("""
+            SELECT a.slot_id,a.status,a.source,a.external_id,
+              a.owner_id,a.phase,a.phase_label,a.progress,a.phase_total,
+              a.current_action,a.last_error,a.started_at,a.heartbeat_at,
+              a.lease_until,a.finished_cases,a.updated_at,
+              t.title,t.agency,t.category,t.deadline,t.notice_date,
+              c.state AS case_state,c.attempt AS case_attempt,
+              c.verified AS case_verified,c.partial AS case_partial,
+              c.missing AS case_missing,c.next_attempt_at,
+              c.notes AS case_notes
+            FROM procureflow.agent_slots a
+            LEFT JOIN procureflow.tenders t
+              ON t.source=a.source AND t.external_id=a.external_id
+            LEFT JOIN procureflow.agent_cases c
+              ON c.source=a.source AND c.external_id=a.external_id
+            ORDER BY a.slot_id
+        """).fetchall()
+        events=db.execute("""
+            SELECT id,slot_id,source,external_id,level,step,message,
+                   meta,created_at
+            FROM procureflow.agent_events
+            ORDER BY id DESC LIMIT %s
+        """,(event_limit,)).fetchall()
+        case_counts=db.execute("""
+            SELECT state,count(*) AS total FROM procureflow.agent_cases
+            GROUP BY state ORDER BY state
+        """).fetchall()
+        recent_cases=db.execute("""
+            SELECT c.source,c.external_id,t.title,t.agency,c.state,c.attempt,
+                   c.verified,c.partial,c.missing,c.last_step,
+                   c.last_finished_at,c.next_attempt_at,c.last_error
+            FROM procureflow.agent_cases c
+            JOIN procureflow.tenders t
+              ON t.source=c.source AND t.external_id=c.external_id
+            ORDER BY COALESCE(c.last_started_at,c.first_assigned_at) DESC
+            LIMIT 35
+        """).fetchall()
+    return {
+        "service":"procureflow-agents",
+        "desired_concurrency":AGENT_COUNT,
+        "actual_running":sum(x["status"]=="running" for x in slots),
+        "current_time_utc":datetime.now(timezone.utc).isoformat(),
+        "refresh_interval_seconds":3,
+        "slots":slots,
+        "steps":[{"id":key,"label":label,"index":i+1}
+                 for i,(key,label) in enumerate(PHASES)],
+        "event_items":events,
+        "case_counts":case_counts,
+        "recent_cases":recent_cases,
+        "AI_called":False,
+        "proposal_submitted":False,
+        "bid_participation_clicked":False,
+        "read_only_public_browser":True,
+        "case_done_means":"one_acquisition_pass_not_final_submission",
+    }
