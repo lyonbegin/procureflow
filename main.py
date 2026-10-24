@@ -1267,3 +1267,11 @@ def g2b_full_official_opening_enrichment_status():
     return {"case":"R26BK01787028","official_nuri_detail":True,
             "results":totals,"recent_checked":examples,
             "rank_1_not_confirmed_winner":True}
+
+
+@app.get("/api/g2b/full/exact-outcomes")
+def g2b_10_year_actual_opening_and_final_awards(
+        limit:int=Query(150,ge=1,le=1000)):
+    """Actual bid/award evidence ONLY for official-original verified 8111159901."""
+    from g2b_exact_outcome_history import actual_result_status
+    return actual_result_status(limit)
