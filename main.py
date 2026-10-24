@@ -1184,3 +1184,19 @@ def g2b_full_category_index_progress():
             "last_ten_year_jobs":jobs,
             "official_ten_year_coverage_complete":False,
             "secondary_index_not_full_official_coverage":True}
+
+
+@app.get("/api/g2b/full/original-text")
+def g2b_full_original_text(file_id:str=Query(...,pattern="^official_attached_[1-4]$")):
+    """Actual publicly issued selected notice attachment, extracted from stored bytes."""
+    with session() as c:
+        x=c.execute("""SELECT file_id,filename,sha256,extraction_state,
+                       extracted_text,url FROM procureflow.g2b_case_documents
+                       WHERE bid_no='R26BK01787028' AND file_id=%s""",
+                       (file_id,)).fetchone()
+    if not x:raise HTTPException(404,"Original document not in database")
+    return {"bid_no":"R26BK01787028","file_id":x["file_id"],
+            "filename":x["filename"],"source_url":x["url"],
+            "sha256":x["sha256"],"state":x["extraction_state"],
+            "text":x["extracted_text"][:22000],
+            "truncated":len(x["extracted_text"])>22000}
