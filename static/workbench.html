@@ -67,7 +67,7 @@ footer{font-size:12px;color:#728397;padding:25px 0}
 <div class="kpis">
 <div class="kpi"><strong id="all">—</strong><span>확인된 실제 공고</span></div>
 <div class="kpi"><strong id="unstarted">—</strong><span>아직 수집 시작 전</span></div>
-<div class="kpi"><strong id="collecting">—</strong><span>자료수집 진행 중</span></div>
+<div class="kpi"><strong id="collecting">—</strong><span>수집 착수·일부 확보</span></div>
 <div class="kpi"><strong id="proposal_missing">—</strong><span>최종 제안서 미완성</span></div>
 <div class="kpi"><strong id="ai_ready">—</strong><span>AI 입력 준비 완료</span></div>
 <div class="kpi"><strong id="closed">—</strong><span>마감된 공고</span></div>
@@ -106,9 +106,9 @@ footer{font-size:12px;color:#728397;padding:25px 0}
 <script>
 const E=id=>document.getElementById(id);
 const N=n=>Number(n||0).toLocaleString("ko-KR");
-const labels={unstarted:"준비 전",collecting:"자료 수집 중",paused:"일시중지",ai_ready:"AI 준비 완료",proposal_complete:"제안서 검증 완료",closed:"접수 마감",submitted:"실투찰 확인"};
+const labels={unstarted:"준비 전",collecting:"자료 수집 진행",evidence_partial:"자료 일부 확보",paused:"일시중지",ai_ready:"AI 준비 완료",proposal_complete:"제안서 검증 완료",closed:"접수 마감",submitted:"실투찰 확인"};
 const statusLabels={verified:"확보",partial:"일부 확보",missing:"미확보"};
-const tabs=[["all","전체 최신"],["unstarted","준비 전"],["collecting","수집 중"],["proposal_missing","제안서 미완성"],["ai_ready","AI 준비"],["closed","마감"],["submitted","실투찰"]];
+const tabs=[["all","전체 최신"],["unstarted","준비 전"],["started","수집 착수·일부 확보"],["proposal_missing","제안서 미완성"],["ai_ready","AI 준비"],["closed","마감"],["submitted","실투찰"]];
 let filter="all",page=0,selected=null,callIndex=0;
 function make(tag,text,className){const x=document.createElement(tag);if(text!==undefined)x.textContent=String(text);if(className)x.className=className;return x}
 function cell(tr){const t=document.createElement("td");tr.append(t);return t}
@@ -118,7 +118,7 @@ function when(s){if(!s)return "-";const d=new Date(s);return isNaN(d)?String(s):
 function showMessage(message,error){const x=E("toast");x.style.display="block";x.textContent=message;x.className=error?"error":""}
 function drawTabs(c){let p=E("tabs");p.replaceChildren();
 for(const x of tabs){const b=make("button",x[1]+" "+N(c[x[0]]),filter===x[0]?"selected":"");b.onclick=()=>{filter=x[0];page=0;load()};p.append(b)}
-for(const id of ["all","unstarted","collecting","proposal_missing","ai_ready","closed"])E(id).textContent=N(c[id])}
+for(const id of ["all","unstarted","collecting","proposal_missing","ai_ready","closed"])E(id).textContent=N(id==="collecting"?c.started:c[id])}
 function drawList(data){
 drawTabs(data.totals);E("list").replaceChildren();
 for(const x of data.items){
