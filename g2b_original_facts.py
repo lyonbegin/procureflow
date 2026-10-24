@@ -35,9 +35,9 @@ def run():
         budget=capture("verified_base_amount",r"기초\s*금액\s*[:：]?\s*([\d,]{7,})\s*원")
         region=capture("region_codes",r"본점.{0,150}?(전라남도)")
         period=capture("contract_terms",r"계약체결일로부터\s*(\d+)\s*일")
-        estimated=capture("estimated_amount",r"추정가격\\s*[:：]?\\s*([\\d,]{6,})")
-        vat=capture("vat_amount",r"부가가치세\\s*[:：]?\\s*([\\d,]{5,})")
-        method=capture("contract_method",r"(소액\\s*수의\\s*전자견적서\\s*제출|수의견적\\s*제출\\s*방식)")
+        estimated=capture("estimated_amount",r"추정가격\s*[:：]?\s*([\d,]{6,})")
+        vat=capture("vat_amount",r"부가가치세\s*[:：]?\s*([\d,]{5,})")
+        method=capture("contract_method",r"(소액\s*수의\s*전자견적서\s*제출|수의견적\s*제출\s*방식)")
         small=capture("company_restrictions",r"(소기업.{0,140}?소상공인확인서)")
         floor=capture("price_rules",r"낙찰\s*하한율?\s*[:：]?\s*(88(?:\.0+)?)\s*%")
         if not proofs:continue
