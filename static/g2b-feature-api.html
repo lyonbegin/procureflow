@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow 104개 기능 개별 API 검증</title>
+<style>
+:root{font:14px/1.55 system-ui,"Malgun Gothic",sans-serif;color:#1f2937;background:#f6f8fb}
+*{box-sizing:border-box}body{margin:0}header{background:#153454;color:white;padding:20px 24px}
+h1{font-size:22px;margin:0}header p{margin:5px 0 0;color:#cbd8e9}main{max-width:1360px;margin:auto;padding:20px}
+.card{background:#fff;border:1px solid #d9e0e8;border-radius:12px;padding:18px;margin-bottom:14px}
+.layout{display:grid;grid-template-columns:minmax(320px,1fr) minmax(370px,1.3fr);gap:16px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}}
+input,select,textarea,button{font:inherit;border:1px solid #a6b8ca;border-radius:7px;padding:8px;background:#fff}
+input[type=password]{width:100%}textarea{width:100%;min-height:100px;font-family:ui-monospace,monospace}
+button{cursor:pointer;background:#eaf2fb}button:disabled{cursor:wait;opacity:.6}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px;border-bottom:1px solid #e5eaf0}th{position:sticky;top:0;background:#fff}
+tr[data-no]{cursor:pointer}tr.active{background:#dfeeff}tr:hover{background:#f2f7fd}
+.scroll{max-height:630px;overflow:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;border-radius:8px;padding:12px;max-height:400px;overflow:auto}
+.pill{border:1px solid #bccde0;border-radius:40px;padding:2px 9px;font-size:12px}
+small,.muted{color:#65758a}.bad{color:#a02d31}.good{color:#126e4d}.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+code{overflow-wrap:anywhere}h2{font-size:18px;margin:0 0 12px}h3{margin:16px 0 5px;font-size:15px}
+</style></head><body>
+<header><h1>발주정보 기반 104개 기능 — 개별 API 검사</h1>
+<p>모든 기능은 선택된 정식 발주공고에서 시작하며, 실제 증빙 없는 기능은 완료로 표시하지 않습니다. 입찰 참가·서명·제출은 하지 않습니다.</p></header>
+<main>
+<div class="card" id="status">발주정보 및 104개 API 계약 불러오는 중…</div>
+<div class="layout"><section class="card"><div class="row"><h2>104개 기능 목록</h2><button id="refresh">새로고침</button></div>
+<div class="toolbar"><select id="group"><option value="">전체 영역</option></select>
+<select id="state"><option value="">전체 상태</option><option value="verified">원본검증 완료</option><option value="partial">부분확보</option><option value="missing">미검증</option><option value="blocked">차단</option></select>
+<input id="search" type="search" placeholder="번호 / 기능명 검색"></div>
+<div class="scroll"><table><thead><tr><th>번호</th><th>기능명</th><th>현재 상태</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+<section class="card">
+<h2 id="name">기능 선택</h2><p class="muted" id="endpoint"></p>
+<h3>발주정보로 자동 입력되는 값</h3><pre id="auto">왼쪽 목록에서 기능을 선택하세요.</pre>
+<h3>추가 입력 파라미터 (JSON)</h3><pre id="schema">{}</pre>
+<textarea id="parameters" spellcheck="false">{}</textarea>
+<h3>필요한 원본 증빙 / 부족한 증빙</h3><pre id="gates">-</pre>
+<h3>실행 및 결과</h3><label>관리자 토큰 (수집실행에만 사용, 저장하지 않음)<input type="password" id="token" autocomplete="off" placeholder="ADMIN_TOKEN"></label>
+<div class="toolbar" style="margin-top:10px"><button id="check">현재 상태 재검사</button><button id="run">이 기능만 실행</button><button id="history">실행 이력</button><a id="doclink" target="_blank" rel="noopener">개별 API JSON</a></div>
+<p class="muted" id="hint">수집 실행은 작업큐에 등록됩니다. '대기'는 완료가 아닙니다.</p>
+<pre id="result">기능을 선택하세요.</pre>
+</section></div></main>
+<script>
+const BID="R26BK01787028",BASE="/api/g2b/cases/"+BID, el=id=>document.getElementById(id);
+const esc=s=>String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+let all=[],selected=null;
+const pretty=o=>JSON.stringify(o,null,2);
+async function load(){try{
+let r=await fetch(BASE+"/features");if(!r.ok)throw Error("HTTP "+r.status);
+let x=await r.json();all=x.features;let ctx=x.context;
+let counts={};all.forEach(x=>counts[x.acceptance_state]=(counts[x.acceptance_state]||0)+1);
+el("status").textContent="선택 발주: "+BID+" / "+(ctx.title||"원본 미확인")+" · 발주기관: "+(ctx.agency||"공식 원본 미확인")+" · 10자리 코드: "+(ctx.official_detail10.join(",")||"원본 미확인")+" · 기능: "+all.length+"개 · 원본 검증완료: "+(counts.verified||0)+"개 · 미확보: "+(counts.missing||0)+"개";
+let groups=[...new Set(all.map(x=>x.group))];el("group").innerHTML='<option value="">전체 영역</option>'+groups.map(x=>'<option>'+esc(x)+'</option>').join("");
+render();if(selected)selectFeature(selected.number);
+}catch(e){el("status").textContent="실제 서버 조회 실패: "+e.message;el("status").classList.add("bad")}}
+function render(){
+let q=el("search").value.toLowerCase(),g=el("group").value,s=el("state").value;
+let rows=all.filter(x=>(!g||x.group===g)&&(!s||x.acceptance_state===s)&&(!q||(x.name+" "+x.number).toLowerCase().includes(q)));
+el("rows").innerHTML=rows.map(x=>'<tr data-no="'+x.number+'" class="'+(selected&&selected.number===x.number?"active":"")+'"><td>'+x.number+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.acceptance_state)+'</td></tr>').join("");
+el("rows").querySelectorAll("tr[data-no]").forEach(tr=>tr.onclick=()=>selectFeature(Number(tr.dataset.no)));
+}
+function selectFeature(no){
+selected=all.find(x=>x.number===no);if(!selected)return;render();
+el("name").textContent="#"+no+" "+selected.name;
+el("endpoint").textContent="GET "+selected.endpoint+" / POST "+selected.execute_endpoint;
+el("doclink").href=selected.endpoint;
+el("auto").textContent=pretty(selected.input_contract.auto_from_selected_notice);
+el("schema").textContent=pretty(selected.input_contract.parameters);
+el("parameters").value=pretty(Object.fromEntries(Object.entries(selected.input_contract.parameters).map(([k,v])=>[k,v.default]).filter(x=>x[1]!==undefined)));
+el("gates").textContent=pretty({required:selected.input_contract.required_verified_evidence,missing:selected.missing_evidence,verified:selected.verified_evidence});
+el("result").textContent="현재 상태: "+selected.acceptance_state+" / 실행 방식: "+selected.execution.action;
+}
+async function command(mode){
+if(!selected)return;
+let params;try{params=JSON.parse(el("parameters").value);if(!params||Array.isArray(params)||typeof params!=="object")throw Error("JSON object required");}catch(e){el("result").textContent="입력 오류: "+e.message;return;}
+let headers={"Content-Type":"application/json"};if(el("token").value)headers.Authorization="Bearer "+el("token").value;
+try{let r=await fetch(selected.execute_endpoint,{method:"POST",headers,body:pretty({mode,parameters:params})});let data=await r.json();el("result").textContent=pretty(data);
+if(r.ok&&mode==="collect"&&data.status_url){el("hint").textContent="작업 대기 등록됨. job_id="+data.job_id+" · 실행이 완료된 것은 아닙니다.";}
+if(mode==="check"&&r.ok)await load();
+}catch(e){el("result").textContent="요청 실패: "+e.message}}
+el("check").onclick=()=>command("check");el("run").onclick=()=>command("collect");
+el("history").onclick=async()=>{if(!selected)return;let r=await fetch(selected.runs_endpoint);el("result").textContent=pretty(await r.json())};
+el("refresh").onclick=load;el("group").onchange=render;el("state").onchange=render;el("search").oninput=render;load();
+</script></body></html>
