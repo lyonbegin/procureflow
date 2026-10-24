@@ -284,6 +284,86 @@ def actual_result_status(limit=200):
             "eight_digit_notice_count_not_used_as_result":True,
             "bid_submitted":False}
 
+def _record_attempt(bid_no,bid_ord,stage,status,detail):
+    with session() as db:
+        db.execute("""INSERT INTO procureflow.g2b_case_outcome_attempts(
+               case_bid_no,bid_no,bid_ord,stage,status,detail)
+               VALUES(%s,%s,%s,%s,%s,%s::jsonb)""",
+               (CASE_BID,bid_no,bid_ord,stage,status,
+                json.dumps(detail,ensure_ascii=False,default=str)[:18000]))
+
+def fetch_one_final_award(bid_no,bid_ord,published_on):
+    """Read official Nuri for one verified 10-digit classified notice.
+
+    Rank 1 is NOT a final winner. The existing final-award parser requires
+    final posting status and exactly one explicit '낙찰' bidder.
+    """
+    from playwright.sync_api import sync_playwright
+    from g2b_award_web_collector import (
+        BASE,LIST_URL,DETAIL_URL,HEADERS,FINAL_STATUS,_request)
+    from g2b_final_award_collector import (
+        DETAIL_HEADERS,normalized_confirmed_award)
+    from g2b_bid_collector import save_batch
+    pub=published_on
+    if isinstance(pub,str):pub=date.fromisoformat(pub)
+    start=(pub-timedelta(days=5)).strftime("%Y%m%d")
+    end=min(END,pub+timedelta(days=90)).strftime("%Y%m%d")
+    params={"bidPbancNo":bid_no,"bidPbancOrd":bid_ord,
+        "bidPbancNm":"","prcmBsneSeCd":"조070002",
+        "bidPbancPgstCd":FINAL_STATUS,"bidMthdCd":"",
+        "pbancPstgStDt":start,"pbancPstgEdDt":end,
+        "onbsPrnmntStDt":"","onbsPrnmntEdDt":"",
+        "recordCountPerPage":"20","rowNum":"","kbrdrId":"",
+        "pbancInstUntyGrpNo":"","pdngYn":"","currentPage":1,
+        "pbancSttsCd":"","pbancKndCd":"","stdCtrtMthdCd":"",
+        "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"","pbancPstgYn":"Y",
+        "frgnrRprsvYn":""}
+    out={"bid_no":bid_no,"bid_ord":bid_ord,"status":"not_found_final",
+         "winner_confirmed":False,"saved":0}
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(headless=True,args=[
+            "--no-sandbox","--disable-dev-shm-usage"])
+        ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
+        try:
+            r=ctx.request.get(BASE,timeout=20000)
+            if r.status>=400:raise RuntimeError("nuri_homepage_http_"+str(r.status))
+            response=_request(ctx,LIST_URL,{"dlParamM":params},HEADERS)
+            if isinstance(response,list):items=response
+            elif isinstance(response,dict):
+                items=[v for v in response.values() if isinstance(v,list)]
+                items=next((part for part in items if any(
+                    isinstance(x,dict) and x.get("bidPbancNo")==bid_no
+                    for x in part)),[])
+            else:items=[]
+            matches=[x for x in items if isinstance(x,dict)
+                     and str(x.get("bidPbancNo") or "")==bid_no
+                     and str(x.get("bidPbancOrd") or "000")==bid_ord]
+            out["matched_result_rows"]=len(matches)
+            for row in matches[:4]:
+                req={"dlSrchCndtM":{
+                    "bidPbancNo":bid_no,"bidPbancOrd":bid_ord,
+                    "bidClsfNo":str(row.get("bidClsfNo") or "0"),
+                    "bidPrgrsOrd":str(row.get("bidPrgrsOrd") or "000"),
+                    "bidPbancPgstCd":str(row.get("bidPbancPgstCd") or ""),
+                    "kbrdrId":"","etpsUntyGrpNo":"","prcrId":"","prcsRsn":"",
+                    "cvlnOrbySeCd":"","cvlnEtpsSrngPgstCd":"",
+                    "myBdonLisMovYn":""}}
+                detail=_request(ctx,DETAIL_URL,req,DETAIL_HEADERS)
+                if not isinstance(detail,dict):continue
+                winner=normalized_confirmed_award(row,detail)
+                if not winner:continue
+                saved,new=save_batch([winner])
+                out.update({"status":"final_award_confirmed",
+                           "winner_confirmed":True,
+                           "company":winner["company"],
+                           "amount":winner["amount"],
+                           "saved":saved,"new":new,
+                           "source":"nuri_official_explicit_final_winner"})
+                break
+        finally:
+            ctx.close();browser.close()
+    return out
+
 def run_batch(limit=3,opening_limit=3):
     """Verify exact-code original docs first; then request actual openings.
 
@@ -307,8 +387,11 @@ def run_batch(limit=3,opening_limit=3):
         finally:ctx.dispose()
     # First verify exact official product code; only those may be opened.
     with session() as db:
-        eligible=db.execute("""SELECT v.bid_no,v.bid_ord
+        eligible=db.execute("""SELECT v.bid_no,v.bid_ord,h.published_on
           FROM procureflow.g2b_case_outcome_verification v
+          JOIN procureflow.g2b_case_10yr_history h
+            ON h.case_bid_no=v.case_bid_no
+           AND h.hist_notice_no=v.bid_no AND h.hist_notice_ord=v.bid_ord
           WHERE v.case_bid_no=%s AND v.status='verified_exact_10'
             AND NOT EXISTS (
                SELECT 1 FROM procureflow.g2b_case_outcome_attempts x
@@ -337,6 +420,18 @@ def run_batch(limit=3,opening_limit=3):
                       VALUES(%s,%s,%s,'opening_collection',%s,%s::jsonb)""",
                        (CASE_BID,bid_no,bid_ord,stat,json.dumps(r,ensure_ascii=False,default=str)[:15000]))
                 if r.get("errors"):output["errors"].append({"bid_no":bid_no,"reason":r["errors"][:3]})
+                # Final confirmed award is fetched separately, never inferred
+                # from rank one, and every official unsuccessful lookup audited.
+                try:
+                    award=fetch_one_final_award(bid_no,bid_ord,item["published_on"])
+                    output["final_awards_verified"]+=int(award.get("winner_confirmed",False))
+                    _record_attempt(bid_no,bid_ord,"final_award_collection",
+                                    award["status"],award)
+                except Exception as exc:
+                    msg=type(exc).__name__+":"+str(exc)[:145]
+                    output["errors"].append({"bid_no":bid_no,"award":msg})
+                    _record_attempt(bid_no,bid_ord,"final_award_collection","error",
+                                    {"reason":msg})
             except Exception as exc:
                 output["errors"].append({"bid_no":bid_no,
                                          "reason":type(exc).__name__+":"+str(exc)[:120]})
