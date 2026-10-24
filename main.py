@@ -10,6 +10,8 @@ def startup():
     initialize()
     from db import ensure_browser_diagnostics
     ensure_browser_diagnostics()
+    from workbench import ensure_workbench
+    ensure_workbench()
 def guard(value):
     if os.getenv("TEST_MODE","0")=="1":
         return
@@ -19,8 +21,13 @@ def guard(value):
         raise HTTPException(401,"Access denied")
 @app.get("/",response_class=HTMLResponse)
 def home():
+    return (Path(__file__).parent/"static/workbench.html").read_text(encoding="utf-8")
+
+
+@app.get("/operations",response_class=HTMLResponse)
+def operations_dashboard():
     raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
-    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a> · <a href='/browser'>Headless 화면·DOM·네트워크 진단</a> · <a href='/prepare'>경비용역 제안서·가격 시뮬레이션</a></section>",1)
+    return raw.replace("<main>","<main><section><a href='/'>입찰 통합관리</a> · <a href='/bids'>낙찰·개찰 결과</a> · <a href='/simulate'>입찰 사전검증</a> · <a href='/browser'>Headless 캡처</a></section>",1)
 
 @app.get("/private-details",response_class=HTMLResponse)
 def private_details_web():
@@ -795,3 +802,52 @@ def tender_proposal_draft(external_id:str="20261020165014951"):
     if external_id != NOTICE_ID:
         raise HTTPException(404,"No verified requirements for this notice")
     return proposal_draft()
+
+
+@app.get("/api/workbench/overview")
+def procurement_workbench_overview(
+    q:str=Query("",max_length=200),source:str=Query("",max_length=10),
+    category:str=Query("",max_length=15),
+    filter_state:str=Query("all",max_length=24),
+    limit:int=Query(50,ge=1,le=100),
+    offset:int=Query(0,ge=0,le=1000000)):
+    """Public tender metadata and evidence counts. R..DD orders are excluded."""
+    from workbench import overview
+    return overview(q=q,source=source,category=category,
+                    filter_state=filter_state,limit=limit,offset=offset)
+
+
+@app.get("/api/workbench/case")
+def procurement_workbench_case(
+    source:str=Query(...,pattern="^(kapt|g2b)$"),
+    external_id:str=Query(...,min_length=3,max_length=120)):
+    """Actual stored evidence and outstanding requirements for one bid."""
+    from workbench import case_detail
+    try:
+        return case_detail(source,external_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+
+
+class WorkbenchAction(BaseModel):
+    source:str=Field(...,pattern="^(kapt|g2b)$")
+    external_id:str=Field(...,min_length=3,max_length=120)
+    action:str=Field(...,pattern="^(start|pause|resume)$")
+
+
+@app.post("/api/workbench/cases/action")
+def procurement_workbench_action(req:WorkbenchAction,
+                               authorization:str|None=Header(None)):
+    """Explicitly authorized workflow tracking and read-only K-apt capture."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from workbench import change_workflow
+    try:
+        return change_workflow(req.source,req.external_id,req.action)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
