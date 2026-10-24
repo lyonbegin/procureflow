@@ -206,7 +206,6 @@ def _documents_data(bid_no: str, measure: str) -> dict:
     status = list_documents(bid_no, CASE_ORD)
     index = [dict(x) for x in status["original_index"]]
     docs = [dict(x) for x in status["downloaded"]]
-    downloaded_ids = {x["file_id"] for x in docs}
     file_count = len(index)
     # A record with no bytes or sha is NOT an acquired, integrity-verified file.
     good = [x for x in docs if x.get("source_verified")
@@ -214,6 +213,7 @@ def _documents_data(bid_no: str, measure: str) -> dict:
             and (x.get("size_bytes") or 0) > 0
             and x.get("bytes_saved") == x.get("size_bytes")
             and x.get("file_id") in {s["file_id"] for s in index}]
+    downloaded_ids = {x["file_id"] for x in good}
     parsed = [x for x in good if x.get("extraction_state") == "parsed" and
               (x.get("extracted_chars") or 0) > 0]
     if measure == "index":
@@ -379,16 +379,28 @@ def _qualification_data(bid_no: str, measure: str, context: dict) -> dict:
             "observed_evidence_count": len(evidence)}
 
 
-def _suppliers_data(measure: str) -> dict:
+def _suppliers_data(measure: str, context: dict) -> dict:
+    """Supplier observations are scoped to an ORIGINAL verified product code."""
+    codes=context.get("official_detail10") or []
+    if not context.get("original_notice_verified") or not codes:
+        return {"data": None, "source": "procureflow.suppliers+certifications",
+                "reason": "selected_notice_exact_original_category_required"}
     with session() as db:
         rows = db.execute("""SELECT s.id,s.name,COUNT(c.id) AS certifications
-               FROM procureflow.suppliers s LEFT JOIN procureflow.certifications c
-               ON c.supplier_id=s.id GROUP BY s.id,s.name ORDER BY s.id DESC LIMIT 40""").fetchall()
-    return {"data": {"suppliers": [{"id": r["id"], "name": r["name"],
-                   "certification_count": r["certifications"]} for r in rows],
-                   "bid_specific_capability_confirmed": False,
-                   "bid_specific_quotation_confirmed": False},
-            "source": "procureflow.suppliers+certifications"}
+               FROM procureflow.suppliers s
+               JOIN procureflow.certifications c ON c.supplier_id=s.id
+               WHERE c.product=ANY(%s) OR c.raw->>'product_code'=ANY(%s)
+               GROUP BY s.id,s.name ORDER BY s.id DESC LIMIT 40""",
+                          (codes, codes)).fetchall()
+    return {"data": {"matching_original_product_codes": codes,
+                     "candidates": [{"id": r["id"], "name": r["name"],
+                         "matched_certificate_count": r["certifications"]} for r in rows],
+                     "candidate_count_in_response": len(rows),
+                     "no_match_is_not_no_qualified_supplier": True,
+                     "bid_specific_capability_confirmed": False,
+                     "bid_specific_quotation_confirmed": False},
+            "source": "procureflow.suppliers+certifications",
+            "note": "Only same verified 10-digit category; a certification alone is not a confirmed supplier quote"}
 
 
 def _pricing_data(bid_no: str, measure: str) -> dict:
@@ -522,7 +534,7 @@ def feature_observation(number: int, context: dict) -> dict:
         elif domain == "qualification":
             result = _qualification_data(bid_no, measure, context)
         elif domain == "suppliers":
-            result = _suppliers_data(measure)
+            result = _suppliers_data(measure, context)
         elif domain == "pricing":
             result = _pricing_data(bid_no, measure)
         elif domain == "proposal":
