@@ -1162,3 +1162,25 @@ def g2b_full_g2b_scheduled_status():
     return {"enabled":bool(api_key()),"case":"R26BK01787028",
             "state":dict(row) if row else {},
             "ready_for_bid_submission":False}
+
+
+@app.get("/api/g2b/full/category-index")
+def g2b_full_category_index_progress():
+    """Read the actual selected bid's public category search cursor and last jobs."""
+    with session() as con:
+        cursor=con.execute("""SELECT value,updated_at FROM procureflow.settings
+              WHERE key='g2b:single:81111599:secondary_index_cursor'""").fetchone()
+        jobs=con.execute("""SELECT id,state,added,checked,last_error,finished_at
+              FROM procureflow.jobs WHERE source='g2b_full_case'
+              AND config->>'phase'='ten_year'
+              ORDER BY id DESC LIMIT 6""").fetchall()
+        count=con.execute("""SELECT count(*) AS n FROM
+              procureflow.g2b_case_10yr_history
+              WHERE case_bid_no='R26BK01787028'
+                AND classification8='81111599'""").fetchone()["n"]
+    return {"selected_bid":"R26BK01787028","category8":"81111599",
+            "historical_notices_stored":count,
+            "cursor":dict(cursor) if cursor else None,
+            "last_ten_year_jobs":jobs,
+            "official_ten_year_coverage_complete":False,
+            "secondary_index_not_full_official_coverage":True}
