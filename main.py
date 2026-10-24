@@ -957,3 +957,15 @@ def stop_autonomous_tender_agent(slot_id:int,authorization:str|None=Header(None)
         return deactivate_one(slot_id)
     except ValueError as exc:
         raise HTTPException(409,str(exc)) from None
+
+
+@app.get("/api/g2b/similarity/backtest")
+def g2b_similarity_backtest():
+    """Read-only historical walk-forward benchmark on real G2B PostgreSQL.
+
+    Official opening dates only; no synthetic tender data, no background agent,
+    no database mutations, and no auth-required write operation.
+    """
+    from g2b_similarity import run_postgres_backtest
+    return run_postgres_backtest()
+
