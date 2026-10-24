@@ -191,7 +191,7 @@ def main():
             logging.info("G2B_FULL_104_QUEUED job=%s",jid)
     # Immediate page-two smoke after implementing the resumable category index.
     with session() as db:
-        marker="g2b-81111599-autopage-verification-20261024-v1"
+        marker="g2b-81111599-autopage-verification-20261024-v2"
         start=db.execute("""INSERT INTO procureflow.settings(key,value)
             VALUES(%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
             (marker,'{"bid_no":"R26BK01787028","phase":"ten_year"}')).fetchone()
