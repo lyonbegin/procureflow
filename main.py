@@ -1101,7 +1101,7 @@ def full_g2b_proposal_docx():
                  "X-ProcureFlow-Draft-Only":"true"})
 
 class FullBidAction(BaseModel):
-    phase:str=Field("all",pattern="^(all|notice|ten_year|documents|evidence|readiness)$")
+    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|documents|evidence|readiness)$")
 
 @app.post("/api/g2b/full/run")
 def full_g2b_run(req:FullBidAction,authorization:str|None=Header(None)):
@@ -1151,3 +1151,14 @@ def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header
 def g2b_full_104_dashboard():
     """Actual 104-feature progress, never a fake completed bid."""
     return (Path(__file__).parent/"static/g2b-104.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/g2b/full/schedule")
+def g2b_full_g2b_scheduled_status():
+    from g2b_full_schedule import KEY
+    from g2b_official_notices import api_key
+    with session() as c:
+        row=c.execute("SELECT value,updated_at FROM procureflow.settings WHERE key=%s",(KEY,)).fetchone()
+    return {"enabled":bool(api_key()),"case":"R26BK01787028",
+            "state":dict(row) if row else {},
+            "ready_for_bid_submission":False}
