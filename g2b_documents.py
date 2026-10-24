@@ -164,13 +164,24 @@ def list_documents(bid_no,bid_ord="000"):
                            WHERE bid_no=%s AND bid_ord=%s
                            ORDER BY file_id""",(bid_no,bid_ord)).fetchall()
         docs=c.execute("""SELECT file_id,filename,url,sha256,mime,size_bytes,
+                         octet_length(data) AS bytes_saved,source_verified,
                          length(extracted_text) AS extracted_chars,
                          extraction_state,fetched_at
                          FROM procureflow.g2b_case_documents
                          WHERE bid_no=%s AND bid_ord=%s ORDER BY file_id
                      """,(bid_no,bid_ord)).fetchall()
+    indexed={x["file_id"] for x in index}
+    valid={x["file_id"] for x in docs
+           if x["file_id"] in indexed and x["source_verified"]
+           and x["sha256"] and len(x["sha256"])==64
+           and (x["size_bytes"] or 0)>0
+           and x["size_bytes"]==x["bytes_saved"]}
+    complete=bool(indexed) and valid==indexed
     return {"bid_no":bid_no,"files_listed":len(index),
-            "files_downloaded":len(docs),"original_index":index,"downloaded":docs,
-            "all_listed_files_obtained":bool(index) and len(index)==len(docs),
-            "all_documents_text_extracted":bool(docs) and all(
-                x["extraction_state"]=="parsed" for x in docs)}
+            "files_downloaded":len(valid),"original_index":index,
+            "downloaded":docs,
+            "all_listed_files_obtained":complete,
+            "all_documents_text_extracted":complete and all(
+                x["extraction_state"]=="parsed" and (x["extracted_chars"] or 0)>0
+                for x in docs if x["file_id"] in indexed),
+            "invalid_or_missing_file_ids":sorted(indexed-valid)}
