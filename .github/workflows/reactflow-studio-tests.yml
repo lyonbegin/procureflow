@@ -1,0 +1,48 @@
+name: React Flow Main Studio — Build and API Compatibility
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "main.py"
+      - "tests/test_workflow_studio.py"
+      - ".github/workflows/reactflow-studio-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "Dockerfile"
+      - "main.py"
+      - "tests/test_workflow_studio.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  studio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned React Flow app dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund --package-lock=false
+      - name: Verify seven groups and all 104 nodes
+        working-directory: frontend
+        run: npm test
+      - name: Build React Flow production app
+        working-directory: frontend
+        run: npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing FastAPI and test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+      - name: Stage production static assets for FastAPI
+        run: mkdir -p static/studio && cp -R frontend/dist/. static/studio/
+      - name: Verify preserved routes and newly served React Flow bundle
+        run: python -m pytest -q tests/test_workflow_studio.py tests/test_g2b_feature_api.py
+      - name: Compile existing API and Worker
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py
