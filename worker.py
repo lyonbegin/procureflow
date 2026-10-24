@@ -166,6 +166,24 @@ def main():
     if not (base / "g2b_headless_collect.py").is_file() or not (base / "kapt_headless_collect.py").is_file():
         raise RuntimeError("Original V13.1/V14 collector source missing")
     initialize()
+    from g2b_categories import ensure_schema
+    ensure_schema()
+    # User-requested one-time category backfill for existing historical G2B
+    # notices. Separate from the stopped tender-agent reassignment service.
+    with session() as db:
+        marker="g2b-category-public-trial-20261024-v1"
+        created=db.execute("""
+          INSERT INTO procureflow.settings(key,value)
+          VALUES (%s,%s::jsonb)
+          ON CONFLICT(key) DO NOTHING RETURNING key
+        """,(marker,'{"scope":"historic_G2B_category_only","batch":12}')).fetchone()
+        if created:
+            jid=db.execute("""
+               INSERT INTO procureflow.jobs(source,config,message)
+               VALUES ('g2b_category_secondary',%s::jsonb,%s) RETURNING id
+            """,(json.dumps({"limit":12,"version":"trial-20261024-v1"}),
+                  "Historical G2B category code pilot: public mirrored official data")).fetchone()["id"]
+            logging.info("G2B_CATEGORY_TRIAL_QUEUED job=%s",jid)
     from db import ensure_browser_diagnostics
     ensure_browser_diagnostics()
     with session() as db:
@@ -509,6 +527,20 @@ def main():
                         update(job['id'],checked=result['screen_stage_count'],added=sum(1 for x in result['screenshots_saved'] if x['bytes']),message=json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         done(job['id'],'completed' if result['status']=='collected' else 'completed_partial' if result['status']=='partial' else 'failed',json.dumps({k:result[k] for k in ('status','screen_stage_count','network_block_count','ui_errors_count','participation_gate')},ensure_ascii=False))
                         logging.info("PF_BROWSER_JOB_RESULT %s",json.dumps({k:result[k] for k in ('status','screenshots_saved','errors','blocked_network')},ensure_ascii=False)[:3500])
+                    elif job['source']=='g2b_category_secondary':
+                        import g2b_secondary_category
+                        cfg=job.get('config') or {}
+                        result=g2b_secondary_category.enrich_saved_bid_notices(
+                            limit=cfg.get('limit',12))
+                        update(job['id'],checked=result['attempted'],
+                               added=result['codes'],
+                               message=json.dumps(result,ensure_ascii=False)[:450])
+                        done(job['id'],
+                             'completed' if result['status']=='collected'
+                             else 'completed_partial',
+                             json.dumps(result,ensure_ascii=False))
+                        logging.info("G2B_CATEGORY_PILOT_RESULT %s",
+                                     json.dumps(result,ensure_ascii=False)[:4400])
                     elif job['source']=='g2b_final_awards':
                         import g2b_final_award_collector
                         cfg=job.get('config') or {}
