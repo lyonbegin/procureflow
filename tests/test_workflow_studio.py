@@ -11,10 +11,7 @@ from main import app, STUDIO_DIST
 
 def test_react_flow_is_primary_homepage_when_built():
     assert (STUDIO_DIST / "index.html").is_file(), "CI must build the frontend"
-    with TestClient(app, raise_server_exceptions=False) as client:
-        # Startup may connect to PostgreSQL, so for a DB-free routing contract
-        # use a transport without entering the context manager.
-        pass
+    assert (STUDIO_DIST / "assets").is_dir()
 
 
 def test_homepage_and_assets_are_served_without_db_connection():
