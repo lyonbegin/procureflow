@@ -484,6 +484,44 @@ def deactivate_one(slot):
                 "현재 공고 처리 후 추가 배정 없이 종료" if in_progress else "에이전트 비활성화"}
 
 
+def start_explicit_pilot():
+    """One-time administrator-requested pilot, opt-in via AGENT_TEST_AUTOSTART=3.
+
+    Runs once per installation, NOT on later service restarts. After the pilot
+    the UI's manual add/stop behavior remains authoritative.
+    """
+    if os.getenv("AGENT_TEST_AUTOSTART","")!="3":
+        return {"state":"manual_start_only"}
+    key="procureflow:pilot-3:20261024-v1"
+    with session() as db:
+        db.execute("SELECT pg_advisory_xact_lock(%s)",(ASSIGN_LOCK,))
+        reserved=db.execute("""INSERT INTO procureflow.settings(key,value)
+           VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING RETURNING key
+        """,(key,json.dumps({"state":"started","source":"explicit_user_test_request",
+                             "agents":3},ensure_ascii=False))).fetchone()
+        if not reserved:
+            return {"state":"already_started"}
+        for slot in range(1,AGENT_COUNT+1):
+            db.execute("""UPDATE procureflow.agent_slots SET
+               enabled=true,
+               status=CASE WHEN status='running' THEN status ELSE 'waiting' END,
+               source=CASE WHEN status='running' THEN source ELSE '' END,
+               external_id=CASE WHEN status='running' THEN external_id ELSE '' END,
+               owner_id=CASE WHEN status='running' THEN owner_id ELSE '' END,
+               phase=CASE WHEN status='running' THEN phase ELSE 'waiting' END,
+               phase_label=CASE WHEN status='running' THEN phase_label
+                               ELSE '마감 임박 공고 배정 대기' END,
+               progress=CASE WHEN status='running' THEN progress ELSE 0 END,
+               current_action=CASE WHEN status='running' THEN current_action
+                                  ELSE '실제 3개 에이전트 검증 시작' END,
+               updated_at=now()
+               WHERE slot_id=%s""",(slot,))
+            _log(db,slot,"","","test_start",
+                 "테스트 요청에 따라 에이전트 활성화: 마감 임박 공고부터 자동 처리")
+        logger.info("PROCUREFLOW_PILOT_THREE_AGENTS_ACTIVATED")
+        return {"state":"pilot_three_activated","active":3}
+
+
 def run():
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
     initialize()
@@ -491,6 +529,8 @@ def run():
     from workbench import ensure_workbench
     ensure_workbench()
     ensure_agent_schema()
+    pilot=start_explicit_pilot()
+    logger.info("PROCUREFLOW_AGENT_TEST_START_STATE %s",pilot)
     logger.info("PROCUREFLOW_AGENTS_BOOT count=%d run=%s",AGENT_COUNT,RUN_ID)
     with ThreadPoolExecutor(max_workers=AGENT_COUNT,thread_name_prefix="pf-agent") as pool:
         pending=[pool.submit(slot_main,slot) for slot in range(1,AGENT_COUNT+1)]
