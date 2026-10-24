@@ -17,7 +17,7 @@ def guard(value):
 @app.get("/",response_class=HTMLResponse)
 def home():
     raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
-    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a></section>",1)
+    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a></section>",1)
 
 @app.get("/private-details",response_class=HTMLResponse)
 def private_details_web():
@@ -552,3 +552,23 @@ def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service
         records=c.execute("SELECT source,kind,source_id,title,url,LEFT(body,1000) AS excerpt,meta,first_seen,last_seen FROM procureflow.market_records"+
             condition+" ORDER BY last_seen DESC LIMIT %s OFFSET %s",args+[limit,offset]).fetchall()
     return {"total":n,"items":records}
+
+
+@app.get("/simulate",response_class=HTMLResponse)
+def simulation_web():
+    """Read-only case evaluation. Never redirects to a bid submission form."""
+    return (Path(__file__).parent/"static/simulate.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/simulation/preview")
+def bid_simulation_preview(source:str=Query(...,pattern="^(g2b|kapt)$"),
+                           external_id:str=Query(...,min_length=1,max_length=120),
+                           authorization:str|None=Header(None)):
+    guard(authorization)
+    from bid_simulation import preview
+    try:
+        return preview(session,source,external_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc))
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
