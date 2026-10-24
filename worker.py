@@ -201,6 +201,17 @@ def main():
               (json.dumps({"phase":"ten_year","bid_no":"R26BK01787028"}),
                "Verify exact-category pagination continues from previous page")).fetchone()["id"]
             logging.info("G2B_CATEGORY_NEXT_PAGE_QUEUED job=%s",next_id)
+    with session() as db:
+        marker="g2b-8111159901-original-evidence-20261024-v1"
+        claim=db.execute("""INSERT INTO procureflow.settings(key,value)
+                VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
+                (marker,'{"case":"R26BK01787028","phase":"evidence"}')).fetchone()
+        if claim:
+            nid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+                  VALUES ('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+                  (json.dumps({"phase":"evidence","bid_no":"R26BK01787028"}),
+                   "Extract 8111159901 official code and rules from saved G2B originals")).fetchone()["id"]
+            logging.info("G2B_ORIGINAL_DETAIL_CODE_JOB=%s",nid)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
     # The user selected exactly one current G2B tender and a ten-year
