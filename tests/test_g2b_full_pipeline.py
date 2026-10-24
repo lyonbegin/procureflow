@@ -44,7 +44,7 @@ def test_document_reader_extracts_real_docx_bytes():
 
 def test_hwp_remains_unparsed():
     state,txt=extract_file("old.hwp",b"HWP Binary format")
-    assert state=="binary_saved_hwp_parser_required" and not txt
+    assert state=="hwp_not_ole5" and not txt
 
 def test_no_arbitrary_download_hosts():
     assert not _government("http://www.g2b.go.kr/test.pdf")
