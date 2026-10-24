@@ -146,22 +146,40 @@ def refresh_existing_evidence(bid_no=SINGLE_CASE):
         index=c.execute("""SELECT count(*) n FROM
                procureflow.g2b_notice_source_files
                WHERE bid_no=%s AND bid_ord='000'""",(bid_no,)).fetchone()["n"]
-        files=c.execute("""SELECT extraction_state,url,sha256,filename
-               FROM procureflow.g2b_case_documents WHERE bid_no=%s""",
+        files=c.execute("""SELECT extraction_state,url,sha256,filename,
+                       file_id,size_bytes,source_verified,
+                       octet_length(data) AS stored_bytes,
+                       length(extracted_text) AS text_chars
+               FROM procureflow.g2b_case_documents
+               WHERE bid_no=%s AND bid_ord='000'""",
                (bid_no,)).fetchall()
         if index>0:
             _ev(c,bid_no,"attachment_index","official_links",True,
                 str(index)+"개 첨부 후보 목록","https://apis.data.go.kr/",
                 {"listed":index})
-        if index>0 and len(files)==index:
+        c.execute("""DELETE FROM procureflow.g2b_case_evidence
+               WHERE bid_no=%s AND
+               ((evidence_type='attachments_complete' AND reference='all_original_files')
+               OR (evidence_type='attachment_text' AND reference='all_docs_parsed'))""",
+                  (bid_no,))
+        index_rows=c.execute("""SELECT file_id FROM procureflow.g2b_notice_source_files
+               WHERE bid_no=%s AND bid_ord='000'""",(bid_no,)).fetchall()
+        listed_ids={x["file_id"] for x in index_rows}
+        complete=(index>0 and len(files)==index
+             and {x["file_id"] for x in files}==listed_ids
+             and all(x["source_verified"] and x["sha256"]
+                 and len(x["sha256"])==64 and (x["size_bytes"] or 0)>0
+                 and x["stored_bytes"]==x["size_bytes"] for x in files))
+        if complete:
             _ev(c,bid_no,"attachments_complete","all_original_files",True,
-                str(index)+"개 원본 파일 해시와 바이너리 보관",
+                str(index)+"개 공식 파일 원본 해시·바이트 확인",
                 "https://www.g2b.go.kr/",
-                {"files":[dict(x) for x in files]})
-            if all(x["extraction_state"]=="parsed" for x in files):
+                {"files":[{"id":x["file_id"],"sha256":x["sha256"],
+                           "bytes":x["stored_bytes"]} for x in files]})
+            if all(x["extraction_state"]=="parsed" and (x["text_chars"] or 0)>0
+                   for x in files):
                 _ev(c,bid_no,"attachment_text","all_docs_parsed",True,
-                    "첨부 문서 텍스트와 표 추출 완료",
-                    "https://www.g2b.go.kr/",
+                    "첨부 문서 내용 추출 완료","https://www.g2b.go.kr/",
                     {"files":[x["filename"] for x in files]})
         for row in h["history"]:
             _ev(c,bid_no,"historical_notice",row["hist_notice_no"],

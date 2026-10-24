@@ -34,6 +34,7 @@ code{overflow-wrap:anywhere}h2{font-size:18px;margin:0 0 12px}h3{margin:16px 0 5
 <h3>추가 입력 파라미터 (JSON)</h3><pre id="schema">{}</pre>
 <textarea id="parameters" spellcheck="false">{}</textarea>
 <h3>필요한 원본 증빙 / 부족한 증빙</h3><pre id="gates">-</pre>
+<h3>실제 DB 결과 (기능별 관측값, 미검증 결과는 미완료)</h3><pre id="observed">기능 선택 후 조회합니다.</pre>
 <h3>실행 및 결과</h3><label>관리자 토큰 (수집실행에만 사용, 저장하지 않음)<input type="password" id="token" autocomplete="off" placeholder="ADMIN_TOKEN"></label>
 <div class="toolbar" style="margin-top:10px"><button id="check">현재 상태 재검사</button><button id="run">이 기능만 실행</button><button id="history">실행 이력</button><a id="doclink" target="_blank" rel="noopener">개별 API JSON</a></div>
 <p class="muted" id="hint">수집 실행은 작업큐에 등록됩니다. '대기'는 완료가 아닙니다.</p>
@@ -58,7 +59,7 @@ let rows=all.filter(x=>(!g||x.group===g)&&(!s||x.acceptance_state===s)&&(!q||(x.
 el("rows").innerHTML=rows.map(x=>'<tr data-no="'+x.number+'" class="'+(selected&&selected.number===x.number?"active":"")+'"><td>'+x.number+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.acceptance_state)+'</td></tr>').join("");
 el("rows").querySelectorAll("tr[data-no]").forEach(tr=>tr.onclick=()=>selectFeature(Number(tr.dataset.no)));
 }
-function selectFeature(no){
+async function selectFeature(no){
 selected=all.find(x=>x.number===no);if(!selected)return;render();
 el("name").textContent="#"+no+" "+selected.name;
 el("endpoint").textContent="GET "+selected.endpoint+" / POST "+selected.execute_endpoint;
@@ -68,6 +69,16 @@ el("schema").textContent=pretty(selected.input_contract.parameters);
 el("parameters").value=pretty(Object.fromEntries(Object.entries(selected.input_contract.parameters).map(([k,v])=>[k,v.default]).filter(x=>x[1]!==undefined)));
 el("gates").textContent=pretty({required:selected.input_contract.required_verified_evidence,missing:selected.missing_evidence,verified:selected.verified_evidence});
 el("result").textContent="현재 상태: "+selected.acceptance_state+" / 실행 방식: "+selected.execution.action;
+el("observed").textContent="실제 DB 원본 확인 중…";
+try{
+const r=await fetch(selected.endpoint);
+if(!r.ok)throw Error("HTTP "+r.status);
+const detail=await r.json();
+if(selected&&selected.number===no){
+el("observed").textContent=pretty(detail.observation||{status:"not_available"});
+el("gates").textContent=pretty({required:detail.input_contract.required_verified_evidence,missing:detail.missing_evidence,verified:detail.verified_evidence});
+}
+}catch(e){el("observed").textContent="조회 오류: "+e.message}
 }
 async function command(mode){
 if(!selected)return;
