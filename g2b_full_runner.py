@@ -38,7 +38,7 @@ def official_selected_notice():
 def historical_month_batch():
     """Exactly one incomplete monthly window per run, with resumable pagination."""
     with session() as db:
-        row=db.execute("""SELECT first_day,state,page_cursor
+        row=db.execute("""SELECT first_day,status,page_cursor
           FROM procureflow.g2b_case_10yr_windows
           WHERE case_bid_no=%s AND status NOT IN ('completed')
           ORDER BY first_day LIMIT 1""",(CASE_BID,)).fetchone()
