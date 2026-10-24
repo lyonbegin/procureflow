@@ -870,7 +870,7 @@ def autonomous_agents_live(
     from agent_orchestrator import AGENT_COUNT,PHASES
     with session() as db:
         slots=db.execute("""
-            SELECT a.slot_id,a.status,a.source,a.external_id,
+            SELECT a.slot_id,a.enabled,a.status,a.source,a.external_id,
               a.owner_id,a.phase,a.phase_label,a.progress,a.phase_total,
               a.current_action,a.last_error,a.started_at,a.heartbeat_at,
               a.lease_until,a.finished_cases,a.updated_at,
@@ -908,7 +908,10 @@ def autonomous_agents_live(
         """).fetchall()
     return {
         "service":"procureflow-agents",
-        "desired_concurrency":AGENT_COUNT,
+        "maximum_agents":AGENT_COUNT,
+        "desired_concurrency":sum(1 for x in slots if x["enabled"]),
+        "activated_agents":sum(1 for x in slots if x["enabled"]),
+        "available_additions":sum(1 for x in slots if not x["enabled"]),
         "actual_running":sum(x["status"]=="running" for x in slots),
         "current_time_utc":datetime.now(timezone.utc).isoformat(),
         "refresh_interval_seconds":3,
@@ -924,3 +927,33 @@ def autonomous_agents_live(
         "read_only_public_browser":True,
         "case_done_means":"one_acquisition_pass_not_final_submission",
     }
+
+
+@app.post("/api/agents/add")
+def add_autonomous_tender_agent(authorization:str|None=Header(None)):
+    """Only this explicit authorized user gesture activates ONE agent."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from agent_orchestrator import activate_one
+    try:
+        return activate_one()
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from None
+
+
+@app.post("/api/agents/{slot_id}/stop")
+def stop_autonomous_tender_agent(slot_id:int,authorization:str|None=Header(None)):
+    """User can disable one slot; current read-only case finishes safely."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from agent_orchestrator import deactivate_one
+    try:
+        return deactivate_one(slot_id)
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from None
