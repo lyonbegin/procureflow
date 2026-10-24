@@ -11,6 +11,8 @@ from g2b_feature_api import router as g2b_feature_router
 app.include_router(g2b_feature_router)
 from g2b_workflow_ops import router as g2b_workflow_router
 app.include_router(g2b_workflow_router)
+from g2b_node_lab import router as g2b_node_lab_router
+app.include_router(g2b_node_lab_router)
 
 # React Flow is the primary workbench; the preexisting FastAPI, DB and Worker
 # retain ownership of every real operation. Built assets are shipped inside
@@ -39,6 +41,8 @@ def startup():
     ensure_documents()
     from g2b_case_engine import ensure_engine
     ensure_engine()
+    from g2b_node_lab import ensure_node_lab
+    ensure_node_lab()
     from g2b_exact_outcome_history import ensure_schema as ensure_exact_results
     ensure_exact_results()
     # One specific user-selected case only; import cited legacy notice evidence.

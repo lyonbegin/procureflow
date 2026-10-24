@@ -23,7 +23,34 @@ export async function readJson(path, { method = 'GET', token = '', body, signal 
   return result;
 }
 
+export async function uploadNodeTestFile(featureNo, file, token) {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const response = await fetch(CASE_API + '/features/' + featureNo + '/test/files', {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { Accept: 'application/json', Authorization: 'Bearer ' + token.trim().replace(/^Bearer\\s+/i, '') },
+    body: form,
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error('HTTP ' + response.status + ': ' +
+    (typeof result?.detail === 'string' ? result.detail : JSON.stringify(result?.detail || response.statusText)));
+  return result;
+}
+
 export const api = {
+  nodeTestContract: (id, token) => readJson(CASE_API + '/features/' + id + '/test/contract', { token }),
+  nodeTest: (id, body, token) => readJson(CASE_API + '/features/' + id + '/test',
+    { method: 'POST', body, token }),
+  nodeTestRuns: (id, token) => readJson(CASE_API + '/features/' + id + '/test/runs', { token }),
+  nodeTestFiles: (id, token) => readJson(CASE_API + '/features/' + id + '/test/files', { token }),
+  nodeTestPin: (id, token) => readJson(CASE_API + '/features/' + id + '/test/pin', { token }),
+  saveNodeTestPin: (id, output, label, token) => readJson(
+    CASE_API + '/features/' + id + '/test/pin', {
+      method: 'PUT', body: { label, output }, token,
+    }),
+  deleteNodeTestPin: (id, token) => readJson(
+    CASE_API + '/features/' + id + '/test/pin', { method: 'DELETE', token }),
+
   catalog: () => readJson(CASE_API + '/features'),
   plan: () => readJson(CASE_API + '/workflow/plan'),
   advance: (featureNo, token) => readJson(CASE_API + '/workflow/advance', {
