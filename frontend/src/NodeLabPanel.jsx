@@ -65,7 +65,7 @@ function FileChooser({ files, setFiles, disabled }) {
   </div>;
 }
 
-export default function NodeLabPanel({ featureNo, token }) {
+export default function NodeLabPanel({ featureNo, token, onTokenChange }) {
   const [mode,setMode] = useState('official');
   const [variables,setVariables] = useState('{\n  "test_input": "직접 입력한 테스트 데이터"\n}');
   const [mock,setMock] = useState('{\n  "status": "success",\n  "count": 1\n}');
@@ -168,8 +168,14 @@ export default function NodeLabPanel({ featureNo, token }) {
       <div><strong>노드 독립 API 테스트 · #{String(featureNo).padStart(3,'0')}</strong>
         <p>수동 입력·업로드 파일은 테스트 전용입니다. 실제 발주 원본 증빙에 반영되지 않습니다.</p></div>
     </div>
+    <label className="node-lab-label node-lab-token" htmlFor="node-lab-access-token">
+      API 테스트 관리자 토큰
+      <input id="node-lab-access-token" type="password" autoComplete="off"
+        value={token || ''} onChange={(e) => onTokenChange(e.target.value)}
+        placeholder="관리자 토큰 입력 (브라우저 메모리에서만 보관)"/>
+    </label>
     {!activeToken && <div className="node-lab-warning">
-      위 설정 탭에서 관리자 토큰을 입력해야 테스트·파일 업로드·이력 조회가 가능합니다.
+      관리자 토큰을 입력하면 테스트·파일 업로드·이력 조회가 가능합니다.
     </div>}
     <div className="node-lab-tabs">
       {['test','files','result','history'].map((id) => <button key={id}
