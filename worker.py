@@ -223,6 +223,21 @@ def main():
                 (json.dumps({"phase":"opening_details","bid_no":"R26BK01787028"}),
                  "Actual Nuri opening detail enrichment for 81111599 historical notices")).fetchone()["id"]
             logging.info("G2B_OFFICIAL_HISTORY_DETAIL_JOB=%s",job_id)
+    # User clarified: the target is actual 10-year bidder/award RESULTS for
+    # original-verified DETAIL10 8111159901, not eight-digit notice discovery.
+    from g2b_exact_outcome_history import ensure_schema as ensure_exact_history
+    ensure_exact_history()
+    with session() as db:
+        marker="g2b-8111159901-real-outcome-not-notices-20261024-v1"
+        row=db.execute("""INSERT INTO procureflow.settings(key,value)
+            VALUES(%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key""",
+            (marker,'{"bid_no":"R26BK01787028","detail10":"8111159901","purpose":"actual_openings_awards_10yr"}')).fetchone()
+        if row:
+            jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+               VALUES ('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+               (json.dumps({"phase":"exact_outcomes","bid_no":"R26BK01787028"}),
+                "Actual 2016-2026 opening bidder and final winner results, exact original-verified 8111159901")).fetchone()["id"]
+            logging.info("G2B_EXACT_10YR_OUTCOME_JOB=%s",jid)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
     # The user selected exactly one current G2B tender and a ten-year
