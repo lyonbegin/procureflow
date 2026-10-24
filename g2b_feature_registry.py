@@ -140,3 +140,11 @@ FEATURE_GATES[61]=("requirements","industry_codes","region_codes","company_restr
 FEATURE_GATES[63]=("region_codes","company_registration","qualification_evaluation")
 FEATURE_GATES[78]=("verified_base_amount","estimated_amount","vat_amount")
 FEATURE_GATES[79]=("bill_of_quantities",)
+
+# Strict acceptance: an original PDF is not an original notice JSON; a single
+# matched bidder is not a final award; a current notice's 10-digit code is not
+# evidence of historical 10-digit matching; a hash is not a revision archive.
+FEATURE_GATES[18]=("notice_official","notice_raw_json")
+FEATURE_GATES[30]=("attachments_complete","attachment_revision_history")
+FEATURE_GATES[51]=("classification_verified","historical_detail10_match")
+FEATURE_GATES[56]=("historical_bidders_linked","award_evidence")
