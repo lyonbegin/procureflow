@@ -131,3 +131,12 @@ for group,labels in GROUPS:
     assert len(required)==len(labels)
     FEATURE_GATES.update({a+i:(required[i],) for i in range(len(labels))})
 assert len(FEATURE_GATES)==104
+
+# Precise independent acceptance: mere presence of an original notice field
+# does not prove bidder eligibility or complete cost sheets.
+FEATURE_GATES[21]=("contract_method",)
+FEATURE_GATES[23]=("verified_base_amount","estimated_amount","vat_amount")
+FEATURE_GATES[61]=("requirements","industry_codes","region_codes","company_restrictions")
+FEATURE_GATES[63]=("region_codes","company_registration","qualification_evaluation")
+FEATURE_GATES[78]=("verified_base_amount","estimated_amount","vat_amount")
+FEATURE_GATES[79]=("bill_of_quantities",)
