@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 입찰 통합 작업관리</title>
+<style>
+:root{font-family:system-ui,"Malgun Gothic",sans-serif;color:#17253a;background:#f3f5f9;font-size:14px}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}a{color:#1764a1;text-decoration:none}a:hover{text-decoration:underline}
+header{padding:20px clamp(14px,3vw,38px);background:#12263d;color:#fff;border-bottom:3px solid #329b9b}
+header .top{max-width:1560px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.brand{font-size:24px;font-weight:750}.brand small{font-size:13px;opacity:.8}.subtitle{color:#afc5dc;margin-top:6px;font-size:12px}
+nav{display:flex;gap:17px;flex-wrap:wrap}nav a{color:#dceaf5;font-size:13px}
+main{max-width:1560px;margin:20px auto;padding:0 18px}
+h1{font-size:24px;margin:0 0 5px}h2{font-size:18px;margin:0 0 10px}h3{font-size:15px;margin:16px 0 9px}
+.muted{font-size:12px;color:#6b7e91;line-height:1.5}.warning{color:#95590b}.error{color:#a92327}
+.headerrow{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:10px;margin:17px 0}
+.kpi{padding:16px;background:white;border:1px solid #e0e7ee;border-radius:12px}
+.kpi strong{display:block;font-size:29px;color:#1b3451}.kpi span{font-size:12px;color:#708298}
+.layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(385px,1fr);align-items:start;gap:15px}
+.panel{background:white;border:1px solid #dfe6ee;border-radius:13px;padding:17px;min-width:0;box-shadow:0 3px 16px #152b400e}
+#detailpanel{position:sticky;top:10px;max-height:calc(100vh - 25px);overflow:auto}
+.tools,.tabs,.actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:12px 0}
+input,select{border:1px solid #c6d1de;background:white;border-radius:7px;padding:10px;color:#223956}
+#query{flex:1;min-width:210px}
+button{cursor:pointer;background:white;border:1px solid #cedae5;border-radius:8px;padding:9px 13px;color:#34516d}
+button.primary{background:#1b689e;color:white;border-color:#1b689e}button:hover{filter:brightness(.96)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.tabs{padding:5px;background:#eef2f7;border-radius:9px}
+.tabs button{background:transparent;border:0;font-size:12px;padding:9px}
+.tabs button.selected{background:white;color:#185e97;font-weight:700;box-shadow:0 1px 5px #d5dde5}
+table{border-collapse:collapse;width:100%;font-size:12px}th,td{padding:11px 8px;text-align:left;border-bottom:1px solid #e7edf3;vertical-align:middle}
+th{background:#f5f8fc;color:#5b728b;position:sticky;top:0}
+tbody tr{cursor:pointer}tbody tr:hover,tbody tr.selected{background:#eff6fd}
+.tname{font-weight:700;color:#183c5c;font-size:13px}.secondary{color:#7a8b9c;font-size:11px;margin-top:4px}
+.flag{display:inline-block;font-size:11px;padding:3px 7px;border-radius:5px;border:1px solid #d5dee8;background:#f4f6f8;color:#53677d;white-space:nowrap}
+.flag.collecting{background:#e5f2fc;border-color:#b5d9ef;color:#12608c}
+.flag.closed{background:#f1f2f4;color:#737986}
+.flag.unstarted{background:#f4f3f9;color:#676178}
+.flag.ai_ready,.flag.submitted,.flag.verified{background:#e7f7ee;color:#16714a;border-color:#bde4d0}
+.flag.partial{background:#fff5e5;color:#946015;border-color:#f1d9ad}
+.pbar{background:#e6eaf0;height:7px;border-radius:7px;overflow:hidden;margin-top:5px}
+.pbar span{display:block;height:100%;background:#2786b5}
+.detail-head{border-bottom:1px solid #e4eaf1;padding-bottom:10px}
+.detail-head h2{margin-top:9px;line-height:1.45}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:13px 0}
+.fact{background:#f6f8fb;border-radius:8px;padding:10px;overflow-wrap:anywhere}
+.fact small{display:block;color:#74869a;font-size:11px;margin-bottom:4px}
+.notice{border-left:3px solid #d09f4f;background:#fff8ec;padding:10px 12px;font-size:12px;line-height:1.6;margin:13px 0}
+#token{max-width:160px;font-size:12px}
+#stages{max-height:530px;overflow:auto;padding-right:4px}
+.stage{border:1px solid #e3eaf2;border-radius:9px;padding:11px;margin:7px 0}
+.stagehead{display:flex;align-items:center;gap:8px}.stagehead strong{flex:1;font-size:13px}
+.stage p{font-size:12px;color:#587089;line-height:1.5;margin:6px 0 0}
+.stage ul{padding-left:18px;font-size:11px;margin:7px 0 0}
+.job{padding:9px 0;border-bottom:1px solid #e9eef3;font-size:12px}
+#toast{background:#eaf3fa;padding:10px;border-radius:8px;font-size:12px;display:none;margin:10px 0}
+#empty{text-align:center;padding:36px;color:#77889d}
+footer{font-size:12px;color:#728397;padding:25px 0}
+@media(max-width:1180px){.layout{grid-template-columns:1fr}#detailpanel{max-height:none;position:static}.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.kpis{grid-template-columns:repeat(2,1fr)}th:nth-child(3),td:nth-child(3),th:nth-child(5),td:nth-child(5){display:none}main{padding:0 9px}.panel{padding:11px}}
+</style></head>
+<body><header><div class="top"><div><div class="brand">ProcureFlow <small>입찰 통합관리</small></div>
+<div class="subtitle">최신 공고 → 증빙 확보 → 자격·원가 검증 → ChatGPT API 입력 준비</div></div>
+<nav><a href="/operations">수집기 관리</a><a href="/browser">Headless 캡처</a><a href="/simulate">입찰 시뮬레이션</a><a href="/prepare">가격·제안서 초안</a></nav></div></header>
+<main><div class="headerrow"><div><h1>발주 및 입찰 진행현황</h1>
+<div class="muted">실제 입찰공고만 표시 · 접수 마감은 투찰 완료가 아닙니다 · 데이터는 운영 DB의 최종 수집 기준입니다</div></div>
+<div><button class="primary" id="refresh">목록 새로고침</button><div id="refreshed" class="muted"></div></div></div>
+<div class="kpis">
+<div class="kpi"><strong id="all">—</strong><span>확인된 실제 공고</span></div>
+<div class="kpi"><strong id="unstarted">—</strong><span>아직 수집 시작 전</span></div>
+<div class="kpi"><strong id="collecting">—</strong><span>자료수집 진행 중</span></div>
+<div class="kpi"><strong id="proposal_missing">—</strong><span>최종 제안서 미완성</span></div>
+<div class="kpi"><strong id="ai_ready">—</strong><span>AI 입력 준비 완료</span></div>
+<div class="kpi"><strong id="closed">—</strong><span>마감된 공고</span></div>
+</div>
+<div class="layout">
+<section class="panel">
+<div class="tabs" id="tabs"></div>
+<div class="tools"><input id="query" placeholder="공고명 · 발주처 · 입찰번호 검색">
+<select id="source"><option value="">전체</option><option value="kapt">K-apt</option><option value="g2b">나라장터</option></select>
+<select id="category"><option value="">물품·일반용역</option><option value="물품">물품</option><option value="일반용역">일반용역</option></select>
+<button id="find">검색</button></div>
+<div id="listinfo" class="muted">운영 DB 조회 중</div>
+<div style="max-height:800px;overflow:auto;margin-top:12px"><table><thead><tr><th>공고명·발주처</th><th>단계</th><th>마감일</th><th>확보 증빙</th><th>제안서</th></tr></thead><tbody id="list"></tbody></table></div>
+<div id="empty" hidden>검색조건에 해당하는 공고가 없습니다.</div>
+<div class="tools"><button id="prev">이전</button><span id="pages" class="muted"></span><button id="next">다음</button></div>
+</section>
+<aside class="panel" id="detailpanel">
+<div id="noitem" class="muted" style="padding:35px;text-align:center">왼쪽 공고를 선택하면 실제 수집작업과 16개 항목의 확보·미확보 상태가 표시됩니다.</div>
+<div id="detail" hidden>
+<div class="detail-head"><span class="flag" id="dSource"></span> <span class="flag" id="dStatus"></span>
+<h2 id="dTitle"></h2><div id="dAgency" class="muted"></div>
+<div class="facts" id="facts"></div>
+<div class="muted" id="progressLabel"></div><div class="pbar"><span id="progressBar"></span></div>
+<div class="notice" id="caveat"></div>
+<div class="actions"><input type="password" id="token" placeholder="관리자 토큰">
+<button class="primary" id="start">수집 시작/재실행</button><button id="pause">일시중지</button></div>
+<div id="toast"></div>
+<div class="tools"><a id="sourceLink" href="#" target="_blank" rel="noopener">공식 공고 보기 ↗</a><a id="captureLink" href="/browser" target="_blank" rel="noopener">캡처 증빙 보기 ↗</a></div>
+</div>
+<h3>자료 단계별 진행 <small class="muted" id="stageCount"></small></h3><div id="stages"></div>
+<h3>실제 수집 작업과 오류</h3><div id="jobs"></div>
+<h3>유사 과거 낙찰 기록 <small class="muted">예상 경쟁사가 아닌 비교자료</small></h3><div id="history"></div>
+</div></aside></div>
+<footer>공고 원본과 추적 가능한 증빙을 기준으로 판정합니다. 회사 참가자격·실견적·최종 제안서·투찰금액은 미확보 상태에서 완료로 표시하지 않습니다.</footer>
+</main>
+<script>
+const E=id=>document.getElementById(id);
+const N=n=>Number(n||0).toLocaleString("ko-KR");
+const labels={unstarted:"준비 전",collecting:"자료 수집 중",paused:"일시중지",ai_ready:"AI 준비 완료",proposal_complete:"제안서 검증 완료",closed:"접수 마감",submitted:"실투찰 확인"};
+const statusLabels={verified:"확보",partial:"일부 확보",missing:"미확보"};
+const tabs=[["all","전체 최신"],["unstarted","준비 전"],["collecting","수집 중"],["proposal_missing","제안서 미완성"],["ai_ready","AI 준비"],["closed","마감"],["submitted","실투찰"]];
+let filter="all",page=0,selected=null,callIndex=0;
+function make(tag,text,className){const x=document.createElement(tag);if(text!==undefined)x.textContent=String(text);if(className)x.className=className;return x}
+function cell(tr){const t=document.createElement("td");tr.append(t);return t}
+async function req(path,opts={}){let r=await fetch(path,opts);let data=await r.json().catch(()=>({}));
+if(!r.ok)throw Error(typeof data.detail==="string"?data.detail:JSON.stringify(data).slice(0,300));return data}
+function when(s){if(!s)return "-";const d=new Date(s);return isNaN(d)?String(s):d.toLocaleString("ko-KR",{hour12:false})}
+function showMessage(message,error){const x=E("toast");x.style.display="block";x.textContent=message;x.className=error?"error":""}
+function drawTabs(c){let p=E("tabs");p.replaceChildren();
+for(const x of tabs){const b=make("button",x[1]+" "+N(c[x[0]]),filter===x[0]?"selected":"");b.onclick=()=>{filter=x[0];page=0;load()};p.append(b)}
+for(const id of ["all","unstarted","collecting","proposal_missing","ai_ready","closed"])E(id).textContent=N(c[id])}
+function drawList(data){
+drawTabs(data.totals);E("list").replaceChildren();
+for(const x of data.items){
+const key=x.source+"|"+x.external_id,tr=document.createElement("tr");if(selected===key)tr.className="selected";
+tr.onclick=()=>openDetail(x.source,x.external_id);
+let c=cell(tr);c.append(make("div",x.title,"tname"),make("div",x.agency+" · "+x.source.toUpperCase()+" · "+x.external_id,"secondary"));
+c.append(make("div","최근 확인: "+when(x.last_seen)+(x.source_stale?" · 재수집 필요":""),"secondary"));
+c=cell(tr);c.append(make("span",labels[x.work_state]||x.work_state,"flag "+x.work_state));
+c=cell(tr);c.textContent=x.deadline||"미확인";
+c=cell(tr);c.append(make("span",N(x.evidence_verified)+"/"+x.evidence_total+" 확보","secondary"));
+let pb=make("div",undefined,"pbar"),fill=make("span");fill.style.width=(x.evidence_verified*100/x.evidence_total)+"%";pb.append(fill);c.append(pb);
+c=cell(tr);c.append(make("span",x.proposal_status,"flag"));
+E("list").append(tr)}
+E("empty").hidden=data.items.length!==0;
+E("listinfo").textContent="검색 "+N(data.total)+"건 · 현재 저장된 공고 기준"+(data.truncated?" · 5000건 표시한계":"");
+E("pages").textContent=(data.total?N(data.offset+1):"0")+"–"+N(Math.min(data.total,data.offset+data.limit))+" / "+N(data.total);
+E("prev").disabled=page===0;E("next").disabled=(page+1)*50>=data.total;
+E("refreshed").textContent="화면 조회 "+new Date().toLocaleString("ko-KR")+" · 실제 사이트 재수집 아님"}
+async function load(){const seq=++callIndex;const p=new URLSearchParams({q:E("query").value,source:E("source").value,category:E("category").value,filter_state:filter,offset:String(page*50),limit:"50"});
+try{const d=await req("/api/workbench/overview?"+p);if(seq===callIndex)drawList(d)}
+catch(err){E("listinfo").textContent="목록 조회 오류: "+err.message;E("listinfo").className="error"}}
+function drawDetail(d){
+const x=d.tender;E("noitem").hidden=true;E("detail").hidden=false;
+E("dSource").textContent=x.source==="kapt"?"K-apt":"나라장터";E("dStatus").textContent=labels[x.work_state]||x.work_state;
+E("dStatus").className="flag "+x.work_state;E("dTitle").textContent=x.title;E("dAgency").textContent=x.agency+" · "+x.external_id;
+E("facts").replaceChildren();
+for(const pair of [["업종",x.category],["낙찰방식",x.method||"-"],["공고일",x.notice_date||"-"],["마감",x.deadline||"-"],["제안서",x.proposal_status],["연결된 작업",d.jobs.length+"건"]]){
+ const div=make("div",undefined,"fact");div.append(make("small",pair[0]),make("strong",pair[1]));E("facts").append(div)}
+E("progressLabel").textContent="검증된 증빙 "+d.progress.verified+"/"+d.progress.total+"단계";
+E("progressBar").style.width=d.progress.evidence_percent+"%";
+E("stageCount").textContent="확보 "+d.progress.verified+" · 일부 "+d.progress.partial+" · 미확보 "+d.progress.missing;
+E("caveat").textContent=x.source_stale?"48시간 이상 원천 공고를 다시 수집하지 않았습니다. 정정·마감 상태를 먼저 재검증해야 합니다.":
+"원본 첨부·실견적·회사 증빙 없이는 최종 투찰가·제안서를 완료로 표시하지 않습니다.";
+E("start").disabled=x.work_state==="closed"||x.work_state==="submitted";
+E("pause").disabled=!d.workflow||x.work_state==="closed"||x.work_state==="paused";
+E("sourceLink").href=x.source_url||"#";
+const shot=d.screenshots.find(c=>c.stage==="notice_detail");E("captureLink").href=shot?"/api/browser/images/"+shot.job_id+"/notice_detail":"/browser";
+E("stages").replaceChildren();
+for(let i=0;i<d.stages.length;i++){
+ const s=d.stages[i],div=make("div",undefined,"stage"),head=make("div",undefined,"stagehead");
+ head.append(make("span",String(i+1).padStart(2,"0"),"muted"),make("strong",s.title),
+   make("span",statusLabels[s.status]||s.status,"flag "+s.status));
+ div.append(head,make("p",s.description));
+ if(s.evidence&&s.evidence.length){const ul=make("ul");
+ for(const ev of s.evidence){const li=make("li");const url=ev.url||"";
+ if(url.startsWith("/")||url.startsWith("https://")){let a=make("a",ev.label||ev.record_id||"증빙");a.href=url;a.target="_blank";a.rel="noopener";li.append(a)}
+ else li.textContent=ev.label||ev.record_id||"증빙";ul.append(li)}div.append(ul)}
+ E("stages").append(div)}
+E("jobs").replaceChildren();if(!d.jobs.length)E("jobs").append(make("div","이 공고에 연결된 브라우저 작업 없음","muted"));
+for(const j of d.jobs){const v=make("div",undefined,"job");v.append(make("strong","#"+j.id+" · "+j.state+" · 확인 "+j.checked+"단계/캡처 "+j.added+"장"),
+make("div","실행 "+when(j.started_at)+" · 종료 "+when(j.finished_at),"secondary"));
+if(j.last_error)v.append(make("div",j.last_error,"error"));
+else if(j.message)v.append(make("div",j.message.slice(0,230),"muted"));
+E("jobs").append(v)}
+E("history").replaceChildren();
+if(!d.historical_awards.length)E("history").append(make("div","연결된 이력 없음","muted"));
+for(const m of d.historical_awards.slice(0,8)){
+ const v=make("div",undefined,"job");v.append(make("strong",m.company+" · "+(m.amount||"금액 미상")+"원"),
+ make("div",m.title+" / "+m.notice_no+(m.match_rule==="shared_service_topic"?" (다른 발주처 유사업무)":" (같은 발주처)"),"secondary"));
+ E("history").append(v)}}
+async function openDetail(source,id,quiet=false){
+const key=source+"|"+id;selected=key;if(!quiet){E("detail").hidden=true;E("noitem").hidden=false;E("noitem").textContent="공고의 실제 확보 자료를 확인하고 있습니다."}
+try{const d=await req("/api/workbench/case?"+new URLSearchParams({source,external_id:id}));
+if(selected===key){drawDetail(d);if(!quiet)load()}}
+catch(e){E("noitem").hidden=false;E("noitem").textContent="상세 조회 오류: "+e.message}}
+async function change(action){if(!selected)return;
+const [source,external_id]=selected.split("|"),token=E("token").value.trim();
+try{
+const r=await req("/api/workbench/cases/action",{method:"POST",headers:{"Content-Type":"application/json",...(token?{"Authorization":token.startsWith("Bearer ")?token:"Bearer "+token}:{})},
+body:JSON.stringify({source,external_id,action})});
+showMessage(r.message||"진행상태 "+r.state,false);await load();await openDetail(source,external_id,true)
+}catch(e){showMessage("관리자 실행 실패: "+e.message,true)}}
+E("start").onclick=()=>change("start");E("pause").onclick=()=>change("pause");
+E("refresh").onclick=async()=>{await load();if(selected){const parts=selected.split("|");await openDetail(parts[0],parts[1],true)}};
+E("find").onclick=()=>{page=0;load()};
+E("query").onkeydown=e=>{if(e.key==="Enter")E("find").click()};
+E("prev").onclick=()=>{page=Math.max(0,page-1);load()};E("next").onclick=()=>{page++;load()};
+E("source").onchange=()=>{page=0;load()};E("category").onchange=()=>{page=0;load()};
+async function init(){await load();try{const d=await req("/api/workbench/overview?filter_state=collecting&limit=1");if(d.items[0])openDetail(d.items[0].source,d.items[0].external_id)}catch(e){}
+setInterval(async()=>{await load();if(selected){const parts=selected.split("|");await openDetail(parts[0],parts[1],true)}},60000)}
+init();
+</script></body></html>
