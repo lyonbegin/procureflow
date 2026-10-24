@@ -292,77 +292,84 @@ def _record_attempt(bid_no,bid_ord,stage,status,detail):
                (CASE_BID,bid_no,bid_ord,stage,status,
                 json.dumps(detail,ensure_ascii=False,default=str)[:18000]))
 
-def fetch_one_final_award(bid_no,bid_ord,published_on):
-    """Read official Nuri for one verified 10-digit classified notice.
+def _award_from_official_opening(bid_no,bid_ord,entry):
+    """Only an EXPLICIT final winner in actual G2B opening payload is an award.
 
-    Rank 1 is NOT a final winner. The existing final-award parser requires
-    final posting status and exactly one explicit '낙찰' bidder.
+    Rank 1, a provisional preferred bidder, and mere opening-complete status
+    do not qualify. Never declare 'not found' to mean 'no award exists'.
     """
+    from g2b_bid_collector import _final_award,normalize_item,save_batch
+    from hashlib import sha256
+    if entry.get("bid_no")!=bid_no or entry.get("bid_ord")!=bid_ord:
+        raise ValueError("official_opening_notice_identity_mismatch")
+    info=entry.get("bid_info") or {}
+    etc=entry.get("etc_data") or {}
+    winner_name=_final_award(info,etc)
+    if not winner_name:
+        return {"status":"winner_not_confirmed_in_available_official_opening",
+                "winner_confirmed":False,"saved":0,
+                "evidence":"no_explicit_final_winner_and_completion_status"}
+    eligible=[(i,x) for i,x in enumerate(entry.get("bidders") or [])
+              if str(x.get("grpNm") or "").strip()==winner_name]
+    if len(eligible)!=1:
+        return {"status":"winner_name_not_unique_in_bidder_rows",
+                "winner_confirmed":False,"saved":0,
+                "candidate_name_redacted":True}
+    i,x=eligible[0]
+    row=normalize_item({**x,"bid_no":bid_no,"bid_ord":bid_ord,
+                         "bidClsfNo":str(info.get("bidClsfNo") or "0"),
+                         "bidPrgrsOrd":str(info.get("bidPrgrsOrd") or "000"),
+                         "result_status":"최종낙찰확정"},
+                       "service","award","g2b_web_confirmed_award",i)
+    if not row:return {"status":"invalid_official_winner_data",
+                       "winner_confirmed":False,"saved":0}
+    if not row["amount"]:
+        return {"status":"final_winner_exists_but_amount_not_released",
+                "winner_confirmed":False,"saved":0}
+    row["record_key"]=sha256(
+        ("g2b|official-verified-final|"+bid_no+"|"+bid_ord+"|"+
+         row["bid_clsfc_no"]+"|"+row["rbid_no"]).encode()).hexdigest()[:40]
+    row["raw"]={**row["raw"],
+                "evidence":"official_opening_explicit_final_winner",
+                "winner_company":row["company"],
+                "official_final_winner_name_present":True,
+                "completion_signal_present":True}
+    saved,new=save_batch([row])
+    return {"status":"official_explicit_final_winner_confirmed",
+            "winner_confirmed":True,"company":row["company"],
+            "amount":row["amount"],"saved":saved,"new":new}
+
+
+def fetch_one_final_award(bid_no,bid_ord,published_on):
+    """Use working G2B official opening endpoint, NOT broken Nuri HTTP 422.
+
+    All inputs must already pass the 10-digit original-product gate.
+    The same official response can confirm the final winner only when it
+    independently carries an explicit completion signal and matching bidder.
+    """
+    from g2b_bid_collector import BASE,fetch_opening
     from playwright.sync_api import sync_playwright
-    from g2b_award_web_collector import (
-        BASE,LIST_URL,DETAIL_URL,HEADERS,FINAL_STATUS,_request)
-    from g2b_final_award_collector import (
-        DETAIL_HEADERS,normalized_confirmed_award)
-    from g2b_bid_collector import save_batch
-    pub=published_on
-    if isinstance(pub,str):pub=date.fromisoformat(pub)
-    start=(pub-timedelta(days=5)).strftime("%Y%m%d")
-    end=min(END,pub+timedelta(days=90)).strftime("%Y%m%d")
-    params={"bidPbancNo":bid_no,"bidPbancOrd":bid_ord,
-        "bidPbancNm":"","prcmBsneSeCd":"조070002",
-        "bidPbancPgstCd":FINAL_STATUS,"bidMthdCd":"",
-        "pbancPstgStDt":start,"pbancPstgEdDt":end,
-        "onbsPrnmntStDt":"","onbsPrnmntEdDt":"",
-        "recordCountPerPage":"20","rowNum":"","kbrdrId":"",
-        "pbancInstUntyGrpNo":"","pdngYn":"","currentPage":1,
-        "pbancSttsCd":"","pbancKndCd":"","stdCtrtMthdCd":"",
-        "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"","pbancPstgYn":"Y",
-        "frgnrRprsvYn":""}
-    out={"bid_no":bid_no,"bid_ord":bid_ord,"status":"not_found_final",
-         "winner_confirmed":False,"saved":0}
+    if not ID.fullmatch(bid_no) or not re.fullmatch(r"\d{3}",bid_ord):
+        raise ValueError("invalid_official_bid_number")
+    out={"bid_no":bid_no,"bid_ord":bid_ord,
+         "status":"winner_not_confirmed_in_available_official_opening",
+         "winner_confirmed":False,"saved":0,
+         "source":"g2b_official_public_websquare"}
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True,args=[
             "--no-sandbox","--disable-dev-shm-usage"])
         ctx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
         try:
-            r=ctx.request.get(BASE,timeout=20000)
-            if r.status>=400:raise RuntimeError("nuri_homepage_http_"+str(r.status))
-            response=_request(ctx,LIST_URL,{"dlParamM":params},HEADERS)
-            if isinstance(response,list):items=response
-            elif isinstance(response,dict):
-                items=[v for v in response.values() if isinstance(v,list)]
-                items=next((part for part in items if any(
-                    isinstance(x,dict) and x.get("bidPbancNo")==bid_no
-                    for x in part)),[])
-            else:items=[]
-            matches=[x for x in items if isinstance(x,dict)
-                     and str(x.get("bidPbancNo") or "")==bid_no
-                     and str(x.get("bidPbancOrd") or "000")==bid_ord]
-            out["matched_result_rows"]=len(matches)
-            for row in matches[:4]:
-                req={"dlSrchCndtM":{
-                    "bidPbancNo":bid_no,"bidPbancOrd":bid_ord,
-                    "bidClsfNo":str(row.get("bidClsfNo") or "0"),
-                    "bidPrgrsOrd":str(row.get("bidPrgrsOrd") or "000"),
-                    "bidPbancPgstCd":str(row.get("bidPbancPgstCd") or ""),
-                    "kbrdrId":"","etpsUntyGrpNo":"","prcrId":"","prcsRsn":"",
-                    "cvlnOrbySeCd":"","cvlnEtpsSrngPgstCd":"",
-                    "myBdonLisMovYn":""}}
-                detail=_request(ctx,DETAIL_URL,req,DETAIL_HEADERS)
-                if not isinstance(detail,dict):continue
-                winner=normalized_confirmed_award(row,detail)
-                if not winner:continue
-                saved,new=save_batch([winner])
-                out.update({"status":"final_award_confirmed",
-                           "winner_confirmed":True,
-                           "company":winner["company"],
-                           "amount":winner["amount"],
-                           "saved":saved,"new":new,
-                           "source":"nuri_official_explicit_final_winner"})
-                break
+            resp=ctx.request.get(BASE,timeout=20000)
+            if resp.status>=400:raise RuntimeError("g2b_homepage_http_"+str(resp.status))
+            entry=fetch_opening(ctx,bid_no,bid_ord,max_pages=2)
+            out.update(_award_from_official_opening(bid_no,bid_ord,entry))
+        except LookupError:
+            out["status"]="official_opening_not_published"
         finally:
             ctx.close();browser.close()
     return out
+
 
 def run_batch(limit=3,opening_limit=3):
     """Verify exact-code original docs first; then request actual openings.
