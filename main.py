@@ -2,12 +2,21 @@ import os,json,secrets
 from datetime import datetime,timezone
 from pathlib import Path
 from fastapi import FastAPI,Header,HTTPException,Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel,Field
 from db import session,initialize
-app=FastAPI(title="ProcureFlow",version="0.1")
+app=FastAPI(title="ProcureFlow",version="0.2")
 from g2b_feature_api import router as g2b_feature_router
 app.include_router(g2b_feature_router)
+
+# React Flow is the primary workbench; the preexisting FastAPI, DB and Worker
+# retain ownership of every real operation. Built assets are shipped inside
+# the same Railway Docker image (no new production service or Node server).
+STUDIO_DIST = Path(__file__).resolve().parent / "static" / "studio"
+if STUDIO_DIST.is_dir():
+    app.mount("/studio", StaticFiles(directory=str(STUDIO_DIST), html=True), name="workflow-studio")
+
 @app.on_event("startup")
 def startup():
     initialize()
@@ -48,6 +57,17 @@ def guard(value):
         raise HTTPException(401,"Access denied")
 @app.get("/",response_class=HTMLResponse)
 def home():
+    """React Flow is the main UI; keep legacy UI available for operational continuity."""
+    index=STUDIO_DIST/"index.html"
+    if index.is_file():
+        return FileResponse(index,media_type="text/html",headers={"Cache-Control":"no-cache"})
+    # Non-Docker local Python development still serves the previous workbench.
+    return (Path(__file__).parent/"static/workbench.html").read_text(encoding="utf-8")
+
+
+@app.get("/legacy/workbench",response_class=HTMLResponse)
+def legacy_procurement_workbench():
+    """Preserve all existing browsing, collecting and tender-management controls."""
     return (Path(__file__).parent/"static/workbench.html").read_text(encoding="utf-8")
 
 
