@@ -6,9 +6,11 @@ from g2b_documents import extract_file
 BID="R26BK01787028"
 def run():
     with session() as db:
-        entries=db.execute("""SELECT file_id,filename,data,sha256
-         FROM procureflow.g2b_case_documents
-         WHERE bid_no=%s AND data IS NOT NULL ORDER BY file_id""",(BID,)).fetchall()
+        entries=db.execute("""SELECT d.file_id,s.file_label AS filename,d.data,d.sha256
+         FROM procureflow.g2b_case_documents d
+         JOIN procureflow.g2b_notice_source_files s
+           ON s.bid_no=d.bid_no AND s.bid_ord=d.bid_ord AND s.file_id=d.file_id
+         WHERE d.bid_no=%s AND d.data IS NOT NULL ORDER BY d.file_id""",(BID,)).fetchall()
     result=[]
     for x in entries:
         b=bytes(x["data"])
@@ -17,8 +19,8 @@ def run():
         status,txt=extract_file(x["filename"],b)
         with session() as db:
             db.execute("""UPDATE procureflow.g2b_case_documents
-             SET extracted_text=%s,extraction_state=%s
-             WHERE bid_no=%s AND file_id=%s""",(txt,status,BID,x["file_id"]))
+             SET extracted_text=%s,extraction_state=%s,filename=%s
+             WHERE bid_no=%s AND file_id=%s""",(txt,status,x["filename"],BID,x["file_id"]))
             db.execute("""UPDATE procureflow.g2b_notice_source_files
              SET state=%s WHERE bid_no=%s AND file_id=%s""",
              (status,BID,x["file_id"]))
