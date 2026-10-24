@@ -1,0 +1,177 @@
+/* The standalone /flow page is a separate product workspace, not an
+   embedded dashboard. It occupies the viewport and only retains a compact
+   titlebar; all editors and consoles are user-controlled overlays. */
+.flow-workspace {
+  --flow-panel-width:540px;
+  position:fixed; inset:0; z-index:100; display:flex; flex-direction:column;
+  width:100%; height:100vh; height:100dvh; min-width:320px; overflow:hidden;
+  color:#1b344c; background:#f6f9fc;
+}
+.flow-workspace button,.flow-workspace select {font:inherit}
+.flow-workspace .sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.flow-workspace-topbar {
+  flex:0 0 58px; height:58px; display:flex; align-items:center;
+  justify-content:space-between; gap:16px; padding:0 15px 0 17px;
+  background:#fff; box-shadow:0 1px 0 #dde6f0,0 3px 12px #20384b08; z-index:50;
+}
+.flow-workspace-brand,.flow-workspace-top-actions {display:flex;align-items:center;gap:12px;min-width:0}
+.flow-workspace-logo {background:#15394e;color:#7be4d4;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex-shrink:0}
+.flow-workspace-name {display:flex;flex-direction:column;line-height:1.1;white-space:nowrap}
+.flow-workspace-name strong {font-size:15px;color:#14314c;font-weight:800;letter-spacing:-.3px}
+.flow-workspace-name small {font-size:8px;letter-spacing:1.1px;color:#7e99af;margin-top:5px;font-weight:800}
+.flow-workspace-divider {height:29px;width:1px;background:#dce6ef;flex:0 0 1px;margin:0 5px}
+.flow-workspace-active-case {display:flex;align-items:center;gap:9px;min-width:0;white-space:nowrap}
+.flow-workspace-active-case span:first-child {font-size:10px;color:#91a4b2}
+.flow-workspace-active-case strong {font-size:11px;font-weight:800;color:#254f6a;letter-spacing:.1px}
+.flow-workspace-case-title {font-size:10px;color:#7890a2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(28vw,330px)}
+.flow-workspace-top-actions {gap:6px;flex-shrink:0}
+.flow-workspace-verified {display:flex;align-items:center;gap:5px;font-size:10px;color:#69869a;background:#edf8f4;border-radius:8px;padding:6px 11px;margin-right:7px}
+.flow-workspace-verified svg {color:#1a9b7a}
+.flow-workspace-verified strong {color:#13785f}
+.flow-action {border:1px solid #dce6ed;background:#fff;border-radius:8px;padding:7px 10px;display:inline-flex;justify-content:center;align-items:center;gap:7px;color:#516b83;font-size:11px;font-weight:700;white-space:nowrap;min-height:34px}
+.flow-action:hover {background:#eff7fa;border-color:#accdd9;color:#176a85}
+.flow-action.flow-return {border-color:transparent;background:#f1f5f9;color:#36546d}
+.flow-action.flow-return:hover {background:#e5eef6}
+.flow-workspace-stage {position:relative;flex:1;min-height:0;overflow:hidden;background:#f8fbfd}
+.flow-workspace-canvas {position:absolute;inset:0;min-height:0;overflow:hidden;transition:right .18s ease}
+.flow-workspace-canvas .flow-stage {position:absolute;inset:0;min-height:0;height:100%;background:radial-gradient(ellipse at 25% 17%,#fafdff,#f3f7fc)}
+.flow-workspace-canvas .react-flow {height:100%;width:100%}
+.flow-is-docked .flow-workspace-canvas {right:calc(var(--flow-panel-width) + 3px)}
+.flow-workspace-loading {position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#7e98ab}
+.flow-workspace-loading strong {font-weight:800;font-size:14px;color:#345773}
+.flow-workspace-loading p {max-width:380px;text-align:center;font-size:11px;margin:0;overflow-wrap:anywhere}
+.flow-workspace-floatbar {position:absolute;z-index:15;top:16px;left:16px;display:flex;align-items:center;gap:4px;padding:6px;
+  border:1px solid #d8e3ef;border-radius:11px;box-shadow:0 5px 19px #173f5b1a;background:#fffffff5;max-width:calc(100vw - 40px)}
+.flow-tool {display:inline-flex;gap:6px;align-items:center;background:transparent;border:0;color:#4e6b82;border-radius:7px;padding:8px 10px;min-height:35px;font-size:11px;font-weight:750;white-space:nowrap}
+.flow-tool:hover,.flow-tool.active {background:#e6f5f3;color:#166f7b}
+.flow-tool-separator {width:1px;height:20px;background:#d9e4ed;margin:0 3px;flex-shrink:0}
+.flow-group-picker {min-width:0;position:relative;display:flex;align-items:center;cursor:pointer}
+.flow-group-picker select {appearance:none;cursor:pointer;border:0;background:transparent;border-radius:7px;outline-offset:2px;padding:8px 25px 8px 10px;min-height:35px;max-width:215px;min-width:120px;color:#264961;font-size:11px;font-weight:800;text-overflow:ellipsis}
+.flow-group-picker select:hover {background:#eaf2f7}
+.flow-group-picker svg {pointer-events:none;position:absolute;right:7px;color:#7892a6}
+.flow-tiny-active {width:6px;height:6px;background:#4aaf9c;border-radius:8px}
+.flow-workspace-context {position:absolute;z-index:5;bottom:20px;left:18px;display:flex;gap:9px;align-items:center;
+  padding:8px 12px;background:#fffffff2;border:1px solid #e0e9f2;border-radius:8px;box-shadow:0 3px 14px #1c395e0d;font-size:10px;color:#6a8194;pointer-events:none}
+.flow-workspace-context>span:first-child {display:flex;align-items:center;gap:6px;font-weight:750;color:#31596f}
+.flow-workspace-green-dot {display:inline-block;background:#35a88a;width:7px;height:7px;border-radius:100%}
+.flow-context-divider {width:1px;height:13px;background:#dbe4ec}
+.flow-workspace-last-read {color:#98a7b4}
+.flow-workspace .flow-controls {z-index:9}
+.flow-workspace .mini-map {z-index:8}
+.flow-workspace-next {position:absolute;right:18px;bottom:18px;z-index:9;display:flex;gap:8px;align-items:center;padding:9px 11px;background:#fffffff2;border:1px solid #d5e6e9;box-shadow:0 2px 12px #163a5511;border-radius:9px;color:#538193;font-size:10px}
+.flow-workspace-next strong {font-size:11px;color:#1f637c}
+.flow-workspace-next:hover {border-color:#6eb9bc;background:#edfaf8}
+.flow-workspace-next svg {color:#73a2b2}
+.flow-workspace-safety {position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:4;
+  display:flex;gap:6px;align-items:center;color:#8ba0ae;font-size:9px;white-space:nowrap;pointer-events:none}
+.flow-workspace-warning,.flow-workspace-fullscreen-error {position:absolute;top:78px;left:19px;max-width:440px;z-index:35;padding:11px;border-radius:9px;border:1px solid #f2d9b8;background:#fff9ed;font-size:11px;color:#8c6a38;box-shadow:0 3px 16px #45391512;overflow-wrap:anywhere}
+.flow-workspace-fullscreen-error {top:125px}
+
+/* Optional node-library drawer with no legacy management links. */
+.flow-workspace-library {position:absolute;left:13px;top:75px;bottom:68px;z-index:31;width:314px;max-width:calc(100vw - 28px);
+  display:flex;flex-direction:column;overflow:hidden;border:1px solid #d9e5ee;border-radius:12px;background:white;
+  box-shadow:0 14px 44px #1b3a5860}
+.flow-workspace-drawer-head {flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:15px 14px 11px;gap:8px;border-bottom:1px solid #edf2f6}
+.flow-workspace-drawer-head>div {display:flex;flex-direction:column}
+.flow-workspace-drawer-head strong {font-size:14px;color:#243d56}
+.flow-workspace-drawer-head small {font-size:9px;color:#91a4b4;margin-top:2px}
+.flow-workspace-icon {border:0;background:transparent;color:#7f95a7;display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border-radius:7px;cursor:pointer}
+.flow-workspace-icon:hover {background:#edf4f8;color:#376a85}
+.flow-workspace-search {height:39px;display:flex;align-items:center;gap:8px;padding:0 10px;margin:11px 12px 12px;border:1px solid #dae5ee;background:#f7fafc;border-radius:8px;color:#85a0ae}
+.flow-workspace-search input {border:0;background:transparent;min-width:0;flex:1;outline:none;color:#2e4e64;font-size:11px}
+.flow-workspace-group-list {display:flex;flex-direction:column;gap:2px;flex-shrink:0;padding:0 12px 10px;border-bottom:1px solid #edf1f6}
+.flow-workspace-group-list button {border:0;text-align:left;display:flex;align-items:center;gap:9px;padding:7px 9px;background:transparent;color:#59758c;font-size:10px;border-radius:7px;min-height:31px}
+.flow-workspace-group-list button:hover,.flow-workspace-group-list button.current {background:#e9f5f4;color:#166e77}
+.flow-workspace-group-list button small {margin-left:auto;color:#9bb0be}
+.flow-workspace-group-list button svg:last-child {margin-left:auto}
+.flow-workspace-drawer-caption {display:flex;justify-content:space-between;padding:12px 14px 8px;font-size:10px;font-weight:800;color:#718a9c}
+.flow-workspace-library-list {min-height:0;overflow-y:auto;padding:0 8px 13px 12px}
+.flow-workspace-library-list button {width:100%;display:flex;align-items:center;gap:10px;min-height:39px;padding:8px 7px;background:transparent;border:0;border-bottom:1px solid #f0f3f7;border-radius:5px;text-align:left;color:#445d74}
+.flow-workspace-library-list button:hover,.flow-workspace-library-list button.selected {background:#ecf7f6}
+.flow-feature-index {color:#258c9e;font-size:10px;font-weight:800;flex:0 0 37px}
+.flow-feature-name {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+.flow-feature-status {width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:#b8c5d0}
+.flow-feature-status.verified {background:#27b087}
+.flow-feature-status.partial {background:#d4a044}
+.flow-feature-status.error {background:#d5586b}
+.flow-workspace-no-results {text-align:center;color:#8ca3b4;font-size:11px;padding:15px}
+
+/* Test inspector takes 460–960 pixels (default 540). Drag the left handle,
+   dock it or hide it completely. No width is permanently lost to menus. */
+.flow-workspace-inspector-frame {position:absolute;top:76px;right:12px;bottom:12px;z-index:32;
+  width:var(--flow-panel-width);min-width:0;display:flex;flex-direction:column;overflow:visible;
+  background:white;border:1px solid #dbe6ef;border-radius:13px;box-shadow:0 16px 48px #1a38554b}
+.flow-is-docked .flow-workspace-inspector-frame {top:0;right:0;bottom:0;border-radius:0;border-top:0;border-bottom:0;border-right:0;box-shadow:-3px 0 13px #1c405b13}
+.flow-workspace-resize {position:absolute;top:50px;bottom:6px;left:-7px;width:13px;cursor:ew-resize;z-index:4;border-radius:10px;touch-action:none}
+.flow-workspace-resize:hover:after {content:'';position:absolute;top:32%;bottom:32%;left:6px;width:3px;border-radius:6px;background:#6cbab8}
+.flow-workspace-inspector-controls {height:46px;flex:0 0 46px;display:flex;align-items:center;justify-content:space-between;
+  gap:8px;padding:6px 9px 6px 15px;border-bottom:1px solid #e5edf4;background:#f9fcfe;border-radius:13px 13px 0 0}
+.flow-workspace-inspector-controls>strong {font-size:11px;font-weight:800;color:#35647a;display:flex;align-items:center;gap:8px}
+.flow-workspace-inspector-buttons {display:flex;align-items:center;gap:2px}
+.flow-workspace-inspector-content {flex:1;min-height:0;overflow:hidden;display:flex}
+.flow-workspace-inspector-content .inspector {width:100%;height:100%;flex:1;min-width:0;border:0;border-radius:0}
+.flow-workspace-inspector-content .inspector-header {display:none}
+.flow-workspace-inspector-content .inspector-bottom {flex-shrink:0}
+.flow-workspace-inspector-content .inspector-tab-content {max-height:none}
+.flow-workspace-inspector-content .inspect-content {flex:1;min-height:0}
+.flow-workspace-inspector-content .inspector-tab-content {overscroll-behavior:contain}
+.flow-workspace-inspector-content .json-view {max-height:520px;font-size:11px}
+.flow-workspace-inspector-content .autofacts,.flow-workspace-inspector-content .evidence-list {max-width:100%}
+.flow-workspace-inspector-content .inspector-tabs button {min-width:75px}
+
+/* Execution logs stay hidden until explicitly opened or a job is queued. */
+.flow-workspace-console {position:absolute;z-index:30;left:13px;bottom:15px;right:13px;height:220px;
+  overflow:hidden;display:flex;flex-direction:column;background:#fff;
+  border:1px solid #dae5ed;border-radius:12px;box-shadow:0 10px 32px #1a3e5b3c}
+.flow-workspace-console.with-panel {right:calc(var(--flow-panel-width) + 24px)}
+.flow-workspace-console.expanded {height:min(58vh,550px)}
+.flow-console-controls {height:36px;flex:0 0 36px;background:#eef5f9;border-bottom:1px solid #dfe9f0;
+  display:flex;align-items:center;justify-content:space-between;padding:0 9px 0 15px;color:#45687f}
+.flow-console-controls>span {display:flex;align-items:center;gap:7px;font-size:10px;font-weight:800}
+.flow-console-controls>div {display:flex}
+.flow-workspace-console .console-bar {border:0;overflow:auto;display:flex;flex-direction:column;flex:1;min-height:0}
+.flow-workspace-console .console-toggle {flex:0 0 auto}
+.flow-workspace-console .console-body {flex:1;max-height:none;min-height:0;overflow:auto}
+.flow-workspace-console.expanded .console-body {max-height:none}
+.flow-workspace-console .console-body pre {max-height:none}
+.flow-workspace-console .console-meta {flex-wrap:wrap}
+
+/* Standalone mobile view: still a full-height canvas; settings are full-width
+   overlays, not permanent columns. */
+@media (max-width:1170px) {
+  .flow-workspace-case-title {max-width:170px}
+  .flow-workspace-verified {display:none}
+  .flow-workspace-active-case span:first-child {display:none}
+}
+@media (max-width:850px) {
+  .flow-workspace-topbar {height:52px;flex-basis:52px;padding:0 10px}
+  .flow-workspace-name small {display:none}
+  .flow-workspace-divider,.flow-workspace-case-title {display:none}
+  .flow-workspace-verified {display:none}
+  .flow-workspace-top-actions {gap:4px}
+  .flow-workspace-top-actions .flow-action {padding:7px}
+  .flow-workspace-top-actions .flow-action span {display:none}
+  .flow-workspace-inspector-frame {width:min(var(--flow-panel-width),calc(100vw - 22px));top:64px;right:11px;bottom:12px}
+  .flow-is-docked .flow-workspace-canvas {right:0}
+  .flow-is-docked .flow-workspace-inspector-frame {top:64px;right:11px;bottom:12px;border-radius:12px}
+  .flow-workspace-console.with-panel {right:13px}
+  .flow-workspace-console.with-panel:not(.expanded) {height:180px}
+  .flow-workspace-safety,.flow-workspace-last-read {display:none}
+}
+@media (max-width:540px) {
+  .flow-workspace-name strong {font-size:12px}
+  .flow-workspace-logo {width:30px;height:30px}
+  .flow-workspace-active-case strong {font-size:9px}
+  .flow-workspace-brand {gap:6px}
+  .flow-workspace-floatbar {left:8px;top:10px;max-width:calc(100vw - 16px);gap:0;padding:3px}
+  .flow-tool {padding:7px;min-height:32px}
+  .flow-tool>span:not(.flow-tiny-active) {display:none}
+  .flow-group-picker select {min-width:118px;max-width:155px}
+  .flow-tool-separator {margin:0 1px}
+  .flow-workspace-context {left:8px;bottom:12px;padding:7px}
+  .flow-workspace-next {right:8px;bottom:54px;max-width:280px}
+  .flow-workspace-next>span {display:none}
+  .flow-workspace-library {top:60px;bottom:57px;left:8px;width:calc(100vw - 16px)}
+  .flow-workspace-inspector-frame {top:56px;right:4px;bottom:4px;width:calc(100vw - 8px);max-width:none}
+  .flow-workspace-console {left:5px;right:5px;bottom:5px}
+}
