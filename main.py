@@ -20,7 +20,7 @@ def guard(value):
 @app.get("/",response_class=HTMLResponse)
 def home():
     raw=(Path(__file__).parent/"static/index.html").read_text(encoding="utf-8")
-    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a> · <a href='/browser'>Headless 화면·DOM·네트워크 진단</a></section>",1)
+    return raw.replace("<main>","<main><section><a href='/bids'>나라장터 개찰·낙찰 결과 및 웹 수집 관리</a> · <a href='/simulate'>실제 공고 기반 입찰 사전검증 (제출 금지)</a> · <a href='/browser'>Headless 화면·DOM·네트워크 진단</a> · <a href='/prepare'>경비용역 제안서·가격 시뮬레이션</a></section>",1)
 
 @app.get("/private-details",response_class=HTMLResponse)
 def private_details_web():
@@ -570,7 +570,28 @@ def bid_simulation_preview(source:str=Query(...,pattern="^(g2b|kapt)$"),
     guard(authorization)
     from bid_simulation import preview
     try:
-        return preview(session,source,external_id)
+        result=preview(session,source,external_id)
+        if source=="kapt" and external_id=="20261020165014951":
+            from bid_price_engine import build_price_model
+            cost=build_price_model()
+            result["preliminary_price_model"]={
+               "monthly_krw":cost["totals"]["monthly_total_krw"],
+               "annual_krw":cost["totals"]["annual_total_krw"],
+               "status":cost["validity"],
+               "submission_ready":False,
+               "model_url":"/api/simulation/price-preview",
+               "proposal_url":"/api/simulation/proposal-draft",
+               "editor_url":"/prepare"
+            }
+            for step in result["stages"]:
+                if step["id"]=="cost_and_price":
+                    step["state"]="partial"
+                    step["observation"]="공고 OCR 원가 시나리오 계산 완료: 연 "+str(
+                        cost["totals"]["annual_total_krw"])+"원 (비확정, 원본·실비 미검증)"
+                    step["required_next"]="원본 지정 산출서, 직책수당, 보험·VAT, 대체인력 및 협력사 원가 검증"
+                if step["id"]=="final_documents":
+                    step["observation"]="8개 사업제안서 구간 작성 초안; 업체명·자격·인력·장비·서류 원본 미확정"
+        return result
     except LookupError as exc:
         raise HTTPException(404,str(exc))
     except ValueError as exc:
@@ -729,3 +750,48 @@ def browser_image_chunk(job_id:int,stage:str,
             "base64_chunk":b64[offset:offset+size],
             "has_more":offset+size<len(b64),
             "content_type":"image/jpeg"}
+
+
+@app.get("/prepare",response_class=HTMLResponse)
+def proposal_and_price_simulator_web():
+    """Standalone staged pricing and written technical proposal review."""
+    return (Path(__file__).parent/"static/bid_prepare.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/simulation/price-preview")
+def tender_evidence_price_preview(
+    external_id:str="20261020165014951",
+    role_allowance_krw:int=Query(0,ge=0,le=1000000),
+    relief_staff_monthly_krw:int=Query(0,ge=0,le=3000000),
+    admin_pct:str=Query("3",min_length=1,max_length=8),
+    profit_pct:str=Query("3",min_length=1,max_length=8),
+    common_cost_scope:str=Query("site",pattern="^(site|each_worker)$"),
+):
+    from bid_price_engine import NOTICE_ID,build_price_model
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified cost schedule for this notice")
+    try:
+        return build_price_model(
+            role_allowance_krw=role_allowance_krw,
+            relief_staff_monthly_krw=relief_staff_monthly_krw,
+            admin_pct=admin_pct,profit_pct=profit_pct,
+            common_cost_scope=common_cost_scope)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/simulation/price-scenarios")
+def tender_pricing_scenarios(external_id:str="20261020165014951"):
+    from bid_price_engine import NOTICE_ID,price_scenarios
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified cost schedule for this notice")
+    return {"notice_id":NOTICE_ID, "scenarios":price_scenarios(),
+            "bid_ready":False,"submitted":False}
+
+
+@app.get("/api/simulation/proposal-draft")
+def tender_proposal_draft(external_id:str="20261020165014951"):
+    from bid_price_engine import NOTICE_ID,proposal_draft
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified requirements for this notice")
+    return proposal_draft()
