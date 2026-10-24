@@ -20,6 +20,12 @@ def startup():
     recover_from_existing_raw()
     from g2b_case_10y import ensure_schema as ensure_single_case_history
     ensure_single_case_history()
+    from g2b_official_notices import ensure_notice_schema
+    ensure_notice_schema()
+    from g2b_documents import ensure_documents
+    ensure_documents()
+    from g2b_case_engine import ensure_engine
+    ensure_engine()
     # One specific user-selected case only; import cited legacy notice evidence.
     with session() as db:
         observed=db.execute("""INSERT INTO procureflow.settings(key,value)
@@ -1036,3 +1042,106 @@ def g2b_selected_bid_history_10y(limit:int=Query(100,ge=1,le=1000)):
     """Selected tender only. Exact category 81111599, nationwide 2016-2026."""
     from g2b_case_10y import status
     return status(limit)
+
+
+# ---- G2B 104-feature, one-case evidence-gated procurement workbench ----
+@app.get("/api/g2b/full/status")
+def full_g2b_feature_status():
+    from g2b_feature_registry import FEATURES,features_by_group
+    from g2b_official_notices import sync_status
+    from g2b_case_engine import dashboard
+    x=dashboard()
+    return {"catalog_size":len(FEATURES),"case":x["case"]["bid_no"],
+            "notice_ingestion":sync_status(),"phases":x["phases"],
+            "counts":{
+              "verified":sum(t["acceptance_state"]=="verified" for t in x["feature_acceptance"]),
+              "partial":sum(t["acceptance_state"]=="partial" for t in x["feature_acceptance"]),
+              "missing":sum(t["acceptance_state"]=="missing" for t in x["feature_acceptance"])
+            },"complete":x["all_104_verified"],
+            "submitted":False}
+
+@app.get("/api/g2b/full/case")
+def full_g2b_selected_case():
+    from g2b_case_engine import dashboard
+    return dashboard()
+
+@app.get("/api/g2b/full/notices/status")
+def full_g2b_notice_status():
+    from g2b_official_notices import sync_status
+    return sync_status()
+
+@app.get("/api/g2b/full/documents")
+def full_g2b_doc_status():
+    from g2b_documents import list_documents
+    return list_documents("R26BK01787028","000")
+
+@app.get("/api/g2b/full/readiness")
+def full_g2b_readiness():
+    from g2b_case_engine import readiness_check
+    return readiness_check()
+
+@app.get("/api/g2b/full/price")
+def full_g2b_price():
+    from g2b_bid_package import documented_price_scenarios
+    return documented_price_scenarios()
+
+@app.get("/api/g2b/full/proposal")
+def full_g2b_proposal():
+    from g2b_bid_package import proposal_contents
+    return proposal_contents()
+
+@app.get("/api/g2b/full/proposal.docx")
+def full_g2b_proposal_docx():
+    from g2b_bid_package import draft_docx
+    from fastapi.responses import Response
+    binary,data=draft_docx()
+    return Response(content=binary,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":"attachment; filename=ProcureFlow-G2B-Draft.docx",
+                 "X-ProcureFlow-Draft-Only":"true"})
+
+class FullBidAction(BaseModel):
+    phase:str=Field("all",pattern="^(all|notice|ten_year|documents|evidence|readiness)$")
+
+@app.post("/api/g2b/full/run")
+def full_g2b_run(req:FullBidAction,authorization:str|None=Header(None)):
+    guard(authorization)
+    with session() as db:
+        active=db.execute("""SELECT id FROM procureflow.jobs
+              WHERE source='g2b_full_case'
+              AND state IN ('queued','running') LIMIT 1""").fetchone()
+        if active:raise HTTPException(409,"G2B selected case already processing")
+        config={"bid_no":"R26BK01787028","phase":req.phase}
+        jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+              VALUES('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+              (json.dumps(config,ensure_ascii=False),
+               "G2B 104-stage selected tender workflow")).fetchone()["id"]
+    return {"job_id":jid,"queued":True,"bid_no":"R26BK01787028","submitted":False}
+
+class FullEvidenceInput(BaseModel):
+    kind:str=Field(...,min_length=3,max_length=60)
+    reference:str=Field(...,min_length=1,max_length=150)
+    source_url:str=""
+    structured:dict=Field(default_factory=dict)
+
+@app.post("/api/g2b/full/evidence")
+def full_case_evidence_input(req:FullEvidenceInput,authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_case_engine import add_evidence
+    try:
+        # Manual content is recorded as received, not falsely 'official verified'.
+        return add_evidence("R26BK01787028",req.kind,req.reference,
+                            req.source_url,req.structured,False)
+    except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+class FullDecisionInput(BaseModel):
+    kind:str=Field(...,min_length=3,max_length=60)
+    key:str=Field(...,min_length=1,max_length=100)
+    value:dict=Field(default_factory=dict)
+
+@app.post("/api/g2b/full/decision")
+def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_case_engine import put_decision
+    try:return put_decision("R26BK01787028",req.kind,req.key,req.value)
+    except ValueError as exc:raise HTTPException(400,str(exc)) from None
