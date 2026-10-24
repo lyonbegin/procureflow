@@ -123,7 +123,7 @@
 .flow-workspace-console {position:absolute;z-index:30;left:13px;bottom:15px;right:13px;height:220px;
   overflow:hidden;display:flex;flex-direction:column;background:#fff;
   border:1px solid #dae5ed;border-radius:12px;box-shadow:0 10px 32px #1a3e5b3c}
-.flow-workspace-console.with-panel {right:calc(var(--flow-panel-width) + 24px)}
+.flow-workspace-console.with-dock {right:calc(var(--flow-panel-width) + 24px)}
 .flow-workspace-console.expanded {height:min(58vh,550px)}
 .flow-console-controls {height:36px;flex:0 0 36px;background:#eef5f9;border-bottom:1px solid #dfe9f0;
   display:flex;align-items:center;justify-content:space-between;padding:0 9px 0 15px;color:#45687f}
@@ -154,8 +154,8 @@
   .flow-workspace-inspector-frame {width:min(var(--flow-panel-width),calc(100vw - 22px));top:64px;right:11px;bottom:12px}
   .flow-is-docked .flow-workspace-canvas {right:0}
   .flow-is-docked .flow-workspace-inspector-frame {top:64px;right:11px;bottom:12px;border-radius:12px}
-  .flow-workspace-console.with-panel {right:13px}
-  .flow-workspace-console.with-panel:not(.expanded) {height:180px}
+  .flow-workspace-console.with-dock {right:13px}
+  .flow-workspace-console.with-dock:not(.expanded) {height:180px}
   .flow-workspace-safety,.flow-workspace-last-read {display:none}
 }
 @media (max-width:540px) {
