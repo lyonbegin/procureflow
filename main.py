@@ -67,6 +67,23 @@ def home():
     return (Path(__file__).parent/"static/workbench.html").read_text(encoding="utf-8")
 
 
+@app.get("/flow", response_class=HTMLResponse)
+def standalone_workflow_workspace():
+    """Dedicated, viewport-filling React Flow editor/test workspace.
+
+    Serve the same built client bundle as the main cockpit but independently
+    at /flow; browser routing chooses its full-screen shell with NO side menus.
+    Do not silently serve the legacy UI if the production bundle is absent.
+    """
+    index = STUDIO_DIST / "index.html"
+    if not index.is_file():
+        raise HTTPException(503, "React Flow studio build is not present")
+    return FileResponse(
+        index, media_type="text/html",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @app.get("/legacy/workbench",response_class=HTMLResponse)
 def legacy_procurement_workbench():
     """Preserve all existing browsing, collecting and tender-management controls."""

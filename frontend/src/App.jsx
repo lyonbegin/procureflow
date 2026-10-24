@@ -13,9 +13,11 @@ import {
   LockKeyhole, Menu, MoreHorizontal, Network, Play, Radar, RefreshCw,
   Search, ShieldCheck, SlidersHorizontal, TerminalSquare, X, XCircle,
   AlertCircle, Calculator, ClipboardCheck, HardDrive, Building2,
-  Zap, ZoomIn, ListChecks, Info, PanelRightClose,
+  Zap, ZoomIn, ListChecks, Info, PanelRightClose, Maximize2,
 } from 'lucide-react';
 import { api, SELECTED_BID } from './api.js';
+import FlowWorkspace from './FlowWorkspace.jsx';
+import { isStandaloneFlowPath } from './flowWorkspace.js';
 import {
   GROUPS, GROUP_BY_ID, TOTAL_FEATURES,
   featureGroup, overviewGraph, detailGraph,
@@ -190,6 +192,7 @@ function SideMenu({ catalog, view, onGroup, query, setQuery, onFeature, mobileOp
       </div>}
       <div className="side-section-label other-label">기존 운영 화면</div>
       <nav className="legacy-nav" aria-label="기존 운영 도구">
+        <a href="/flow" target="_blank" rel="noopener noreferrer"><Maximize2 size={16}/>워크플로 독립 작업실 <ExternalLink size={12}/></a>
         <a href="/legacy/workbench"><BookOpen size={16}/>발주 · 입찰 목록 <ExternalLink size={12}/></a>
         <a href="/bids"><Database size={16}/>개찰 · 낙찰 데이터 <ExternalLink size={12}/></a>
         <a href="/operations"><HardDrive size={16}/>수집기 · 운영 관리 <ExternalLink size={12}/></a>
@@ -648,6 +651,41 @@ function StudioApp() {
 
   const section = GROUP_BY_ID[view];
   const selectedFeature = catalog.find((x) => x.number === selectedNumber);
+
+  // Full /flow path is an actual standalone workspace, not a subpanel in
+  // the dashboard. Use identical API/Worker state and node inspectors, while
+  // allowing the canvas to fill the viewport and drawers to be dismissed.
+  if (isStandaloneFlowPath(window.location.pathname)) {
+    return <FlowWorkspace
+      catalog={catalog} catalogBusy={catalogBusy} catalogError={catalogError}
+      context={context} lastRead={lastRead}
+      view={view} selectedNumber={selectedNumber}
+      onGroup={openGroup} onFeature={openFeature} onNodeClick={onNodeClick}
+      onRefresh={() => refresh()} plan={plan} planError={planError}
+      job={activeJob} consoleOpen={consoleOpen} setConsoleOpen={setConsoleOpen}
+      renderCanvas={(clickNode) => <div className="flow-stage">
+        <Canvas catalog={catalog} context={context} view={view}
+          selectedNumber={selectedNumber} onNodeClick={clickNode}/>
+      </div>}
+      renderInspector={(close) => <Inspector
+        context={context} catalog={catalog} view={view}
+        selectedNumber={selectedNumber} detail={inspector} detailLoading={inspectBusy}
+        detailError={inspectError} tab={tab} setTab={setTab} params={params}
+        setParams={setParams} token={token} setToken={setToken}
+        onInspect={() => { if (selectedNumber) loadInspector(selectedNumber, true); }}
+        onRun={runOne} actionBusy={actionBusy} actionError={actionError}
+        job={activeJob} runs={runs} runsLoading={runsLoading}
+        onFeature={openFeature} runHistory={runHistory}
+        collapse={false} setCollapse={(collapsed) => { if (collapsed) close(); }}/>}
+      renderConsole={() => <Console open={consoleOpen} setOpen={setConsoleOpen}
+        job={activeJob} jobError={jobError} selectedNumber={selectedNumber}
+        onRefresh={() => {
+          refresh(true);
+          if (selectedNumber) { loadInspector(selectedNumber, true); loadRuns(selectedNumber); }
+        }}/>}
+    />;
+  }
+
   return <div className="shell">
     {mobileMenu && <button className="mobile-overlay" aria-label="메뉴 닫기" onClick={() => setMobileMenu(false)} />}
     <SideMenu catalog={catalog} view={view} onGroup={openGroup} query={query}
@@ -661,6 +699,9 @@ function StudioApp() {
         </div>
         <div className="topbar-actions">
           <span className="topbar-latest"><span className="live-dot"/> DB 원본 기준 {lastRead ? formatDate(lastRead) : '조회 중'}</span>
+          <a className="button primary" href="/flow" target="_blank" rel="noopener noreferrer"
+            title="메뉴 없이 독립적인 전체 화면에서 노드 검사 및 테스트">
+            <Maximize2 size={15}/>워크플로 전체화면 <ExternalLink size={12}/></a>
           <button className="button light" onClick={() => refresh()} disabled={catalogBusy}>
             <RefreshCw size={15} className={catalogBusy ? 'spinning' : ''}/>새로고침</button>
           <a className="button light topbar-api" href="/docs" target="_blank" rel="noopener"><BookOpen size={15}/>API</a>
