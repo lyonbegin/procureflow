@@ -151,6 +151,33 @@ class FeatureAPITest(unittest.TestCase):
         self.assertFalse(result["independent_acceptance"])
         self.assertIsNone(result["data"])
 
+    def test_suppliers_refuse_unverified_selected_code(self):
+        untrusted = {**CONTEXT, "original_notice_verified": False,
+                     "official_detail10": []}
+        result = feature_observation(71, untrusted)
+        self.assertEqual(result["status"], "missing")
+        self.assertIsNone(result["data"])
+        self.assertIn("category_required", result["notes"]["reason"])
+
+    def test_supplier_lookup_queries_exact_original_code(self):
+        class FakeConnection:
+            def execute(self, query, args):
+                self.args = args
+                class FakeRows:
+                    def fetchall(self): return []
+                return FakeRows()
+        from contextlib import contextmanager
+        db = FakeConnection()
+        @contextmanager
+        def fake_session():
+            yield db
+        with patch("g2b_feature_data.session", fake_session):
+            result = feature_observation(71, CONTEXT)
+        self.assertEqual(result["status"], "observed")
+        self.assertEqual(db.args, (["8111159901"], ["8111159901"]))
+        self.assertEqual(result["data"]["candidates"], [])
+        self.assertFalse(result["data"]["bid_specific_capability_confirmed"])
+
     def test_openapi_has_104_individual_operations(self):
         from fastapi.openapi.utils import get_openapi
         schema = get_openapi(title="test", version="1", routes=self.client.app.routes)
