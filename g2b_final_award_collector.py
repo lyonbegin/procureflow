@@ -39,7 +39,8 @@ def normalized_confirmed_award(listing,detail):
     bid_ord=str(pbanc.get("bidPbancOrd") or listing.get("bidPbancOrd") or "000")
     clsfc=str(pbanc.get("bidClsfNo") or listing.get("bidClsfNo") or "0")
     progress=str(pbanc.get("bidPrgrsOrd") or listing.get("bidPrgrsOrd") or "000")
-    if not (bid_no.startswith("R") and len(bid_no)>=12):return None
+    import re
+    if not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",bid_no):return None
     # Composite execution identity rather than bidder name: if amended final
     # results later select another company, the latest verified result replaces it.
     key=hashlib.sha256(("g2b|final-award|"+bid_no+"|"+bid_ord+"|"+
