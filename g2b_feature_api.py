@@ -270,13 +270,24 @@ def api_feature_job(bid_no: str, job_id: int, authorization: str | None = Header
         job = con.execute("""SELECT id,state,config,message,last_error,
                           created_at,started_at,finished_at FROM procureflow.jobs
                           WHERE id=%s AND source='g2b_feature'""", (job_id,)).fetchone()
-    if not job or job["config"].get("bid_no") != bid_no:
-        raise HTTPException(404, "Feature job not found")
+        if not job or job["config"].get("bid_no") != bid_no:
+            raise HTTPException(404, "Feature job not found")
+        run_id=job["config"].get("run_id")
+        run=None
+        if isinstance(run_id,int) and run_id>0:
+            run=con.execute("""SELECT id,phase,state,result,error,created_at,
+                      started_at,finished_at FROM procureflow.g2b_case_runs
+                      WHERE bid_no=%s AND id=%s
+                        AND phase=%s""",
+                      (bid_no,run_id,f"feature:{int(job['config']['feature_no']):03}")).fetchone()
     return {"job_id": job_id, "state": job["state"],
             "feature_no": job["config"]["feature_no"],
             "message": job["message"], "error": job["last_error"],
             "created_at": job["created_at"], "started_at": job["started_at"],
-            "finished_at": job["finished_at"]}
+            "finished_at": job["finished_at"],
+            "run_id":run_id if run else None,
+            "execution_result":dict(run) if run else None,
+            "acceptance_is_independent_of_worker_completion":True}
 
 
 def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
@@ -296,13 +307,20 @@ def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
     config = {"bid_no": bid_no, "bid_ord": CASE_ORD, "feature_no": number,
               "parameters": params}
     with session() as con:
-        active = con.execute("""SELECT id FROM procureflow.jobs
+        # Serialize feature enqueues on the selected case. Cross-feature calls
+        # can share the same expensive upstream collector; allowing concurrent
+        # requests can overload the official endpoint and corrupt progress.
+        owner=con.execute("""SELECT bid_no FROM procureflow.g2b_case_control
+                          WHERE bid_no=%s FOR UPDATE""",(bid_no,)).fetchone()
+        if not owner:
+            raise HTTPException(404,"Selected tender control record not initialized")
+        active = con.execute("""SELECT id,config->>'feature_no' AS feature_no
+                     FROM procureflow.jobs
                      WHERE source='g2b_feature' AND config->>'bid_no'=%s
-                       AND config->>'feature_no'=%s
-                       AND state IN ('queued','running') LIMIT 1""",
-                             (bid_no, str(number))).fetchone()
+                       AND state IN ('queued','running') ORDER BY id LIMIT 1""",
+                             (bid_no,)).fetchone()
         if active:
-            raise HTTPException(409, f"Feature {number} already queued/running in job {active['id']}")
+            raise HTTPException(409, f"Selected tender feature {active['feature_no']} already queued/running in job {active['id']}")
         job_id = con.execute("""INSERT INTO procureflow.jobs(source,config,message)
                       VALUES ('g2b_feature',%s::jsonb,%s) RETURNING id""",
                       (json.dumps(config, ensure_ascii=False),
