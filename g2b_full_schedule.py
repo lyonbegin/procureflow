@@ -40,28 +40,15 @@ def tick(session):
             try:
                 discovery_due=(now-datetime.fromisoformat(recent))>=timedelta(hours=2)
             except (ValueError,TypeError):pass
-        if not api_key():
-            # Public code-validated index can progress without the DATA_GO_KR key,
-            # but it does NOT mark the 121 official month windows as completed.
-            public=c.execute("""SELECT value FROM procureflow.settings
-               WHERE key='g2b:single:81111599:secondary_index_cursor'""").fetchone()
-            public_state=public["value"] if public else {}
-            if public_state.get("exhausted"):
-                return {"status":"secondary_index_exhausted",
-                        "official_ten_year_unverified":True}
-            cycle=int(state.get("cycles",0))+1
-            # Every fourth bounded job checks genuinely opened past G2B
-            # notices for detailed bidders/final awards from official Nuri.
-            phase="opening_details" if cycle%4==0 else "ten_year"
-            state["cycles"]=cycle
-            origin="secondary_category_and_official_opening_fallback"
-        else:
-            phase="discover" if discovery_due else "ten_year" if waiting else "notice"
-            origin="official_schedule"
+        # User-requested target is 10-year OPENING/FINAL-AWARD records
+        # for the exact 10-digit product, not a generic 8-digit notice list.
+        # Candidate notices are read solely inside the per-bid result verifier.
+        phase="exact_outcomes"
+        origin="target_exact_8111159901_actual_opening_and_awards"
         meta={"bid_no":"R26BK01787028","phase":phase,"origin":origin}
         job_id=c.execute("""INSERT INTO procureflow.jobs(source,config,message)
            VALUES ('g2b_full_case',%s::jsonb,%s) RETURNING id""",
-           (json.dumps(meta),"Selected G2B 81111599 category automatic scheduler")).fetchone()["id"]
+           (json.dumps(meta),"Selected bid: exact 8111159901 ten-year actual bidder/award results")).fetchone()["id"]
         state.update({"last_queued":now.isoformat(),"last_phase":phase,
                       "last_job":job_id})
         if phase=="discover":state["last_discovery"]=now.isoformat()
