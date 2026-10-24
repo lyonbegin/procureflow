@@ -175,7 +175,7 @@ def main():
     # The user selected exactly one current G2B tender and a ten-year
     # category-only historical window. Never select other cases automatically.
     with session() as db:
-        marker="g2b-single-case-81111599-seed-20261024-v1"
+        marker="g2b-single-case-81111599-seed-20261024-v2"
         claim=db.execute("""INSERT INTO procureflow.settings(key,value)
              VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
              """,(marker,'{"bid_no":"R26BK01787028","category8":"81111599","years":10}')).fetchone()
