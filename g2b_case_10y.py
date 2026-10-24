@@ -63,8 +63,8 @@ def parse_8digit_notice(html,origin):
     if not CLASS_RE.search(raw):
         return None, "no_explicit_81111599"
     if "bid24.kr" in origin:
-        n=re.search(r"공고번호\s*\|\s*(R\d{2}BK\d{8})",raw)
-        d=re.search(r"공고일시\s*\|\s*(\d{1,2})월\s*(\d{1,2})일",raw)
+        n=re.search(r"공고번호\s*\|?\s*(R\d{2}BK\d{8})",raw)
+        d=re.search(r"공고일시\s*\|?\s*(\d{1,2})월\s*(\d{1,2})일",raw)
         if not n:return None,"missing_bid_no"
         year=int(n.group(1)[1:3])+2000
         if not d:return None,"missing_pubdate"
