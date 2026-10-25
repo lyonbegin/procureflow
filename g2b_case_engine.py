@@ -322,9 +322,12 @@ def _display_feature_state(f,group_state,evidence):
         return "partial"
     return "missing"
 
-def dashboard(bid_no=SINGLE_CASE,event_limit=25):
+def dashboard(bid_no=SINGLE_CASE,event_limit=25,*,refresh=True):
     if bid_no!=SINGLE_CASE:raise ValueError("only selected tender")
-    material=refresh_existing_evidence(bid_no)
+    # Background/Worker collection explicitly refreshes evidence. The native
+    # n8n read-only inspector must not mutate the evidence registry on GET.
+    material=(refresh_existing_evidence(bid_no) if refresh else
+              {"source":"stored_verified_evidence_only","refresh_performed":False})
     with session() as db:
         row=db.execute("""SELECT * FROM procureflow.g2b_case_control
              WHERE bid_no=%s""",(bid_no,)).fetchone()
