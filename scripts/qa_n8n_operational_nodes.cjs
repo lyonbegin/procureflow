@@ -72,6 +72,17 @@ for(const f of manifest.flows){
  progressTests++;
  assert.equal(stale.poll_timed_out,true);
  assert.equal(stale.poll_end,true);
+ const failed=evalNode(output.parameters.jsCode,evalNode(poll.parameters.jsCode,{...fake,worker_terminal:true,worker_state:'failed',worker_error:'official source timeout'}));
+ progressTests++;
+ assert.equal(failed.workflow_state,'WORKER_FAILED');
+ assert.equal(failed.requires_operator_check,true);
+ assert.equal(failed.worker_error,'official source timeout');
+ const cancelled=evalNode(output.parameters.jsCode,evalNode(poll.parameters.jsCode,{...fake,worker_terminal:true,worker_state:'cancelled'}));
+ progressTests++;
+ assert.equal(cancelled.workflow_state,'WORKER_CANCELLED');
+ const partial=evalNode(output.parameters.jsCode,evalNode(poll.parameters.jsCode,{...fake,worker_terminal:true,worker_state:'completed_partial'}));
+ progressTests++;
+ assert.equal(partial.workflow_state,'WORKER_PARTIAL');
  const timeoutResult=evalNode(output.parameters.jsCode,stale);
  progressTests++;
  assert.equal(timeoutResult.workflow_state,'POLL_TIMED_OUT');
