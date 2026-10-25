@@ -1,0 +1,32 @@
+name: n8n Public Editor Gateway Auth & UI Reachability
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/n8n-public-editor-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-auth-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Verify the actual public gateway is reachable and protects native n8n UI
+        run: |
+          set -euo pipefail
+          BASE="https://procureflow-n8n-editor-gateway-production.up.railway.app"
+          status="000"
+          for i in $(seq 1 6); do
+            status=$(curl --silent --show-error --max-time 20 -o /tmp/gateway-health -w "%{http_code}" "${BASE}/healthz" || true)
+            [ "$status" = "200" ] && break
+            sleep 8
+          done
+          echo "N8N_PUBLIC_GATEWAY_HEALTH_HTTP=$status"
+          test "$status" = "200"
+          grep -qx "ok" /tmp/gateway-health
+          for route in / /setup /workflow/PFOP2026PF05WF /rest/settings; do
+            code=$(curl --silent --show-error --max-time 20 -o /tmp/n8n-editor-protected -w "%{http_code}" "${BASE}${route}")
+            echo "UNAUTHENTICATED_N8N_ROUTE ${route} -> ${code}"
+            test "$code" = "401"
+          done
+          echo "N8N_NATIVE_EDITOR_GATEWAY_ACCESS_CONTROL_VERIFIED"
