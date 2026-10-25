@@ -5,6 +5,8 @@ on:
       - "n8n/**"
       - "docker-compose.n8n.yml"
       - "n8n_scenarios.py"
+      - "n8n_native_probe.py"
+      - "tests/test_n8n_native_probe.py"
       - "n8n_landing.py"
       - "main.py"
       - "Dockerfile"
@@ -42,9 +44,9 @@ jobs:
       - name: Install Python API/test dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
       - name: Compile n8n scenario backend and original G2B business APIs
-        run: python -m py_compile main.py n8n_scenarios.py n8n_landing.py g2b_feature_api.py g2b_node_lab.py worker.py
+        run: python -m py_compile main.py n8n_scenarios.py n8n_native_probe.py n8n_landing.py g2b_feature_api.py g2b_node_lab.py worker.py
       - name: Verify all ten n8n workflows, scenario API and retired React Flow
-        run: python -m pytest -q tests/test_n8n_scenarios.py tests/test_n8n_only_migration.py tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py
+        run: python -m pytest -q tests/test_n8n_scenarios.py tests/test_n8n_native_probe.py tests/test_n8n_only_migration.py tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py
       - name: Validate compose configuration (when Docker available)
         env:
           N8N_DB_PASSWORD: ci-fake-not-used
