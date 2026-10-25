@@ -67,7 +67,7 @@ def test_native_flow_exports_are_manual_trigger_native_http_and_not_react_dag():
         assert "R26BK01787028" in wf["nodes"][1]["parameters"]["jsCode"]
         assert not any(n["type"].endswith("webhook") for n in wf["nodes"])
         assert sum(n["type"] == "n8n-nodes-procureflow.procureFlow" for n in wf["nodes"]) == 2
-        assert wf["nodes"][1]["parameters"]["jsCode"].find("mode:\\"inspect\\"") >= 0
+        assert 'mode:"inspect"' in wf["nodes"][1]["parameters"]["jsCode"]
         branches=wf["connections"]["실제 Worker Job 실행 여부"]["main"]
         assert branches[0][0]["node"]=="관리자 인증 · 실제 Worker Job 등록"
         assert branches[1][0]["node"]=="조회 결과 종료 · 실제 Job 미실행"
