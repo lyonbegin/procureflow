@@ -25,6 +25,8 @@ CHECKS = [
     ("/api/n8n/operational/flows", "n8n-15-real-flows"),
     ("/api/n8n/operational/flows/PF05/next-action", "real-g2b-next-action"),
     ("/api/n8n/operational/flows/PF12/next-action", "manual-only-decision"),
+    ("/n8n/progress?flow=PF05", "n8n-live-monitor"),
+    ("/api/n8n/operational/flows/PF05/progress", "n8n-live-worker-progress"),
 ]
 
 
@@ -88,6 +90,20 @@ def check(path: str, kind: str) -> dict:
                 doc.get("status")=="MANUAL_ONLY" and
                 doc.get("candidate") is None and
                 doc.get("job_enqueued") is False)
+        elif kind == "n8n-live-monitor":
+            ok=("실제 업무 진행상황" in body and
+                "Worker 진행 이력" in body and
+                "setInterval" in body and "자동 입찰" in body)
+        elif kind == "n8n-live-worker-progress":
+            doc=json.loads(body)
+            ok=(doc.get("flow_id")=="PF05"
+                and doc.get("bid_no")=="R26BK01787028"
+                and doc.get("read_only") is True
+                and doc.get("job_enqueued") is False
+                and doc.get("bid_submitted") is False
+                and doc.get("source")=="live_procureflow_postgresql_jobs_and_official_evidence"
+                and isinstance(doc.get("active_jobs_count"),int)
+                and doc.get("features_total")==24)
         elif kind == "104-api":
             doc=json.loads(body)
             ok = doc.get("total")==104 and len(doc.get("features",[]))==104
