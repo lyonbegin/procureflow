@@ -214,6 +214,68 @@ def runnable_nodes(graph: dict, run: dict) -> dict:
             "simulated_parallel_ready":len(ready)>1}
 
 
+def _json_path_read(value: Any, path: str) -> tuple[bool, Any]:
+    """Constrained data binding; no eval, code, SQL or user-defined functions."""
+    if not PATH_PATTERN.fullmatch(path):
+        raise GraphError("unsafe_source_mapping_path")
+    chunks = re.findall(r"[A-Za-z_][\\w]*|\\[[0-9]+\\]", path.lstrip("$."))
+    for part in chunks:
+        if part.startswith("["):
+            index = int(part[1:-1])
+            if not isinstance(value, list) or not 0 <= index < len(value):
+                return False, None
+            value = value[index]
+        else:
+            if not isinstance(value, dict) or part not in value:
+                return False, None
+            value = value[part]
+    return True, deepcopy(value)
+
+
+def _json_path_write(target: dict, path: str, value: Any) -> None:
+    if not PATH_PATTERN.fullmatch(path):
+        raise GraphError("unsafe_target_mapping_path")
+    parts = path.lstrip("$.").split(".")
+    if len(parts) > 12 or any("[" in part for part in parts):
+        # All target paths are ordinary nested object fields. Array positions
+        # are read-only to prevent accidental modification of source records.
+        raise GraphError("target_path_must_be_nested_object_fields")
+    current = target
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+        if not isinstance(current, dict):
+            raise GraphError("conflicting_input_path")
+    leaf = parts[-1]
+    if leaf in current and current[leaf] != value:
+        raise GraphError("two_upstream_nodes_conflict_on_input_path")
+    current[leaf] = value
+
+
+def resolve_node_inputs(graph: dict, run: dict, node_id: str) -> dict:
+    structure = validate_graph(graph)
+    if node_id not in structure["incoming"]:
+        raise GraphError("unknown_node")
+    payload = {}
+    origin = []
+    missing = []
+    for edge in structure["incoming"][node_id]:
+        source = edge["source"]
+        state = run.get("states",{}).get(source,"pending")
+        if not _matches(state,edge.get("when","success")):
+            continue
+        for source_path,target_path in edge.get("mapping",{}).items():
+            found,value = _json_path_read(run.get("outputs",{}).get(source),source_path)
+            if not found:
+                missing.append({"source":source,"source_path":source_path,
+                                "target_path":target_path})
+                continue
+            _json_path_write(payload,target_path,value)
+            origin.append({"from_node":source,"source_path":source_path,
+                           "target_path":target_path})
+    return {"values":payload,"lineage":origin,"missing_paths":missing,
+            "test_only":True}
+
+
 def new_debug_run(graph: dict) -> dict:
     valid = validate_graph(graph, publish=True)
     start = valid["start_id"]
@@ -247,6 +309,12 @@ def _simulate_execute(graph: dict, run: dict, node_id: str, ignore_before: bool 
     if node_id not in permitted:
         raise GraphError("selected_node_dependencies_not_satisfied")
     r = deepcopy(run)
+    r.setdefault("inputs",{})[node_id] = resolve_node_inputs(graph,r,node_id)
+    if r["inputs"][node_id]["missing_paths"]:
+        r["status"]="paused"
+        r["paused_at"]=node_id
+        return _append(r,"missing_upstream_mapped_input",node_id,
+                       missing=r["inputs"][node_id]["missing_paths"])
     if node.get("breakpoint_before") and not ignore_before:
         r["status"] = "paused"
         r["paused_at"] = node_id
@@ -370,6 +438,7 @@ def preview_run(graph: dict, run: dict) -> dict:
         "blocked_nodes":active["blocked"],"waiting_nodes":active["waiting"],
         "parallel_ready":active["simulated_parallel_ready"],
         "node_states":run["states"],"outputs":run["outputs"],
+        "resolved_inputs":run.get("inputs",{}),
         "events":run.get("events",[]), "paused_at":run.get("paused_at"),
         "steps_completed":run.get("steps_completed",0),
         "simulation_only":True,"actual_worker_parallelism_verified":False,
