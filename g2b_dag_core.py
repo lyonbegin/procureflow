@@ -218,7 +218,7 @@ def _json_path_read(value: Any, path: str) -> tuple[bool, Any]:
     """Constrained data binding; no eval, code, SQL or user-defined functions."""
     if not PATH_PATTERN.fullmatch(path):
         raise GraphError("unsafe_source_mapping_path")
-    chunks = re.findall(r"[A-Za-z_][\\w]*|\\[[0-9]+\\]", path.lstrip("$."))
+    chunks = re.findall(r"[A-Za-z_]\w*|\[[0-9]+\]", path.lstrip("$."))
     for part in chunks:
         if part.startswith("["):
             index = int(part[1:-1])
