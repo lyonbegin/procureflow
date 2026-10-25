@@ -7,6 +7,7 @@ import {
   TerminalSquare, X,
 } from 'lucide-react';
 import { GROUPS } from './workflow.js';
+import DAGEditor from './DAGEditor.jsx';
 import { SELECTED_BID } from './api.js';
 import { clampInspectorWidth, visibleFlowFeatures } from './flowWorkspace.js';
 import './flowWorkspace.css';
@@ -23,8 +24,9 @@ export default function FlowWorkspace({
   catalog, catalogBusy, catalogError, context, lastRead,
   view, selectedNumber, onGroup, onFeature, onNodeClick, onRefresh,
   plan, planError, job, consoleOpen, setConsoleOpen,
-  renderCanvas, renderInspector, renderConsole,
+  renderCanvas, renderInspector, renderConsole, token, setToken,
 }) {
+  const [editorOpen, setEditorOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorDocked, setInspectorDocked] = useState(false);
@@ -142,6 +144,9 @@ export default function FlowWorkspace({
   const compactWorkflowName = view === 'overview'
     ? '전체 흐름' : (GROUPS.find((g) => g.key === view)?.title || '선택 업무 그룹');
 
+  if (editorOpen) return <DAGEditor catalog={catalog} token={token}
+    setToken={setToken} onExit={() => setEditorOpen(false)}/>;
+
   return <div className="flow-workspace" style={{ '--flow-panel-width': effectiveWidth + 'px' }}>
     <header className="flow-workspace-topbar">
       <div className="flow-workspace-brand">
@@ -158,6 +163,9 @@ export default function FlowWorkspace({
         <div className="flow-workspace-verified" title="실제 증빙이 있는 기능 수">
           <CheckCircle2 size={14}/><strong>{catalog.length ? verifiedCount : '—'}</strong><span>/ 104 검증</span>
         </div>
+        <button className="flow-action flow-editor-open" onClick={() => setEditorOpen(true)}
+          title="노드 추가·삭제, 연결선 편집·저장, 단계별 디버깅">
+          <GitBranch size={16}/><span>편집·디버그</span></button>
         <button className="flow-action" onClick={onRefresh} disabled={catalogBusy} title="최신 DB 결과 새로고침">
           <RefreshCw size={16} className={catalogBusy ? 'spinning' : ''}/><span>새로고침</span></button>
         <button className="flow-action" onClick={toggleFullscreen}
