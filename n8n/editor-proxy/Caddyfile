@@ -1,0 +1,27 @@
+# n8n full native editor behind HTTPS at the Railway edge.
+# Never expose the raw n8n main service or unprotected owner-signup screen.
+{
+    auto_https off
+    admin off
+}
+:8080 {
+    @health path /healthz
+    handle @health {
+        respond "ok" 200
+    }
+    handle {
+        basic_auth bcrypt "ProcureFlow n8n Editor" {
+            procureflow {env.EDITOR_PASSWORD_HASH}
+        }
+        reverse_proxy http://n8n.railway.internal:5678 {
+            # Do not forward the gateway Basic password to n8n.
+            header_up -Authorization
+            header_up X-Forwarded-Proto https
+            header_up X-Forwarded-Host {host}
+        }
+        header Cache-Control "no-store"
+        header X-Content-Type-Options "nosniff"
+        header X-Frame-Options "DENY"
+        header Referrer-Policy "same-origin"
+    }
+}
