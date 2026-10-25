@@ -27,13 +27,15 @@ jobs:
           assert d['bid_submitted'] is False
           print('LIVE_PF05_PLAN_READ_ONLY_VERIFIED',d['status'])
           PY
+      - name: Build actual production n8n image containing ProcureFlow custom node
+        run: docker build -f n8n/Dockerfile -t procureflow-n8n-integration:qa .
       - name: Execute all FIFTEEN native PF workflows through actual n8n 2.44.6
         run: |
           docker run --rm --entrypoint /bin/sh \
             -e N8N_ENCRYPTION_KEY=ci-temporary-isolated-readonly             -e N8N_DIAGNOSTICS_ENABLED=false \
             -e N8N_PERSONALIZATION_ENABLED=false \
             -v "${PWD}/n8n/operational:/pf-workflows:ro" \
-            docker.n8n.io/n8nio/n8n:2.44.6 \
+            procureflow-n8n-integration:qa \
             -c 'set -eu
               n8n import:workflow --separate --input=/pf-workflows
               for pf in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
