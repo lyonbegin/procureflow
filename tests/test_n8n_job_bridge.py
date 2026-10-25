@@ -169,3 +169,35 @@ def test_invalid_key_and_off_flow_feature_do_not_touch_database():
         wrong=c.post("/api/n8n/operational/flows/PF05/dispatch",json={
             "bid_no":CASE_BID,"feature_no":1,"request_key":"legal-123456789"})
         assert wrong.status_code==409
+
+
+def test_queue_capacity_is_atomic_under_case_lock_not_just_a_planning_hint():
+    """A competing parallel n8n dispatch cannot create a fourth active job."""
+    from fastapi import HTTPException
+    from g2b_feature_api import FeatureRunRequest, queue_one
+    class FakeRows:
+        def __init__(self, value):self.value=value
+        def fetchone(self):return self.value
+        def fetchall(self):return self.value
+    class LockedCase:
+        def execute(self, sql, args=None):
+            if "FOR UPDATE" in sql:
+                return FakeRows({"bid_no":CASE_BID})
+            if "FROM procureflow.jobs" in sql:
+                return FakeRows([
+                    {"id":1,"feature_no":"1","resource_key":"refresh_selected_official_notice"},
+                    {"id":2,"feature_no":"29","resource_key":"download_original_attachments"},
+                    {"id":3,"feature_no":"50","resource_key":"collect_exact_ten_digit_outcomes"},
+                ])
+            raise AssertionError("A fourth job must never reach INSERT")
+    @contextmanager
+    def fake_session():
+        yield LockedCase()
+    with patch("g2b_feature_api.session",fake_session):
+        try:
+            queue_one(CASE_BID,66,FeatureRunRequest(mode="collect",parameters={}))
+        except HTTPException as err:
+            assert err.status_code==409
+            assert "Maximum 3" in str(err.detail)
+        else:
+            raise AssertionError("Concurrent collector capacity not enforced")
