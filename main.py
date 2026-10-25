@@ -17,6 +17,8 @@ from n8n_native_probe import router as n8n_native_probe_router
 app.include_router(n8n_native_probe_router)
 from n8n_operational import router as n8n_operational_router
 app.include_router(n8n_operational_router)
+from n8n_job_bridge import router as n8n_job_bridge_router
+app.include_router(n8n_job_bridge_router)
 
 # n8n is the ONLY workflow editor and engine. Legacy React Flow and the
 # Python DAG simulation API are not mounted.
@@ -44,6 +46,8 @@ def startup():
     ensure_engine()
     from g2b_node_lab import ensure_node_lab
     ensure_node_lab()
+    from n8n_job_bridge import ensure_dispatch_schema
+    ensure_dispatch_schema()
     from g2b_exact_outcome_history import ensure_schema as ensure_exact_results
     ensure_exact_results()
     # One specific user-selected case only; import cited legacy notice evidence.
