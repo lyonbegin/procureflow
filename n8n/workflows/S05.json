@@ -415,5 +415,6 @@
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "description": "기존 PF01~PF15 설계의 S05 사례. n8n Native Execute Workflow로 각 단계의 Input/Output과 실행 색상을 직접 확인. TEST ONLY."
+  "description": "기존 PF01~PF15 설계의 S05 사례. n8n Native Execute Workflow로 각 단계의 Input/Output과 실행 색상을 직접 확인. TEST ONLY.",
+  "id": "PFDEMO2026S05WF"
 }
