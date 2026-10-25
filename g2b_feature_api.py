@@ -322,6 +322,8 @@ def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
                      WHERE source='g2b_feature' AND config->>'bid_no'=%s
                        AND state IN ('queued','running')
                      ORDER BY id""", (bid_no,)).fetchall()
+        if len(active_rows) >= 3:
+            raise HTTPException(409, "Maximum 3 active G2B feature collector jobs per selected tender")
         conflicting = next(
             (row for row in active_rows
              if row.get("resource_key") == resource or (
