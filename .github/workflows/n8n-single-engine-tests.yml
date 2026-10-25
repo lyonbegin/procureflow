@@ -65,3 +65,26 @@ jobs:
             --volume "${PWD}/n8n/workflows:/demo-workflows:ro" \
             docker.n8n.io/n8nio/n8n:2.44.6 \
             import:workflow --separate --input=/demo-workflows
+
+  n8n-real-cli-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ALL 10 native workflows in real n8n CLI, including live read-only QA HTTP calls
+        run: |
+          docker run --rm --network host --entrypoint /bin/sh \
+            -e N8N_ENCRYPTION_KEY=ci-only-real-execution-discarded-on-exit \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false \
+            -v "${PWD}/n8n/workflows:/demo-workflows:ro" \
+            docker.n8n.io/n8nio/n8n:2.44.6 \
+            -c 'set -eu
+              n8n import:workflow --separate --input=/demo-workflows
+              for i in 01 02 03 04 05 06 07 08 09 10; do
+                id="PFDEMO2026S${i}WF"
+                echo "N8N_NATIVE_EXECUTION_START: S${i}"
+                n8n execute --id="${id}"
+                echo "N8N_NATIVE_EXECUTION_SUCCESS: S${i}"
+              done
+              echo "N8N_NATIVE_10_EXECUTIONS_COMPLETED"'
