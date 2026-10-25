@@ -77,7 +77,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N03\");if(!block)throw new Error(\"Missing business block \"+\"N03\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output_value??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N03\");if(!block)throw new Error(\"Missing business block \"+\"N03\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
       },
       "notes": "입력 N05.official_notice\n출력 tender_context\n다음 연결 N06, N07\n104 API 번호: 5, 6, 7, 8, 9, 10\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
       "notesInFlow": true
@@ -93,7 +93,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N06\");if(!block)throw new Error(\"Missing business block \"+\"N06\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output_value??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N06\");if(!block)throw new Error(\"Missing business block \"+\"N06\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
       },
       "notes": "입력 official_notice\n출력 verified_detail10+agency_code\n다음 연결 H01, H09, Q01\n104 API 번호: 19, 20\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
       "notesInFlow": true
@@ -109,7 +109,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N07\");if(!block)throw new Error(\"Missing business block \"+\"N07\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output_value??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"N07\");if(!block)throw new Error(\"Missing business block \"+\"N07\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
       },
       "notes": "입력 official_notice\n출력 contract_terms\n다음 연결 Q01, P01, P05\n104 API 번호: 21, 22, 23, 24, 25, 26, 27\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
       "notesInFlow": true
