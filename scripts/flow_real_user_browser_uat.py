@@ -105,7 +105,7 @@ with sync_playwright() as p:
     finally:
         browser.close()
 for i in range(1,25):
-    results.setdefault(f"U{i:02}":{"status":"NOT_RUN","detail":"Browser step not reached","screenshot":None})
+    results.setdefault(f"U{i:02}", {"status":"NOT_RUN","detail":"Browser step not reached","screenshot":None})
 output={"url":BASE,"timestamp_utc":datetime.now(timezone.utc).isoformat(),
         "browser":"Chromium headed=false",
         "tests":results,"browser_errors":errors[:35],
