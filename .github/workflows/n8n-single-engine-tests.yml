@@ -15,6 +15,7 @@ on:
       - "tests/test_n8n_**.py"
       - "scripts/qa_n8n_code_nodes.cjs"
       - "scripts/qa_n8n_operational_nodes.cjs"
+      - "scripts/qa_n8n_custom_node.cjs"
       - ".github/workflows/n8n-single-engine-tests.yml"
   push:
     branches: [main]
@@ -42,6 +43,7 @@ jobs:
         run: |
           node scripts/qa_n8n_code_nodes.cjs
           node scripts/qa_n8n_operational_nodes.cjs
+          node scripts/qa_n8n_custom_node.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -82,6 +84,21 @@ jobs:
             --volume "${PWD}/n8n/operational:/operational-workflows:ro" \
             docker.n8n.io/n8nio/n8n:2.44.6 \
             import:workflow --separate --input=/operational-workflows
+
+  custom-node-image-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dedicated n8n image with 104 business functions
+        run: docker build -f n8n/Dockerfile -t procureflow-native-n8n:test .
+      - name: Verify bundled official business nodes and 25 native workflows exist
+        run: |
+          docker run --rm --entrypoint /bin/sh procureflow-native-n8n:test \
+            -c 'test -f /home/node/.n8n/custom/node_modules/n8n-nodes-procureflow/dist/nodes/ProcureFlow.node.js && \
+                 test -f /home/node/procureflow-operational-workflows/PF15.json && \
+                 test -f /home/node/procureflow-demo-workflows/S10.json && \
+                 echo N8N_25_NATIVE_WORKFLOWS_AND_104_FEATURE_NODE_BUNDLED'
 
   n8n-real-cli-execution:
     runs-on: ubuntu-latest
