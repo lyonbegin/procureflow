@@ -20,6 +20,7 @@ CHECKS = [
     ("/openapi.json", "n8n-only-api"),
     ("/api/n8n/scenarios", "n8n-10-catalog"),
     ("/api/n8n/qa", "n8n-10-simulated-qa"),
+    ("/api/n8n/native/status", "n8n-native-execution-status"),
     ("/api/g2b/cases/R26BK01787028/features", "104-api"),
 ]
 
@@ -58,6 +59,11 @@ def check(path: str, kind: str) -> dict:
             ok = (doc.get("total")==10 and doc.get("passed")==10
                   and doc.get("all_passed") is True
                   and doc.get("actual_n8n_runs_verified") is False)
+        elif kind == "n8n-native-execution-status":
+            doc=json.loads(body)
+            ok = (isinstance(doc.get("connected"),bool) and
+                  isinstance(doc.get("native_successful_scenarios"),int) and
+                  isinstance(doc.get("all_ten_native_executions_verified"),bool))
         elif kind == "104-api":
             doc=json.loads(body)
             ok = doc.get("total")==104 and len(doc.get("features",[]))==104
