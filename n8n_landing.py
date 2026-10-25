@@ -49,7 +49,9 @@ def launcher() -> HTMLResponse:
             '개 · DB 공식 증빙 읽기</p><div class="actions">' +
             _button(operational_editor_url(fid)) +
             f'<a class="quiet" target="_blank" href="/api/n8n/operational/flows/{fid}/inspect">'
-            '실제 입력·출력·누락 확인</a></div></article>'
+            '실제 입력·출력·누락 확인</a>' +
+            f'<a class="quiet" target="_blank" href="/api/n8n/operational/flows/{fid}/next-action">' +
+            '다음 실제 수집계획·차단사유</a></div></article>'
         )
     demos = []
     for item in read_manifest()["scenarios"]:
@@ -93,7 +95,7 @@ section.note{margin-top:24px;color:#5b7789;background:white;border:1px solid #e1
 a:hover{text-decoration:underline}
 </style></head><body><nav>ProcureFlow · n8n 단일 워크플로 플랫폼</nav>
 <main><h1>15개 실제 운영 플로우</h1>
-<p class="subtitle">각 PF를 n8n으로 실행하면 공식 PostgreSQL 증빙을 조회하고, 43개 업무 블록의 입력·출력과 실제 미완료 항목을 단계별로 표시합니다. 이 조회는 실제 수집 Job 실행이나 자동입찰을 뜻하지 않습니다.</p>
+<p class="subtitle">각 PF를 n8n으로 실행하면 공식 PostgreSQL 증빙과 43개 업무 블록의 입력·출력을 표시합니다. 기본값은 조회 전용이며, 관리자가 n8n Credential을 등록하고 collect 모드를 명시 선택한 경우에만 실제 Worker Job 1건을 실행합니다. 자동투찰은 하지 않습니다.</p>
 <div class="status">""" + escape(status) + """</div>
 <div class="grid">""" + "".join(flows) + """</div>
 <h2>10개 운영 시나리오 (가상 검증)</h2>
