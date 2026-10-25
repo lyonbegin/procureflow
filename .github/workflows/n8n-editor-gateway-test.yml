@@ -1,0 +1,40 @@
+name: Native n8n Editor Access Gateway
+on:
+  pull_request:
+    paths:
+      - "n8n/editor-proxy/**"
+      - ".github/workflows/n8n-editor-gateway-test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "n8n/editor-proxy/**"
+      - ".github/workflows/n8n-editor-gateway-test.yml"
+permissions:
+  contents: read
+jobs:
+  secure-caddy-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build actual secure n8n visual editor gateway
+        run: docker build -f n8n/editor-proxy/Dockerfile -t procureflow-n8n-editor-gateway:ci .
+      - name: Validate Caddyfile with bcrypt and production n8n private proxy
+        run: |
+          HASH=$(docker run --rm --entrypoint caddy procureflow-n8n-editor-gateway:ci hash-password --plaintext "ci-owner-guard-test")
+          docker run --rm -e EDITOR_PASSWORD_HASH="$HASH" --entrypoint caddy procureflow-n8n-editor-gateway:ci adapt --config /etc/caddy/Caddyfile --validate --pretty > /tmp/proxy-adapted.json
+          grep -q '"authentication"' /tmp/proxy-adapted.json
+          grep -q 'n8n.railway.internal:5678' /tmp/proxy-adapted.json
+      - name: Prove anonymous editor and owner-setup are denied before proxying
+        run: |
+          HASH=$(docker run --rm --entrypoint caddy procureflow-n8n-editor-gateway:ci hash-password --plaintext "ci-owner-guard-test")
+          docker run -d --rm --name caddy-n8n-secure -p 8080:8080 -e EDITOR_PASSWORD_HASH="$HASH" procureflow-n8n-editor-gateway:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/)" = "401"
+          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/setup)" = "401"
+          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/rest/settings)" = "401"
+          echo N8N_EDITOR_AUTH_GATE_VERIFIED: basic auth required for all native editor paths
+          docker logs --tail 15 caddy-n8n-secure
