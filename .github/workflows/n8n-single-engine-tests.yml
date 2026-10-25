@@ -122,3 +122,26 @@ jobs:
                 echo "N8N_NATIVE_EXECUTION_SUCCESS: S${i}"
               done
               echo "N8N_NATIVE_10_EXECUTIONS_COMPLETED"'
+
+  n8n-live-pf-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import and run native PF01-PF15 against live read-only G2B evidence
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -e N8N_ENCRYPTION_KEY=temporary-test-only \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            -v "${PWD}/n8n/operational:/pf-operational:ro" \
+            docker.n8n.io/n8nio/n8n:2.44.6 \
+            -c 'set -eu
+              n8n import:workflow --separate --input=/pf-operational
+              for x in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
+                echo "N8N_PF_START PF${x}"
+                n8n execute --id="PFOP2026PF${x}WF" > "/tmp/PF${x}.txt" 2>&1
+                grep -q "Execution was successful:" "/tmp/PF${x}.txt" || { tail -80 "/tmp/PF${x}.txt"; exit 1; }
+                grep -q "business_state" "/tmp/PF${x}.txt" || { tail -80 "/tmp/PF${x}.txt"; exit 1; }
+                echo "N8N_PF_PASSED PF${x}"
+              done
+              echo "N8N_REAL_DATABASE_PF01_PF15_EXECUTED"'
