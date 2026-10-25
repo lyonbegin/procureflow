@@ -284,3 +284,67 @@ def dispatch_history(flow_id:str,bid_no:str=Query(CASE_BID),
             ORDER BY created_at DESC LIMIT 30""",(flow_id,bid_no)).fetchall()
     return {"flow_id":flow_id,"bid_no":bid_no,"items":[dict(x) for x in rows],
             "bid_submitted":False}
+
+
+def progress_snapshot(flow_id:str,bid_no:str,observation:dict,jobs:list[dict]) -> dict:
+    """Public read-only coarse progress, no tokens, config or worker error text."""
+    flow=_get_flow(flow_id)
+    owned=set(flow["business_features"])
+    selected=[]
+    for job in jobs:
+        config=job.get("config")
+        if not isinstance(config,dict):
+            continue
+        try:
+            number=int(config.get("feature_no",0))
+        except (ValueError,TypeError):
+            continue
+        if number not in owned:
+            continue
+        state=job.get("state") or "unknown"
+        selected.append({
+            "job_id":job["id"],
+            "feature_no":number,
+            "state":state,
+            "created_at":job.get("created_at"),
+            "started_at":job.get("started_at"),
+            "finished_at":job.get("finished_at"),
+            "terminal":state in ("completed","completed_partial","failed","cancelled"),
+            "evidence_acceptance_independent":True,
+        })
+    active=[j for j in selected if j["state"] in ("queued","running")]
+    recent_errors=sum(j["state"] in ("failed","cancelled") for j in selected[:15])
+    state=("EVIDENCE_VERIFIED" if observation["business_state"]=="VERIFIED" else
+           "COLLECTING" if active else
+           "NEEDS_REVIEW" if recent_errors else "BLOCKED_OR_PENDING")
+    return {
+        "flow_id":flow_id,
+        "bid_no":bid_no,
+        "as_of":datetime.now(timezone.utc),
+        "source":"live_procureflow_postgresql_jobs_and_official_evidence",
+        "engine":"native_n8n_only",
+        "workflow_status":state,
+        "business_state":observation["business_state"],
+        "blocks_total":observation["blocks_total"],
+        "blocks_verified":observation["blocks_verified"],
+        "features_total":len(owned),
+        "active_jobs_count":len(active),
+        "active_jobs":active[:12],
+        "recent_jobs":selected[:20],
+        "recent_job_failures":recent_errors,
+        "missing_verified_evidence":observation["pending_missing_evidence"],
+        "next_flows":flow["next"],
+        "read_only":True,
+        "job_enqueued":False,
+        "bid_submitted":False,
+        "actual_native_n8n_ui_execution_not_claimed":True,
+    }
+
+
+@router.get("/flows/{flow_id}/progress",summary="Read-only live worker and independent official-evidence progress")
+def api_flow_progress(flow_id:str,bid_no:str=Query(CASE_BID)):
+    _selected_case(bid_no)
+    _get_flow(flow_id)
+    observation=inspect_flow(flow_id,bid_no)
+    jobs=_recent_jobs(bid_no)
+    return progress_snapshot(flow_id,bid_no,observation,jobs)
