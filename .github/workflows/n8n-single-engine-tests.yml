@@ -1,0 +1,65 @@
+name: n8n Single Engine + Ten Native Scenario Workflows
+on:
+  pull_request:
+    paths:
+      - "n8n/**"
+      - "docker-compose.n8n.yml"
+      - "n8n_scenarios.py"
+      - "n8n_landing.py"
+      - "main.py"
+      - "Dockerfile"
+      - "g2b_feature_api.py"
+      - "tests/test_n8n_**.py"
+      - "scripts/qa_n8n_code_nodes.cjs"
+      - ".github/workflows/n8n-single-engine-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "n8n/**"
+      - "docker-compose.n8n.yml"
+      - "n8n_scenarios.py"
+      - "n8n_landing.py"
+      - "main.py"
+      - "Dockerfile"
+      - "scripts/qa_n8n_code_nodes.cjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Execute exact n8n exported Code-node JavaScript (no mock implementations)
+        run: node scripts/qa_n8n_code_nodes.cjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python API/test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+      - name: Compile n8n scenario backend and original G2B business APIs
+        run: python -m py_compile main.py n8n_scenarios.py n8n_landing.py g2b_feature_api.py g2b_node_lab.py worker.py
+      - name: Verify all ten n8n workflows, scenario API and retired React Flow
+        run: python -m pytest -q tests/test_n8n_scenarios.py tests/test_n8n_only_migration.py tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py
+      - name: Validate compose configuration (when Docker available)
+        env:
+          N8N_DB_PASSWORD: ci-fake-not-used
+          N8N_ENCRYPTION_KEY: ci-fake-not-used
+        run: docker compose -f docker-compose.n8n.yml config --quiet
+
+  n8n-import-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import all 10 exported JSON workflows with actual n8n 2.44.6 CLI
+        run: |
+          docker run --rm \
+            --env N8N_ENCRYPTION_KEY=ci-only-demo-key-not-for-production \
+            --volume "${PWD}/n8n/workflows:/demo-workflows:ro" \
+            docker.n8n.io/n8nio/n8n:2.44.6 \
+            import:workflow --separate --input=/demo-workflows

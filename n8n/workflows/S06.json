@@ -1,0 +1,339 @@
+{
+  "name": "[테스트 S06] 필수 자격 미충족 — 입찰 불가",
+  "nodes": [
+    {
+      "id": "s06-1",
+      "name": "▶ 클릭해서 전체 시나리오 실행",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {},
+      "notes": "Run workflow / Execute workflow 버튼으로 시나리오를 시작합니다. 실제 나라장터 API는 호출하지 않습니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-2",
+      "name": "00 · 가상 발주·테스트 상태",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        530,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{\"scenario_id\":\"S06\",\"case_id\":\"DEMO_ONLY\",\"title\":\"필수 자격 미충족 — 입찰 불가\",\"expected\":\"NO_BID\",\"state\":{\"qualified\":null,\"assigned\":false,\"official\":false,\"detail10\":false,\"docs\":false,\"coverage_total\":121,\"coverage_done\":0,\"history_verified\":false,\"competitor\":false,\"eligibility\":\"unknown\",\"quotes\":0,\"quote_required\":2,\"price\":false,\"package\":false,\"audit\":false,\"critical_audit\":false,\"human\":false,\"deadline_open\":true,\"notice_version\":1,\"lease_valid\":true,\"fenced\":false,\"reconciled\":false,\"stale_ignored\":0},\"trace\":[],\"simulation_only\":true,\"bid_submitted\":false}}];"
+      },
+      "notes": "가상 입력입니다. 나라장터 공식 원본이나 실제 입찰 결과가 아닙니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-3",
+      "name": "01 · PF01 공고 감시 / TenderDiscovered",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==0) throw new Error('Input or stage order mismatch');\nconst patch={};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:1,flow:\"PF01\",event:\"TenderDiscovered\",recipients:[\"PF02\"],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + TenderDiscovered\n출력: 이벤트 기록\n수신 플로우: PF02",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-4",
+      "name": "02 · PF02 적합성 심사 / TenderQualified",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1110,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==1) throw new Error('Input or stage order mismatch');\nconst patch={\"qualified\":true};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:2,flow:\"PF02\",event:\"TenderQualified\",recipients:[\"PF03\"],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + TenderQualified\n출력: qualified\n수신 플로우: PF03",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-5",
+      "name": "03 · PF03 작업 배정 / CaseAssigned",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==2) throw new Error('Input or stage order mismatch');\nconst patch={\"assigned\":true};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:3,flow:\"PF03\",event:\"CaseAssigned\",recipients:[\"PF04\",\"PF07\",\"PF08\"],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + CaseAssigned\n출력: assigned\n수신 플로우: PF04,PF07,PF08",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-6",
+      "name": "04 · PF04 공식 증빙 / DocumentParsed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1690,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==3) throw new Error('Input or stage order mismatch');\nconst patch={\"official\":true,\"docs\":true,\"detail10\":true};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:4,flow:\"PF04\",event:\"DocumentParsed\",recipients:[],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + DocumentParsed\n출력: official,docs,detail10\n수신 플로우: 없음",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-7",
+      "name": "05 · PF07 자격검증 / EligibilityEvaluated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==4) throw new Error('Input or stage order mismatch');\nconst patch={\"eligibility\":\"ineligible\"};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:5,flow:\"PF07\",event:\"EligibilityEvaluated\",recipients:[\"PF10\",\"PF12\"],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + EligibilityEvaluated\n출력: eligibility\n수신 플로우: PF10,PF12",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-8",
+      "name": "06 · PF11 독립 감사 / QualificationEvidenceAudited",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2270,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==5) throw new Error('Input or stage order mismatch');\nconst patch={};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:6,flow:\"PF11\",event:\"QualificationEvidenceAudited\",recipients:[],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + QualificationEvidenceAudited\n출력: 이벤트 기록\n수신 플로우: 없음",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-9",
+      "name": "07 · PF12 참여 결정 / NoBidDecision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior=$input.first().json;\nif (prior.scenario_id!==\"S06\"||prior.case_id!=='DEMO_ONLY'||prior.trace.length!==6) throw new Error('Input or stage order mismatch');\nconst patch={};\nconst before={}; for(const key of Object.keys(patch)) before[key]=prior.state[key]??null;\nconst state={...prior.state,...patch};\nconst after={}; for(const key of Object.keys(patch)) after[key]=state[key];\nconst row={index:7,flow:\"PF12\",event:\"NoBidDecision\",recipients:[],input:before,output:patch,after,simulation_only:true};\nreturn [{json:{...prior,state,trace:[...prior.trace,row],latest_event:row.event,latest_output:patch,active_flow:row.flow}}];"
+      },
+      "notes": "[TEST ONLY] 입력: 이전 상태값 + NoBidDecision\n출력: 이벤트 기록\n수신 플로우: 없음",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-10",
+      "name": "검증 전 · 최종 안전상태 계산",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2850,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const current = $input.first().json; const s=current.state;\nlet verdict='HOLD'; let missing=[];\nif (s.qualified === false) { verdict='NO_BID'; missing=['OUTSIDE_TARGET']; }\nelse if (s.eligibility === 'ineligible' || !s.deadline_open) { verdict='NO_BID'; missing=['MANDATORY_QUALIFICATION_OR_DEADLINE']; }\nelse {\n  const required={assigned:'NO_CASE',official:'UNVERIFIED_ORIGINAL',detail10:'UNVERIFIED_DETAIL10',docs:'MISSING_DOCUMENTS',history_verified:'HISTORY_NOT_FULLY_VERIFIED',competitor:'COMPETITOR_ANALYSIS_MISSING',price:'PRICE_UNVERIFIED',package:'PACKAGE_INCOMPLETE',audit:'AUDIT_NOT_CLEARED',lease_valid:'WORKER_LEASE_INVALID'};\n  for (const [key,reason] of Object.entries(required)) { if (!s[key]) missing.push(reason); }\n  if (s.coverage_done!==s.coverage_total) missing.push('HISTORY_'+s.coverage_done+'/'+s.coverage_total);\n  if (s.eligibility!=='eligible') missing.push('ELIGIBILITY_UNKNOWN');\n  if (s.quotes<s.quote_required) missing.push('VALID_QUOTES_INSUFFICIENT');\n  if (s.critical_audit) missing.push('CRITICAL_AUDIT_FINDING');\n  if (!missing.length) {\n    if (!s.human) { verdict='REVIEW'; missing=['HUMAN_APPROVAL_REQUIRED']; }\n    else verdict='READY_FOR_MANUAL_PARTICIPATION';\n  }\n}\nif (verdict!==current.expected) throw new Error('Scenario policy error: expected '+current.expected+' got '+verdict+' ('+missing.join(',')+')');\nreturn [{json:{...current,verdict,missing,passed:true,simulation_only:true,bid_submitted:false}}];"
+      },
+      "notes": "부적격/마감/공식자료/121개 기간/감사/인간 승인을 독립 검사합니다. 실제 입찰 제출 없음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-11",
+      "name": "FastAPI 내부 QA · 결과·전체 입력 출력 검사",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3140,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://procureflow-api-production.up.railway.app/api/n8n/scenarios/S06/verify",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "notes": "운영 데이터를 변경하지 않는 stateless 검사. FastAPI가 동일 fixture의 모든 event, state, 결론을 재계산합니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "s06-12",
+      "name": "전체 사건 기록 검증됨",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3430,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const proof=$input.first().json; if(proof.passed!==true) throw new Error('FastAPI scenario QA failed'); return [{json:{...proof,workflow_status:'SIMULATED_PASS',not_a_real_bid:true}}];"
+      },
+      "notes": "초록색 성공 노드에 나타난 결과는 가상 시뮬레이션 검증 결과입니다.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "▶ 클릭해서 전체 시나리오 실행": {
+      "main": [
+        [
+          {
+            "node": "00 · 가상 발주·테스트 상태",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "00 · 가상 발주·테스트 상태": {
+      "main": [
+        [
+          {
+            "node": "01 · PF01 공고 감시 / TenderDiscovered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · PF01 공고 감시 / TenderDiscovered": {
+      "main": [
+        [
+          {
+            "node": "02 · PF02 적합성 심사 / TenderQualified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · PF02 적합성 심사 / TenderQualified": {
+      "main": [
+        [
+          {
+            "node": "03 · PF03 작업 배정 / CaseAssigned",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · PF03 작업 배정 / CaseAssigned": {
+      "main": [
+        [
+          {
+            "node": "04 · PF04 공식 증빙 / DocumentParsed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · PF04 공식 증빙 / DocumentParsed": {
+      "main": [
+        [
+          {
+            "node": "05 · PF07 자격검증 / EligibilityEvaluated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · PF07 자격검증 / EligibilityEvaluated": {
+      "main": [
+        [
+          {
+            "node": "06 · PF11 독립 감사 / QualificationEvidenceAudited",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · PF11 독립 감사 / QualificationEvidenceAudited": {
+      "main": [
+        [
+          {
+            "node": "07 · PF12 참여 결정 / NoBidDecision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07 · PF12 참여 결정 / NoBidDecision": {
+      "main": [
+        [
+          {
+            "node": "검증 전 · 최종 안전상태 계산",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "검증 전 · 최종 안전상태 계산": {
+      "main": [
+        [
+          {
+            "node": "FastAPI 내부 QA · 결과·전체 입력 출력 검사",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FastAPI 내부 QA · 결과·전체 입력 출력 검사": {
+      "main": [
+        [
+          {
+            "node": "전체 사건 기록 검증됨",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": [],
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "description": "기존 PF01~PF15 설계의 S06 사례. n8n Native Execute Workflow로 각 단계의 Input/Output과 실행 색상을 직접 확인. TEST ONLY.",
+  "id": "PFDEMO2026S06WF"
+}

@@ -9,19 +9,14 @@ from db import session,initialize
 app=FastAPI(title="ProcureFlow",version="0.2")
 from g2b_feature_api import router as g2b_feature_router
 app.include_router(g2b_feature_router)
-from g2b_workflow_ops import router as g2b_workflow_router
-app.include_router(g2b_workflow_router)
 from g2b_node_lab import router as g2b_node_lab_router
 app.include_router(g2b_node_lab_router)
-from g2b_dag_api import router as g2b_dag_router
-app.include_router(g2b_dag_router)
+from n8n_scenarios import router as n8n_scenarios_router
+app.include_router(n8n_scenarios_router)
 
-# React Flow is the primary workbench; the preexisting FastAPI, DB and Worker
-# retain ownership of every real operation. Built assets are shipped inside
-# the same Railway Docker image (no new production service or Node server).
-STUDIO_DIST = Path(__file__).resolve().parent / "static" / "studio"
-if STUDIO_DIST.is_dir():
-    app.mount("/studio", StaticFiles(directory=str(STUDIO_DIST), html=True), name="workflow-studio")
+# n8n is the ONLY workflow editor and engine. Legacy React Flow and the
+# Python DAG simulation API are not mounted.
+from n8n_landing import launcher, scenario_editor_url
 
 @app.on_event("startup")
 def startup():
@@ -45,8 +40,6 @@ def startup():
     ensure_engine()
     from g2b_node_lab import ensure_node_lab
     ensure_node_lab()
-    from g2b_dag_api import ensure_dag_schema
-    ensure_dag_schema()
     from g2b_exact_outcome_history import ensure_schema as ensure_exact_results
     ensure_exact_results()
     # One specific user-selected case only; import cited legacy notice evidence.
@@ -65,31 +58,16 @@ def guard(value):
     if not key:raise HTTPException(503,"ADMIN_TOKEN not configured")
     if not secrets.compare_digest((value or "").removeprefix("Bearer ").strip(),key):
         raise HTTPException(401,"Access denied")
-@app.get("/",response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 def home():
-    """React Flow is the main UI; keep legacy UI available for operational continuity."""
-    index=STUDIO_DIST/"index.html"
-    if index.is_file():
-        return FileResponse(index,media_type="text/html",headers={"Cache-Control":"no-cache"})
-    # Non-Docker local Python development still serves the previous workbench.
-    return (Path(__file__).parent/"static/workbench.html").read_text(encoding="utf-8")
+    """Simple n8n scenario launcher, NEVER a workflow editor or DAG runtime."""
+    return launcher()
 
 
 @app.get("/flow", response_class=HTMLResponse)
-def standalone_workflow_workspace():
-    """Dedicated, viewport-filling React Flow editor/test workspace.
-
-    Serve the same built client bundle as the main cockpit but independently
-    at /flow; browser routing chooses its full-screen shell with NO side menus.
-    Do not silently serve the legacy UI if the production bundle is absent.
-    """
-    index = STUDIO_DIST / "index.html"
-    if not index.is_file():
-        raise HTTPException(503, "React Flow studio build is not present")
-    return FileResponse(
-        index, media_type="text/html",
-        headers={"Cache-Control": "no-cache"},
-    )
+def n8n_workflow_landing():
+    """Retired React Flow URL now shows the n8n-only launcher."""
+    return launcher()
 
 
 @app.get("/legacy/workbench",response_class=HTMLResponse)

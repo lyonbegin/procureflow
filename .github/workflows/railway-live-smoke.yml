@@ -4,9 +4,10 @@ on:
     branches: [main]
     paths:
       - "main.py"
-      - "frontend/**"
+      - "n8n/**"
       - "Dockerfile"
-      - "g2b_workflow_ops.py"
+      - "n8n_scenarios.py"
+      - "n8n_landing.py"
       - "g2b_feature_api.py"
       - "scripts/railway_live_probe.py"
       - ".github/workflows/railway-live-smoke.yml"
