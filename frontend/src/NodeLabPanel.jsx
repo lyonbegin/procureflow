@@ -232,6 +232,16 @@ export default function NodeLabPanel({ featureNo, token, onTokenChange }) {
       <div className="node-lab-label">저장된 테스트 파일 ({uploaded.length})</div>
       {uploaded.map((item) => <div className="node-lab-uploaded" key={item.id}>
         <div><strong>{item.filename}</strong><small>{item.parse_state} · SHA {item.sha256?.slice(0,12)} · {item.size_bytes} bytes</small></div>
+        <button className="button secondary" disabled={busy||!activeToken}
+          onClick={async()=>{
+            setBusy(true);setError('');
+            try{
+              await api.deleteNodeTestFile(featureNo,item.id,activeToken);
+              setChosenIds(old=>old.filter(id=>id!==item.id));
+              await refreshData();
+            }catch(e){setError(e.message);}
+            finally{setBusy(false);}
+          }}><Trash2 size={13}/>테스트 파일 삭제</button>
         <details><summary>분석된 텍스트 미리보기</summary>
           <pre className="node-lab-json">{item.text_preview || '추출된 텍스트 없음'}</pre></details>
       </div>)}

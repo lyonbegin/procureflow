@@ -1,20 +1,23 @@
-name: G2B 104 Individual API Contracts
+name: G2B 104 Feature API + Node Lab + DAG Engine
 on:
   pull_request:
     paths:
       - "g2b_feature_api.py"
       - "g2b_node_lab.py"
-      - "tests/test_g2b_node_lab.py"
+      - "g2b_dag_core.py"
+      - "g2b_dag_api.py"
       - "g2b_workflow_ops.py"
-      - "tests/test_g2b_workflow_ops.py"
       - "g2b_feature_data.py"
       - "g2b_documents.py"
       - "g2b_feature_registry.py"
       - "g2b_case_engine.py"
       - "main.py"
       - "worker.py"
+      - "requirements.txt"
       - "tests/test_g2b_feature_api.py"
-      - "static/g2b-feature-api.html"
+      - "tests/test_g2b_node_lab.py"
+      - "tests/test_g2b_dag_core.py"
+      - "tests/test_g2b_workflow_ops.py"
       - ".github/workflows/g2b-feature-api-tests.yml"
   workflow_dispatch:
 permissions:
@@ -27,9 +30,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install API and test requirements
+      - name: Install API and test dependencies
         run: pip install --disable-pip-version-check -r requirements.txt pytest httpx
       - name: Compile all involved modules
-        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py g2b_workflow_ops.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
-      - name: Verify 104 individual endpoints and parameter protections
-        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_workflow_ops.py tests/test_g2b_node_lab.py
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py g2b_workflow_ops.py g2b_dag_core.py g2b_dag_api.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
+      - name: Verify API, node uploads, graph validation and step debugging
+        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_workflow_ops.py tests/test_g2b_node_lab.py tests/test_g2b_dag_core.py

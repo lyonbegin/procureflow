@@ -665,7 +665,7 @@ function StudioApp() {
       view={view} selectedNumber={selectedNumber}
       onGroup={openGroup} onFeature={openFeature} onNodeClick={onNodeClick}
       onRefresh={() => refresh()} plan={plan} planError={planError}
-      job={activeJob} consoleOpen={consoleOpen} setConsoleOpen={setConsoleOpen}
+      job={activeJob} consoleOpen={consoleOpen} setConsoleOpen={setConsoleOpen} token={token} setToken={setToken}
       renderCanvas={(clickNode) => <div className="flow-stage">
         <Canvas catalog={catalog} context={context} view={view}
           selectedNumber={selectedNumber} onNodeClick={clickNode}/>

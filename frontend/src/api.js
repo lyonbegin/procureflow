@@ -38,11 +38,33 @@ export async function uploadNodeTestFile(featureNo, file, token) {
 }
 
 export const api = {
+  workflowDesigns: (token) => readJson(CASE_API + '/workflow/designs', { token }),
+  createWorkflowDesign: (name, graph, token) => readJson(CASE_API + '/workflow/designs', {
+    method: 'POST', token, body: { name, graph: graph || null },
+  }),
+  loadWorkflowDesign: (id, token) => readJson(CASE_API + '/workflow/designs/' + id, { token }),
+  saveWorkflowDesign: (id, revision, name, graph, publish, token) => readJson(
+    CASE_API + '/workflow/designs/' + id, {
+      method: 'PUT', token, body: { expected_revision: revision, name, graph, publish },
+    }),
+  deleteWorkflowDesign: (id, token) => readJson(
+    CASE_API + '/workflow/designs/' + id, { method: 'DELETE', token }),
+  createWorkflowDebug: (id, token) => readJson(
+    CASE_API + '/workflow/designs/' + id + '/debug-runs',
+    { method: 'POST', token }),
+  workflowDebug: (id, token) => readJson(
+    CASE_API + '/workflow/debug-runs/' + id, { token }),
+  workflowDebugAction: (id, action, node_id, payload, token) => readJson(
+    CASE_API + '/workflow/debug-runs/' + id + '/actions',
+    { method: 'POST', token, body: { action, node_id: node_id || null, payload: payload ?? null } }),
   nodeTestContract: (id, token) => readJson(CASE_API + '/features/' + id + '/test/contract', { token }),
   nodeTest: (id, body, token) => readJson(CASE_API + '/features/' + id + '/test',
     { method: 'POST', body, token }),
   nodeTestRuns: (id, token) => readJson(CASE_API + '/features/' + id + '/test/runs', { token }),
   nodeTestFiles: (id, token) => readJson(CASE_API + '/features/' + id + '/test/files', { token }),
+  deleteNodeTestFile: (featureNo, fileId, token) => readJson(
+    CASE_API + '/features/' + featureNo + '/test/files/' + encodeURIComponent(fileId),
+    { method: 'DELETE', token }),
   nodeTestPin: (id, token) => readJson(CASE_API + '/features/' + id + '/test/pin', { token }),
   saveNodeTestPin: (id, output, label, token) => readJson(
     CASE_API + '/features/' + id + '/test/pin', {

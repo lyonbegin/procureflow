@@ -16,6 +16,8 @@ BASE = os.getenv("PROCUREFLOW_PUBLIC_URL",
 TIMEOUT = 13
 CHECKS = (
     ("/", "react-flow"),
+    ("/flow", "flow-standalone"),
+    ("/openapi.json", "dag-openapi"),
     ("/health", "health"),
     ("/api/g2b/cases/R26BK01787028/features", "104-api"),
     ("/api/g2b/cases/R26BK01787028/workflow/plan", "planner"),
@@ -32,7 +34,7 @@ def check(path: str, kind: str) -> dict:
         with urlopen(request, timeout=TIMEOUT) as response:
             status = response.status
             content_type = response.headers.get("Content-Type", "")
-            body = response.read(500_000).decode("utf-8", errors="replace")
+            body = response.read(3_000_000).decode("utf-8", errors="replace")
         result = {"path": path, "kind": kind, "http_status": status,
                   "response_type": content_type, "ok": False}
         if kind == "react-flow":
@@ -40,6 +42,25 @@ def check(path: str, kind: str) -> dict:
                             "/studio/assets/" in body and status == 200)
             result["explanation"] = ("react-flow-bundle-linked" if result["ok"]
                                      else "React Flow assets not linked in homepage")
+        elif kind == "flow-standalone":
+            result["ok"] = (status == 200 and 'id="root"' in body
+                            and "/studio/assets/" in body)
+            result["explanation"] = ("dedicated-full-screen-React-Flow" if result["ok"]
+                                     else "standalone /flow not deployed")
+        elif kind == "dag-openapi":
+            content = json.loads(body)
+            paths = content.get("paths") or {}
+            expected = (
+                "/api/g2b/cases/{bid_no}/workflow/designs",
+                "/api/g2b/cases/{bid_no}/workflow/debug-runs/{run_id}/actions",
+                "/api/g2b/cases/{bid_no}/features/{feature_no}/test",
+                "/api/g2b/cases/{bid_no}/features/{feature_no}/test/files",
+            )
+            missing = [path for path in expected if path not in paths]
+            result["ok"] = status == 200 and not missing
+            result["missing_paths"] = missing
+            result["explanation"] = ("node-test-and-versioned-DAG-routes-deployed" if result["ok"]
+                                     else "new node/DAG routes not yet deployed")
         elif kind == "health":
             content = json.loads(body)
             result["ok"] = status == 200 and content.get("status") == "ok"
@@ -70,7 +91,7 @@ def main() -> int:
         print(json.dumps({"attempt": attempt, "base": BASE,
                           "checks": results}, ensure_ascii=False), flush=True)
         if all(item["ok"] for item in results):
-            print("LIVE_DEPLOYMENT_VERIFIED: React Flow, DB, 104 endpoints, planner")
+            print("LIVE_DEPLOYMENT_VERIFIED: React Flow, standalone, DAG/node-test routes, DB, 104 endpoints, planner")
             return 0
         if attempt < tries:
             time.sleep(8)
