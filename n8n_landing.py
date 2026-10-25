@@ -65,11 +65,23 @@ def launcher() -> HTMLResponse:
             f'<a class="quiet" target="_blank" href="/api/n8n/scenarios/{sid}/simulate">'
             'API 가상 결과 검사</a></div></article>'
         )
-    status = ('관리자 인증이 설정된 n8n 연결 주소가 확인되었습니다. '
-              '선택 후 n8n의 Execute workflow를 눌러 노드별 진행 상태를 확인하세요.'
+    status = ('HTTPS 보안 게이트웨이 연결됨. 게이트웨이 입장 후 n8n 관리자 소유권을 설정하면 '
+              '정식 노드 캔버스와 Execute workflow를 이용할 수 있습니다.'
               if editor_base() else
               'n8n은 외부 관리자 등록 위험 때문에 공개 접속이 차단돼 있습니다. '
               '관리자 소유권·인증 설정 전까지 실행 링크를 공개하지 않습니다.')
+    native_editor = (
+        '<section class="native-editor"><strong>실제 n8n 노드 편집기</strong>'
+        '<p>이 페이지는 목록과 실제 증빙 조회용입니다. 노드 캔버스·선 연결·노드 입출력·'
+        'Execute workflow 버튼은 아래 n8n 원본 편집기에서 사용합니다.</p>'
+        '<p>첫 접속에서는 보안 게이트웨이 계정으로 입장한 후, 본인의 이메일로 n8n 관리자 계정을 등록해야 합니다.</p>'
+        f'<a class="btn" target="_blank" rel="noopener noreferrer" '
+        f'href="{escape(editor_base(),quote=True)}">n8n 실제 노드 편집기 열기</a>'
+        '</section>'
+        if editor_base() else
+        '<section class="native-editor"><strong>n8n 편집기 접근 준비 중</strong>'
+        '<p>관리자 최초 등록을 공개하지 않도록 보안 게이트웨이를 설정 중입니다.</p></section>'
+    )
     html = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ProcureFlow · n8n 단일 워크플로</title>
@@ -82,6 +94,10 @@ h1{font-size:24px;letter-spacing:-.7px;margin:0 0 8px}
 h2{font-size:22px;margin:34px 0 7px}
 .subtitle{color:#607d8e;max-width:990px;margin:0 0 20px}
 .status{padding:13px;border:1px solid #e5d3aa;background:#fffaed;color:#725d38;border-radius:11px;margin-bottom:25px}
+.native-editor{padding:22px;border-radius:13px;background:#e5f3f1;border:1px solid #b8dad6;margin-bottom:28px}
+.native-editor strong{font-size:19px}.native-editor p{margin:8px 0;color:#315a61;font-size:13px}
+.native-editor .btn{display:inline-block;padding:12px 19px;font-size:15px;margin-top:8px}
+
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
 article{background:#fff;border:1px solid #dbe5ed;border-radius:12px;padding:17px;display:flex;flex-direction:column}
 article header{display:flex;gap:10px;align-items:flex-start}
@@ -95,7 +111,10 @@ article p{font-size:11px;color:#69879a;margin:11px 0 17px}
 section.note{margin-top:24px;color:#5b7789;background:white;border:1px solid #e1eaf1;border-radius:10px;padding:15px}
 a:hover{text-decoration:underline}
 </style></head><body><nav>ProcureFlow · n8n 단일 워크플로 플랫폼</nav>
-<main><h1>15개 실제 운영 플로우</h1>
+<main><h1>ProcureFlow · 실제 n8n 노드 편집기</h1>
+<p class="subtitle">노드를 배치·연결·실행하는 기능은 별도 상태 조회 화면이 아니라 n8n 정식 편집기에서 제공합니다.</p>
+""" + native_editor + """
+<h2>15개 실제 운영 플로우</h2>
 <p class="subtitle">각 PF를 n8n으로 실행하면 공식 PostgreSQL 증빙과 43개 업무 블록의 입력·출력을 표시합니다. 기본값은 조회 전용이며, 관리자가 n8n Credential을 등록하고 collect 모드를 명시 선택한 경우에만 실제 Worker Job 1건을 실행합니다. 자동투찰은 하지 않습니다.</p>
 <div class="status">""" + escape(status) + """</div>
 <div class="grid">""" + "".join(flows) + """</div>
