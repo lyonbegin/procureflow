@@ -50,3 +50,16 @@ jobs:
           N8N_DB_PASSWORD: ci-fake-not-used
           N8N_ENCRYPTION_KEY: ci-fake-not-used
         run: docker compose -f docker-compose.n8n.yml config --quiet
+
+  n8n-import-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import all 10 exported JSON workflows with actual n8n 2.44.6 CLI
+        run: |
+          docker run --rm \
+            --env N8N_ENCRYPTION_KEY=ci-only-demo-key-not-for-production \
+            --volume "${PWD}/n8n/workflows:/demo-workflows:ro" \
+            docker.n8n.io/n8nio/n8n:2.44.6 \
+            import:workflow --separate --input=/demo-workflows
