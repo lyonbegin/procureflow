@@ -199,9 +199,30 @@ def dispatch(flow_id:str, body:DispatchRequest,
                 raise HTTPException(409,"Request reservation being committed; retry safely")
             if old["feature_no"]!=body.feature_no:
                 raise HTTPException(409,"Idempotency key reused for a different feature")
-            return {"flow_id":flow_id,"bid_no":body.bid_no,"feature_no":body.feature_no,
-                    "job_id":old["job_id"],"state":old["state"],
-                    "deduplicated":True,"submitted":False}
+            if old["job_id"] is not None and old["state"]=="queued":
+                return {"flow_id":flow_id,"bid_no":body.bid_no,
+                        "feature_no":body.feature_no,"job_id":old["job_id"],
+                        "state":"queued","deduplicated":True,"submitted":False}
+            # A worker job may have committed even if its HTTP caller died
+            # before the separate dispatch receipt was written. Recover by the
+            # persisted original job config, never by blindly enqueuing again.
+            recovered=c.execute("""SELECT id FROM procureflow.jobs
+                WHERE source='g2b_feature' AND config->>'bid_no'=%s
+                  AND config->>'n8n_flow_id'=%s
+                  AND config->>'n8n_request_key'=%s
+                  AND config->>'feature_no'=%s
+                ORDER BY id DESC LIMIT 1""",
+                (body.bid_no,flow_id,body.request_key,str(body.feature_no))).fetchone()
+            if recovered:
+                c.execute("""UPDATE procureflow.n8n_feature_dispatch
+                    SET job_id=%s,state='queued',error='',updated_at=now()
+                    WHERE bid_no=%s AND flow_id=%s AND request_key=%s""",
+                    (recovered["id"],body.bid_no,flow_id,body.request_key))
+                return {"flow_id":flow_id,"bid_no":body.bid_no,
+                        "feature_no":body.feature_no,"job_id":recovered["id"],
+                        "state":"queued","deduplicated":True,
+                        "recovered_after_interruption":True,"submitted":False}
+            raise HTTPException(409,"No confirmed job for this idempotency key; review reservation before a new request")
     try:
         # The insert above makes a one-time reservation before queueing. A
         # process crash leaves a reserved row, NOT another uncontrolled enqueue.
@@ -212,7 +233,8 @@ def dispatch(flow_id:str, body:DispatchRequest,
             policy["candidate"]["resource"]!=collection_action(body.feature_no)):
             raise HTTPException(409,"Collector unavailable: "+policy["status"])
         job=queue_one(body.bid_no,body.feature_no,
-                      FeatureRunRequest(mode="collect",parameters=body.parameters))
+                      FeatureRunRequest(mode="collect",parameters=body.parameters),
+                      n8n_request_key=body.request_key,n8n_flow_id=flow_id)
         with session() as c:
             c.execute("""UPDATE procureflow.n8n_feature_dispatch
                 SET job_id=%s,state='queued',updated_at=now()
