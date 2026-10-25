@@ -61,12 +61,13 @@ def test_native_flow_exports_are_manual_trigger_native_http_and_not_react_dag():
         assert all(x["type"] in (
             "n8n-nodes-base.code","n8n-nodes-base.manualTrigger",
             "n8n-nodes-base.httpRequest","n8n-nodes-base.if",
-            "n8n-nodes-base.wait","n8n-nodes-procureflow.procureFlow") for x in wf["nodes"])
+            "n8n-nodes-base.wait") for x in wf["nodes"])
         for block_id in flow["owned_blocks"]:
             assert any(n["name"].startswith(block_id+" · ") for n in wf["nodes"])
         assert "R26BK01787028" in wf["nodes"][1]["parameters"]["jsCode"]
         assert not any(n["type"].endswith("webhook") for n in wf["nodes"])
-        assert sum(n["type"] == "n8n-nodes-procureflow.procureFlow" for n in wf["nodes"]) == 2
+        assert sum(n["type"] == "n8n-nodes-base.httpRequest" and n["parameters"].get("genericAuthType") == "httpHeaderAuth" for n in wf["nodes"]) == 2
+        assert all("adminToken" not in json.dumps(n["parameters"]) for n in wf["nodes"])
         assert 'mode:"inspect"' in wf["nodes"][1]["parameters"]["jsCode"]
         branches=wf["connections"]["실제 Worker Job 실행 여부"]["main"]
         assert branches[0][0]["node"]=="관리자 인증 · 실제 Worker Job 등록"
