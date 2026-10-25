@@ -237,12 +237,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4400,
+        5040,
         165
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const r=$input.first().json;if(r.flow_id!==\"PF03\"||r.bid_no!=='R26BK01787028'||!r.job_id) throw new Error('Worker response identity mismatch');return [{json:{flow_id:\"PF03\",case_id:'R26BK01787028',job_id:r.job_id,worker_state:r.worker_state,worker_terminal:r.worker_terminal,independently_verified:r.independently_verified===true,missing_evidence:r.missing_evidence||[],business_state:r.business_state||'BLOCKED_OR_PENDING',job_executed:r.worker_terminal===true,workflow_state:r.worker_terminal?(r.independently_verified?'EVIDENCE_VERIFIED':'COLLECTED_BUT_EVIDENCE_PENDING'):'WORKER_STILL_RUNNING',bid_submitted:false}}];"
+        "jsCode": "const r=$input.first().json;if(r.flow_id!==\"PF03\"||r.bid_no!=='R26BK01787028'||!r.job_id||r.poll_end!==true) throw new Error('Worker completion identity/polling mismatch');const terminal=r.worker_terminal===true;const timedOut=r.poll_timed_out===true;const state=timedOut?'POLL_TIMED_OUT':(terminal?(r.worker_state==='completed'&&r.independently_verified===true?'EVIDENCE_VERIFIED':'COLLECTED_BUT_EVIDENCE_PENDING'):'WORKER_STILL_RUNNING');return [{json:{flow_id:\"PF03\",case_id:'R26BK01787028',job_id:r.job_id,worker_state:r.worker_state,worker_terminal:terminal,independently_verified:r.independently_verified===true,missing_evidence:r.missing_evidence||[],business_state:r.business_state||'BLOCKED_OR_PENDING',poll_elapsed_seconds:r.poll_elapsed_seconds,job_executed:terminal,workflow_state:state,requires_operator_check:timedOut||r.worker_state==='failed'||r.worker_state==='cancelled',bid_submitted:false}}];"
       },
       "notes": "작업 실행 결과와 실제 업무 승인·입찰 완료는 다릅니다. 자료 미확보는 COLLECTED_BUT_EVIDENCE_PENDING.",
       "notesInFlow": true
@@ -261,6 +261,58 @@
         "jsCode": "const p=$input.first().json;return [{json:{flow_id:\"PF03\",case_id:p.bid_no,read_only:true,actual_job_executed:false,next_candidate:p.candidate||null,blocked:p.blocked||[],plan_status:p.status,requested_mode:p.requested_mode,reason:p.reason||'no_action_requested',bid_submitted:false}}];"
       },
       "notes": "inspect 모드이거나 공식 증빙·자격·용량·충돌 검사에서 실행이 막혔습니다. 수집기 실행 없음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf03-poll-check",
+      "name": "실제 Worker 응답·기한 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4400,
+        165
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first().json; if(r.flow_id!==\"PF03\" || r.bid_no!=='R26BK01787028'|| !Number.isSafeInteger(r.job_id) || r.job_id<=0) throw new Error('Real worker response identity mismatch'); const since=Date.parse(r.job_created_at||'');const skew=Date.now()-since;const timedOut=!Number.isFinite(since)||skew<(-3*60*1000)||skew>=(15*60*1000);return [{json:{...r,worker_terminal:r.worker_terminal===true,poll_timed_out:!r.worker_terminal&&timedOut,poll_end:r.worker_terminal===true||timedOut,poll_elapsed_seconds:Number.isFinite(skew)?Math.max(0,Math.floor(skew/1000)):null,official_evidence_verified:r.independently_verified===true,bid_submitted:false}}];"
+      },
+      "notes": "Worker DB 생성시각을 기준으로 최대 15분 실제 상태 조회. 서버 원본 Job ID·공고·PF 검증 필수. 15분 이상/시각 불명확 시 자동 재실행하지 않고 POLL_TIMED_OUT 표시.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf03-poll-decision",
+      "name": "Worker 완료 또는 시간 초과?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4720,
+        165
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "PF03-terminal",
+              "leftValue": "={{ $json.poll_end }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "true → Worker 완료·실패·취소 또는 15분 제한 종료; false → Wait 20초 반복. 무한 반복/자동 중복 Job 재등록 없음.",
       "notesInFlow": true
     }
   ],
@@ -397,7 +449,36 @@
       "main": [
         [
           {
+            "node": "실제 Worker 응답·기한 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "실제 Worker 응답·기한 검증": {
+      "main": [
+        [
+          {
+            "node": "Worker 완료 또는 시간 초과?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker 완료 또는 시간 초과?": {
+      "main": [
+        [
+          {
             "node": "Worker 결과·업무 완료 분리",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Worker 처리 대기 · 20초",
             "type": "main",
             "index": 0
           }
@@ -416,5 +497,5 @@
   "pinData": {},
   "tags": [],
   "active": false,
-  "description": "선택 발주에 연결된 실제 DB 기반 PF03 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음. [수정: inspect 기본값/collect 명시 선택 시 네이티브 IF→HTTP Header Auth Credential→Worker Queue→20초 대기→증빙 독립 재조회.]"
+  "description": "선택 발주에 연결된 실제 DB 기반 PF03 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음. [수정: inspect 기본값/collect 명시 선택 시 네이티브 IF→HTTP Header Auth Credential→Worker Queue→20초 대기→증빙 독립 재조회.] [실제 Worker는 20초 단위 반복 확인, 15분 시간제한·오류 사용자 확인으로 종료. 자동 중복 재수집 없음.]"
 }
