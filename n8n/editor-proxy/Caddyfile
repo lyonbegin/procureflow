@@ -11,7 +11,7 @@
     }
     handle {
         basic_auth bcrypt "ProcureFlow n8n Editor" {
-            procureflow {env.EDITOR_PASSWORD_HASH}
+            1 {env.EDITOR_PASSWORD_HASH}
         }
         reverse_proxy http://n8n.railway.internal:5678 {
             # Do not forward the gateway Basic password to n8n.
