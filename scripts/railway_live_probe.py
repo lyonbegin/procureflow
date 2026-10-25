@@ -22,6 +22,9 @@ CHECKS = [
     ("/api/n8n/qa", "n8n-10-simulated-qa"),
     ("/api/n8n/native/status", "n8n-native-execution-status"),
     ("/api/g2b/cases/R26BK01787028/features", "104-api"),
+    ("/api/n8n/operational/flows", "n8n-15-real-flows"),
+    ("/api/n8n/operational/flows/PF05/next-action", "real-g2b-next-action"),
+    ("/api/n8n/operational/flows/PF12/next-action", "manual-only-decision"),
 ]
 
 
@@ -47,6 +50,9 @@ def check(path: str, kind: str) -> dict:
               "/api/n8n/scenarios/{scenario_id}/verify",
               "/api/n8n/qa",
               "/api/g2b/cases/{bid_no}/features",
+              "/api/n8n/operational/flows/{flow_id}/next-action",
+              "/api/n8n/operational/flows/{flow_id}/dispatch",
+              "/api/n8n/operational/flows/{flow_id}/jobs/{job_id}",
             ]
             old = ["/api/g2b/cases/{bid_no}/workflow/designs",
                    "/api/g2b/cases/{bid_no}/workflow/advance"]
@@ -64,6 +70,24 @@ def check(path: str, kind: str) -> dict:
             ok = (isinstance(doc.get("connected"),bool) and
                   isinstance(doc.get("native_successful_scenarios"),int) and
                   isinstance(doc.get("all_ten_native_executions_verified"),bool))
+        elif kind == "n8n-15-real-flows":
+            doc=json.loads(body)
+            ok=(doc.get("total_flows")==15 and doc.get("total_blocks")==43
+                and doc.get("total_features")==104)
+        elif kind == "real-g2b-next-action":
+            doc=json.loads(body)
+            ok=(doc.get("flow_id")=="PF05" and
+                doc.get("bid_no")=="R26BK01787028" and
+                doc.get("read_only") is True and
+                doc.get("job_enqueued") is False and
+                doc.get("bid_submitted") is False and
+                doc.get("status") in ("ACTIONABLE","BLOCKED_OR_COMPLETE","WAIT_CAPACITY"))
+        elif kind == "manual-only-decision":
+            doc=json.loads(body)
+            ok=(doc.get("flow_id")=="PF12" and
+                doc.get("status")=="MANUAL_ONLY" and
+                doc.get("candidate") is None and
+                doc.get("job_enqueued") is False)
         elif kind == "104-api":
             doc=json.loads(body)
             ok = doc.get("total")==104 and len(doc.get("features",[]))==104
@@ -80,7 +104,7 @@ def main() -> int:
         results=[check(path,kind) for path,kind in CHECKS]
         print(json.dumps({"attempt":attempt,"checks":results},ensure_ascii=False),flush=True)
         if all(row["ok"] for row in results):
-            print("N8N_API_DEPLOYMENT_VERIFIED: landing, 10 QA, 104 G2B, no React Flow")
+            print("N8N_REAL_BRIDGE_API_DEPLOYMENT_VERIFIED: 15 PF, safe plan, manual approval gate, 104 G2B")
             print("N8N_MAIN_WORKER_LIVE_EXECUTION_NOT_VERIFIED")
             return 0
         if attempt<4:time.sleep(12)
