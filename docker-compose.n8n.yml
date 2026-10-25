@@ -1,0 +1,74 @@
+# Local n8n demonstration only. Production uses separate Railway n8n Main/Worker,
+# Redis and n8n-specific PostgreSQL. NO second React Flow / DAG engine.
+name: procureflow-n8n
+services:
+  n8n-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: n8n
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: ${N8N_DB_PASSWORD:?Set N8N_DB_PASSWORD in .env}
+    volumes:
+      - n8n_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
+      interval: 10s
+      retries: 12
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - n8n_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 12
+  n8n-main:
+    image: docker.n8n.io/n8nio/n8n:2.44.6
+    restart: unless-stopped
+    ports: ["127.0.0.1:5678:5678"]
+    depends_on:
+      n8n-db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment: &n8n-environment
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: n8n-db
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:?Required}
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Required shared key}
+      N8N_HOST: localhost
+      N8N_PROTOCOL: http
+      N8N_EDITOR_BASE_URL: http://localhost:5678
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_SECURE_COOKIE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_DEFAULT_BINARY_DATA_MODE: database
+      GENERIC_TIMEZONE: Asia/Seoul
+      TZ: Asia/Seoul
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+    volumes:
+      - n8n_config:/home/node/.n8n
+      - ./n8n/workflows:/demo-workflows:ro
+  n8n-worker:
+    image: docker.n8n.io/n8nio/n8n:2.44.6
+    restart: unless-stopped
+    command: ["worker", "--concurrency=3"]
+    depends_on:
+      n8n-db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment: *n8n-environment
+    volumes:
+      - n8n_config:/home/node/.n8n
+volumes:
+  n8n_postgres:
+  n8n_redis:
+  n8n_config:
