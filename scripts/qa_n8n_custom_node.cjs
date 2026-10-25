@@ -29,6 +29,26 @@ async function execute(operation,number,params,bid='R26BK01787028'){
   assert.equal(JSON.stringify(out).includes(token),false);
   return out[0][0].json;
 }
+
+async function flowAction(operation,input) {
+  const token="ci-native-credential-not-visible";
+  const ctx={
+    getInputData:()=>[{json:input}],
+    getCredentials:async()=>({baseUrl:"https://procureflow-api-production.up.railway.app",adminToken:token}),
+    getNodeParameter:(key)=>({flowId:"PF05",operation,bidNo:"R26BK01787028"})[key],
+    helpers:{httpRequest:async(req)=>{executions.push(req);return operation==="dispatchPlanned"?
+      {job_id:321,state:"queued",feature_no:49}:operation==="jobStatus"?
+      {job_id:321,worker_state:"completed",worker_terminal:true,
+       independently_verified:false,missing_evidence:["outcome_10years_complete"],
+       business_state:"BLOCKED_OR_PENDING"}:
+      {status:"ACTIONABLE",flow_id:"PF05",bid_no:"R26BK01787028",candidate:{feature_no:49},request_key:"a-valid-test-token"};}}
+  };
+  const result=await node.execute.call(ctx);
+  assert.equal(result[0][0].json.bid_submitted,false);
+  assert.equal(JSON.stringify(result).includes(token),false);
+  return result[0][0].json;
+}
+
 (async()=>{
  const a=await execute('inspect',1,'{}');assert.equal(a.job_requested,false);
  assert.equal(executions.at(-1).method,'GET');
@@ -44,5 +64,27 @@ async function execute(operation,number,params,bid='R26BK01787028'){
  await assert.rejects(execute('collect',50,'{"detail10":"forged"}'),/원본 공고/);
  await assert.rejects(execute('collect',105,'{}'),/Invalid official/);
  await assert.rejects(execute('collect',1,'{"bid_no":"foo"}'),/원본 공고/);
- console.log('N8N_CUSTOM_104_BUSINESS_NODE_PASSED operations=104 modes=3 secure_auth=true');
+ const plan=await flowAction("planNext",{});
+ assert.equal(plan.response.status,"ACTIONABLE");
+ assert.ok(executions.at(-1).url.endsWith("/api/n8n/operational/flows/PF05/next-action?bid_no=R26BK01787028"));
+ const dispatch=await flowAction("dispatchPlanned",{
+   status:"ACTIONABLE",flow_id:"PF05",bid_no:"R26BK01787028",
+   request_key:"a-valid-test-token",candidate:{feature_no:49}
+ });
+ assert.equal(dispatch.job_id,321);
+ assert.equal(executions.at(-1).method,"POST");
+ assert.equal(executions.at(-1).body.request_key,"a-valid-test-token");
+ assert.equal(executions.at(-1).body.feature_no,49);
+ assert.ok(executions.at(-1).url.endsWith("/api/n8n/operational/flows/PF05/dispatch"));
+ const job=await flowAction("jobStatus",{job_id:321});
+ assert.equal(job.independently_verified,false);
+ assert.equal(job.business_state,"BLOCKED_OR_PENDING");
+ assert.ok(executions.at(-1).url.includes("/jobs/321?bid_no=R26BK01787028"));
+ await assert.rejects(flowAction("dispatchPlanned",{
+   status:"ACTIONABLE",flow_id:"PF05",bid_no:"FORGED",
+   request_key:"a-valid-test-token",candidate:{feature_no:49}
+ }),/mismatch/);
+ await assert.rejects(flowAction("dispatchPlanned",{status:"BLOCKED",candidate:null}),/not ACTIONABLE/);
+
+ console.log('N8N_CUSTOM_104_BUSINESS_NODE_PASSED operations=104 modes=6 secure_auth=true');
 })().catch(e=>{console.error(e);process.exitCode=1;});
