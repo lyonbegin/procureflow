@@ -62,6 +62,9 @@ export const api = {
     { method: 'POST', body, token }),
   nodeTestRuns: (id, token) => readJson(CASE_API + '/features/' + id + '/test/runs', { token }),
   nodeTestFiles: (id, token) => readJson(CASE_API + '/features/' + id + '/test/files', { token }),
+  deleteNodeTestFile: (featureNo, fileId, token) => readJson(
+    CASE_API + '/features/' + featureNo + '/test/files/' + encodeURIComponent(fileId),
+    { method: 'DELETE', token }),
   nodeTestPin: (id, token) => readJson(CASE_API + '/features/' + id + '/test/pin', { token }),
   saveNodeTestPin: (id, output, label, token) => readJson(
     CASE_API + '/features/' + id + '/test/pin', {
