@@ -13,6 +13,8 @@ from g2b_node_lab import router as g2b_node_lab_router
 app.include_router(g2b_node_lab_router)
 from n8n_scenarios import router as n8n_scenarios_router
 app.include_router(n8n_scenarios_router)
+from n8n_native_probe import router as n8n_native_probe_router
+app.include_router(n8n_native_probe_router)
 
 # n8n is the ONLY workflow editor and engine. Legacy React Flow and the
 # Python DAG simulation API are not mounted.
