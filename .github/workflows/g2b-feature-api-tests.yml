@@ -1,23 +1,21 @@
-name: G2B 104 Feature API + Node Lab + DAG Engine
+name: G2B 104 API + Node Lab (n8n orchestration only)
 on:
   pull_request:
     paths:
       - "g2b_feature_api.py"
       - "g2b_node_lab.py"
-      - "g2b_dag_core.py"
-      - "g2b_dag_api.py"
-      - "g2b_workflow_ops.py"
       - "g2b_feature_data.py"
       - "g2b_documents.py"
       - "g2b_feature_registry.py"
       - "g2b_case_engine.py"
       - "main.py"
       - "worker.py"
+      - "n8n_scenarios.py"
+      - "n8n/**"
       - "requirements.txt"
       - "tests/test_g2b_feature_api.py"
       - "tests/test_g2b_node_lab.py"
-      - "tests/test_g2b_dag_core.py"
-      - "tests/test_g2b_workflow_ops.py"
+      - "tests/test_n8n_scenarios.py"
       - ".github/workflows/g2b-feature-api-tests.yml"
   workflow_dispatch:
 permissions:
@@ -30,9 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install API and test dependencies
-        run: pip install --disable-pip-version-check -r requirements.txt pytest httpx
-      - name: Compile all involved modules
-        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py g2b_workflow_ops.py g2b_dag_core.py g2b_dag_api.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
-      - name: Verify API, node uploads, graph validation and step debugging
-        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_workflow_ops.py tests/test_g2b_node_lab.py tests/test_g2b_dag_core.py
+      - name: Install original business dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+      - name: Compile without deleted DAG modules
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py n8n_scenarios.py n8n_landing.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
+      - name: Verify 104 contracts, upload isolation and n8n QA
+        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py tests/test_n8n_scenarios.py tests/test_n8n_only_migration.py
