@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from g2b_dag_core import (
     starter_graph,validate_graph,GraphError,runnable_nodes,new_debug_run,
-    debug_action,preview_run,
+    debug_action,preview_run,resolve_node_inputs,
 )
 from g2b_dag_api import router
 
@@ -107,6 +107,43 @@ class EditableDAGTest(unittest.TestCase):
             r=debug_action(graph,r,"pin",n,{"mock":n})
             r=debug_action(graph,r,"step",n)
         self.assertIn("join",runnable_nodes(graph,r)["ready"])
+
+    def test_edge_output_to_input_mapping_tracks_lineage(self):
+        graph=deepcopy(self.graph)
+        edge=next(e for e in graph["edges"] if e["source"]=="notice" and e["target"]=="documents")
+        edge["mapping"]={"bid_no":"params.bid_no","agency":"params.agency"}
+        r=debug_action(graph,self.run,"pin","notice",
+                      {"bid_no":"R26BK01787028","agency":"confirmed agency"})
+        r=debug_action(graph,r,"step","notice")
+        inputs=resolve_node_inputs(graph,r,"documents")
+        self.assertEqual(inputs["values"]["params"]["agency"],"confirmed agency")
+        self.assertEqual(len(inputs["lineage"]),2)
+        self.assertTrue(inputs["test_only"])
+
+    def test_missing_mapped_source_pauses_instead_of_guessing(self):
+        graph=deepcopy(self.graph)
+        edge=next(e for e in graph["edges"] if e["source"]=="notice" and e["target"]=="documents")
+        edge["mapping"]={"unknown_agency_code":"params.agency"}
+        r=debug_action(graph,self.run,"pin","notice",{"bid_no":"R26BK01787028"})
+        r=debug_action(graph,r,"step","notice")
+        r=debug_action(graph,r,"pin","documents",{"success":True})
+        r=debug_action(graph,r,"step","documents")
+        self.assertEqual(r["states"]["documents"],"pending")
+        self.assertEqual(r["events"][-1]["action"],"missing_upstream_mapped_input")
+
+    def test_conflicting_upstream_inputs_are_rejected(self):
+        graph=deepcopy(self.graph)
+        incoming=[e for e in graph["edges"] if e["target"]=="join"]
+        for e in incoming[:2]:
+            e["mapping"]={"result":"params.shared"}
+        r=self._complete_notice()
+        for n,value in (("history","A"),("documents","B")):
+            r=debug_action(graph,r,"pin",n,{"result":value})
+            r=debug_action(graph,r,"step",n)
+        r=debug_action(graph,r,"pin","eligibility",{"result":"C"})
+        r=debug_action(graph,r,"step","eligibility")
+        with self.assertRaises(GraphError):
+            resolve_node_inputs(graph,r,"join")
 
     def test_failure_cannot_satisfy_all_required_inputs(self):
         r=self._complete_notice()
