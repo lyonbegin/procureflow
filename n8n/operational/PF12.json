@@ -172,18 +172,25 @@
     {
       "id": "pf12-run-10",
       "name": "관리자 인증 · 실제 Worker Job 등록",
-      "type": "n8n-nodes-procureflow.procureFlow",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         3440,
         165
       ],
       "parameters": {
-        "operation": "dispatchPlanned",
-        "flowId": "PF12",
-        "bidNo": "R26BK01787028"
+        "method": "POST",
+        "url": "https://procureflow-api-production.up.railway.app/api/n8n/operational/flows/PF12/dispatch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ bid_no: $json.bid_no, feature_no: $json.candidate.feature_no, request_key: $json.request_key, parameters: {} }) }}",
+        "options": {
+          "timeout": 30000
+        }
       },
-      "notes": "실제 Worker Queue에 단일 Job을 등록합니다. 동일 request_key 재전송은 중복 생성하지 않습니다. n8n에서 ProcureFlow 업무 API Credential을 등록해야 합니다.",
+      "notes": "명시적 collect 분기에서만 실행. n8n Header Auth Credential에 Authorization=Bearer [Railway ADMIN_TOKEN] 설정 필수. 원본 검증+중복차단 뒤 Worker Job 한 건 등록. n8n JSON에 토큰 저장 금지.",
       "notesInFlow": true
     },
     {
@@ -206,18 +213,22 @@
     {
       "id": "pf12-run-12",
       "name": "실제 Worker 상태·증빙 재검사",
-      "type": "n8n-nodes-procureflow.procureFlow",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         4080,
         165
       ],
       "parameters": {
-        "operation": "jobStatus",
-        "flowId": "PF12",
-        "bidNo": "R26BK01787028"
+        "method": "GET",
+        "url": "=https://procureflow-api-production.up.railway.app/api/n8n/operational/flows/PF12/jobs/{{ $json.job_id }}?bid_no=R26BK01787028",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
       },
-      "notes": "실제 Worker DB 상태와 별도로 공식 증빙 수락 상태를 재조회합니다. 작업 완료와 입찰 준비 완료를 구분합니다.",
+      "notes": "n8n 자체 Header Auth Credential 재사용. 작업 완료 여부와 검증된 원본 증빙을 별도로 읽음. GET은 데이터를 수정하지 않음.",
       "notesInFlow": true
     },
     {
@@ -231,7 +242,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const j=$input.first().json; const r=j.response||{}; if(!j.job_id || r.job_id!==j.job_id) throw new Error('Worker response identity mismatch');return [{json:{flow_id:\"PF12\",case_id:'R26BK01787028',job_id:j.job_id,worker_state:r.worker_state,worker_terminal:r.worker_terminal,independently_verified:r.independently_verified===true,missing_evidence:r.missing_evidence||[],business_state:r.business_state||'BLOCKED_OR_PENDING',job_executed:r.worker_terminal===true,workflow_state:r.worker_terminal?(r.independently_verified?'EVIDENCE_VERIFIED':'COLLECTED_BUT_EVIDENCE_PENDING'):'WORKER_STILL_RUNNING',bid_submitted:false}}];"
+        "jsCode": "const r=$input.first().json;if(r.flow_id!==\"PF12\"||r.bid_no!=='R26BK01787028'||!r.job_id) throw new Error('Worker response identity mismatch');return [{json:{flow_id:\"PF12\",case_id:'R26BK01787028',job_id:r.job_id,worker_state:r.worker_state,worker_terminal:r.worker_terminal,independently_verified:r.independently_verified===true,missing_evidence:r.missing_evidence||[],business_state:r.business_state||'BLOCKED_OR_PENDING',job_executed:r.worker_terminal===true,workflow_state:r.worker_terminal?(r.independently_verified?'EVIDENCE_VERIFIED':'COLLECTED_BUT_EVIDENCE_PENDING'):'WORKER_STILL_RUNNING',bid_submitted:false}}];"
       },
       "notes": "작업 실행 결과와 실제 업무 승인·입찰 완료는 다릅니다. 자료 미확보는 COLLECTED_BUT_EVIDENCE_PENDING.",
       "notesInFlow": true
@@ -405,5 +416,5 @@
   "pinData": {},
   "tags": [],
   "active": false,
-  "description": "선택 발주에 연결된 실제 DB 기반 PF12 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음. [수정: inspect 기본값/collect 명시 선택 시 네이티브 IF→Credential→Worker Queue→20초 대기→증빙 독립 재조회.]"
+  "description": "선택 발주에 연결된 실제 DB 기반 PF12 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음. [수정: inspect 기본값/collect 명시 선택 시 네이티브 IF→HTTP Header Auth Credential→Worker Queue→20초 대기→증빙 독립 재조회.]"
 }

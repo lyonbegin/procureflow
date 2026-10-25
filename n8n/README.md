@@ -3,7 +3,7 @@
 운영 n8n의 PF01~PF15 워크플로는 공식 근거 조회(기본)와 명시적 수집 실행(관리자)을 구분합니다.
 
 1. 기본 inspect 모드: n8n Manual Trigger를 누르면 실제 G2B PostgreSQL의 공식 증빙과 43개 업무 블록 입력·출력을 읽고, 이후 next-action GET으로 가능한 실제 작업 1개를 계획합니다. 이 경로는 Job을 등록하지 않습니다.
-2. 운영자가 최초 코드 노드의 mode 값을 collect로 명시 변경하고, n8n에 암호화된 ProcureFlow 업무 API Credential(관리자 토큰)을 연결할 때에만 네이티브 IF의 실행 분기가 열립니다.
+2. 운영자가 최초 코드 노드의 mode 값을 collect로 명시 변경하고, n8n에 암호화된 내장 HTTP Header Auth Credential(Authorization: Bearer 관리자토큰)을 연결할 때에만 네이티브 IF의 실행 분기가 열립니다.
 3. 승인된 분기는 POST /api/n8n/operational/flows/{PF}/dispatch로 실제 기존 G2B Worker Job 1건을 큐에 넣고 20초 대기 후 GET /api/n8n/operational/flows/{PF}/jobs/{id}로 Worker 결과와 독립 공식 증빙을 확인합니다.
 4. 요청키 중복 실행은 동일 Job으로 반환합니다. 동시 G2B 기능 작업 3개, 동일 공유 수집기 중복, 최근 실행 후 30분 내 재시도는 차단합니다.
 5. PF12 최종 승인, PF14 자원 관리, PF15 장애 복구는 무인 자동 Job 등록이 금지됩니다. 공식 10자리 세부종목 원본 검증 없이는 PF05의 10년 과거 개찰·낙찰 수집이 차단됩니다.
@@ -12,7 +12,7 @@
 관리자 인증 API (실제 동작): POST /api/n8n/operational/flows/PF05/dispatch , GET /api/n8n/operational/flows/PF05/jobs/{id}
 운영 Job 이력: GET /api/n8n/operational/flows/PF05/dispatch-history
 
-Credential은 n8n 내부에서만 관리해야 합니다. 토큰을 GitHub·채팅·워크플로 JSON에 넣지 마세요. 관리자 소유권 및 인증 구성 이전에는 n8n 외부 주소를 공개하면 안 됩니다.
+HTTP Header Auth Credential은 n8n 내부에서만 관리해야 합니다. 토큰을 GitHub·채팅·워크플로 JSON에 넣지 마세요. 관리자 소유권 및 인증 구성 이전에는 n8n 외부 주소를 공개하면 안 됩니다.
 작업이 완료되더라도 투찰/낙찰 분석의 완결성이 증명되는 것은 아닙니다. 자동 입찰 제출은 존재하지 않습니다.
 
 ---

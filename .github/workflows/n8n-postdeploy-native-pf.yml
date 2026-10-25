@@ -1,0 +1,51 @@
+name: Native n8n PF15 Against Live Evidence (Read Only)
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/n8n-postdeploy-native-pf.yml"
+      - "n8n/operational/**"
+      - "n8n_job_bridge.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-fifteen-native-pf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 21
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure latest new read-only live G2B plan endpoint exists
+        run: |
+          curl --fail --show-error --silent --max-time 20 \
+            https://procureflow-api-production.up.railway.app/api/n8n/operational/flows/PF05/next-action \
+            -o /tmp/pf05.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/pf05.json'))
+          assert d['flow_id']=='PF05'
+          assert d['read_only'] is True and d['job_enqueued'] is False
+          assert d['bid_submitted'] is False
+          print('LIVE_PF05_PLAN_READ_ONLY_VERIFIED',d['status'])
+          PY
+      - name: Build actual production n8n image containing ProcureFlow custom node
+        run: docker build -f n8n/Dockerfile -t procureflow-n8n-integration:qa .
+      - name: Execute all FIFTEEN native PF workflows through actual n8n 2.44.6
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -e N8N_ENCRYPTION_KEY=ci-temporary-isolated-readonly             -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false \
+            -v "${PWD}/n8n/operational:/pf-workflows:ro" \
+            procureflow-n8n-integration:qa \
+            -c 'set -eu
+              n8n import:workflow --separate --input=/pf-workflows
+              for pf in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
+                echo "PF_NATIVE_START PF${pf}"
+                n8n execute --id="PFOP2026PF${pf}WF" > "/tmp/PF${pf}.log" 2>&1 ||
+                  { tail -120 "/tmp/PF${pf}.log"; exit 1; }
+                grep -q "Execution was successful:" "/tmp/PF${pf}.log" ||
+                  { tail -120 "/tmp/PF${pf}.log"; exit 1; }
+                grep -q "actual_job_executed" "/tmp/PF${pf}.log" ||
+                  { tail -120 "/tmp/PF${pf}.log"; exit 1; }
+                echo "PF_NATIVE_READ_ONLY_PASS PF${pf}"
+              done
+              echo N8N_LIVE_ALL_FIFTEEN_READ_ONLY_PASSED'

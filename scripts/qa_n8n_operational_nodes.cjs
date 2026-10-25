@@ -15,7 +15,7 @@ for(const f of manifest.flows){
  const w=JSON.parse(fs.readFileSync(path.join(root,'n8n/operational',f.id+'.json'),'utf8'));
  const codes=w.nodes.filter(n=>n.type==='n8n-nodes-base.code' && (n.name==='01 · 발주번호·PF 흐름 선택' || n.name==='03 · 공식 증빙 검사·입력 기록' || n.name.includes(' · ') && f.owned_blocks.some(id=>n.name.startsWith(id+' · ')) || n.name==='최종 · 업무 미완료·대기·검증 결과'));
  assert.equal(codes.length,f.owned_blocks.length+3); 
- assert.equal(w.nodes.filter(n=>n.type==='n8n-nodes-procureflow.procureFlow').length,2);
+ assert.equal(w.nodes.filter(n=>n.type==='n8n-nodes-base.httpRequest' && n.parameters.genericAuthType==='httpHeaderAuth').length,2);
  assert.ok(w.connections['실제 Worker Job 실행 여부']);
  const input=evalNode(codes[0].parameters.jsCode,null);tested++;
  assert.equal(input.flow_id,f.id);
