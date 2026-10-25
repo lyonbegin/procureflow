@@ -1,0 +1,67 @@
+.dag-studio{position:fixed;inset:0;z-index:120;background:#f4f7fb;display:flex;flex-direction:column;font:12px/1.5 "Noto Sans KR",system-ui,sans-serif;color:#243d52}
+.dag-topbar{height:58px;flex:0 0 58px;background:#fff;border-bottom:1px solid #dae4ee;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 16px}
+.dag-brand{display:flex;align-items:center;gap:10px;white-space:nowrap;min-width:0}
+.dag-brand svg{color:#138a8e;flex-shrink:0}
+.dag-brand strong{font-size:15px;white-space:nowrap}
+.dag-brand small{font-size:10px;color:#8095a8;overflow:hidden;text-overflow:ellipsis}
+.dag-top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dag-workspace{flex:1;min-height:0;display:flex;gap:0}
+.dag-palette{width:272px;flex:0 0 272px;background:white;border-right:1px solid #dce6ee;overflow-y:auto;display:flex;flex-direction:column;padding:14px;gap:9px}
+.dag-section-heading{font-weight:800;font-size:10px;color:#7390a1;letter-spacing:1.1px;text-transform:uppercase;margin:9px 0 2px}
+.dag-palette>select,.dag-palette>input,.dag-palette label input{width:100%;padding:9px;border:1px solid #d8e4ee;border-radius:8px;color:#344d61;background:white;font:11px inherit}
+.dag-palette label,.dag-editor-panel label{display:flex;flex-direction:column;gap:5px;color:#46657b;font-size:11px;font-weight:700}
+.dag-palette label input{margin-top:2px}
+.dag-version{font-size:10px;color:#73a0a5}
+.dag-palette-items{flex:1;overflow-y:auto;min-height:80px;display:flex;flex-direction:column;gap:3px}
+.dag-palette-items button{border:none;background:transparent;border-radius:7px;display:flex;gap:9px;text-align:left;align-items:center;padding:9px 6px;color:#4c6d82;font-size:10px}
+.dag-palette-items button:hover{background:#eaf6f5}
+.dag-palette-items button span{color:#168c97;font-weight:800;white-space:nowrap}
+.dag-add-utility{border:1px solid #d7e8eb;color:#377886;border-radius:7px;display:flex;align-items:center;gap:9px;padding:9px 10px;background:#f7fbfc;font-weight:750;font-size:10px}
+.dag-add-utility:hover{background:#e9f8f5}
+.dag-palette-bottom{font-size:9px;color:#869db0;border-top:1px solid #e5ecf3;margin-top:8px;padding-top:12px;line-height:1.7}
+.dag-canvas{flex:1;position:relative;min-width:0;background:#f8fafc}
+.dag-canvas .react-flow{height:100%;width:100%}
+.dag-hint{position:absolute;top:15px;left:15px;z-index:8;padding:8px 11px;border-radius:8px;border:1px solid #e2eaf2;background:#fffd;font-size:10px;color:#718b9d;pointer-events:none}
+.dag-placeholder{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#7b96a9}
+.dag-placeholder strong{font-size:12px;max-width:280px;text-align:center}
+.dag-editor-panel{width:352px;flex:0 0 352px;display:flex;flex-direction:column;background:white;border-left:1px solid #dae5ef;min-height:0}
+.dag-panel-head{padding:13px 15px;border-bottom:1px solid #e8eef3;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dag-panel-head strong{font-size:12px}
+.dag-panel-head>div{display:flex;gap:3px}
+.dag-panel-head button{border:none;background:transparent;color:#7e9aaa;border-radius:6px;padding:6px 9px;font-size:10px}
+.dag-panel-head button.selected{background:#e9f7f5;color:#168389}
+.dag-panel-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:14px}
+.dag-panel-scroll input,.dag-panel-scroll select,.dag-panel-scroll textarea{border:1px solid #d8e3ed;border-radius:7px;padding:9px;color:#375971;background:white;font:11px/1.6 ui-monospace,Consolas,monospace;width:100%}
+.dag-panel-scroll textarea{resize:vertical;min-height:80px;white-space:pre;overflow:auto}
+.dag-form{display:flex;flex-direction:column;gap:12px}
+.dag-selection{font-size:10px;color:#278c96;font-weight:850;padding:9px;background:#edf8f7;border-radius:7px;overflow-wrap:anywhere}
+.dag-check{flex-direction:row!important;align-items:center;gap:8px}
+.dag-check input{width:auto}
+.dag-path{background:#f5f8fb;color:#618399;font-size:11px;padding:11px;overflow-wrap:anywhere;border-radius:7px}
+.dag-delete{display:flex;align-items:center;gap:8px;border:1px solid #f1ccd2;border-radius:7px;background:#fff3f5;color:#c04f63;padding:10px;font-size:11px}
+.dag-placeholder-text{font-size:11px;color:#7f98a9;line-height:1.9;padding:16px 10px}
+.dag-panel-foot{border-top:1px solid #e8eef3;color:#8da1b0;font-size:10px;padding:12px;display:flex;align-items:center;gap:7px}
+.dag-face{padding:12px;display:flex;gap:6px;flex-direction:column}
+.dag-face-heading{display:flex;align-items:center;justify-content:space-between;font-size:9px;color:#207d96;font-weight:800}
+.dag-face strong{font-size:11px;color:#28475b;line-height:1.5}
+.dag-face small{color:#7b94a6;font-size:10px}
+.dag-tiny-state{font-size:9px;color:#95a9b8}
+.dag-tiny-state.state-succeeded{color:#0e9870}
+.dag-tiny-state.state-failed{color:#ba3b57}
+.dag-face .dag-breakpoint{color:#d45d71}
+.dag-warning{border:1px solid #f3e2ba;background:#fff9eb;color:#956d2b;padding:11px;border-radius:8px;font-size:10px;line-height:1.65;white-space:pre-wrap}
+.dag-wide{width:100%}
+.dag-debug-state{display:flex;justify-content:space-between;padding:11px;border:1px solid #dce9f0;border-radius:8px;background:#f6fafb}
+.dag-debug-state strong{font-size:12px;color:#337888}
+.dag-debug-state span{font-size:10px;color:#7c9aab}
+.dag-debug-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.dag-debug-controls button{display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #d6e5ed;background:#f9fcfd;border-radius:7px;padding:9px;color:#4f7c8b;font-size:10px;white-space:nowrap}
+.dag-debug-controls button:hover{background:#e9f8f6}
+.dag-debug-list{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#718c9e}
+.dag-debug-list strong{font:11px ui-monospace,Consolas,monospace;color:#365775}
+.dag-result-json{white-space:pre-wrap;word-break:break-word;padding:12px;max-height:360px;overflow:auto;background:#153146;color:#d5ebed;border-radius:8px;font:10px/1.5 ui-monospace,monospace}
+.dag-error,.dag-info{padding:10px;border-radius:7px;font-size:10px;overflow-wrap:anywhere}
+.dag-error{background:#fff0f3;color:#b34259}
+.dag-info{background:#eaf8f3;color:#25806f}
+@media(max-width:1050px){.dag-palette{width:220px;flex-basis:220px}.dag-editor-panel{width:300px;flex-basis:300px}.dag-brand small{display:none}}
+@media(max-width:760px){.dag-studio{overflow:auto}.dag-topbar{height:auto;min-height:60px;align-items:flex-start;padding:10px;flex-wrap:wrap}.dag-workspace{position:relative;min-height:0}.dag-palette{display:none}.dag-editor-panel{position:absolute;right:0;top:0;bottom:0;z-index:15;width:min(330px,calc(100vw - 50px));box-shadow:-5px 0 15px #304d6430}.dag-hint{max-width:200px}.dag-top-actions .button{font-size:10px;padding:7px}}
