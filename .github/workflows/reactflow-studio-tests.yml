@@ -7,6 +7,7 @@ on:
       - ".dockerignore"
       - "main.py"
       - "g2b_dag_api.py"
+      - "scripts/railway_live_probe.py"
       - "g2b_dag_core.py"
       - "g2b_node_lab.py"
       - "requirements.txt"
@@ -51,4 +52,4 @@ jobs:
       - name: Test full screen UI, 104 APIs, lab, DAG and debugging
         run: python -m pytest -q tests/test_workflow_studio.py tests/test_g2b_feature_api.py tests/test_g2b_workflow_ops.py tests/test_g2b_node_lab.py tests/test_g2b_dag_core.py
       - name: Compile existing API and Worker
-        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_workflow_ops.py g2b_node_lab.py g2b_dag_core.py g2b_dag_api.py
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_workflow_ops.py g2b_node_lab.py g2b_dag_core.py g2b_dag_api.py scripts/railway_live_probe.py
