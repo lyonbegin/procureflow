@@ -44,6 +44,16 @@ jobs:
         run: |
           node scripts/qa_n8n_code_nodes.cjs
           node scripts/qa_n8n_operational_nodes.cjs
+      - name: Check actual live progress-monitor JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html=Path('n8n/progress.html').read_text(encoding='utf-8')
+          start=html.index('<script>')+len('<script>')
+          end=html.index('</script>',start)
+          Path('/tmp/n8n-progress-ui.js').write_text(html[start:end],encoding='utf-8')
+          PY
+          node --check /tmp/n8n-progress-ui.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
