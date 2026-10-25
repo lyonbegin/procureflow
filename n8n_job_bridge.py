@@ -247,7 +247,11 @@ def job_status(flow_id:str,job_id:int,bid_no:str=Query(CASE_BID),
     terminal=detail["state"] in ("completed","completed_partial","failed","cancelled")
     # Another fresh DB read: worker state != acceptance state.
     from g2b_feature_api import inspect_feature
-    acceptance=inspect_feature(bid_no,int(detail["feature_no"]))
+    from g2b_case_engine import dashboard
+    acceptance=inspect_feature(
+        bid_no,int(detail["feature_no"]),
+        snapshot=dashboard(bid_no,15,refresh=False),
+    )
     return {"flow_id":flow_id,"bid_no":bid_no,"job_id":job_id,
             "worker_state":detail["state"],
             "worker_terminal":terminal,
