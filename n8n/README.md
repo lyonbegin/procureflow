@@ -81,3 +81,17 @@ and G2B business APIs are separate business processing components and remain.
 - Confirm there are no active G2B write/submit nodes in any demo workflow.
 - Only after UI/execution verification proceed with PF01~PF15 **real**
   integration flows, validated primary-source data and authentication.
+
+### Read native n8n execution status from API
+
+After n8n is installed and its public API is enabled, configure on the Python
+API service only:
+
+- `N8N_ADMIN_API_URL` — n8n internal HTTPS URL (no credentials in URL)
+- `N8N_ADMIN_API_KEY` — a read-only/least-privilege n8n API key
+
+`GET /api/n8n/native/status` reports how many of the 10 workflows were
+actually imported and how many produced a recorded native n8n successful
+execution. It intentionally reports **0 and not verified** before connection;
+`GET /api/n8n/qa` is only a stateless fictional model test.
+No API key or internal host URL is exposed by the response.
