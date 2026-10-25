@@ -10,7 +10,7 @@
         respond "ok" 200
     }
     handle {
-        basic_auth "ProcureFlow n8n Editor" {
+        basic_auth bcrypt "ProcureFlow n8n Editor" {
             procureflow {env.EDITOR_PASSWORD_HASH}
         }
         reverse_proxy http://n8n.railway.internal:5678 {
