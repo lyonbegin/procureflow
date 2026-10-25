@@ -1,0 +1,1027 @@
+{
+  "schema_version": 1,
+  "engine": "n8n_only",
+  "flows": [
+    {
+      "id": "PF01",
+      "label": "공고 상시 수집",
+      "trigger": "schedule_or_manual",
+      "owned_blocks": [
+        "N01",
+        "N02"
+      ],
+      "business_features": [
+        1,
+        2,
+        3,
+        4,
+        11,
+        15
+      ],
+      "event": "TenderDiscovered",
+      "next": [
+        "PF02",
+        "PF13"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF02",
+      "label": "발주 등록·1차 심사",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "N03",
+        "N06",
+        "N07"
+      ],
+      "business_features": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "event": "TenderQualified",
+      "next": [
+        "PF03"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF03",
+      "label": "분석 작업 할당",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "O01"
+      ],
+      "business_features": [
+        16,
+        95,
+        96,
+        99
+      ],
+      "event": "CaseAssigned",
+      "next": [
+        "PF04",
+        "PF07",
+        "PF08"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF04",
+      "label": "공식 공고·첨부 처리",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "N05",
+        "N08",
+        "N09",
+        "N10"
+      ],
+      "business_features": [
+        17,
+        18,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "event": "OfficialEvidenceReady",
+      "next": [
+        "PF05",
+        "PF07",
+        "PF08",
+        "PF10"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF05",
+      "label": "10년 개찰·낙찰 전수",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "H01",
+        "H02",
+        "H03",
+        "H04",
+        "H05",
+        "H06",
+        "H07",
+        "H08"
+      ],
+      "business_features": [
+        49,
+        53,
+        33,
+        44,
+        45,
+        47,
+        52,
+        34,
+        35,
+        36,
+        37,
+        40,
+        41,
+        42,
+        43,
+        55,
+        38,
+        39,
+        51,
+        56,
+        46,
+        50,
+        54,
+        48
+      ],
+      "event": "TenYearCoverageCompleted",
+      "next": [
+        "PF06",
+        "PF11"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF06",
+      "label": "발주기관·경쟁업체 분석",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "H09",
+        "H10",
+        "H11"
+      ],
+      "business_features": [
+        57,
+        58,
+        59,
+        60
+      ],
+      "event": "CompetitorAnalysisUpdated",
+      "next": [
+        "PF09",
+        "PF10",
+        "PF12"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF07",
+      "label": "입찰참가자격 검증",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "Q01",
+        "Q02",
+        "Q03",
+        "Q04",
+        "Q05"
+      ],
+      "business_features": [
+        61,
+        69,
+        62,
+        63,
+        64,
+        65,
+        67,
+        68,
+        70,
+        66
+      ],
+      "event": "EligibilityEvaluated",
+      "next": [
+        "PF09",
+        "PF10",
+        "PF12"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF08",
+      "label": "공급업체·인력 조사",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "S01",
+        "S02",
+        "S03",
+        "S04"
+      ],
+      "business_features": [
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ],
+      "event": "SupplierQuoteVerified",
+      "next": [
+        "PF09",
+        "PF10"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF09",
+      "label": "원가·가격전략",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07"
+      ],
+      "business_features": [
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91
+      ],
+      "event": "PriceScenarioCalculated",
+      "next": [
+        "PF10",
+        "PF12"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF10",
+      "label": "제안서·서류",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "R01",
+        "R02"
+      ],
+      "business_features": [
+        92,
+        93,
+        94
+      ],
+      "event": "PackageValidated",
+      "next": [
+        "PF11",
+        "PF12"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF11",
+      "label": "독립 원본·결과 감사",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "O03"
+      ],
+      "business_features": [
+        100
+      ],
+      "event": "AuditFindingCreated",
+      "next": [
+        "PF12",
+        "PF13"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF12",
+      "label": "입찰 참여 의사결정",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "O04"
+      ],
+      "business_features": [
+        103,
+        104
+      ],
+      "event": "DecisionUpdated",
+      "next": [],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF13",
+      "label": "정정·분석버전 갱신",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "N04"
+      ],
+      "business_features": [
+        12,
+        13,
+        14
+      ],
+      "event": "RevalidationRequested",
+      "next": [
+        "PF04",
+        "PF05",
+        "PF06",
+        "PF07",
+        "PF08",
+        "PF09",
+        "PF10"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF14",
+      "label": "전역 API·Worker 자원 통제",
+      "trigger": "event_or_manual",
+      "owned_blocks": [
+        "O02"
+      ],
+      "business_features": [
+        97,
+        98,
+        101,
+        102
+      ],
+      "event": "ResourceGrant",
+      "next": [
+        "PF03",
+        "PF05"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    },
+    {
+      "id": "PF15",
+      "label": "장애 복구·상태 대조",
+      "trigger": "event_or_manual",
+      "owned_blocks": [],
+      "business_features": [],
+      "event": "RecoveryDecision",
+      "next": [
+        "PF03",
+        "PF05",
+        "PF11"
+      ],
+      "mode": "business_evidence_read_only_by_default",
+      "actual_job_mutations_require_admin_credential": true,
+      "never_submit_bid": true
+    }
+  ],
+  "blocks": [
+    {
+      "id": "N01",
+      "label": "신규공고 발견",
+      "features": [
+        1,
+        2
+      ],
+      "input": "query.window",
+      "output": "tender_candidates[]",
+      "to": [
+        "N02"
+      ]
+    },
+    {
+      "id": "N02",
+      "label": "공고번호·차수 식별",
+      "features": [
+        3,
+        4,
+        11,
+        15
+      ],
+      "input": "tender_candidates[]",
+      "output": "tender_identifiers[]",
+      "to": [
+        "N03",
+        "N05",
+        "O01"
+      ]
+    },
+    {
+      "id": "N03",
+      "label": "공고 속성 정규화",
+      "features": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "input": "N05.official_notice",
+      "output": "tender_context",
+      "to": [
+        "N06",
+        "N07"
+      ]
+    },
+    {
+      "id": "N04",
+      "label": "정정·취소·버전 비교",
+      "features": [
+        12,
+        13,
+        14
+      ],
+      "input": "official_notice+previous_revision",
+      "output": "change_set",
+      "to": [
+        "PF13.revalidate",
+        "O04"
+      ]
+    },
+    {
+      "id": "N05",
+      "label": "공식 공고 상세",
+      "features": [
+        17,
+        18
+      ],
+      "input": "tender_identifiers[]",
+      "output": "official_notice",
+      "to": [
+        "N03",
+        "N08",
+        "N10"
+      ]
+    },
+    {
+      "id": "N06",
+      "label": "공식 세부코드·기관",
+      "features": [
+        19,
+        20
+      ],
+      "input": "official_notice",
+      "output": "verified_detail10+agency_code",
+      "to": [
+        "H01",
+        "H09",
+        "Q01"
+      ]
+    },
+    {
+      "id": "N07",
+      "label": "계약조건·마감·금액",
+      "features": [
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "input": "official_notice",
+      "output": "contract_terms",
+      "to": [
+        "Q01",
+        "P01",
+        "P05"
+      ]
+    },
+    {
+      "id": "N08",
+      "label": "첨부목록",
+      "features": [
+        28
+      ],
+      "input": "official_notice",
+      "output": "attachment_manifest[]",
+      "to": [
+        "N09"
+      ]
+    },
+    {
+      "id": "N09",
+      "label": "문서 원본·무결성",
+      "features": [
+        29,
+        30
+      ],
+      "input": "attachment_manifest[]",
+      "output": "artifact_refs[]",
+      "to": [
+        "N10"
+      ]
+    },
+    {
+      "id": "N10",
+      "label": "문서 추출·원본 대조",
+      "features": [
+        31,
+        32
+      ],
+      "input": "artifact_refs[]",
+      "output": "requirements+specification+conflicts",
+      "to": [
+        "Q01",
+        "S01",
+        "P01",
+        "R01"
+      ]
+    },
+    {
+      "id": "H01",
+      "label": "정확한 10자리 세부종목",
+      "features": [
+        49
+      ],
+      "input": "N06.verified_detail10",
+      "output": "validated_detail10",
+      "to": [
+        "H02"
+      ]
+    },
+    {
+      "id": "H02",
+      "label": "10년 기간 분할",
+      "features": [
+        53
+      ],
+      "input": "validated_detail10+window",
+      "output": "search_windows[]",
+      "to": [
+        "H03"
+      ]
+    },
+    {
+      "id": "H03",
+      "label": "과거 공고 후보",
+      "features": [
+        33,
+        44,
+        45,
+        47
+      ],
+      "input": "search_windows[]",
+      "output": "historical_notice_candidates[]",
+      "to": [
+        "H04"
+      ]
+    },
+    {
+      "id": "H04",
+      "label": "구형·신형 공고 검증",
+      "features": [
+        52
+      ],
+      "input": "historical_notice_candidates[]",
+      "output": "verified_historical_notices[]",
+      "to": [
+        "H05",
+        "H06"
+      ]
+    },
+    {
+      "id": "H05",
+      "label": "실제 개찰·투찰 상세",
+      "features": [
+        34,
+        35,
+        36,
+        37,
+        40,
+        41,
+        42,
+        43,
+        55
+      ],
+      "input": "verified_historical_notices[]",
+      "output": "opening_records[]+bidder_records[]",
+      "to": [
+        "H07",
+        "H09",
+        "H10"
+      ]
+    },
+    {
+      "id": "H06",
+      "label": "확정 낙찰결과",
+      "features": [
+        38,
+        39,
+        51,
+        56
+      ],
+      "input": "verified_historical_notices[]",
+      "output": "award_records[]",
+      "to": [
+        "H07",
+        "H09",
+        "H10"
+      ]
+    },
+    {
+      "id": "H07",
+      "label": "10년 개찰·낙찰 완전성",
+      "features": [
+        46,
+        50,
+        54
+      ],
+      "input": "opening_records[]+award_records[]+search_windows[]",
+      "output": "coverage_verdict",
+      "to": [
+        "H08",
+        "PF11"
+      ]
+    },
+    {
+      "id": "H08",
+      "label": "현재 발주·이력 연결",
+      "features": [
+        48
+      ],
+      "input": "coverage_verdict+case_id",
+      "output": "history_dataset_ref",
+      "to": [
+        "H09",
+        "H10"
+      ]
+    },
+    {
+      "id": "H09",
+      "label": "동일 발주기관 분석",
+      "features": [
+        57,
+        58
+      ],
+      "input": "history_dataset_ref+agency_code",
+      "output": "agency_stats",
+      "to": [
+        "H11",
+        "P04"
+      ]
+    },
+    {
+      "id": "H10",
+      "label": "반복 참가업체 분석",
+      "features": [
+        59
+      ],
+      "input": "history_dataset_ref",
+      "output": "competitors_stats",
+      "to": [
+        "H11"
+      ]
+    },
+    {
+      "id": "H11",
+      "label": "10년 근거 보고서",
+      "features": [
+        60
+      ],
+      "input": "agency_stats+competitors_stats+coverage_verdict",
+      "output": "verified_history_report",
+      "to": [
+        "P04",
+        "R01",
+        "PF11"
+      ]
+    },
+    {
+      "id": "Q01",
+      "label": "자격·증빙 요건 추출",
+      "features": [
+        61,
+        69
+      ],
+      "input": "contract_terms+requirements",
+      "output": "eligibility_requirements",
+      "to": [
+        "Q02",
+        "Q03",
+        "Q04"
+      ]
+    },
+    {
+      "id": "Q02",
+      "label": "회사 등록·인증 검증",
+      "features": [
+        62,
+        63,
+        64,
+        65
+      ],
+      "input": "company_evidence+eligibility_requirements",
+      "output": "verified_company_evidence",
+      "to": [
+        "Q04"
+      ]
+    },
+    {
+      "id": "Q03",
+      "label": "공동수급·보증 조건",
+      "features": [
+        67,
+        68
+      ],
+      "input": "contract_terms+eligibility_requirements",
+      "output": "joint_and_bond_terms",
+      "to": [
+        "Q04"
+      ]
+    },
+    {
+      "id": "Q04",
+      "label": "요구·보유 증빙 대조",
+      "features": [
+        70
+      ],
+      "input": "eligibility_requirements+verified_company_evidence",
+      "output": "eligibility_gaps",
+      "to": [
+        "Q05"
+      ]
+    },
+    {
+      "id": "Q05",
+      "label": "참가자격 적격성",
+      "features": [
+        66
+      ],
+      "input": "eligibility_gaps+joint_and_bond_terms",
+      "output": "eligibility_verdict",
+      "to": [
+        "O04",
+        "P07",
+        "R02"
+      ]
+    },
+    {
+      "id": "S01",
+      "label": "공급업체·수행가능성",
+      "features": [
+        71,
+        72,
+        73
+      ],
+      "input": "specification+supplier_registry",
+      "output": "supplier_candidates[]",
+      "to": [
+        "S02"
+      ]
+    },
+    {
+      "id": "S02",
+      "label": "견적요청 초안",
+      "features": [
+        74
+      ],
+      "input": "supplier_candidates[]+specification",
+      "output": "quote_request_drafts[]",
+      "to": [
+        "S03"
+      ]
+    },
+    {
+      "id": "S03",
+      "label": "회신 견적 검증",
+      "features": [
+        75
+      ],
+      "input": "supplier_quote_artifacts[]",
+      "output": "verified_quotes[]",
+      "to": [
+        "S04"
+      ]
+    },
+    {
+      "id": "S04",
+      "label": "견적 비교·최소 유효수",
+      "features": [
+        76
+      ],
+      "input": "verified_quotes[]+specification",
+      "output": "cost_quotes+quote_quorum",
+      "to": [
+        "P02",
+        "R01"
+      ]
+    },
+    {
+      "id": "P01",
+      "label": "공식 금액·내역서",
+      "features": [
+        77,
+        78,
+        79
+      ],
+      "input": "contract_terms+specification",
+      "output": "amounts+quantities",
+      "to": [
+        "P02",
+        "P05"
+      ]
+    },
+    {
+      "id": "P02",
+      "label": "직접원가",
+      "features": [
+        80,
+        81,
+        82
+      ],
+      "input": "amounts+quantities+cost_quotes",
+      "output": "direct_cost",
+      "to": [
+        "P03"
+      ]
+    },
+    {
+      "id": "P03",
+      "label": "총원가",
+      "features": [
+        83,
+        84,
+        85
+      ],
+      "input": "direct_cost+tax_rules",
+      "output": "total_cost",
+      "to": [
+        "P06"
+      ]
+    },
+    {
+      "id": "P04",
+      "label": "낙찰가격·투찰률 통계",
+      "features": [
+        86,
+        87
+      ],
+      "input": "verified_history_report",
+      "output": "historical_price_stats",
+      "to": [
+        "P06"
+      ]
+    },
+    {
+      "id": "P05",
+      "label": "계약별 가격결정 규칙",
+      "features": [
+        88
+      ],
+      "input": "contract_terms+amounts",
+      "output": "applicable_price_rules",
+      "to": [
+        "P06"
+      ]
+    },
+    {
+      "id": "P06",
+      "label": "가격 시나리오",
+      "features": [
+        89,
+        90
+      ],
+      "input": "total_cost+historical_price_stats+applicable_price_rules",
+      "output": "price_scenarios[]",
+      "to": [
+        "P07"
+      ]
+    },
+    {
+      "id": "P07",
+      "label": "최종 가격 검토",
+      "features": [
+        91
+      ],
+      "input": "price_scenarios[]+eligibility_verdict",
+      "output": "approved_price_or_block",
+      "to": [
+        "R01",
+        "R02",
+        "O04"
+      ]
+    },
+    {
+      "id": "R01",
+      "label": "제안서·제출서류",
+      "features": [
+        92,
+        93
+      ],
+      "input": "specification+verified_history_report+approved_price_or_block",
+      "output": "draft_package",
+      "to": [
+        "R02"
+      ]
+    },
+    {
+      "id": "R02",
+      "label": "최종 패키지 검증",
+      "features": [
+        94
+      ],
+      "input": "draft_package+eligibility_verdict+conflicts",
+      "output": "package_validation",
+      "to": [
+        "O04"
+      ]
+    },
+    {
+      "id": "O01",
+      "label": "발주별 작업 소유·상태",
+      "features": [
+        16,
+        95,
+        96,
+        99
+      ],
+      "input": "tender_identifiers[]",
+      "output": "case_context+assignment",
+      "to": [
+        "PF04",
+        "PF05",
+        "PF07"
+      ]
+    },
+    {
+      "id": "O02",
+      "label": "작업큐·Worker·재시도",
+      "features": [
+        97,
+        98,
+        101,
+        102
+      ],
+      "input": "queue_jobs+resource_policy",
+      "output": "job_state+worker_recovery",
+      "to": [
+        "PF15",
+        "O03"
+      ]
+    },
+    {
+      "id": "O03",
+      "label": "증빙 결합·감사 추적",
+      "features": [
+        100
+      ],
+      "input": "all_evidence_refs+node_outputs",
+      "output": "provenance_graph+audit_findings",
+      "to": [
+        "O04",
+        "PF13"
+      ]
+    },
+    {
+      "id": "O04",
+      "label": "사람 승인 전 검증",
+      "features": [
+        103,
+        104
+      ],
+      "input": "eligibility_verdict+package_validation+approved_price_or_block+audit_findings",
+      "output": "READY/HOLD/NO_BID/REVIEW",
+      "to": []
+    }
+  ],
+  "verification": "official_data_gate",
+  "business_basis": "g2b_feature_registry.py 104 existing contracts"
+}

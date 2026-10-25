@@ -1,9 +1,4 @@
-"""Tiny workflow *launcher*, not an editor, DAG, or execution engine.
-
-The only workflow UI/runner is n8n. Without a configured n8n URL we
-show an explicit deployment blocker and read-only API simulation links;
-never claim that a test executed inside n8n.
-"""
+"""Minimal launcher only. n8n owns ALL workflow editing and executions."""
 from html import escape
 import os
 from urllib.parse import urlparse
@@ -20,64 +15,95 @@ def editor_base() -> str:
 
 def scenario_editor_url(scenario_id: str) -> str:
     base = editor_base()
-    if not base:
-        return ""
-    if not (len(scenario_id) == 3 and scenario_id.startswith("S")
+    if not base or not (len(scenario_id) == 3 and scenario_id.startswith("S")
             and scenario_id[1:].isdigit() and 1 <= int(scenario_id[1:]) <= 10):
         return ""
     return f"{base}/workflow/PFDEMO2026{scenario_id}WF"
 
 
+def operational_editor_url(flow_id: str) -> str:
+    base = editor_base()
+    if not base or not (len(flow_id) == 4 and flow_id.startswith("PF")
+            and flow_id[2:].isdigit() and 1 <= int(flow_id[2:]) <= 15):
+        return ""
+    return f"{base}/workflow/PFOP2026{flow_id}WF"
+
+
+def _button(url: str) -> str:
+    if not url:
+        return '<span class="blocked">관리자 인증 전 · n8n 외부 접근 차단</span>'
+    return ('<a class="btn" target="_blank" rel="noopener noreferrer" '
+            f'href="{escape(url, quote=True)}">n8n에서 열고 실행</a>')
+
+
 def launcher() -> HTMLResponse:
     from n8n_scenarios import read_manifest
-    base = editor_base()
-    items = []
-    for scenario in read_manifest()["scenarios"]:
-        sid, title = scenario["id"], escape(scenario["title"])
-        link = scenario_editor_url(sid)
-        if link:
-            action = (f'<a class="btn" target="_blank" rel="noopener noreferrer" '
-                      f'href="{escape(link, quote=True)}">n8n에서 열고 실행</a>')
-        else:
-            action = '<span class="blocked">n8n 서버 연결 전 · 실행 불가</span>'
-        items.append(
-            f'<article><header><b>{sid}</b><strong>{title}</strong></header>'
-            f'<p>단계 {len(scenario["steps"])}개 · 예상 {escape(scenario["expected"])}</p>'
-            f'<div class="actions">{action}'
-            f'<a class="quiet" href="/api/n8n/scenarios/{sid}/simulate" target="_blank">'
+    from n8n_operational import manifest
+    flows = []
+    for flow in manifest()["flows"]:
+        fid = flow["id"]
+        flows.append(
+            '<article><header><b>' + fid + '</b><strong>' + escape(flow["label"]) +
+            '</strong></header><p>실제 업무 기능 ' + str(len(flow["business_features"])) +
+            '개 · 블록 ' + str(len(flow["owned_blocks"])) +
+            '개 · DB 공식 증빙 읽기</p><div class="actions">' +
+            _button(operational_editor_url(fid)) +
+            f'<a class="quiet" target="_blank" href="/api/n8n/operational/flows/{fid}/inspect">'
+            '실제 입력·출력·누락 확인</a></div></article>'
+        )
+    demos = []
+    for item in read_manifest()["scenarios"]:
+        sid = item["id"]
+        demos.append(
+            '<article><header><b>' + sid + '</b><strong>' + escape(item["title"]) +
+            '</strong></header><p>가상 운영 이벤트 ' + str(len(item["steps"])) +
+            '개 · 예상 ' + escape(item["expected"]) +
+            '</p><div class="actions">' + _button(scenario_editor_url(sid)) +
+            f'<a class="quiet" target="_blank" href="/api/n8n/scenarios/{sid}/simulate">'
             'API 가상 결과 검사</a></div></article>'
         )
-    status = ("n8n 연동 URL 설정됨 — 실행하려면 n8n 로그인 후 각 워크플로에서 "
-              "<b>Execute workflow</b>를 누르세요. 워크플로가 실제로 가져와졌는지는 별도 확인 필요."
-              if base else
-              "n8n 인스턴스가 아직 이 API에 연결되지 않았습니다. "
-              "<b>N8N_EDITOR_URL</b>과 n8n 워크플로 가져오기가 완료되기 전에는 실행 버튼을 표시하지 않습니다.")
-    return HTMLResponse("""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+    status = ('관리자 인증이 설정된 n8n 연결 주소가 확인되었습니다. '
+              '선택 후 n8n의 Execute workflow를 눌러 노드별 진행 상태를 확인하세요.'
+              if editor_base() else
+              'n8n은 외부 관리자 등록 위험 때문에 공개 접속이 차단돼 있습니다. '
+              '관리자 소유권·인증 설정 전까지 실행 링크를 공개하지 않습니다.')
+    html = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ProcureFlow · n8n 전용 워크플로 시나리오</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f5f8fb;font:14px/1.6 system-ui,'Malgun Gothic',sans-serif;color:#20374b}
-nav{background:#0d3448;color:white;padding:15px max(24px,calc((100vw - 1110px)/2));font-weight:750}
-main{max-width:1130px;margin:0 auto;padding:34px 18px 70px}h1{font-size:24px;letter-spacing:-.7px;margin:0 0 8px}
-.subtitle{color:#607d8e;max-width:950px;margin:0 0 20px}
+<title>ProcureFlow · n8n 단일 워크플로</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f5f8fb;font:14px/1.6 system-ui,'Malgun Gothic',sans-serif;color:#20374b}
+nav{background:#0d3448;color:white;padding:15px max(24px,calc((100vw - 1130px)/2));font-weight:750}
+main{max-width:1130px;margin:0 auto;padding:34px 18px 70px}
+h1{font-size:24px;letter-spacing:-.7px;margin:0 0 8px}
+h2{font-size:22px;margin:34px 0 7px}
+.subtitle{color:#607d8e;max-width:990px;margin:0 0 20px}
 .status{padding:13px;border:1px solid #e5d3aa;background:#fffaed;color:#725d38;border-radius:11px;margin-bottom:25px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px}
-article{background:#fff;border:1px solid #dbe5ed;border-radius:12px;padding:17px;box-shadow:0 1px 8px #16365009;display:flex;flex-direction:column}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+article{background:#fff;border:1px solid #dbe5ed;border-radius:12px;padding:17px;display:flex;flex-direction:column}
 article header{display:flex;gap:10px;align-items:flex-start}
 article header b{background:#e5f3f2;color:#117a77;border-radius:6px;padding:2px 7px;font-size:12px;flex-shrink:0}
-article header strong{font-size:13px}article p{font-size:11px;color:#69879a;margin:11px 0 17px}
+article header strong{font-size:13px}
+article p{font-size:11px;color:#69879a;margin:11px 0 17px}
 .actions{margin-top:auto;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.btn{background:#11757c;color:#fff;border-radius:8px;padding:8px 11px;text-decoration:none;font-size:12px;font-weight:700}
+.btn{background:#11757c;color:white;border-radius:8px;padding:8px 11px;text-decoration:none;font-size:12px;font-weight:700}
 .quiet{color:#386e86;text-decoration:none;font-size:12px;padding:8px 0}
 .blocked{color:#967144;font-size:11px;border-radius:7px;background:#fff6e4;padding:7px}
 section.note{margin-top:24px;color:#5b7789;background:white;border:1px solid #e1eaf1;border-radius:10px;padding:15px}
-code{color:#174d6d}a:hover{text-decoration:underline}
-</style></head><body><nav>ProcureFlow · n8n 단일 워크플로 플랫폼</nav><main>
-<h1>10개 운영 시나리오</h1>
-<p class="subtitle">각 시나리오는 n8n 고유의 <b>Manual Trigger → PF01~PF15 단계 노드 → 안전판정 → FastAPI 검증</b>으로 구성됩니다. n8n에서 실행하면 노드마다 실행 진행·입력·출력이 보입니다. 별도 React Flow나 자체 DAG 실행기는 사용하지 않습니다.</p>
-<div class="status">""" + status + """</div>
-<div class="grid">""" + "".join(items) + """</div>
-<section class="note"><b>검증 구분</b>: ‘API 가상 결과 검사’는 FastAPI에서 메모리 데이터만 재계산합니다. n8n 실행 검증과 다르며 실제 나라장터·투찰은 수행하지 않습니다.<p>
-<a href="/api/n8n/qa" target="_blank">10개 API 일괄 검사</a> ·
-<a href="/api/n8n/scenarios" target="_blank">전체 n8n 워크플로 목록</a> ·
-<a href="/operations">기존 발주 운영 조회</a></p></section></main></body></html>""",
-        headers={"Cache-Control": "no-cache", "X-Robots-Tag":"noindex"})
+a:hover{text-decoration:underline}
+</style></head><body><nav>ProcureFlow · n8n 단일 워크플로 플랫폼</nav>
+<main><h1>15개 실제 운영 플로우</h1>
+<p class="subtitle">각 PF를 n8n으로 실행하면 공식 PostgreSQL 증빙을 조회하고, 43개 업무 블록의 입력·출력과 실제 미완료 항목을 단계별로 표시합니다. 이 조회는 실제 수집 Job 실행이나 자동입찰을 뜻하지 않습니다.</p>
+<div class="status">""" + escape(status) + """</div>
+<div class="grid">""" + "".join(flows) + """</div>
+<h2>10개 운영 시나리오 (가상 검증)</h2>
+<p class="subtitle">S01~S10은 가상의 정정·장애·자격·견적·경합 이벤트를 원본 업무와 구분해 실제 n8n 엔진에서 재생하는 테스트입니다. 기존 React Flow나 자체 DAG 실행기는 사용하지 않습니다.</p>
+<div class="grid">""" + "".join(demos) + """</div>
+<section class="note"><b>현재 운영 검증</b><p>
+<a href="/api/n8n/native/status" target="_blank">n8n에 실제 등록·실행됐는지 확인</a> ·
+<a href="/api/n8n/qa" target="_blank">10개 가상 검증</a> ·
+<a href="/api/n8n/operational/flows" target="_blank">15개 운영 명세</a> ·
+<a href="/operations">기존 업무 조회</a>
+</p>공식 증빙이 누락되면 BLOCKED_OR_PENDING으로 유지됩니다. 승인 없는 업무 Job 등록·투찰은 수행하지 않습니다.</section>
+</main></body></html>"""
+    return HTMLResponse(html,headers={"Cache-Control":"no-cache","X-Robots-Tag":"noindex"})

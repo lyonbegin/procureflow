@@ -1,0 +1,333 @@
+{
+  "id": "PFOP2026PF09WF",
+  "name": "[운영 PF09] 원가·가격전략 · 실제 증빙 검사",
+  "nodes": [
+    {
+      "id": "pf09-1",
+      "name": "▶ 현재 발주 분석 수동 실행",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        500,
+        330
+      ],
+      "parameters": {},
+      "notes": "n8n 편집기에서 Execute workflow를 누릅니다. 입력/출력은 실제 DB 증빙 검사이며 자동투찰 기능이 아닙니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-2",
+      "name": "01 · 발주번호·PF 흐름 선택",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{flow_id:\"PF09\",bid_no:\"R26BK01787028\",mode:\"inspect\",read_only:true,source:\"n8n_manual\"}}];"
+      },
+      "notes": "기본 발주번호는 실제 등록된 선택 발주입니다. 복수 발주 수집기는 구현 전까지 활성화하지 않습니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-3",
+      "name": "02 · 실제 DB·104개 증빙 상태 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        330
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://procureflow-api-production.up.railway.app/api/n8n/operational/flows/PF09/inspect?bid_no={{ $json.bid_no }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "notes": "FastAPI는 기존 공식 G2B DB의 실제 확인된 근거를 읽습니다. 작업을 새로 실행하지 않습니다. 차단/누락 결과도 정상 수신합니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-4",
+      "name": "03 · 공식 증빙 검사·입력 기록",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const a=$input.first().json;if(a.flow_id!==\"PF09\"||a.source_provenance!=='live_procureflow_postgresql_verified_evidence'||a.simulation_only!==false||a.read_only!==true) throw new Error(\"Live official provenance contract mismatch\");return [{json:{...a,workflow_trace:[],previous_block:null,engine:\"n8n_native\"}}];"
+      },
+      "notes": "공식 DB가 아닌 Mock 입력이면 처리 거부. 각 블록 입력/출력에 사용되는 원본 출처를 표시합니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-5",
+      "name": "P01 · 공식 금액·내역서",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P01\");if(!block)throw new Error(\"Missing business block \"+\"P01\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 contract_terms+specification\n출력 amounts+quantities\n다음 연결 P02, P05\n104 API 번호: 77, 78, 79\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-6",
+      "name": "P02 · 직접원가",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P02\");if(!block)throw new Error(\"Missing business block \"+\"P02\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 amounts+quantities+cost_quotes\n출력 direct_cost\n다음 연결 P03\n104 API 번호: 80, 81, 82\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-7",
+      "name": "P03 · 총원가",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P03\");if(!block)throw new Error(\"Missing business block \"+\"P03\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 direct_cost+tax_rules\n출력 total_cost\n다음 연결 P06\n104 API 번호: 83, 84, 85\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-8",
+      "name": "P04 · 낙찰가격·투찰률 통계",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2740,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P04\");if(!block)throw new Error(\"Missing business block \"+\"P04\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 verified_history_report\n출력 historical_price_stats\n다음 연결 P06\n104 API 번호: 86, 87\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-9",
+      "name": "P05 · 계약별 가격결정 규칙",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3060,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P05\");if(!block)throw new Error(\"Missing business block \"+\"P05\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 contract_terms+amounts\n출력 applicable_price_rules\n다음 연결 P06\n104 API 번호: 88\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-10",
+      "name": "P06 · 가격 시나리오",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P06\");if(!block)throw new Error(\"Missing business block \"+\"P06\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 total_cost+historical_price_stats+applicable_price_rules\n출력 price_scenarios[]\n다음 연결 P07\n104 API 번호: 89, 90\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-11",
+      "name": "P07 · 최종 가격 검토",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3700,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prev=$input.first().json;const block=prev.blocks.find(b=>b.id===\"P07\");if(!block)throw new Error(\"Missing business block \"+\"P07\");const record={block_id:block.id,name:block.name,input:{contract:block.input,upstream:prev.previous_block?.output??null,official_bid_no:prev.case_id},output: block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false};return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:block.id}}];"
+      },
+      "notes": "입력 price_scenarios[]+eligibility_verdict\n출력 approved_price_or_block\n다음 연결 R01, R02, O04\n104 API 번호: 91\n이 노드는 기존 DB 결과만 검사합니다. 실행 완료와 증빙 통과는 다른 상태입니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf09-12",
+      "name": "최종 · 업무 미완료·대기·검증 결과",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4020,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const x=$input.first().json;if(x.workflow_trace.length!==x.blocks_total) throw new Error(\"Not every PF business block was evaluated\");const done=x.business_state==='VERIFIED';return [{json:{flow_id:x.flow_id,case_id:x.case_id,business_state:x.business_state,workflow_status:done?'ALL_OFFICIAL_EVIDENCE_VERIFIED':'PENDING_REAL_EVIDENCE',verified_blocks:x.blocks_verified,total_blocks:x.blocks_total,feature_count:x.nodes,missing_evidence:x.pending_missing_evidence,execution_trace:x.workflow_trace,downstream_flows:x.downstream_flows,read_only:true,simulation_only:false,actual_job_executed:false,bid_submitted:false}}];"
+      },
+      "notes": "n8n 워크플로 성공과 실제 업무 완료를 구분합니다. 승인 없는 자동입찰·실제 수집 요청 없음.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "▶ 현재 발주 분석 수동 실행": {
+      "main": [
+        [
+          {
+            "node": "01 · 발주번호·PF 흐름 선택",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · 발주번호·PF 흐름 선택": {
+      "main": [
+        [
+          {
+            "node": "02 · 실제 DB·104개 증빙 상태 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · 실제 DB·104개 증빙 상태 조회": {
+      "main": [
+        [
+          {
+            "node": "03 · 공식 증빙 검사·입력 기록",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · 공식 증빙 검사·입력 기록": {
+      "main": [
+        [
+          {
+            "node": "P01 · 공식 금액·내역서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P01 · 공식 금액·내역서": {
+      "main": [
+        [
+          {
+            "node": "P02 · 직접원가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P02 · 직접원가": {
+      "main": [
+        [
+          {
+            "node": "P03 · 총원가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P03 · 총원가": {
+      "main": [
+        [
+          {
+            "node": "P04 · 낙찰가격·투찰률 통계",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P04 · 낙찰가격·투찰률 통계": {
+      "main": [
+        [
+          {
+            "node": "P05 · 계약별 가격결정 규칙",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P05 · 계약별 가격결정 규칙": {
+      "main": [
+        [
+          {
+            "node": "P06 · 가격 시나리오",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P06 · 가격 시나리오": {
+      "main": [
+        [
+          {
+            "node": "P07 · 최종 가격 검토",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P07 · 최종 가격 검토": {
+      "main": [
+        [
+          {
+            "node": "최종 · 업무 미완료·대기·검증 결과",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": [],
+  "active": false,
+  "description": "선택 발주에 연결된 실제 DB 기반 PF09 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음."
+}

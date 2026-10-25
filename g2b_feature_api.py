@@ -304,23 +304,33 @@ def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
         detail = inspect_feature(bid_no, number)
         return {"bid_no": bid_no, "feature_no": number, "mode": "check",
                 "state": detail["acceptance_state"], "details": detail}
+    resource = collection_action(number)
     config = {"bid_no": bid_no, "bid_ord": CASE_ORD, "feature_no": number,
-              "parameters": params}
+              "parameters": params, "resource_key": resource}
     with session() as con:
-        # Serialize feature enqueues on the selected case. Cross-feature calls
-        # can share the same expensive upstream collector; allowing concurrent
-        # requests can overload the official endpoint and corrupt progress.
+        # Only conflicting *collector resources* are serialized. A live 10-year
+        # opening collector must not prevent an unrelated document or eligibility
+        # operation from being queued for the same bid. The case row is locked
+        # only to make the conflict check + insert atomic.
         owner=con.execute("""SELECT bid_no FROM procureflow.g2b_case_control
                           WHERE bid_no=%s FOR UPDATE""",(bid_no,)).fetchone()
         if not owner:
             raise HTTPException(404,"Selected tender control record not initialized")
-        active = con.execute("""SELECT id,config->>'feature_no' AS feature_no
+        active_rows = con.execute("""SELECT id,config->>'feature_no' AS feature_no,
+                               config->>'resource_key' AS resource_key
                      FROM procureflow.jobs
                      WHERE source='g2b_feature' AND config->>'bid_no'=%s
-                       AND state IN ('queued','running') ORDER BY id LIMIT 1""",
-                             (bid_no,)).fetchone()
-        if active:
-            raise HTTPException(409, f"Selected tender feature {active['feature_no']} already queued/running in job {active['id']}")
+                       AND state IN ('queued','running')
+                     ORDER BY id""", (bid_no,)).fetchall()
+        conflicting = next(
+            (row for row in active_rows
+             if row.get("resource_key") == resource or (
+                 not row.get("resource_key") and
+                 collection_action(int(row["feature_no"])) == resource)),
+            None,
+        )
+        if conflicting:
+            raise HTTPException(409, f"Conflicting collector {resource} still active in job {conflicting['id']} (feature {conflicting['feature_no']})")
         job_id = con.execute("""INSERT INTO procureflow.jobs(source,config,message)
                       VALUES ('g2b_feature',%s::jsonb,%s) RETURNING id""",
                       (json.dumps(config, ensure_ascii=False),

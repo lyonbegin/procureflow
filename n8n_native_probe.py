@@ -15,6 +15,7 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/n8n", tags=["n8n true execution status"])
 EXPECTED = {f"S{i:02}" for i in range(1,11)}
+OPERATIONAL = {f"PF{i:02}" for i in range(1,16)}
 
 
 def _remote_json(endpoint: str, base: str, key: str) -> dict:
@@ -33,6 +34,8 @@ def inspect_native_n8n() -> dict:
     fallback = {
         "connected":False, "n8n_editor_available":False,
         "imported_scenarios":0, "native_successful_scenarios":0,
+        "imported_operational_flows":0, "native_successful_operational_flows":0,
+        "all_fifteen_operational_native_executions_verified":False,
         "all_ten_native_executions_verified":False,
         "source":"n8n_native_admin_api_not_stateless_simulator",
         "reason":"n8n_admin_api_not_configured",
@@ -57,13 +60,24 @@ def inspect_native_n8n() -> dict:
         for sid in EXPECTED:
             if name.startswith(f"[테스트 {sid}]"):
                 found[sid]=workflow.get("id")
+    operational={}
+    for workflow in workflows["data"]:
+        name=workflow.get("name","")
+        if isinstance(name,str):
+            for pf in OPERATIONAL:
+                if name.startswith(f"[운영 {pf}]"):
+                    operational[pf]=workflow.get("id")
     success=set()
+    operational_success=set()
     for execution in executions["data"]:
         if execution.get("status") != "success":
             continue
         for sid,workflow_id in found.items():
             if workflow_id is not None and str(execution.get("workflowId"))==str(workflow_id):
                 success.add(sid)
+        for pf,workflow_id in operational.items():
+            if workflow_id is not None and str(execution.get("workflowId"))==str(workflow_id):
+                operational_success.add(pf)
     imported=sorted(found)
     verified=sorted(success)
     return {
@@ -73,6 +87,11 @@ def inspect_native_n8n() -> dict:
         "native_successful_scenarios":len(verified),
         "native_successful_ids":verified,
         "all_ten_native_executions_verified":len(verified)==10,
+        "imported_operational_flows":len(operational),
+        "operational_imported_ids":sorted(operational),
+        "native_successful_operational_flows":len(operational_success),
+        "native_successful_operational_ids":sorted(operational_success),
+        "all_fifteen_operational_native_executions_verified":len(operational_success)==15,
         "source":"n8n_native_admin_api_not_stateless_simulator",
         "reason":"ok",
         "actual_g2b_work_verified":False,

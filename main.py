@@ -15,6 +15,8 @@ from n8n_scenarios import router as n8n_scenarios_router
 app.include_router(n8n_scenarios_router)
 from n8n_native_probe import router as n8n_native_probe_router
 app.include_router(n8n_native_probe_router)
+from n8n_operational import router as n8n_operational_router
+app.include_router(n8n_operational_router)
 
 # n8n is the ONLY workflow editor and engine. Legacy React Flow and the
 # Python DAG simulation API are not mounted.
