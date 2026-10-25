@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from g2b_case_10y import CASE_BID
-from n8n_job_bridge import compute_next_action, router
+from n8n_job_bridge import compute_next_action, progress_snapshot, router
 
 NOW=datetime(2026,10,25,4,0,tzinfo=timezone.utc)
 CONTEXT={"bid_no":CASE_BID,"bid_ord":"000",
@@ -201,3 +201,61 @@ def test_queue_capacity_is_atomic_under_case_lock_not_just_a_planning_hint():
             assert "Maximum 3" in str(err.detail)
         else:
             raise AssertionError("Concurrent collector capacity not enforced")
+
+
+
+def test_read_only_progress_shows_true_worker_state_without_secret_config():
+    observation={"business_state":"BLOCKED_OR_PENDING","blocks_total":8,
+                 "blocks_verified":1,
+                 "pending_missing_evidence":["outcome_10years_complete"]}
+    jobs=[
+        {"id":199,"state":"running","config":{"feature_no":49,
+          "private_token":"must-never-leak"},"created_at":NOW,
+          "started_at":NOW,"finished_at":None},
+        {"id":198,"state":"failed","config":{"feature_no":50,
+          "parameters":{"supplier_bank_secret":"must-not-disclose"}},
+         "created_at":NOW,"started_at":NOW,"finished_at":NOW},
+        {"id":197,"state":"running","config":{"feature_no":1},
+         "created_at":NOW,"started_at":NOW,"finished_at":None},
+    ]
+    result=progress_snapshot("PF05",CASE_BID,observation,jobs)
+    assert result["workflow_status"]=="COLLECTING"
+    assert result["active_jobs_count"]==1
+    assert result["recent_job_failures"]==1
+    assert [x["job_id"] for x in result["recent_jobs"]]==[199,198]
+    assert result["blocks_verified"]==1
+    assert result["read_only"] is True and result["job_enqueued"] is False
+    assert result["bid_submitted"] is False
+    import json
+    exported=json.dumps(result,default=str)
+    assert "must-never-leak" not in exported
+    assert "must-not-disclose" not in exported
+    assert "config" not in exported
+
+
+def test_progress_handler_and_monitor_route_contracts():
+    from pathlib import Path
+    base=Path(__file__).resolve().parents[1]
+    main=(base/"main.py").read_text(encoding="utf-8")
+    monitor=(base/"n8n/progress.html").read_text(encoding="utf-8")
+    assert '@app.get("/n8n/progress"' in main
+    assert "/api/n8n/operational/flows/" in monitor
+    assert "replaceChildren" in monitor and "textContent" in monitor
+    assert "innerHTML" not in monitor
+    assert "setInterval" in monitor
+    app=FastAPI();app.include_router(router)
+    client=TestClient(app)
+    snap={"business_state":"BLOCKED_OR_PENDING","blocks_total":8,
+          "blocks_verified":0,
+          "pending_missing_evidence":["award_evidence"]}
+    with patch("n8n_job_bridge.inspect_flow",return_value=snap),\
+         patch("n8n_job_bridge._recent_jobs",return_value=[]):
+        result=client.get("/api/n8n/operational/flows/PF05/progress")
+        assert result.status_code==200,result.text
+        body=result.json()
+        assert body["workflow_status"]=="BLOCKED_OR_PENDING"
+        assert body["active_jobs_count"]==0
+        assert body["features_total"]==24
+        assert body["read_only"] is True
+        assert client.get("/api/n8n/operational/flows/PF99/progress").status_code==404
+        assert client.get("/api/n8n/operational/flows/PF05/progress?bid_no=FORGED").status_code==422
