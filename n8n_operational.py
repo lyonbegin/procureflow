@@ -149,7 +149,7 @@ def inspect_flow(flow_id: str, bid_no: str = CASE_BID) -> dict:
     _selected_case(bid_no)
     context = notice_context(bid_no)
     from g2b_case_engine import dashboard
-    snap = dashboard(bid_no, 15)
+    snap = dashboard(bid_no, 15, refresh=False)
     return _materialized(f, context, snap)
 
 

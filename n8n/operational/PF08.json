@@ -145,6 +145,160 @@
       },
       "notes": "n8n 워크플로 성공과 실제 업무 완료를 구분합니다. 승인 없는 자동입찰·실제 수집 요청 없음.",
       "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-10",
+      "name": "다음 실제 수집 작업 계획",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        330
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://procureflow-api-production.up.railway.app/api/n8n/operational/flows/PF08/next-action?bid_no={{ $json.case_id }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "notes": "n8n에서 실제 인가된 공고, 10자리 세부종목 원본, 최근 Worker 작업, 공유 수집기 충돌을 검사합니다. GET만 실행하며 작업은 등록하지 않습니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-11",
+      "name": "실행 모드와 공식 근거 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const policy=$input.first().json; const mode=$('01 · 발주번호·PF 흐름 선택').first().json.mode; const can=mode==='collect' && policy.status==='ACTIONABLE' && !!policy.candidate && policy.bid_no==='R26BK01787028' && policy.flow_id===\"PF08\";return [{json:{...policy,requested_mode:mode,dispatch_allowed:can,business_completed:false,bid_submitted:false}}];"
+      },
+      "notes": "기본 모드는 inspect. 사용자가 첫 번째 코드 노드의 mode를 collect로 변경하고 n8n ProcureFlow 관리자 Credential을 지정한 경우에만 1건 실행합니다. 공식근거 부족·PF12/14/15는 차단.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-12",
+      "name": "실제 Worker Job 실행 여부",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        330
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pf-real-job",
+              "leftValue": "={{ $json.dispatch_allowed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "true일 때만 암호화된 n8n Credential을 써서 실제 업무 Job을 1건 등록합니다. false일 때에는 읽기 전용으로 종료.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-13",
+      "name": "관리자 인증 · 실제 Worker Job 등록",
+      "type": "n8n-nodes-procureflow.procureFlow",
+      "typeVersion": 1,
+      "position": [
+        4400,
+        165
+      ],
+      "parameters": {
+        "operation": "dispatchPlanned",
+        "flowId": "PF08",
+        "bidNo": "R26BK01787028"
+      },
+      "notes": "실제 Worker Queue에 단일 Job을 등록합니다. 동일 request_key 재전송은 중복 생성하지 않습니다. n8n에서 ProcureFlow 업무 API Credential을 등록해야 합니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-14",
+      "name": "Worker 처리 대기 · 20초",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4720,
+        165
+      ],
+      "parameters": {
+        "resume": "afterTimeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "notes": "Worker가 완료·부분완료·오류를 저장할 시간을 기다립니다. 기다렸다는 이유로 증빙 검증 상태를 완료로 바꾸지 않습니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-15",
+      "name": "실제 Worker 상태·증빙 재검사",
+      "type": "n8n-nodes-procureflow.procureFlow",
+      "typeVersion": 1,
+      "position": [
+        5040,
+        165
+      ],
+      "parameters": {
+        "operation": "jobStatus",
+        "flowId": "PF08",
+        "bidNo": "R26BK01787028"
+      },
+      "notes": "실제 Worker DB 상태와 별도로 공식 증빙 수락 상태를 재조회합니다. 작업 완료와 입찰 준비 완료를 구분합니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-16",
+      "name": "Worker 결과·업무 완료 분리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5360,
+        165
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const j=$input.first().json; const r=j.response||{}; if(!j.job_id || r.job_id!==j.job_id) throw new Error('Worker response identity mismatch');return [{json:{flow_id:\"PF08\",case_id:'R26BK01787028',job_id:j.job_id,worker_state:r.worker_state,worker_terminal:r.worker_terminal,independently_verified:r.independently_verified===true,missing_evidence:r.missing_evidence||[],business_state:r.business_state||'BLOCKED_OR_PENDING',job_executed:r.worker_terminal===true,workflow_state:r.worker_terminal?(r.independently_verified?'EVIDENCE_VERIFIED':'COLLECTED_BUT_EVIDENCE_PENDING'):'WORKER_STILL_RUNNING',bid_submitted:false}}];"
+      },
+      "notes": "작업 실행 결과와 실제 업무 승인·입찰 완료는 다릅니다. 자료 미확보는 COLLECTED_BUT_EVIDENCE_PENDING.",
+      "notesInFlow": true
+    },
+    {
+      "id": "pf08-run-17",
+      "name": "조회 결과 종료 · 실제 Job 미실행",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4400,
+        530
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const p=$input.first().json;return [{json:{flow_id:\"PF08\",case_id:p.bid_no,read_only:true,actual_job_executed:false,next_candidate:p.candidate||null,blocked:p.blocked||[],plan_status:p.status,requested_mode:p.requested_mode,reason:p.reason||'no_action_requested',bid_submitted:false}}];"
+      },
+      "notes": "inspect 모드이거나 공식 증빙·자격·용량·충돌 검사에서 실행이 막혔습니다. 수집기 실행 없음.",
+      "notesInFlow": true
     }
   ],
   "connections": {
@@ -235,6 +389,90 @@
           }
         ]
       ]
+    },
+    "최종 · 업무 미완료·대기·검증 결과": {
+      "main": [
+        [
+          {
+            "node": "다음 실제 수집 작업 계획",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "다음 실제 수집 작업 계획": {
+      "main": [
+        [
+          {
+            "node": "실행 모드와 공식 근거 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "실행 모드와 공식 근거 검증": {
+      "main": [
+        [
+          {
+            "node": "실제 Worker Job 실행 여부",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "실제 Worker Job 실행 여부": {
+      "main": [
+        [
+          {
+            "node": "관리자 인증 · 실제 Worker Job 등록",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "조회 결과 종료 · 실제 Job 미실행",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "관리자 인증 · 실제 Worker Job 등록": {
+      "main": [
+        [
+          {
+            "node": "Worker 처리 대기 · 20초",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worker 처리 대기 · 20초": {
+      "main": [
+        [
+          {
+            "node": "실제 Worker 상태·증빙 재검사",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "실제 Worker 상태·증빙 재검사": {
+      "main": [
+        [
+          {
+            "node": "Worker 결과·업무 완료 분리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -248,5 +486,5 @@
   "pinData": {},
   "tags": [],
   "active": false,
-  "description": "선택 발주에 연결된 실제 DB 기반 PF08 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음."
+  "description": "선택 발주에 연결된 실제 DB 기반 PF08 업무 입력·출력 증빙을 n8n 노드별로 추적. 실행 Job은 명시적 관리자 승인 뒤 별도 API 호출. 자동입찰 없음. [수정: inspect 기본값/collect 명시 선택 시 네이티브 IF→Credential→Worker Queue→20초 대기→증빙 독립 재조회.]"
 }

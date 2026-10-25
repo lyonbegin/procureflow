@@ -54,17 +54,25 @@ def test_native_flow_exports_are_manual_trigger_native_http_and_not_react_dag():
         assert wf["nodes"][0]["type"]=="n8n-nodes-base.manualTrigger"
         assert wf["nodes"][2]["type"]=="n8n-nodes-base.httpRequest"
         assert "/api/n8n/operational/flows/"+flow["id"]+"/inspect?" in wf["nodes"][2]["parameters"]["url"]
-        assert len(wf["nodes"])==len(flow["owned_blocks"])+5
-        assert len(wf["connections"])==len(wf["nodes"])-1
+        assert len(wf["nodes"])==len(flow["owned_blocks"])+13
+        assert len(wf["connections"])==len(wf["nodes"])-2
         names=[n["name"] for n in wf["nodes"]]
         assert len(names)==len(set(names))
         assert all(x["type"] in (
             "n8n-nodes-base.code","n8n-nodes-base.manualTrigger",
-            "n8n-nodes-base.httpRequest") for x in wf["nodes"])
+            "n8n-nodes-base.httpRequest","n8n-nodes-base.if",
+            "n8n-nodes-base.wait","n8n-nodes-procureflow.procureFlow") for x in wf["nodes"])
         for block_id in flow["owned_blocks"]:
             assert any(n["name"].startswith(block_id+" · ") for n in wf["nodes"])
         assert "R26BK01787028" in wf["nodes"][1]["parameters"]["jsCode"]
         assert not any(n["type"].endswith("webhook") for n in wf["nodes"])
+        assert sum(n["type"] == "n8n-nodes-procureflow.procureFlow" for n in wf["nodes"]) == 2
+        assert 'mode:"inspect"' in wf["nodes"][1]["parameters"]["jsCode"]
+        branches=wf["connections"]["실제 Worker Job 실행 여부"]["main"]
+        assert branches[0][0]["node"]=="관리자 인증 · 실제 Worker Job 등록"
+        assert branches[1][0]["node"]=="조회 결과 종료 · 실제 Job 미실행"
+        assert wf["nodes"][-7]["type"]=="n8n-nodes-base.code"
+
 
 
 def test_readonly_operational_api_and_auth_before_actual_worker_job():
