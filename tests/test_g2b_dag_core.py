@@ -162,7 +162,8 @@ class DAGRouteContracts(unittest.TestCase):
     def test_expected_authenticated_routes_registered(self):
         app=FastAPI()
         app.include_router(router)
-        paths={x.path: x.methods for x in app.routes}
+        paths={name:set().union(*(route.methods for route in app.routes if route.path==name))
+               for name in {route.path for route in app.routes}}
         self.assertIn("POST",paths["/api/g2b/cases/{bid_no}/workflow/designs"])
         self.assertIn("GET",paths["/api/g2b/cases/{bid_no}/workflow/designs"])
         self.assertIn("PUT",paths["/api/g2b/cases/{bid_no}/workflow/designs/{workflow_id}"])
