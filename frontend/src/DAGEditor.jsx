@@ -77,10 +77,12 @@ export default function DAGEditor({ catalog, token, setToken, onExit }) {
   const [message,setMessage]=useState('');
   const [search,setSearch]=useState('');
   const [fixture,setFixture]=useState('{"status":"test_ok"}');
+  const [mappingDraft,setMappingDraft]=useState('{}');
   const [debugView,setDebugView]=useState('settings');
   const graph=useAsGraph(nodes,edges,description);
   const activeNode=nodes.find(n=>n.id===selectedNode);
   const activeEdge=edges.find(e=>e.id===selectedEdge);
+  useEffect(()=>{setMappingDraft(JSON.stringify(activeEdge?.data?.mapping||{},null,2));},[selectedEdge]);
   const matching = catalog.filter(f=>
     (String(f.number)+' '+f.name).toLocaleLowerCase().includes(search.toLocaleLowerCase().trim())).slice(0,104);
 
@@ -309,9 +311,18 @@ export default function DAGEditor({ catalog, token, setToken, onExit }) {
                   {CONDITIONS.map(x=><option key={x} value={x}>{x}</option>)}
                 </select></label>
               <label>출력 → 입력 경로 매핑 (JSON)
-                <textarea rows={5} value={JSON.stringify(activeEdge.data?.mapping||{},null,2)}
-                  onChange={e=>{try{updateEdge('mapping',JSON.parse(e.target.value));}catch{}}}/>
+                <textarea rows={5} value={mappingDraft}
+                  onChange={e=>setMappingDraft(e.target.value)}/>
               </label>
+              <button className="button secondary" onClick={()=>{
+                try{
+                  const parsed=JSON.parse(mappingDraft);
+                  if(!parsed||Array.isArray(parsed)||typeof parsed!=='object')
+                    throw new Error('JSON 객체만 허용합니다.');
+                  updateEdge('mapping',parsed);
+                  setError('');setMessage('선 연결의 입력·출력 경로가 수정되었습니다. 초안 저장을 눌러 적용하세요.');
+                }catch(e){setError('입출력 경로 매핑 오류: '+e.message);}
+              }}>입출력 매핑 적용</button>
               <button className="dag-delete" onClick={deleteSelected}>
                 <Trash2 size={15}/>연결선 삭제</button>
             </div>:<div className="dag-placeholder-text">노드 또는 선을 선택하면 세부 연결과 조건을 편집할 수 있습니다.</div>}
