@@ -1,0 +1,32 @@
+name: Real User Browser UAT - Railway Flow
+on:
+  pull_request:
+    paths:
+      - "scripts/flow_real_user_browser_uat.py"
+      - "tests/uat/**"
+      - ".github/workflows/flow-real-user-uat.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Playwright and system Chromium
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.52.0
+          python -m playwright install chromium --with-deps
+      - name: Click through the actual deployed public UI
+        run: python scripts/flow_real_user_browser_uat.py
+      - name: Store screenshots and real UAT results even if failed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-user-railway-flow-uat
+          path: uat-results/
+          retention-days: 14
