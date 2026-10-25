@@ -122,6 +122,10 @@ class FakeDB:
             return Row({"request_key":params[2]})
         if "SELECT feature_no,job_id,state,error" in sql:
             return Row(self.saved.get(tuple(params)))
+        if "SELECT id FROM procureflow.jobs" in sql:
+            return Row(next(({"id":job["id"]} for job in self.jobs
+                             if (job["bid_no"],job["flow_id"],job["request_key"],
+                                 str(job["feature_no"]))==tuple(params)),None))
         if "UPDATE procureflow.n8n_feature_dispatch" in sql:
             if "SET job_id=" in sql:
                 self.saved[(params[1],params[2],params[3])].update(job_id=params[0],state="queued")
@@ -138,8 +142,8 @@ def test_exactly_once_real_job_dispatch_and_replay():
     app=FastAPI();app.include_router(router)
     c=TestClient(app)
     calls=[]
-    def real_queue(bid_no,number,request):
-        calls.append((bid_no,number,request.mode))
+    def real_queue(bid_no,number,request,**metadata):
+        calls.append((bid_no,number,request.mode,metadata))
         return {"job_id":991,"job_status":"queued"}
     with patch("main.guard",return_value=None),patch("n8n_job_bridge.session",db_session),\
          patch("n8n_job_bridge.ensure_dispatch_schema",return_value=None),\
@@ -155,7 +159,8 @@ def test_exactly_once_real_job_dispatch_and_replay():
         assert replay.status_code==200
         assert replay.json()["job_id"]==991
         assert replay.json()["deduplicated"] is True
-    assert calls==[(CASE_BID,49,"collect")]
+    assert calls==[(CASE_BID,49,"collect",{
+        "n8n_request_key":"idempotency-key-001","n8n_flow_id":"PF05"})]
 
 
 def test_invalid_key_and_off_flow_feature_do_not_touch_database():
@@ -259,3 +264,48 @@ def test_progress_handler_and_monitor_route_contracts():
         assert body["read_only"] is True
         assert client.get("/api/n8n/operational/flows/PF99/progress").status_code==404
         assert client.get("/api/n8n/operational/flows/PF05/progress?bid_no=FORGED").status_code==422
+
+
+
+def test_dispatch_recovers_committed_job_when_receipt_was_lost():
+    db=FakeDB()
+    reservation=(CASE_BID,"PF05","idempotency-key-001")
+    db.saved[reservation]={"feature_no":49,"job_id":None,"state":"rejected","error":"RuntimeError"}
+    db.jobs=[{"id":9988,"bid_no":CASE_BID,"flow_id":"PF05",
+              "request_key":"idempotency-key-001","feature_no":49}]
+    @contextmanager
+    def fake_db_session():yield db
+    app=FastAPI();app.include_router(router)
+    client=TestClient(app)
+    with patch("main.guard",return_value=None),\
+         patch("n8n_job_bridge.session",fake_db_session),\
+         patch("n8n_job_bridge.ensure_dispatch_schema",return_value=None),\
+         patch("n8n_job_bridge.notice_context",return_value=CONTEXT),\
+         patch("n8n_job_bridge.queue_one") as queue:
+        result=client.post("/api/n8n/operational/flows/PF05/dispatch",json={
+            "bid_no":CASE_BID,"feature_no":49,"request_key":"idempotency-key-001"})
+        assert result.status_code==200,result.text
+        assert result.json()["deduplicated"] is True
+        assert result.json()["recovered_after_interruption"] is True
+        assert result.json()["job_id"]==9988
+        assert db.saved[reservation]["state"]=="queued"
+        queue.assert_not_called()
+
+
+def test_ambiguous_reservation_cannot_silently_create_another_job():
+    db=FakeDB()
+    reservation=(CASE_BID,"PF05","idempotency-key-001")
+    db.saved[reservation]={"feature_no":49,"job_id":None,"state":"reserved","error":""}
+    @contextmanager
+    def fake_db_session():yield db
+    app=FastAPI();app.include_router(router)
+    client=TestClient(app)
+    with patch("main.guard",return_value=None),\
+         patch("n8n_job_bridge.session",fake_db_session),\
+         patch("n8n_job_bridge.ensure_dispatch_schema",return_value=None),\
+         patch("n8n_job_bridge.notice_context",return_value=CONTEXT),\
+         patch("n8n_job_bridge.queue_one") as queue:
+        result=client.post("/api/n8n/operational/flows/PF05/dispatch",json={
+            "bid_no":CASE_BID,"feature_no":49,"request_key":"idempotency-key-001"})
+        assert result.status_code==409
+        queue.assert_not_called()
