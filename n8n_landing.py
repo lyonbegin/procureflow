@@ -51,7 +51,8 @@ def launcher() -> HTMLResponse:
             f'<a class="quiet" target="_blank" href="/api/n8n/operational/flows/{fid}/inspect">'
             '실제 입력·출력·누락 확인</a>' +
             f'<a class="quiet" target="_blank" href="/api/n8n/operational/flows/{fid}/next-action">' +
-            '다음 실제 수집계획·차단사유</a></div></article>'
+            '다음 실제 수집계획·차단사유</a>' +
+            f'<a class="quiet" href="/n8n/progress?flow={fid}">실제 작업 진행상황</a></div></article>'
         )
     demos = []
     for item in read_manifest()["scenarios"]:

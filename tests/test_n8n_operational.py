@@ -54,7 +54,7 @@ def test_native_flow_exports_are_manual_trigger_native_http_and_not_react_dag():
         assert wf["nodes"][0]["type"]=="n8n-nodes-base.manualTrigger"
         assert wf["nodes"][2]["type"]=="n8n-nodes-base.httpRequest"
         assert "/api/n8n/operational/flows/"+flow["id"]+"/inspect?" in wf["nodes"][2]["parameters"]["url"]
-        assert len(wf["nodes"])==len(flow["owned_blocks"])+13
+        assert len(wf["nodes"])==len(flow["owned_blocks"])+15
         assert len(wf["connections"])==len(wf["nodes"])-2
         names=[n["name"] for n in wf["nodes"]]
         assert len(names)==len(set(names))
@@ -72,7 +72,14 @@ def test_native_flow_exports_are_manual_trigger_native_http_and_not_react_dag():
         branches=wf["connections"]["실제 Worker Job 실행 여부"]["main"]
         assert branches[0][0]["node"]=="관리자 인증 · 실제 Worker Job 등록"
         assert branches[1][0]["node"]=="조회 결과 종료 · 실제 Job 미실행"
-        assert wf["nodes"][-7]["type"]=="n8n-nodes-base.code"
+        assert wf["connections"]["실제 Worker 상태·증빙 재검사"]["main"][0][0]["node"] == "실제 Worker 응답·기한 검증"
+        assert wf["connections"]["실제 Worker 응답·기한 검증"]["main"][0][0]["node"] == "Worker 완료 또는 시간 초과?"
+        polls=wf["connections"]["Worker 완료 또는 시간 초과?"]["main"]
+        assert polls[0][0]["node"]=="Worker 결과·업무 완료 분리"
+        assert polls[1][0]["node"]=="Worker 처리 대기 · 20초"
+        assert wf["connections"]["Worker 처리 대기 · 20초"]["main"][0][0]["node"]=="실제 Worker 상태·증빙 재검사"
+        assert all(n["type"]!="n8n-nodes-procureflow.procureFlow" for n in wf["nodes"])
+        assert all("adminToken" not in json.dumps(n["parameters"]) for n in wf["nodes"])
 
 
 

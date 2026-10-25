@@ -290,7 +290,9 @@ def api_feature_job(bid_no: str, job_id: int, authorization: str | None = Header
             "acceptance_is_independent_of_worker_completion":True}
 
 
-def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
+def queue_one(bid_no: str, number: int, request: FeatureRunRequest,
+              *, n8n_request_key: str | None = None,
+              n8n_flow_id: str | None = None) -> dict:
     _case(bid_no)
     if number not in CATALOG:
         raise HTTPException(404, "Unknown feature")
@@ -307,6 +309,14 @@ def queue_one(bid_no: str, number: int, request: FeatureRunRequest) -> dict:
     resource = collection_action(number)
     config = {"bid_no": bid_no, "bid_ord": CASE_ORD, "feature_no": number,
               "parameters": params, "resource_key": resource}
+    if n8n_request_key is not None:
+        # Internal n8n dispatch idempotency handle, never sourced from
+        # arbitrary collector params. Allows crashed HTTP responses to
+        # recover the original created job without enqueuing a second one.
+        if not n8n_flow_id or len(n8n_request_key) > 120:
+            raise HTTPException(422,"Invalid internal n8n dispatch metadata")
+        config["n8n_request_key"] = n8n_request_key
+        config["n8n_flow_id"] = n8n_flow_id
     with session() as con:
         # Only conflicting *collector resources* are serialized. A live 10-year
         # opening collector must not prevent an unrelated document or eligibility

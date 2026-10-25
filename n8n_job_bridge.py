@@ -199,9 +199,30 @@ def dispatch(flow_id:str, body:DispatchRequest,
                 raise HTTPException(409,"Request reservation being committed; retry safely")
             if old["feature_no"]!=body.feature_no:
                 raise HTTPException(409,"Idempotency key reused for a different feature")
-            return {"flow_id":flow_id,"bid_no":body.bid_no,"feature_no":body.feature_no,
-                    "job_id":old["job_id"],"state":old["state"],
-                    "deduplicated":True,"submitted":False}
+            if old["job_id"] is not None and old["state"]=="queued":
+                return {"flow_id":flow_id,"bid_no":body.bid_no,
+                        "feature_no":body.feature_no,"job_id":old["job_id"],
+                        "state":"queued","deduplicated":True,"submitted":False}
+            # A worker job may have committed even if its HTTP caller died
+            # before the separate dispatch receipt was written. Recover by the
+            # persisted original job config, never by blindly enqueuing again.
+            recovered=c.execute("""SELECT id FROM procureflow.jobs
+                WHERE source='g2b_feature' AND config->>'bid_no'=%s
+                  AND config->>'n8n_flow_id'=%s
+                  AND config->>'n8n_request_key'=%s
+                  AND config->>'feature_no'=%s
+                ORDER BY id DESC LIMIT 1""",
+                (body.bid_no,flow_id,body.request_key,str(body.feature_no))).fetchone()
+            if recovered:
+                c.execute("""UPDATE procureflow.n8n_feature_dispatch
+                    SET job_id=%s,state='queued',error='',updated_at=now()
+                    WHERE bid_no=%s AND flow_id=%s AND request_key=%s""",
+                    (recovered["id"],body.bid_no,flow_id,body.request_key))
+                return {"flow_id":flow_id,"bid_no":body.bid_no,
+                        "feature_no":body.feature_no,"job_id":recovered["id"],
+                        "state":"queued","deduplicated":True,
+                        "recovered_after_interruption":True,"submitted":False}
+            raise HTTPException(409,"No confirmed job for this idempotency key; review reservation before a new request")
     try:
         # The insert above makes a one-time reservation before queueing. A
         # process crash leaves a reserved row, NOT another uncontrolled enqueue.
@@ -212,7 +233,8 @@ def dispatch(flow_id:str, body:DispatchRequest,
             policy["candidate"]["resource"]!=collection_action(body.feature_no)):
             raise HTTPException(409,"Collector unavailable: "+policy["status"])
         job=queue_one(body.bid_no,body.feature_no,
-                      FeatureRunRequest(mode="collect",parameters=body.parameters))
+                      FeatureRunRequest(mode="collect",parameters=body.parameters),
+                      n8n_request_key=body.request_key,n8n_flow_id=flow_id)
         with session() as c:
             c.execute("""UPDATE procureflow.n8n_feature_dispatch
                 SET job_id=%s,state='queued',updated_at=now()
@@ -255,6 +277,9 @@ def job_status(flow_id:str,job_id:int,bid_no:str=Query(CASE_BID),
     return {"flow_id":flow_id,"bid_no":bid_no,"job_id":job_id,
             "worker_state":detail["state"],
             "worker_terminal":terminal,
+            "job_created_at":detail["created_at"],
+            "job_started_at":detail["started_at"],
+            "job_finished_at":detail["finished_at"],
             "worker_error":detail["error"],
             "run_id":detail["run_id"],
             "worker_execution":detail["execution_result"],
@@ -281,3 +306,67 @@ def dispatch_history(flow_id:str,bid_no:str=Query(CASE_BID),
             ORDER BY created_at DESC LIMIT 30""",(flow_id,bid_no)).fetchall()
     return {"flow_id":flow_id,"bid_no":bid_no,"items":[dict(x) for x in rows],
             "bid_submitted":False}
+
+
+def progress_snapshot(flow_id:str,bid_no:str,observation:dict,jobs:list[dict]) -> dict:
+    """Public read-only coarse progress, no tokens, config or worker error text."""
+    flow=_get_flow(flow_id)
+    owned=set(flow["business_features"])
+    selected=[]
+    for job in jobs:
+        config=job.get("config")
+        if not isinstance(config,dict):
+            continue
+        try:
+            number=int(config.get("feature_no",0))
+        except (ValueError,TypeError):
+            continue
+        if number not in owned:
+            continue
+        state=job.get("state") or "unknown"
+        selected.append({
+            "job_id":job["id"],
+            "feature_no":number,
+            "state":state,
+            "created_at":job.get("created_at"),
+            "started_at":job.get("started_at"),
+            "finished_at":job.get("finished_at"),
+            "terminal":state in ("completed","completed_partial","failed","cancelled"),
+            "evidence_acceptance_independent":True,
+        })
+    active=[j for j in selected if j["state"] in ("queued","running")]
+    recent_errors=sum(j["state"] in ("failed","cancelled") for j in selected[:15])
+    state=("EVIDENCE_VERIFIED" if observation["business_state"]=="VERIFIED" else
+           "COLLECTING" if active else
+           "NEEDS_REVIEW" if recent_errors else "BLOCKED_OR_PENDING")
+    return {
+        "flow_id":flow_id,
+        "bid_no":bid_no,
+        "as_of":datetime.now(timezone.utc),
+        "source":"live_procureflow_postgresql_jobs_and_official_evidence",
+        "engine":"native_n8n_only",
+        "workflow_status":state,
+        "business_state":observation["business_state"],
+        "blocks_total":observation["blocks_total"],
+        "blocks_verified":observation["blocks_verified"],
+        "features_total":len(owned),
+        "active_jobs_count":len(active),
+        "active_jobs":active[:12],
+        "recent_jobs":selected[:20],
+        "recent_job_failures":recent_errors,
+        "missing_verified_evidence":observation["pending_missing_evidence"],
+        "next_flows":flow["next"],
+        "read_only":True,
+        "job_enqueued":False,
+        "bid_submitted":False,
+        "actual_native_n8n_ui_execution_not_claimed":True,
+    }
+
+
+@router.get("/flows/{flow_id}/progress",summary="Read-only live worker and independent official-evidence progress")
+def api_flow_progress(flow_id:str,bid_no:str=Query(CASE_BID)):
+    _selected_case(bid_no)
+    _get_flow(flow_id)
+    observation=inspect_flow(flow_id,bid_no)
+    jobs=_recent_jobs(bid_no)
+    return progress_snapshot(flow_id,bid_no,observation,jobs)

@@ -78,6 +78,13 @@ def n8n_workflow_landing():
     return launcher()
 
 
+@app.get("/n8n/progress",response_class=HTMLResponse)
+def n8n_live_progress():
+    """Read-only live G2B job/evidence monitor; NOT an alternative workflow editor."""
+    html=(Path(__file__).parent/"n8n/progress.html").read_text(encoding="utf-8")
+    return HTMLResponse(html,headers={"Cache-Control":"no-store","X-Robots-Tag":"noindex,nofollow"})
+
+
 @app.get("/legacy/workbench",response_class=HTMLResponse)
 def legacy_procurement_workbench():
     """Preserve all existing browsing, collecting and tender-management controls."""
