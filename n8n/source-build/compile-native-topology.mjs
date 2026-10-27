@@ -66,7 +66,16 @@ function combineCode(expectedIds,requiredInputs) {
 }
 function enhanceFlow(w,f) {
   const ids=f.owned_blocks;
-  if(!ids.length)return {workflow:w,stats:{id:f.id,blocks:0,parallel:0,merges:0}};
+  if(!ids.length) {
+    const init=w.nodes.find(n=>n.name.startsWith('01 · 발주번호'));
+    if(!init)throw Error(f.id+': no case setup');
+    const trigger={id:idFor(f.id+' subworkflow trigger'),name:'↳ 상위 PF 실행 호출',
+      type:'n8n-nodes-base.executeWorkflowTrigger',typeVersion:1.1,
+      position:[500,65],parameters:{inputSource:'passthrough'}};
+    w.nodes.push(trigger);
+    link(w.connections,trigger.name,init.name);
+    return {workflow:w,stats:{id:f.id,blocks:0,branchPoints:0,merges:0,roots:0,terminals:0,edges:0}};
+  }
   const allBlocks=manifest.blocks.filter(b=>ids.includes(b.id));
   const internal=allBlocks.flatMap(b=>(b.to||[]).filter(t=>ids.includes(t)).map(t=>[b.id,t]));
   const edges=pruneTransitive(ids,internal);
