@@ -31,7 +31,7 @@ def operational_editor_url(flow_id: str) -> str:
 
 def _button(url: str) -> str:
     if not url:
-        return '<span class="blocked">관리자 인증 전 · n8n 외부 접근 차단</span>'
+        return '<span class="blocked">n8n 편집기 주소 미설정</span>'
     return ('<a class="btn" target="_blank" rel="noopener noreferrer" '
             f'href="{escape(url, quote=True)}">n8n에서 열고 실행</a>')
 
@@ -65,7 +65,7 @@ def launcher() -> HTMLResponse:
             f'<a class="quiet" target="_blank" href="/api/n8n/scenarios/{sid}/simulate">'
             'API 가상 결과 검사</a></div></article>'
         )
-    status = ('HTTPS 보안 게이트웨이 연결됨. 게이트웨이 입장 후 n8n 관리자 소유권을 설정하면 '
+    status = ('추가 브라우저 로그인 없이 n8n 정식 편집기에 연결됩니다. n8n 관리자 계정이 설정되어 있으면 '
               '정식 노드 캔버스와 Execute workflow를 이용할 수 있습니다.'
               if editor_base() else
               'n8n은 외부 관리자 등록 위험 때문에 공개 접속이 차단돼 있습니다. '
@@ -74,7 +74,7 @@ def launcher() -> HTMLResponse:
         '<section class="native-editor"><strong>실제 n8n 노드 편집기</strong>'
         '<p>이 페이지는 목록과 실제 증빙 조회용입니다. 노드 캔버스·선 연결·노드 입출력·'
         'Execute workflow 버튼은 아래 n8n 원본 편집기에서 사용합니다.</p>'
-        '<p>첫 접속에서는 보안 게이트웨이 계정으로 입장한 후, 본인의 이메일로 n8n 관리자 계정을 등록해야 합니다.</p>'
+        '<p>별도의 브라우저 사용자 이름·비밀번호 입력창은 사용하지 않습니다. n8n 자체 로그인 상태에 따라 화면이 표시됩니다.</p>'
         f'<a class="btn" target="_blank" rel="noopener noreferrer" '
         f'href="{escape(editor_base(),quote=True)}">n8n 실제 노드 편집기 열기</a>'
         '</section>'
