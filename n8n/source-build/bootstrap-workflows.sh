@@ -5,9 +5,9 @@ set -eu
 n8n_dir=/home/node/.n8n
 mkdir -p "$n8n_dir"
 echo "[procureflow] Compile 15 PF native DAGs (43 business blocks) and PF00 controller..."
-node /usr/local/bin/procureflow-compile-topology
+node /usr/local/bin/procureflow-compile-topology.mjs
 echo "[procureflow] Validate generated native n8n workflow edges..."
-node /usr/local/bin/procureflow-test-topology
+node /usr/local/bin/procureflow-test-topology.mjs
 version_marker="$n8n_dir/.procureflow-native-v2"
 if [ ! -f "$version_marker" ]; then
   echo "[procureflow] Importing 16 native PF workflows with IF/Merge/ExecuteWorkflow dependencies..."
