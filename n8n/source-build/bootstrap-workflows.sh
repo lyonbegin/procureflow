@@ -32,4 +32,12 @@ if [ "${PROCUREFLOW_SMOKE_S01:-0}" = 1 ]; then
     echo "[procureflow] S01 real n8n execution FAILED; do not report full test completion."
   fi
 fi
+if [ "${PROCUREFLOW_SMOKE_PF00:-0}" = 1 ]; then
+  echo "[procureflow] PF00 actual native ExecuteWorkflow/Merge/IF smoke start (read-only)..."
+  if n8n execute --id PFORCH2026MAINWF; then
+    echo "[procureflow] PF00 read-only n8n native execution passed."
+  else
+    echo "[procureflow] PF00 native execution FAILED; do not report full business workflow success."
+  fi
+fi
 exec n8n start
