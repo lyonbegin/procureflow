@@ -4,6 +4,11 @@
 set -eu
 n8n_dir=/home/node/.n8n
 mkdir -p "$n8n_dir"
+# Railway volume is root-owned on first mount; repair once, then run n8n as node.
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R node:node "$n8n_dir"
+  exec gosu node "$0" "$@"
+fi
 echo "[procureflow] Compile 15 PF native DAGs (43 business blocks) and PF00 controller..."
 node /usr/local/bin/procureflow-compile-topology
 echo "[procureflow] Validate generated native n8n workflow edges..."
