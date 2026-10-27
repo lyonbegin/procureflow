@@ -36,7 +36,7 @@ ENV NODE_ENV=production \
     N8N_RELEASE_TYPE=stable \
     SHELL=/bin/sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tini ca-certificates curl openssl libstdc++6 libgcc-s1 python3 \
+    tini gosu ca-certificates curl openssl libstdc++6 libgcc-s1 python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /home/node
 COPY --from=builder --chown=node:node /src/n8n/compiled /usr/local/lib/node_modules/n8n
@@ -57,7 +57,7 @@ COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /usr/local/b
 COPY --chown=node:node n8n/source-build/test-native-topology.mjs /usr/local/bin/procureflow-test-topology
 COPY --chown=node:node n8n/source-build/bootstrap-workflows.sh /usr/local/bin/procureflow-n8n-bootstrap
 RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap
-USER node
+USER root
 EXPOSE 5678
 ENTRYPOINT ["tini", "--"]
 CMD ["/usr/local/bin/procureflow-n8n-bootstrap"]
