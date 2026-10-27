@@ -16,7 +16,8 @@ RUN git clone --depth 1 --branch "${N8N_SOURCE_REF}" \
     && test "$(git -C /src/n8n rev-parse HEAD)" = "${N8N_SOURCE_SHA}"
 WORKDIR /src/n8n
 # Official upstream production builder generates ./compiled from original source.
-RUN pnpm run build:deploy \
+RUN pnpm install --frozen-lockfile --trust-lockfile \
+    && pnpm run build:deploy \
     && test -f compiled/bin/n8n \
     && node -p "require('./compiled/package.json').version" | grep -qx '2.44.6'
 
