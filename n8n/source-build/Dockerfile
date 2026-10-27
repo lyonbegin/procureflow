@@ -21,15 +21,31 @@ RUN pnpm install --frozen-lockfile --trust-lockfile \
     && test -f compiled/bin/n8n \
     && node -p "require('./compiled/package.json').version" | grep -qx '2.44.6'
 
+# Upstream removes isolated-vm prebuilt binaries. Rebuild for this Node runtime.
+FROM builder AS native-modules
+RUN set -eux; \
+    package_file="$(find /src/n8n/compiled/node_modules/.pnpm -path '*/node_modules/isolated-vm/package.json' -print -quit)"; \
+    test -n "$package_file"; \
+    cd "$(dirname "$package_file")"; \
+    node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --release -j 2; \
+    test -s build/Release/isolated_vm.node; \
+    cp build/Release/isolated_vm.node /tmp/isolated_vm.node
+
 FROM node:26.12.1-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     N8N_RELEASE_TYPE=stable \
     SHELL=/bin/sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tini ca-certificates curl openssl libstdc++6 libgcc-s1 \
+    tini ca-certificates curl openssl libstdc++6 libgcc-s1 python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /home/node
 COPY --from=builder --chown=node:node /src/n8n/compiled /usr/local/lib/node_modules/n8n
+COPY --from=native-modules /tmp/isolated_vm.node /tmp/isolated_vm.node
+RUN set -eux; \
+    package_file="$(find /usr/local/lib/node_modules/n8n/node_modules/.pnpm -path '*/node_modules/isolated-vm/package.json' -print -quit)"; \
+    test -n "$package_file"; \
+    install -D /tmp/isolated_vm.node "$(dirname "$package_file")/build/Release/isolated_vm.node"; \
+    rm /tmp/isolated_vm.node
 RUN chmod +x /usr/local/lib/node_modules/n8n/bin/n8n \
     && ln -s /usr/local/lib/node_modules/n8n/bin/n8n /usr/local/bin/n8n \
     && mkdir -p /home/node/.n8n \
