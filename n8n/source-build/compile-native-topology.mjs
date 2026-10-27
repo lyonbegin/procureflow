@@ -54,10 +54,10 @@ function sortedAcyclic(ids,edges,label) {
   if(order.length!==ids.length)throw Error(label+': cyclic dependency');
   return order;
 }
-function combineCode(expectedIds) {
+function combineCode(expectedIds,requiredInputs) {
   const expected=JSON.stringify(expectedIds);
   return "const all=$input.all().map(x=>x.json);"
-    +"if(all.length!=="+expectedIds.length+")throw Error('Missing required dependency branch');"
+    +"if(all.length!=="+requiredInputs+")throw Error('Missing required dependency branch');"
     +"const expected="+expected+";"
     +"const records=new Map();"
     +"for(const item of all){for(const rec of item.workflow_trace||[])records.set(rec.block_id,rec)}"
@@ -96,7 +96,7 @@ function enhanceFlow(w,f) {
     const mergeName='합류 '+id+' · 모든 선행 분기';
     const aggName='검증 '+id+' · 분기 결과 합치기';
     const merge=mergeNode(mergeName,incoming[id].length,1760+idx*450,670);
-    const agg=codeNode(aggName,combineCode(ids),1920+idx*450,670);
+    const agg=codeNode(aggName,combineCode(ids,incoming[id].length),1920+idx*450,670);
     w.nodes.push(merge,agg);
     incoming[id].forEach((from,n)=>link(old,nameOf[from],mergeName,0,n));
     link(old,mergeName,aggName);
@@ -106,7 +106,7 @@ function enhanceFlow(w,f) {
   else {
     joins++;
     const m=mergeNode('합류 종료 · 모든 업무 블록 완료',terminals.length,4700,660);
-    const a=codeNode('검증 종료 · 분기 기록 병합',combineCode(ids),4940,660);
+    const a=codeNode('검증 종료 · 분기 기록 병합',combineCode(ids,terminals.length),4940,660);
     w.nodes.push(m,a);
     terminals.forEach((id,i)=>link(old,nameOf[id],m.name,0,i));
     link(old,m.name,a.name);
