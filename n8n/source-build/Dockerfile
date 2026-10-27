@@ -52,6 +52,9 @@ RUN chmod +x /usr/local/lib/node_modules/n8n/bin/n8n \
     && chown -R node:node /home/node
 COPY --chown=node:node n8n/operational /home/node/procureflow-operational-workflows
 COPY --chown=node:node n8n/workflows /home/node/procureflow-demo-workflows
+COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-operational-manifest.json
+COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /usr/local/bin/procureflow-compile-topology
+COPY --chown=node:node n8n/source-build/test-native-topology.mjs /usr/local/bin/procureflow-test-topology
 COPY --chown=node:node n8n/source-build/bootstrap-workflows.sh /usr/local/bin/procureflow-n8n-bootstrap
 RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap
 USER node
