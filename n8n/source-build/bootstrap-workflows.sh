@@ -51,4 +51,21 @@ if [ "${PROCUREFLOW_SMOKE_PF00:-0}" = 1 ]; then
     echo "[procureflow] PF00 native execution FAILED; do not report full business workflow success."
   fi
 fi
+if [ "${PROCUREFLOW_SMOKE_ALL_SCENARIOS:-0}" = 1 ]; then
+  echo "[procureflow] Starting native S01-S10 actual execution QA (fictional, read-only)..."
+  pass=0
+  fail=0
+  for n in 01 02 03 04 05 06 07 08 09 10; do
+    log="/tmp/procureflow-S${n}-smoke.log"
+    if n8n execute --id "PFDEMO2026S${n}WF" > "$log" 2>&1 && grep -q '"executionStatus": "success"' "$log"; then
+      pass=$((pass+1))
+      echo "[procureflow scenario QA] S${n} PASS (native n8n engine, no bid)"
+    else
+      fail=$((fail+1))
+      echo "[procureflow scenario QA] S${n} FAIL"
+      tail -n 28 "$log" || true
+    fi
+  done
+  echo "[procureflow scenario QA] TOTAL pass=${pass} fail=${fail} of 10"
+fi
 exec n8n start
