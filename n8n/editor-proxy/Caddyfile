@@ -1,5 +1,7 @@
-# n8n full native editor behind HTTPS at the Railway edge.
-# Never expose the raw n8n main service or unprotected owner-signup screen.
+# Reverse proxy to the native n8n editor (no extra browser Basic Auth prompt).
+# n8n's own account/session authentication remains enabled.
+# Block public first-owner registration until an owner is configured through
+# an operator-controlled private setup path.
 {
     auto_https off
     admin off
@@ -9,13 +11,12 @@
     handle @health {
         respond "ok" 200
     }
+    @owner_setup path /setup /setup/* /rest/owner/setup /rest/owner/setup/*
+    handle @owner_setup {
+        respond "Initial owner registration is not available on the public gateway." 403
+    }
     handle {
-        basic_auth bcrypt "ProcureFlow n8n Editor" {
-            1 {env.EDITOR_PASSWORD_HASH}
-        }
         reverse_proxy http://n8n.railway.internal:5678 {
-            # Do not forward the gateway Basic password to n8n.
-            header_up -Authorization
             header_up X-Forwarded-Proto https
             header_up X-Forwarded-Host {host}
         }
