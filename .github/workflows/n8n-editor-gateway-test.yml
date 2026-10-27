@@ -12,29 +12,30 @@ on:
 permissions:
   contents: read
 jobs:
-  secure-caddy-gateway:
+  caddy-gateway:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Build actual secure n8n visual editor gateway
+      - name: Build native n8n proxy
         run: docker build -f n8n/editor-proxy/Dockerfile -t procureflow-n8n-editor-gateway:ci .
-      - name: Validate Caddyfile with bcrypt and production n8n private proxy
+      - name: Validate reverse proxy config and no browser Basic Auth
         run: |
-          HASH=$(docker run --rm --entrypoint caddy procureflow-n8n-editor-gateway:ci hash-password --plaintext "ci-owner-guard-test")
-          docker run --rm -e EDITOR_PASSWORD_HASH="$HASH" --entrypoint caddy procureflow-n8n-editor-gateway:ci adapt --config /etc/caddy/Caddyfile --validate --pretty > /tmp/proxy-adapted.json
-          grep -q '"authentication"' /tmp/proxy-adapted.json
+          set -euo pipefail
+          docker run --rm --entrypoint caddy procureflow-n8n-editor-gateway:ci adapt --config /etc/caddy/Caddyfile --validate --pretty > /tmp/proxy-adapted.json
           grep -q 'n8n.railway.internal:5678' /tmp/proxy-adapted.json
-      - name: Prove anonymous editor and owner-setup are denied before proxying
+          if grep -q '"authentication"' /tmp/proxy-adapted.json; then
+            echo 'Unexpected browser Basic Auth'; exit 1
+          fi
+      - name: Public owner setup denied but browser Basic Auth absent
         run: |
-          HASH=$(docker run --rm --entrypoint caddy procureflow-n8n-editor-gateway:ci hash-password --plaintext "ci-owner-guard-test")
-          docker run -d --rm --name caddy-n8n-secure -p 8080:8080 -e EDITOR_PASSWORD_HASH="$HASH" procureflow-n8n-editor-gateway:ci
+          set -euo pipefail
+          docker run -d --rm --name caddy-n8n-native -p 8080:8080 procureflow-n8n-editor-gateway:ci
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then break; fi
+            curl -fsS http://127.0.0.1:8080/healthz >/dev/null && break
             sleep 1
           done
-          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/)" = "401"
-          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/setup)" = "401"
-          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/rest/settings)" = "401"
-          echo N8N_EDITOR_AUTH_GATE_VERIFIED: basic auth required for all native editor paths
-          docker logs --tail 15 caddy-n8n-secure
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/setup)" = "403"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/rest/owner/setup)" = "403"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)" != "401"
+          echo "EDITOR_WITHOUT_BASIC_AUTH_TEST_PASSED"
