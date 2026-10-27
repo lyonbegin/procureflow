@@ -24,6 +24,17 @@ if [ ! -f "$version_marker" ]; then
 else
   echo "[procureflow] Native v2 import marker present; keeping database edits."
 fi
+# n8n 2.x only allows Execute Workflow to call published sub-workflows.
+# PF01-PF15 contain ONLY manual/sub-workflow triggers, never automatic tender submission.
+publish_marker="$n8n_dir/.procureflow-published-subflows-v2"
+if [ ! -f "$publish_marker" ]; then
+  echo "[procureflow] Publishing 15 native PF sub-workflows (manual/called only)..."
+  for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15; do
+    n8n publish:workflow --id="PFOP2026PF${n}WF"
+  done
+  touch "$publish_marker"
+  echo "[procureflow] All 15 native PF sub-workflows published for ExecuteWorkflow calls."
+fi
 if [ "${PROCUREFLOW_SMOKE_S01:-0}" = 1 ]; then
   echo "[procureflow] S01 actual n8n execution smoke start (fictional, no bids)..."
   if n8n execute --id PFDEMO2026S01WF; then
