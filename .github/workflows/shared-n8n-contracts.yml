@@ -31,7 +31,27 @@ jobs:
             n8n/operational_manifest.json \
             /tmp/shared-n8n-studio/playground/src/node-catalog.js \
             shared-adapter-contracts.json
-          node -e 'const r=require("./shared-adapter-contracts.json");if(r.verification.runnableBusinessHandlers!==0||r.adapters.some(x=>x.canDispatch||x.canBid||x.officialEvidenceVerified))process.exit(1)'
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const r=require('./shared-adapter-contracts.json');
+          assert.equal(r.native.length,14);
+          assert.equal(r.customReadOnly.length,1);
+          assert.equal(r.customReadOnly[0].type,'CUSTOM.procureFlowBusinessOperation');
+          assert.equal(r.customReadOnly[0].actualBusinessHandler,false);
+          assert.equal(r.unimplemented.length,35);
+          assert.equal(r.verification.unsupportedKindCount,35);
+          assert.equal(r.verification.runnableBusinessHandlers,0);
+          assert.equal(new Set([...r.native.map(x=>x.kind),
+            ...r.customReadOnly.map(x=>x.kind),
+            ...r.unimplemented.map(x=>x.kind)]).size,50);
+          assert(r.unimplemented.every(x=>x.executable===false&&
+            x.acceptance==='UNSUPPORTED_NO_EXECUTABLE_N8N_MAPPING'));
+          assert(r.adapters.every(x=>!x.canDispatch&&!x.canBid&&!x.officialEvidenceVerified));
+          console.log('SHARED_N8N_CAPABILITY_CLASSIFICATION_PASS',JSON.stringify({
+            native:r.native.length,registeredReadOnly:r.customReadOnly.length,
+            unsupported:r.unimplemented.length,runnableBusinessHandlers:0
+          }));
+          NODE
       - name: Audit 80 separate debugging requirements without claiming completion
         run: node n8n/source-build/debug-80-audit.mjs reports/workflow_81_160_implementation_20261025.md shared-debug-80-audit.json
       - uses: actions/upload-artifact@v4
