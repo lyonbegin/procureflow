@@ -57,7 +57,7 @@ class ProcureFlowBusinessOperation {
     version:1,
     description:'One of 43 allowlisted procurement operations. Read-only evidence gate; never automatically submits bids.',
     defaults:{name:'Business Operation',color:'#177d83'},
-    inputs:['main'],outputs:['main'],
+    inputs:['main'],outputs:['main','main'],outputNames:['success','hold_or_error'],
     properties:[
       {displayName:'Operation ID',name:'operationId',type:'options',
        options:[...byId.values()].map(x=>({name:x.id+' · '+x.label,value:x.id})),
@@ -78,7 +78,7 @@ class ProcureFlowBusinessOperation {
       throw Error('Business Operation disabled until authenticated official n8n rollout is approved');
     const base=safeApiBase();
     const input=this.getInputData();
-    const result=[];
+    const passed=[],held=[];
     for(let i=0;i<input.length;i++){
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
@@ -94,7 +94,10 @@ class ProcureFlowBusinessOperation {
         json:true
       });
       const inspected=validateProvenance(response,block.flowId,bidNo,operationId);
-      const verified=inspected.status==='verified'&&
+      const verified=response.official_notice_verified===true&&
+         (!['PF05','PF06'].includes(block.flowId) ||
+           (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&response.official_detail10.length>0))&&
+         inspected.status==='verified'&&
          inspected.output_value?.evidence_verified===true&&
          inspected.features?.length===block.features.length&&
          inspected.features.every(x=>x.acceptance==='verified'&&x.missing_gates?.length===0);
@@ -117,9 +120,10 @@ class ProcureFlowBusinessOperation {
       },pairedItem:{item:i}};
       if(!verified&&evidenceHandling!=='hold')
         throw Error('Business Operation '+operationId+' held: official evidence incomplete');
-      result.push(item);
+      if(verified)passed.push(item);
+      else held.push(item);
     }
-    return [result];
+    return [passed,held];
   }
 }
 module.exports={ProcureFlowBusinessOperation,validateProvenance,safeApiBase};
