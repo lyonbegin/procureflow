@@ -34,15 +34,15 @@ jobs:
             --network procureflow-ci -p 127.0.0.1:3000:3000 -e PORT=3000 \
             procureflow-n8n-vue-gateway:ci
           for i in $(seq 1 80); do
-            if curl -fsS --max-time 2 http://127.0.0.1:3000/health >/dev/null && \
-               curl -fsS --max-time 2 http://127.0.0.1:3000/workflows/demo >/dev/null; then
+            if curl -fsS --max-time 4 http://127.0.0.1:3000/health >/dev/null && \
+               curl -fsS --max-time 4 http://127.0.0.1:3000/workflows/demo >/dev/null; then
               echo "ISOLATED_OFFICIAL_N8N_AND_GATEWAY_HEALTHY"
               break
             fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:3000/health
-          curl -fsS http://127.0.0.1:3000/workflows/demo -o /tmp/official-vue-page.html
+          curl --retry 8 --retry-connrefused --retry-delay 2 -fsS http://127.0.0.1:3000/workflows/demo -o /tmp/official-vue-page.html
           grep -Eq '<html|<!DOCTYPE' /tmp/official-vue-page.html
           curl -fsS http://127.0.0.1:3000/demo-data/operational/PF00.json -o /tmp/PF00.json
           curl -fsS http://127.0.0.1:3000/demo-data/operational/PF05.json -o /tmp/PF05.json
