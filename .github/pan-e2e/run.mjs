@@ -83,7 +83,7 @@ const synthetic = {
 await fs.mkdir(OUT,{recursive:true});
 try {
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
-  context=await browser.newContext({viewport:{width:1440,height:900},recordVideo:{dir:OUT,size:{width:1440,height:900}}});
+  context=await browser.newContext({viewport:{width:1440,height:900}});
   page=await context.newPage();
   await context.tracing.start({screenshots:true,snapshots:true,sources:true});
   page.on('pageerror',e=>console.error('PAGE ERROR',e.message));
