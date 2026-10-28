@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'n8n/source-build/Dockerfile.shared-pan-test'
+      - '.github/pan-e2e/**'
       - '.github/workflows/shared-n8n-pan-build.yml'
   workflow_dispatch:
 permissions:
