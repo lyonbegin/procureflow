@@ -4,7 +4,11 @@ on:
     paths:
       - 'n8n/source-build/Dockerfile.shared-studio-candidate'
       - 'n8n/source-build/bootstrap-workflows.sh'
+      - 'n8n/source-build/bootstrap-shared-studio.sh'
+      - 'n8n/source-build/augment-business-operations.mjs'
       - 'n8n/source-build/compile-native-topology.mjs'
+      - 'n8n/custom-nodes/**'
+      - '.github/pan-e2e/candidate-business.mjs'
       - '.github/workflows/shared-n8n-candidate.yml'
   workflow_dispatch:
 permissions:
@@ -151,6 +155,16 @@ jobs:
             }));
           })().catch(e=>{console.error(e);process.exitCode=1;});
           NODE
+      - name: Install real Google Chrome test driver
+        run: |
+          google-chrome --version
+          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2
+      - name: Real Chrome custom Business Operation palette, configuration, save/reopen/delete
+        timeout-minutes: 12
+        env:
+          N8N_E2E_URL: http://127.0.0.1:5681
+          N8N_E2E_ARTIFACTS: candidate-business-chrome-artifacts
+        run: node .github/pan-e2e/candidate-business.mjs
       - name: Save no-credential candidate evidence
         if: always()
         run: docker logs pf-shared-candidate > candidate-runtime.log 2>&1 || true
@@ -163,3 +177,4 @@ jobs:
             candidate-version.log
             candidate-runtime.log
             candidate-workflows.json
+            candidate-business-chrome-artifacts/
