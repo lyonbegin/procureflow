@@ -172,3 +172,71 @@ test('exact manifest feature IDs are required for VERIFIED; wrong IDs remain HOL
   assert.equal(duplicate[0].length,0);
   assert.equal(duplicate[1].length,1);
 });
+
+
+test('all 43 manifest operations fail closed with isolated evidence and exact GET routing',async()=>{
+  configure();
+  const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
+  const owner=new Map(manifest.flows.flatMap(f=>(f.owned_blocks||[]).map(id=>[id,f.id])));
+  const instance=new ProcureFlowBusinessOperation();
+  assert.equal(manifest.blocks.length,43);
+  let requests=0;
+  for(const block of manifest.blocks){
+    const flowId=owner.get(block.id);
+    assert.ok(flowId,'missing owner '+block.id);
+    const params=(name)=>({
+      operationId:block.id,bidNo:'R26BK01787028',evidenceHandling:'hold'
+    })[name];
+    const fixture={
+      flow_id:flowId,case_id:'R26BK01787028',
+      source_provenance:'isolated_synthetic_test_evidence',
+      read_only:true,simulation_only:true,actual_job_executed:false,
+      automatic_bid_submission:false,workflow_execution_engine:'native_n8n_only',
+      blocks:[{
+        id:block.id,input:block.input,output:block.output,
+        real_data:false,simulation_only:true,job_enqueued:false,
+        status:'blocked',features:[],
+        output_value:{evidence_verified:false,missing_evidence_keys:['official_source']}
+      }]
+    };
+    const response=await instance.execute.call(ctx(params,async options=>{
+      requests++;
+      assert.equal(options.method,'GET');
+      assert.equal(options.url,'http://127.0.0.1:58491/api/n8n/operational/flows/'+flowId+'/inspect');
+      assert.equal(options.qs.bid_no,'R26BK01787028');
+      return fixture;
+    },{final_decision:'SUBMIT',bid_submitted:true,worker_job_enqueued:true}));
+    assert.equal(response[0].length,0,block.id);
+    assert.equal(response[1].length,1,block.id);
+    const result=response[1][0].json;
+    assert.equal(result.operation_id,block.id);
+    assert.equal(result.flow_id,flowId);
+    assert.equal(result.inspection_status,'HOLD');
+    assert.equal(result.actual_business_handler_executed,false);
+    assert.equal(result.evidence_verified,false);
+    assert.equal(result.bid_submitted,false);
+    assert.equal(result.worker_job_enqueued,false);
+    assert.equal(result.final_decision,'HOLD');
+  }
+  assert.equal(requests,43);
+});
+test('provider errors and untrusted evidence keys cannot leak serviceKey into native n8n output',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  await assert.rejects(
+    ()=>instance.execute.call(ctx(getParam,async()=>{
+      throw Error('HTTP 500 serviceKey=TOP_SECRET_123 https://bad.test/?token=TOP_SECRET_123');
+    })),
+    error=>error.message==='Business Operation N01: read-only evidence request failed'&&
+      !error.message.includes('TOP_SECRET_123')
+  );
+  const malicious={...blocked,
+    blocks:[{...blocked.blocks[0],
+      output_value:{evidence_verified:false,
+        missing_evidence_keys:['official_source','serviceKey=TOP_SECRET_123',
+          'https://bad.test/?token=TOP_SECRET_123','official_source']}}]};
+  const result=await instance.execute.call(ctx(getParam,async()=>malicious));
+  const keys=result[1][0].json.missing_evidence;
+  assert.deepEqual(keys,['official_source','invalid_evidence_key']);
+  assert.ok(!JSON.stringify(result).includes('TOP_SECRET_123'));
+});
