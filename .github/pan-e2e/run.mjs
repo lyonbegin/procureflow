@@ -215,13 +215,23 @@ try {
   await page.screenshot({path:path.join(OUT,'06-settings-reopened.png'),fullPage:true});
 
   // Use actual official editor UI for safe manual execution of Code-only result.
+  const startedResponse=page.waitForResponse(r=>
+    r.url().includes('/rest/workflows/')&&r.url().includes('/run')&&r.request().method()==='POST',
+    {timeout:45000}
+  );
   await page.locator('[data-test-id="execute-workflow-button"]').first().click({timeout:15000});
-  await poll('native code execution result',async()=>{
-    const ui=await page.locator('[data-node-name="Code"]').getAttribute('class');
-    return ui && /success|executed/i.test(ui)?ui:null;
-  },45000);
-  await rec('real-n8n-editor-execution','PASS');
-  await page.screenshot({path:path.join(OUT,'05-executed.png'),fullPage:true});
+  const started=(await (await startedResponse).json()).data;
+  const executionId=String(started?.executionId??started?.id??'');
+  assert(executionId,'Native execution response missing server executionId: '+JSON.stringify(started));
+  const execution=await poll('native n8n execution saved with node I/O',async()=>{
+    const d=(await api('GET','/rest/executions/'+executionId)).data;
+    const data=d?.data?.resultData?.runData??d?.resultData?.runData;
+    const code=data?.Code?.[0];
+    const result=code?.data?.main?.[0]?.[0]?.json;
+    return result?.pan_test===true&&result?.answer===43 ? {id:executionId,status:d.status,codeOutput:result,nodeNames:Object.keys(data)}:null;
+  },60000);
+  await rec('real-n8n-editor-execution-and-node-output','PASS',execution);
+  await page.screenshot({path:path.join(OUT,'07-executed.png'),fullPage:true});
 } catch(e) {
   const error=e?.stack??String(e);
   console.error('E2E FAILURE',error);
