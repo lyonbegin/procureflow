@@ -100,8 +100,8 @@ try {
   await rec('server-create-synthetic-workflow','PASS',{workflowId});
   await page.goto(URL+'/workflow/'+workflowId,{waitUntil:'domcontentloaded'});
   await page.locator('[data-test-id="canvas"]').waitFor({timeout:30000});
-  await page.locator('[data-node-name="Manual Trigger"]').waitFor({timeout:25000});
-  await page.locator('[data-node-name="Code"]').waitFor({timeout:25000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Manual Trigger"]').waitFor({timeout:25000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:25000});
   await page.screenshot({path:path.join(OUT,'01-official-editor.png'),fullPage:true});
   await rec('official-n8n-canvas-renders','PASS',{workflowId,url:page.url()});
 
@@ -146,7 +146,7 @@ try {
   await page.screenshot({path:path.join(OUT,'03-connected.png'),fullPage:true});
 
   // Real node movement updates workflow coordinates, not viewport.
-  const codeNode=page.locator('[data-node-name="Code"]').first();
+  const codeNode=page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').first();
   await codeNode.scrollIntoViewIfNeeded();
   const rb=await codeNode.boundingBox();
   assert(rb,'Node not visible for drag');
@@ -160,7 +160,7 @@ try {
   await rec('real-node-drag-saved-in-db','PASS',{before:movedBefore,after:moved});
 
   await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('[data-node-name="Code"]').waitFor({timeout:30000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
   const loaded=await storageWorkflow(workflowId);
   assert(JSON.stringify(loaded.nodes.find(n=>n.name==='Code').position)===JSON.stringify(moved),'Node position changed on reload');
   assert(loaded.connections['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code'),'Handle connection not preserved on reload');
@@ -209,7 +209,7 @@ try {
   },30000);
   await rec('real-chrome-parameter-edit-and-server-persistence','PASS',{jsCode:newJs});
   await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('[data-node-name="Code"]').waitFor({timeout:30000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
   assert((await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs,'Code parameter lost after reload');
   await rec('real-chrome-parameter-reopen-persistence','PASS');
   await page.screenshot({path:path.join(OUT,'06-settings-reopened.png'),fullPage:true});
