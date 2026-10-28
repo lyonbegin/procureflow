@@ -28,8 +28,29 @@ def _parse(response):
     if isinstance(items,dict):items=items.get("item") or []
     if isinstance(items,dict):items=[items]
     if not isinstance(items,list):raise ValueError("g2b_api_items_not_list")
-    total=int(body.get("totalCount") or 0)
+    if "totalCount" not in body:
+        raise ValueError("g2b_api_total_count_missing")
+    total=int(body["totalCount"])
+    if total<0:
+        raise ValueError("g2b_api_negative_total_count")
     return items,total
+
+
+def _page_verdict(inspected:int,total:int,entries:int,page_size:int=500)->str:
+    """Fail closed on early/empty/truncated pages; no false 'completed' months.
+
+    This validates an official 8-digit discovery window ONLY. It does not
+    certify 10-digit eligibility or opening/final-award evidence.
+    """
+    if (not isinstance(inspected,int) or not isinstance(total,int) or
+            not isinstance(entries,int) or inspected<0 or total<0 or
+            entries<0 or entries>page_size or inspected+entries>total):
+        return "inconsistent"
+    if inspected+entries==total:
+        return "completed"
+    if entries<page_size:
+        return "incomplete_page"
+    return "partial"
 
 def _category_from(item):
     """Accept only a *dedicated official field*, not digits in bid title."""
@@ -84,11 +105,20 @@ def scan_month(first, pages_max=30):
                 data=json.loads(rsp.read(15000000))
             entries,total=_parse(data)
         except Exception as exc:
-            _write_month(row["first_day"],row["last_day"],"error",matched,inspected,page,
-                         type(exc).__name__+":"+str(exc)[:180])
-            return {"status":"error","first_day":str(first),
-                    "reason":type(exc).__name__+":"+str(exc)[:180]}
+            # urllib exceptions may include the serviceKey URL. Neither DB
+            # audit nor REST output may persist an exception's raw message.
+            reason="official_api_request_or_parse_failed:"+type(exc).__name__
+            _write_month(row["first_day"],row["last_day"],"error",matched,inspected,page,reason)
+            return {"status":"error","first_day":str(first),"reason":reason}
+        verdict=_page_verdict(inspected,total,len(entries))
+        if verdict in ("inconsistent","incomplete_page"):
+            _write_month(row["first_day"],row["last_day"],"blocked_incomplete_api_page",
+                         matched,inspected,page,"page_count_inconsistent_or_truncated")
+            return {"status":"blocked_incomplete_api_page","first_day":str(first),
+                    "page":page,"checked":inspected,"returned":len(entries),
+                    "official_total_count":total,"reason":verdict}
         unknown=0
+        invalid=0
         confirmed=[]
         for item in entries:
             cls=_category_from(item)
@@ -98,23 +128,37 @@ def scan_month(first, pages_max=30):
             if cls is not True:continue
             no=str(item.get("bidNtceNo") or "").strip()
             ord_=str(item.get("bidNtceOrd") or "000").zfill(3)
-            if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no):continue
+            if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no) or not re.fullmatch(r"\d{3}",ord_):
+                invalid+=1
+                continue
             pub=str(item.get("bidNtceDt") or "").strip()
             stamp=re.match(r"(20\d{2})[-./]?(\d{2})[-./]?(\d{2})",pub)
-            if not stamp:continue
-            day=date(int(stamp[1]),int(stamp[2]),int(stamp[3]))
-            if not BEGIN<=day<=END:continue
+            if not stamp:
+                invalid+=1
+                continue
+            try:
+                day=date(int(stamp[1]),int(stamp[2]),int(stamp[3]))
+            except ValueError:
+                invalid+=1
+                continue
+            # A response for April must NEVER make March's month appear fully
+            # checked even if its date lies somewhere in the ten-year range.
+            if not row["first_day"]<=day<=row["last_day"]:
+                invalid+=1
+                continue
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 str(item.get("bidNtceNm") or "")[:350],
                 str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
                 int(item.get("asignBdgtAmt") or 0) or None,
                 "https://www.g2b.go.kr/","official_openapi_explicit_code"))
-        if unknown:
-            _write_month(row["first_day"],row["last_day"],"blocked_unverified_response_category",
-                         matched,inspected,page,"response_has_"+str(unknown)+"_rows_without_classification")
-            return {"status":"blocked_unverified_response_category",
-                    "undetermined_rows":unknown,"page":page,
-                    "note":"Do not count matching without official classification value"}
+        if unknown or invalid:
+            reason=("undetermined_category_rows="+str(unknown)+
+                    ";invalid_notice_or_month_rows="+str(invalid))
+            _write_month(row["first_day"],row["last_day"],"blocked_unverified_response_scope",
+                         matched,inspected,page,reason)
+            return {"status":"blocked_unverified_response_scope",
+                    "undetermined_rows":unknown,"invalid_scope_rows":invalid,
+                    "page":page,"note":"No full month coverage without valid official category, notice and date"}
         with session() as con:
             for bid in confirmed:
                 con.execute("""INSERT INTO procureflow.g2b_case_10yr_history(
@@ -128,7 +172,7 @@ def scan_month(first, pages_max=30):
                      collected_at=now()
                 """,bid)
         inspected+=len(entries);matched+=len(confirmed);page+=1
-        complete=(page-1)*500>=total or not entries
+        complete=verdict=="completed"
         _write_month(row["first_day"],row["last_day"],
                      "completed" if complete else "partial",
                      matched,inspected,page)
