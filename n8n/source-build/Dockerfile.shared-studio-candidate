@@ -59,6 +59,11 @@ RUN chmod +x /usr/local/lib/node_modules/n8n/bin/n8n \
     && ln -s /usr/local/lib/node_modules/n8n/bin/n8n /usr/local/bin/n8n \
     && mkdir -p /home/node/.n8n \
     && chown -R node:node /home/node
+# Native n8n custom-extension loader, not a parallel execution engine.
+# Business Operation node is fail-closed until explicit read-only approval.
+COPY --chown=node:node n8n/custom-nodes /home/node/procureflow-custom-nodes
+COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-custom-nodes/operational_manifest.json
+ENV N8N_CUSTOM_EXTENSIONS=/home/node/procureflow-custom-nodes
 COPY --chown=node:node n8n/operational /home/node/procureflow-operational-workflows
 COPY --chown=node:node n8n/workflows /home/node/procureflow-demo-workflows
 COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-operational-manifest.json
