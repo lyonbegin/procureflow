@@ -30,8 +30,8 @@ export function createAdapterRegistry(manifest,catalog) {
     assert(Array.isArray(n.fields),'no fields for '+n.kind);
     assert(n.implementation!=='native'||(typeof n.nativeType==='string'&&n.nativeType.startsWith('n8n-nodes-base.')),
       'unresolved native n8n type: '+n.kind);
-    assert(n.implementation==='native'||n.nativeType===null,
-      'non-native type must not masquerade as executable: '+n.kind);
+    assert(n.implementation!=='extension'||n.nativeType===null,
+      'extension must not masquerade as a native executable: '+n.kind);
   }
   const seen=new Set(),prefixes={},features=new Set();
   const ownership=new Map();
