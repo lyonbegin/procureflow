@@ -92,7 +92,7 @@ try {
   if(settings?.data?.userManagement?.showSetupOnFirstLoad) {
     await api('POST','/rest/owner/setup',{email:EMAIL,firstName:'Pan',lastName:'Test',password:PASSWORD});
   }
-  await api('POST','/rest/login',{email:EMAIL,password:PASSWORD});
+  await api('POST','/rest/login',{emailOrLdapLoginId:EMAIL,password:PASSWORD});
   await rec('isolated-owner-authentication','PASS');
   const w=(await api('POST','/rest/workflows',synthetic)).data;
   assert(w?.id,'Server did not return workflow ID');
