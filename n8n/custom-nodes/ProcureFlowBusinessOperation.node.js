@@ -55,7 +55,7 @@ function validateProvenance(body,flowId,bidNo,operationId){
   const expected=byId.get(operationId);
   if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
   const block=matches[0];
-  if(block.real_data===synthetic||block.simulation_only!==synthetic||
+  if(block.real_data!==(synthetic?false:true)||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
      block.output!==expected.output)
     throw Error('Business Operation block/official evidence contract mismatch');
