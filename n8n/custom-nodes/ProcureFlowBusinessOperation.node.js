@@ -67,10 +67,16 @@ function validateProvenance(body,flowId,bidNo,operationId){
 }
 // Evidence key names are identifiers, not free-form upstream messages. Never
 // echo untrusted URLs, request errors or credentials into execution output.
+const SAFE_EVIDENCE_KEYS=new Set([
+  'official_source','official_notice','official_detail10',
+  'official_opening','official_award','official_bid_no',
+  'official_evidence','official_10_digit_code'
+]);
 function safeMissingEvidenceKeys(value){
   if(!Array.isArray(value))return ['invalid_evidence_keys'];
-  const keys=value.filter(x=>typeof x==='string'&&/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(x));
-  if(keys.length!==value.length)keys.push('invalid_evidence_key');
+  // Even a syntactically valid upstream identifier can be a secret. Only
+  // explicitly reviewed diagnostic codes may be copied into n8n run logs.
+  const keys=value.map(x=>SAFE_EVIDENCE_KEYS.has(x)?x:'redacted_evidence_key');
   return [...new Set(keys)].slice(0,100);
 }
 class ProcureFlowBusinessOperation {
@@ -109,7 +115,7 @@ class ProcureFlowBusinessOperation {
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
       const block=byId.get(operationId);
-      if(!block)throw Error('Unregistered Business Operation ID '+String(operationId));
+      if(!block)throw Error('Unregistered Business Operation ID');
       if(bidNo!=='R26BK01787028'||(upstream.bid_no&&upstream.bid_no!==bidNo))throw Error('Unsupported tender: official single-case gate');
       let response;
       try{
