@@ -103,6 +103,31 @@ test('untrusted upstream approval and bid flags cannot bypass inspection-only HO
   assert.equal(actual.read_only,true);
   assert.equal(actual.inspection_status,'HOLD');
 });
+test('untrusted upstream fields and nested secrets never echo into native execution output',async()=>{
+  configure();
+  const injected={
+    bid_no:'R26BK01787028',
+    serviceKey:'PRIVATE_SERVICE_KEY_123',
+    bearerToken:'PRIVATE_BEARER_123',
+    bidder:{identity:'PRIVATE_BIDDER_123',bankAccount:'PRIVATE_ACCOUNT_123'},
+    arbitrary_nested:{payload:['PRIVATE_NESTED_123']},
+    custom_approval:'SUBMIT',
+    final_decision:'SUBMIT'
+  };
+  const result=await new ProcureFlowBusinessOperation().execute.call(
+    ctx(getParam,async()=>blocked,injected));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1].length,1);
+  const output=result[1][0].json;
+  assert.equal(output.bid_no,'R26BK01787028');
+  assert.equal(output.inspection_status,'HOLD');
+  assert.equal(output.final_decision,'HOLD');
+  assert.equal(output.bid_submitted,false);
+  assert.equal(output.worker_job_enqueued,false);
+  for(const field of ['serviceKey','bearerToken','bidder','arbitrary_nested','custom_approval'])
+    assert.equal(Object.hasOwn(output,field),false,field);
+  assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
+});
 test('isolated synthetic provenance is explicit, never VERIFIED, and blocked outside test mode',async()=>{
   configure();
   const synthetic={...blocked,source_provenance:'isolated_synthetic_test_evidence',
