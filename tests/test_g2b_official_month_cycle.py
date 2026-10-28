@@ -4,12 +4,13 @@ No Railway DB, official API key, live G2B access or bid submission.
 """
 from contextlib import contextmanager
 from datetime import date
+import calendar
 import json
 from unittest.mock import patch
 
 import pytest
 
-from g2b_case_10y_official import _parse, _page_verdict, scan_month
+from g2b_case_10y_official import _parse, _page_verdict, scan_month, summarize_month_cursor
 from g2b_case_10y import CASE_BID
 from g2b_full_runner import historical_month_batch
 
@@ -228,3 +229,59 @@ def test_incomplete_registry_never_claims_full_ten_year_horizon():
         result = historical_month_batch()
     assert result["reason"] == "official_month_registry_incomplete"
     month.assert_not_called()
+
+
+def _all_registered_months():
+    rows=[]
+    for year in range(2016, 2027):
+        for month in range(1,13):
+            first=max(date(2016,10,24),date(year,month,1))
+            last=min(date(2026,10,24),date(year,month,calendar.monthrange(year,month)[1]))
+            if first<=last:
+                rows.append({"first_day":first,"last_day":last,
+                             "status":"completed","checked":0,
+                             "matched":0,"page_cursor":1,
+                             "last_error":"serviceKey=SENSITIVE_API_KEY"})
+    return rows
+
+
+def test_all_121_months_done_still_do_not_prove_ten_year_opening_or_award():
+    rows=_all_registered_months()
+    result=summarize_month_cursor(rows)
+    assert len(rows)==121
+    assert result["registry_complete"]
+    assert result["discovery_months_completed"]==121
+    assert result["eight_digit_notice_discovery_complete"] is True
+    assert result["ten_year_exact_opening_and_award_complete"] is False
+    assert not result["bid_submitted"]
+    assert "SENSITIVE_API_KEY" not in repr(result)
+
+
+def test_missing_window_or_duplicate_disables_completion_and_prefers_partial_cursor():
+    rows=_all_registered_months()
+    rows[2]["status"]="unsearched"
+    rows[3]["status"]="partial"
+    rows[3]["page_cursor"]=7
+    result=summarize_month_cursor(rows)
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["next_month"]["first_day"]==rows[3]["first_day"].isoformat()
+    assert result["next_month"]["next_page"]==7
+    broken=summarize_month_cursor(rows[:-1]+[rows[-2]])
+    assert broken["registry_complete"] is False
+    assert broken["invalid_or_duplicate_rows"]==1
+
+
+def test_native_progress_endpoint_only_reports_db_cursor_without_collector_calls():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from n8n_job_bridge import router
+    app=FastAPI()
+    app.include_router(router)
+    expected=summarize_month_cursor(_all_registered_months())
+    with patch("g2b_case_10y_official.official_month_progress",return_value=expected) as read:
+        response=TestClient(app).get("/api/n8n/operational/history/month-progress")
+    assert response.status_code==200,response.text
+    body=response.json()
+    assert body["read_only"] and not body["job_enqueued"]
+    assert body["ten_year_exact_opening_and_award_complete"] is False
+    read.assert_called_once()
