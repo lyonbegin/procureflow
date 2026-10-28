@@ -2,6 +2,7 @@
 // Issue #21 — real Google Chrome against *patched official n8n*, not a fixture.
 // Isolated Docker container + SQLite only. No operational G2B, jobs or credentials.
 import {chromium} from 'playwright';
+import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -225,7 +226,8 @@ try {
   assert(executionId,'Native execution response missing server executionId: '+JSON.stringify(started));
   const execution=await poll('native n8n execution saved with node I/O',async()=>{
     const d=(await api('GET','/rest/executions/'+executionId)).data;
-    const data=d?.data?.resultData?.runData??d?.resultData?.runData;
+    const payload=typeof d?.data==='string' ? parseFlatted(d.data) : d?.data;
+    const data=payload?.resultData?.runData??d?.resultData?.runData;
     const code=data?.Code?.[0];
     const result=code?.data?.main?.[0]?.[0]?.json;
     return result?.pan_test===true&&result?.answer===43 ? {id:executionId,status:d.status,codeOutput:result,nodeNames:Object.keys(data)}:null;
