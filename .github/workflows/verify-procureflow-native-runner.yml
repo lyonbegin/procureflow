@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
+      - uses: actions/checkout@v4
       - name: Execute immutable S01 in actual n8n CLI (no real bid)
         run: |
           node --input-type=module <<'NODE'
@@ -24,6 +25,12 @@ jobs:
           if(!r.ok||body.engine!=='n8n-cli-2.44.6'||!body.success||body.bidSubmitted!==false){
             throw Error('S01 native execution not verified');
           }
+          const {readFileSync}=await import('node:fs');
+          const names=new Set(JSON.parse(readFileSync('n8n/workflows/S01.json','utf8')).nodes.map(n=>n.name));
+          if(!Array.isArray(body.executedNodes)||body.executedNodes.length<8||
+             !body.executedNodes.every(n=>names.has(n)))
+            throw Error('Native per-node runData names missing or do not match immutable S01 nodes: '+JSON.stringify(body.executedNodes));
+          console.log('NATIVE_ACTUAL_NODE_NAMES_VERIFIED',body.executedNodes.length);
           console.log('S01_REAL_N8N_CLI_PASS');
           NODE
       - name: Reject code injection and unsupported workflow IDs
