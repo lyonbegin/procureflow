@@ -14,6 +14,18 @@
         root * /srv/data
         file_server
     }
+    # n8n's generated SPA index is served at /; keep the browser URL on
+    # /workflows/demo so the original Vue router opens its demo route.
+    @nativeDemo {
+        method GET HEAD
+        path /workflows/demo
+    }
+    handle @nativeDemo {
+        rewrite * /
+        reverse_proxy http://procureflow-n8n-upstream-preview.railway.internal:5678 {
+            header_up X-Forwarded-Proto https
+        }
+    }
     # Allow only read-only requests to a dedicated, credential-free preview instance.
     @preview {
         method GET HEAD
