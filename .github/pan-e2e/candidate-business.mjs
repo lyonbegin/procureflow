@@ -239,6 +239,53 @@ try{
   await record('real-chrome-all-43-native-operations-synthetic-hold-execution',
     'PASS',allVerdict);
   await page.screenshot({path:path.join(OUT,'06-all-43-native-hold.png')});
+  // Separate debugging acceptance: real Chrome triggers a native n8n ERROR
+  // when official evidence is incomplete and evidenceHandling=stop. The
+  // isolated fixture always returns synthetic HOLD; never contacts G2B.
+  const stopFlow={
+    name:'Issue21 Native Business Operation Fail-Closed Debugging',
+    nodes:[
+      {id:'stop-manual-01',name:'Manual Trigger',type:'n8n-nodes-base.manualTrigger',
+       typeVersion:1,position:[120,150],parameters:{}},
+      {id:'stop-business-02',name:'Business Operation',
+       type:'CUSTOM.procureFlowBusinessOperation',typeVersion:1,
+       position:[420,150],parameters:{operationId:'N01',
+         bidNo:'R26BK01787028',evidenceHandling:'stop'}}
+    ],
+    connections:{'Manual Trigger':{main:[[
+      {node:'Business Operation',type:'main',index:0}
+    ]]}},settings:{executionOrder:'v1'},staticData:null,pinData:{}
+  };
+  const stopCreated=(await api('POST','/rest/workflows',stopFlow)).data;
+  assert(stopCreated?.id,'Native fail-closed debug workflow creation failed');
+  await page.goto(URL+'/workflow/'+stopCreated.id,{waitUntil:'domcontentloaded'});
+  await page.getByTestId('canvas').waitFor({timeout:30000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Business Operation"]').waitFor({timeout:30000});
+  const stopStartedResponse=page.waitForResponse(r=>
+    r.url().includes('/rest/workflows/')&&r.url().includes('/run')&&r.request().method()==='POST',
+    {timeout:45000});
+  await page.getByTestId('execute-workflow-button').first().click({timeout:15000});
+  const stopStarted=(await (await stopStartedResponse).json()).data;
+  const stopExecutionId=String(stopStarted?.executionId??stopStarted?.id??'');
+  assert(stopExecutionId,'Native fail-closed execution ID missing');
+  const errorVerdict=await poll('native stop-on-HOLD execution error',async()=>{
+    const d=(await api('GET','/rest/executions/'+stopExecutionId)).data;
+    if(d?.status!=='error')return null;
+    const payload=typeof d?.data==='string'?parseFlatted(d.data):d?.data;
+    const runData=payload?.resultData?.runData??d?.resultData?.runData;
+    const nodeRun=runData?.['Business Operation']?.[0];
+    const failure=nodeRun?.error?.message??payload?.resultData?.error?.message??'';
+    assert(failure.includes('official evidence incomplete'),
+      'Native error lacks fail-closed reason: '+failure);
+    assert(!(nodeRun?.data?.main?.[0]||[]).length,
+      'Stop-on-HOLD must never emit a success item');
+    return {executionId:stopExecutionId,status:d.status,
+      failedNode:'Business Operation',reason:failure,
+      successOutputs:0,realBusinessHandlers:0,actualBidSubmitted:false};
+  },60000);
+  await record('real-chrome-native-business-operation-fail-closed-debugging',
+    'PASS',errorVerdict);
+  await page.screenshot({path:path.join(OUT,'07-native-business-stop-error.png'),fullPage:true});
   await record('no-real-business-handler-or-bid-submission','PASS',{
     syntheticNativeExecutionCount:44,realBusinessHandlerCount:0,
     actualBidSubmitted:false,productionApiRequests:0
