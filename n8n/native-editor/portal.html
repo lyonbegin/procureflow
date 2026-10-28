@@ -16,14 +16,14 @@ button.flow small{color:#9ab4c2;display:block;margin-top:4px}section{flex:1;min-
 <header><div><h1>n8n 원본 노드 플로우 · 조달청 자동화</h1><p>공식 n8n Vue 편집기 · 노드 추가·삭제·이동·연결·설정 · 브라우저 로컬 초안 저장 · 실행은 안전한 별도 검증</p></div>
 <a href="https://procureflow-api-production.up.railway.app/" target="_blank" rel="noopener">조달청 자동화 메인</a></header>
 <main><aside><h2>운영 플로우 (16)</h2><div id="operations"></div><h2>검증 시나리오 (10)</h2><div id="scenarios"></div></aside>
-<section><div class="toolbar"><div><strong id="title">원본 n8n 편집기 캔버스</strong><p id="status" aria-live="polite">초기화 중…</p></div><div class="actions"><button id="openNativeCreator" type="button">+ 노드 선택·추가</button><button id="addSafeNoOp" type="button">+ NoOp 테스트 노드</button><button id="undoEdit" class="secondary" type="button">↶ 실행 취소</button><button id="redoEdit" class="secondary" type="button">↷ 다시 실행</button><button id="saveDraft" type="button">변경 저장</button><button id="exportDraft" class="secondary" type="button">JSON 내보내기</button><button id="resetDraft" class="secondary" type="button">원본 복원</button><button id="runNativeScenario" class="secondary" type="button" disabled>▶ 원본 가상 시나리오 전체 실행</button><button id="showNextNode" class="secondary" type="button" disabled>다음 노드까지 실제 실행</button><span id="runStatus" style="color:#a8d7f8;font-size:11px" aria-live="polite">실행은 S01~S10 원본 시나리오만 가능합니다. 편집 초안·실제 투찰은 실행하지 않습니다.</span><span style="font-size:11px;color:#abc6da">노드 클릭: 상세설정 · 드래그: 이동 · 연결선 핸들 드래그: 연결 · 선택 후 Delete: 삭제 · Ctrl+Z: 복원. 저장은 이 브라우저에만 유지됩니다.</span></div></div>
+<section><div class="toolbar"><div><strong id="title">원본 n8n 편집기 캔버스</strong><p id="status" aria-live="polite">초기화 중…</p></div><div class="actions"><button id="openNativeCreator" type="button">+ 노드 선택·추가</button><button id="addSafeNoOp" type="button">+ NoOp 테스트 노드</button><button id="undoEdit" class="secondary" type="button">↶ 실행 취소</button><button id="redoEdit" class="secondary" type="button">↷ 다시 실행</button><button id="saveDraft" type="button">변경 저장</button><button id="exportDraft" class="secondary" type="button">JSON 내보내기</button><button id="resetDraft" class="secondary" type="button">원본 복원</button><button id="runNativeScenario" class="secondary" type="button" disabled>▶ 원본 가상 시나리오 전체 실행</button><button id="showNextNode" class="secondary" type="button" disabled>다음 노드까지 실제 실행</button><button id="runSelectedNode" class="secondary" type="button" disabled>선택 노드까지 실행</button><span id="runStatus" style="color:#a8d7f8;font-size:11px" aria-live="polite">실행은 S01~S10 원본 시나리오만 가능합니다. 편집 초안·실제 투찰은 실행하지 않습니다.</span><span style="font-size:11px;color:#abc6da">노드 클릭: 상세설정 · 드래그: 이동 · 연결선 핸들 드래그: 연결 · 선택 후 Delete: 삭제 · Ctrl+Z: 복원. 저장은 이 브라우저에만 유지됩니다.</span></div></div>
 <iframe id="n8n-canvas" title="n8n 공식 Vue 노드 캔버스" src="/workflows/demo?canExecute=false&editable=true" referrerpolicy="same-origin"></iframe></section></main>
 <script>
 const flows=[["operational/PF00.json","PF00 · 전체 업무 조정·분기"],["operational/PF01.json","PF01 · 공고 상시 수집"],["operational/PF02.json","PF02 · 발주 등록·1차 심사"],["operational/PF03.json","PF03 · 분석 작업 할당"],["operational/PF04.json","PF04 · 공식 공고·첨부 처리"],["operational/PF05.json","PF05 · 10년 개찰·낙찰 전수"],["operational/PF06.json","PF06 · 발주기관·경쟁업체 분석"],["operational/PF07.json","PF07 · 입찰참가자격 검증"],["operational/PF08.json","PF08 · 공급업체·인력 조사"],["operational/PF09.json","PF09 · 원가·가격전략"],["operational/PF10.json","PF10 · 제안서·서류"],["operational/PF11.json","PF11 · 독립 원본·결과 감사"],["operational/PF12.json","PF12 · 입찰 참여 의사결정"],["operational/PF13.json","PF13 · 정정·분석버전 갱신"],["operational/PF14.json","PF14 · 전역 API·Worker 자원 통제"],["operational/PF15.json","PF15 · 장애 복구·상태 대조"],["scenarios/S01.json","S01 · 가상 테스트"],["scenarios/S02.json","S02 · 가상 테스트"],["scenarios/S03.json","S03 · 가상 테스트"],["scenarios/S04.json","S04 · 가상 테스트"],["scenarios/S05.json","S05 · 가상 테스트"],["scenarios/S06.json","S06 · 가상 테스트"],["scenarios/S07.json","S07 · 가상 테스트"],["scenarios/S08.json","S08 · 가상 테스트"],["scenarios/S09.json","S09 · 가상 테스트"],["scenarios/S10.json","S10 · 가상 테스트"]];
 const frame=document.getElementById('n8n-canvas'),
   status=document.getElementById('status'),title=document.getElementById('title');
 const draftKey=file=>'procureflow-native-edit-v1:'+file;
-let lastNativeRun=null,playbackIndex=-1;
+let lastNativeRun=null,playbackIndex=-1,currentNodeOrder=[],selectedNodeIndex=-1;
 let ready=false,chosen=Math.max(0,Math.min(flows.length-1,Number(localStorage.getItem('procureflow-native-edit:last-flow'))||0)),pendingExport=false;
 const buttons=flows.map(([file,label],i)=>{
  const b=document.createElement('button');b.type='button';b.className='flow';b.textContent=label;b.dataset.workflow=file;
@@ -82,39 +82,72 @@ async function runScenario(){
  }catch(e){lastNativeRun=null;result.textContent=id+' 실행 실패: '+String(e.message||e).slice(0,260)}
  finally{el.disabled=chosen<16}
 }
-async function showNextNode(){
+async function runToNode(step){
  if(chosen<16)return;
  const id=flows[chosen][0].split('/').at(-1).replace('.json','');
- const totalNodeCount=frame.contentWindow?.document?.querySelectorAll('.vue-flow__node').length||0;
- if(!totalNodeCount){document.getElementById('runStatus').textContent='먼저 원본 n8n 화면이 완전히 표시돼야 합니다.';return}
- if(playbackIndex>=totalNodeCount-1)playbackIndex=-1;
- const step=playbackIndex+2;
- const button=document.getElementById('showNextNode');
- button.disabled=true;
- document.getElementById('runStatus').textContent='n8n 실제 부분 실행 · '+id+' '+step+'/'+totalNodeCount+' 노드까지 선행 노드를 재실행합니다.';
+ if(step<1||step>currentNodeOrder.length)return;
+ const buttons=[document.getElementById('showNextNode'),document.getElementById('runSelectedNode')];
+ buttons.forEach(b=>b.disabled=true);
+ const indicator=document.getElementById('runStatus');
+ indicator.textContent='n8n 엔진에서 '+step+'/'+currentNodeOrder.length+'번 노드까지 실제 실행 중입니다 (선행 단계도 다시 실행).';
  try{
-   const r=await fetch('/api/demo-run/run-step/'+id+'/'+String(step).padStart(2,'0'),{method:'POST',cache:'no-store'});
-   const body=await r.json();
-   if(!r.ok||!body.success||!body.lastStepCompleted)throw Error(body.error||body.reason||body.logTail||'HTTP '+r.status);
-   playbackIndex=step-1;
-   lastNativeRun=body;
-   const name=body.targetNode;
-   const doc=frame.contentWindow?.document;
-   doc?.querySelectorAll('.vue-flow__node').forEach(el=>{
+   const response=await fetch('/api/demo-run/run-step/'+id+'/'+String(step).padStart(2,'0'),{method:'POST',cache:'no-store'});
+   const result=await response.json();
+   if(!response.ok||!result.success||!result.lastStepCompleted)throw Error(result.error||result.reason||result.logTail||'HTTP '+response.status);
+   if(result.targetNode!==currentNodeOrder[step-1])throw Error('원본 그래프와 실행 노드 불일치');
+   lastNativeRun=result;playbackIndex=step-1;
+   frame.contentWindow?.document?.querySelectorAll('.vue-flow__node').forEach(el=>{
      el.style.outline='';el.style.boxShadow='';
-     if(el.textContent?.includes(name)){el.style.outline='3px solid #fbbf24';el.style.boxShadow='0 0 18px #fbbf2488'}
+     if(el.textContent?.includes(result.targetNode)){el.style.outline='3px solid #fbbf24';el.style.boxShadow='0 0 18px #fbbf2488'}
    });
-   document.getElementById('runStatus').textContent='n8n 엔진 실행 성공 '+step+'/'+totalNodeCount+' · '+name+' · '+body.executedNodes.length+'개 실제 노드 완료. 다음 실행 시 앞 노드부터 다시 실행합니다.';
- }catch(e){
-   document.getElementById('runStatus').textContent='다음 노드 실제 실행 실패: '+String(e.message||e).slice(0,240);
- }finally{button.disabled=chosen<16}
+   indicator.textContent='n8n 실제 실행 성공 '+step+'/'+currentNodeOrder.length+' · '+result.targetNode+' · '+result.executedNodes.length+'개 완료. 앞 노드부터 다시 실행하는 방식입니다.';
+ }catch(e){indicator.textContent='노드 실행 오류: '+String(e.message||e).slice(0,240)}
+ finally{
+   document.getElementById('showNextNode').disabled=chosen<16;
+   document.getElementById('runSelectedNode').disabled=chosen<16||selectedNodeIndex<0;
+ }
+}
+function nativeLinearOrder(w){
+ const from=Object.keys(w.connections||{});
+ const targets=new Set(from.flatMap(k=>Object.values(w.connections[k]).flat(2).map(x=>x.node)));
+ let node=w.nodes.find(n=>!targets.has(n.name))?.name;
+ const result=[];
+ while(node&&!result.includes(node)){
+   result.push(node);
+   const children=Object.values(w.connections[node]||{}).flat(2).map(x=>x.node);
+   if(children.length>1)return [];
+   node=children[0];
+ }
+ return result.length===w.nodes.length?result:[];
+}
+function attachCanvasNodeSelection(){
+ const doc=frame.contentWindow?.document;
+ if(!doc||doc.__procureflowNodeSelectHook)return;
+ doc.__procureflowNodeSelectHook=true;
+ doc.addEventListener('click',e=>{
+   const nodeEl=e.target?.closest?.('.vue-flow__node');
+   if(!nodeEl||chosen<16)return;
+   const index=currentNodeOrder.findIndex(name=>nodeEl.textContent?.includes(name));
+   if(index<0)return;
+   selectedNodeIndex=index;
+   document.getElementById('runSelectedNode').disabled=false;
+   document.getElementById('runStatus').textContent='선택한 노드: '+currentNodeOrder[index]+' · 이 단계까지 실제 실행할 수 있습니다 (앞 단계 재실행).';
+ },true);
+}
+frame.addEventListener('load',()=>attachCanvasNodeSelection());
+document.getElementById('runSelectedNode').onclick=()=>runToNode(selectedNodeIndex+1);
+async function showNextNode(){
+ if(chosen<16)return;
+ const next=playbackIndex>=currentNodeOrder.length-1?1:playbackIndex+2;
+ return runToNode(next);
 }
 
 document.getElementById('runNativeScenario').onclick=runScenario;
 document.getElementById('showNextNode').onclick=showNextNode;
 async function select(i){
  chosen=i;
- lastNativeRun=null;playbackIndex=-1;
+ lastNativeRun=null;playbackIndex=-1;currentNodeOrder=[];selectedNodeIndex=-1;
+ document.getElementById('runSelectedNode').disabled=true;
  document.getElementById('runNativeScenario').disabled=i<16;
  document.getElementById('showNextNode').disabled=i<16;
  document.getElementById('runStatus').textContent=i<16?'운영 PF 실제 실행은 인증된 정식 n8n에서만 수행합니다.':'원본 시나리오만 실제 n8n 엔진에서 실행합니다. 편집 초안은 실행하지 않습니다.';
@@ -134,6 +167,7 @@ async function select(i){
   }
   if(!Array.isArray(workflow.nodes)||!workflow.connections||typeof workflow.connections!=='object')throw Error('노드/연결 데이터 형식 오류');
   if(chosen!==i)return;
+  currentNodeOrder=nativeLinearOrder(workflow);
   if(!ready){status.textContent='n8n 원본 편집기 준비 중…';return;}
   frame.contentWindow.postMessage(JSON.stringify({
     command:'openWorkflow',
@@ -148,7 +182,7 @@ async function select(i){
 window.addEventListener('message',e=>{
  if(e.origin!==location.origin||e.source!==frame.contentWindow||typeof e.data!=='string')return;
  let data;try{data=JSON.parse(e.data);}catch{return;}
- if(data.command==='n8nReady'){ready=true;select(chosen);}
+ if(data.command==='n8nReady'){ready=true;attachCanvasNodeSelection();select(chosen);}
  else if(data.command==='nativeTestUiResult'){
    if(data.error){status.textContent='원본 n8n 노드 추가 실패: '+data.error;}
    else if(data.action==='openNativeNodeCreator'){
