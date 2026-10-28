@@ -1,0 +1,94 @@
+name: Shared official n8n + ProcureFlow full workflow candidate (isolated)
+on:
+  pull_request:
+    paths:
+      - 'n8n/source-build/Dockerfile.shared-studio-candidate'
+      - 'n8n/source-build/bootstrap-workflows.sh'
+      - 'n8n/source-build/compile-native-topology.mjs'
+      - '.github/workflows/shared-n8n-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-studio-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify candidate preserves isolated release boundary
+        run: |
+          grep -F 'SHARED_N8N_STUDIO_COMMIT=999062f1676bdffafa852a36e6c986ef5ce7589f' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'N8N_SOURCE_SHA=b58d9e89d60e9a3485bb511c5091d8be0d9511e4' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'procureflow-n8n-bootstrap' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'apply-pan-patch.mjs' n8n/source-build/Dockerfile.shared-studio-candidate
+      - name: Build full official n8n 2.44.6 with pinned shared studio
+        run: |
+          set -o pipefail
+          docker build --progress=plain \
+            -f n8n/source-build/Dockerfile.shared-studio-candidate \
+            -t pf-shared-studio-candidate:${{ github.sha }} . 2>&1 | tee candidate-build.log
+          grep -F 'PAN_PATCH_PATCHED:' candidate-build.log
+      - name: Pin official n8n executable version
+        run: |
+          docker run --rm --entrypoint n8n pf-shared-studio-candidate:${{ github.sha }} --version | tee candidate-version.log
+          grep -Fx '2.44.6' candidate-version.log
+      - name: Start isolated candidate and import 26 PF/S workflows
+        run: |
+          docker run -d --rm --name pf-shared-candidate \
+            --publish 127.0.0.1:5681:5678 \
+            --env DB_TYPE=sqlite \
+            --env N8N_LISTEN_ADDRESS=0.0.0.0 \
+            --env N8N_SECURE_COOKIE=false \
+            --env N8N_ENCRYPTION_KEY=procureflow-isolated-candidate-test-only-key-2026 \
+            --env N8N_DIAGNOSTICS_ENABLED=false \
+            --env N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            --env N8N_PERSONALIZATION_ENABLED=false \
+            --env N8N_TEMPLATES_ENABLED=false \
+            --env N8N_RUNNERS_ENABLED=false \
+            pf-shared-studio-candidate:${{ github.sha }}
+          for i in $(seq 1 180); do
+            if curl --fail --silent http://127.0.0.1:5681/healthz/readiness; then
+              echo "SHARED_STUDIO_CANDIDATE_READY"
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx pf-shared-candidate; then
+              docker logs pf-shared-candidate || true
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs pf-shared-candidate || true
+          exit 1
+      - name: Inspect actual isolated SQLite workflow imports via native n8n CLI
+        run: |
+          docker exec --user node pf-shared-candidate n8n export:workflow --all --output=/tmp/pf-candidate-workflows.json
+          docker cp pf-shared-candidate:/tmp/pf-candidate-workflows.json ./candidate-workflows.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const raw=JSON.parse(fs.readFileSync('candidate-workflows.json'));
+          const workflows=Array.isArray(raw)?raw:raw.data;
+          if(!Array.isArray(workflows))throw Error('Unexpected n8n export shape');
+          const ids=workflows.map(x=>x.id);
+          const required=['PFORCH2026MAINWF',
+             ...Array.from({length:15},(_,i)=>'PFOP2026PF'+String(i+1).padStart(2,'0')+'WF'),
+             ...Array.from({length:10},(_,i)=>'PFDEMO2026S'+String(i+1).padStart(2,'0')+'WF')];
+          for(const id of required)if(!ids.includes(id))throw Error('Missing imported official n8n workflow '+id);
+          if(new Set(ids).size!==ids.length)throw Error('Duplicate native n8n IDs');
+          if(required.length!==26)throw Error('Incorrect expected count');
+          console.log('OFFICIAL_NATIVE_PF_IMPORT_PASS',JSON.stringify({workflows:ids.length,required:required.length}));
+          NODE
+      - name: Save no-credential candidate evidence
+        if: always()
+        run: docker logs pf-shared-candidate > candidate-runtime.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-shared-n8n-pf-candidate
+          path: |
+            candidate-build.log
+            candidate-version.log
+            candidate-runtime.log
+            candidate-workflows.json
