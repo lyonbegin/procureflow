@@ -1,0 +1,33 @@
+name: Shared n8n 50-kind / 43-block contract audit (isolated)
+on:
+  pull_request:
+    paths:
+      - 'n8n/source-build/shared-adapter-contracts.mjs'
+      - 'n8n/operational_manifest.json'
+      - '.github/workflows/shared-n8n-contracts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin exact shared node catalog commit (separate from Pan patch pin)
+        run: |
+          git clone --filter=blob:none https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
+          git -C /tmp/shared-n8n-studio checkout --detach f8870c6ce5fc6f0da30b64fa3c6d7ce9f50bd4a2
+          test "$(git -C /tmp/shared-n8n-studio rev-parse HEAD)" = "f8870c6ce5fc6f0da30b64fa3c6d7ce9f50bd4a2"
+      - name: Validate all 50 shared kinds and 43 ProcureFlow operation contracts
+        run: |
+          node n8n/source-build/shared-adapter-contracts.mjs \
+            n8n/operational_manifest.json \
+            /tmp/shared-n8n-studio/playground/src/node-catalog.js \
+            shared-adapter-contracts.json
+          node -e 'const r=require("./shared-adapter-contracts.json");if(r.verification.runnableBusinessHandlers!==0||r.adapters.some(x=>x.canDispatch||x.canBid||x.officialEvidenceVerified))process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shared-n8n-50-kind-43-block-contract-audit
+          path: shared-adapter-contracts.json
