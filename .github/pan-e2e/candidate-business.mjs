@@ -181,8 +181,66 @@ try{
   },60000);
   await record('real-chrome-native-business-operation-synthetic-hold-execution','PASS',holdExecution);
   await page.screenshot({path:path.join(OUT,'05-native-business-hold-executed.png'),fullPage:true});
+  // One real official n8n Chrome-triggered execution fans out to all 43
+  // manifest operations. The only reachable API is the isolated loopback
+  // fixture and EVERY native node must take the HOLD output, never success.
+  const manifest=JSON.parse(await fs.readFile('n8n/operational_manifest.json','utf8'));
+  assert(manifest.blocks.length===43,'43-block native runtime manifest missing');
+  const allNodes=manifest.blocks.map((block,i)=>({
+    id:'hold-all-'+block.id,name:'Business '+block.id,
+    type:'CUSTOM.procureFlowBusinessOperation',typeVersion:1,
+    position:[400+(i%6)*240,120+Math.floor(i/6)*150],
+    parameters:{operationId:block.id,bidNo:'R26BK01787028',evidenceHandling:'hold'}
+  }));
+  const allFlow={
+    name:'Issue21 Native 43 Business Operations Synthetic HOLD Runtime',
+    nodes:[{id:'hold-all-trigger',name:'Manual Trigger',
+      type:'n8n-nodes-base.manualTrigger',typeVersion:1,
+      position:[120,120],parameters:{}},...allNodes],
+    connections:{'Manual Trigger':{main:[allNodes.map(n=>({
+      node:n.name,type:'main',index:0
+    }))]}},settings:{executionOrder:'v1'},staticData:null,pinData:{}
+  };
+  const allCreated=(await api('POST','/rest/workflows',allFlow)).data;
+  assert(allCreated?.id,'43-operation native HOLD workflow not created');
+  await page.goto(URL+'/workflow/'+allCreated.id,{waitUntil:'domcontentloaded'});
+  await page.getByTestId('canvas').waitFor({timeout:45000});
+  const allStartedResponse=page.waitForResponse(r=>
+    r.url().includes('/rest/workflows/')&&r.url().includes('/run')&&r.request().method()==='POST',
+    {timeout:45000});
+  await page.getByTestId('execute-workflow-button').first().click({timeout:20000});
+  const allStarted=(await (await allStartedResponse).json()).data;
+  const allExecutionId=String(allStarted?.executionId??allStarted?.id??'');
+  assert(allExecutionId,'43-operation native execution missing ID');
+  const allVerdict=await poll('43 native operations must each emit synthetic HOLD',async()=>{
+    const d=(await api('GET','/rest/executions/'+allExecutionId)).data;
+    const payload=typeof d?.data==='string'?parseFlatted(d.data):d?.data;
+    const runData=payload?.resultData?.runData??d?.resultData?.runData;
+    if(!runData||!allNodes.every(n=>runData[n.name]?.[0]?.data?.main))return null;
+    for(const n of allNodes){
+      const main=runData[n.name][0].data.main;
+      assert((main[0]||[]).length===0,n.name+' unexpectedly reached success');
+      const item=main[1]?.[0]?.json;
+      assert(item?.operation_id===n.parameters.operationId,
+        n.name+' missing or mismatched operation ID');
+      assert(item.inspection_status==='HOLD'&&item.evidence_verified===false,
+        n.name+' must not VERIFY synthetic evidence');
+      assert(item.actual_business_handler_executed===false&&
+        item.bid_submitted===false&&item.worker_job_enqueued===false,
+        n.name+' unexpectedly dispatched business work');
+      assert(item.evidence_provenance==='isolated_synthetic_test_evidence',
+        n.name+' missing synthetic provenance');
+    }
+    assert(d.status==='success','43-operation native n8n run failed: '+d.status);
+    return {executionId:allExecutionId,nativeOperations:allNodes.length,
+      holdOutputs:allNodes.length,successOutputs:0,status:d.status,
+      realBusinessHandlers:0,actualBidSubmitted:false};
+  },120000);
+  await record('real-chrome-all-43-native-operations-synthetic-hold-execution',
+    'PASS',allVerdict);
+  await page.screenshot({path:path.join(OUT,'06-all-43-native-hold.png')});
   await record('no-real-business-handler-or-bid-submission','PASS',{
-    syntheticNativeExecutionCount:1,realBusinessHandlerCount:0,
+    syntheticNativeExecutionCount:44,realBusinessHandlerCount:0,
     actualBidSubmitted:false,productionApiRequests:0
   });
 }catch(error){
