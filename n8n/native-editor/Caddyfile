@@ -1,0 +1,33 @@
+:{$PORT:3000} {
+    encode zstd gzip
+    @health path /health /healthz
+    handle @health { respond "ok" 200 }
+    @landing path / /index.html
+    handle @landing {
+        root * /srv/site
+        rewrite * /index.html
+        file_server
+    }
+    handle_path /demo-data/* {
+        root * /srv/data
+        file_server
+    }
+    # Allow only read-only requests to a dedicated, credential-free preview instance.
+    @preview {
+        method GET HEAD
+        path /workflows/demo /assets/* /static/* /types/* /rest/* /favicon.ico /favicon.png /icons/* /node-icons/*
+    }
+    handle @preview {
+        reverse_proxy http://procureflow-n8n-upstream-preview.railway.internal:5678 {
+            header_up X-Forwarded-Proto https
+            header_up X-Forwarded-Host {host}
+        }
+    }
+    handle { respond "실제 업무 실행과 n8n 관리자 기능은 이 테스트 포털에서 사용할 수 없습니다." 403 }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Cache-Control "no-store"
+        -WWW-Authenticate
+    }
+}
