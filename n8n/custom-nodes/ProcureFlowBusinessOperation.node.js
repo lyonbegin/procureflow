@@ -39,19 +39,23 @@ function safeApiBase(){
   return url.origin;
 }
 function validateProvenance(body,flowId,bidNo,operationId){
+  // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
+  // runtime. It must declare itself synthetic and can never become VERIFIED.
+  const synthetic=process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1'&&
+    body?.source_provenance==='isolated_synthetic_test_evidence';
   if(!body||typeof body!=='object'||Array.isArray(body)||
      body.flow_id!==flowId||body.case_id!==bidNo||body.read_only!==true||
-     body.simulation_only!==false||body.actual_job_executed!==false||
+     body.simulation_only!==synthetic||body.actual_job_executed!==false||
      body.automatic_bid_submission!==false||
      body.workflow_execution_engine!=='native_n8n_only'||
-     body.source_provenance!=='live_procureflow_postgresql_verified_evidence')
+     (!synthetic&&body.source_provenance!=='live_procureflow_postgresql_verified_evidence'))
     throw Error('Business Operation official evidence response contract mismatch');
   const matches=Array.isArray(body.blocks)?
     body.blocks.filter(x=>x&&x.id===operationId):[];
   const expected=byId.get(operationId);
   if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
   const block=matches[0];
-  if(block.real_data!==true||block.simulation_only!==false||
+  if(block.real_data===synthetic||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
      block.output!==expected.output)
     throw Error('Business Operation block/official evidence contract mismatch');
@@ -107,7 +111,8 @@ class ProcureFlowBusinessOperation {
       // a foreign feature with the same row count must never be approved.
       const features=Array.isArray(inspected.features)?inspected.features:[];
       const expectedFeatures=new Set(block.features);
-      const verified=response.official_notice_verified===true&&
+      const verified=response.source_provenance==='live_procureflow_postgresql_verified_evidence'&&
+         response.official_notice_verified===true&&
          (!['PF05','PF06'].includes(block.flowId) ||
            (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&response.official_detail10.length>0))&&
          inspected.status==='verified'&&
