@@ -24,7 +24,9 @@ const blocked={
   flow_id:'PF01',case_id:'R26BK01787028',read_only:true,
   simulation_only:false,actual_job_executed:false,
   source_provenance:'live_procureflow_postgresql_verified_evidence',
-  blocks:[{id:'N01',real_data:true,simulation_only:false,job_enqueued:false,
+  automatic_bid_submission:false,workflow_execution_engine:'native_n8n_only',
+  blocks:[{id:'N01',input:'query.window',output:'tender_candidates[]',
+    real_data:true,simulation_only:false,job_enqueued:false,
     status:'blocked',features:[{feature_no:1,acceptance:'missing',missing_gates:['official_source']}],
     output_value:{evidence_verified:false,missing_evidence_keys:['official_source']}}]
 };
@@ -85,4 +87,34 @@ test('reject fake provenance and inconsistent JSON before returning any item',as
   configure();
   assert.throws(()=>validateProvenance({...blocked,simulation_only:true},'PF01','R26BK01787028','N01'),/contract mismatch/);
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],job_enqueued:true}]},'PF01','R26BK01787028','N01'),/contract mismatch/);
+});
+
+test('reject duplicate blocks, wrong input/output and simulated execution flags',()=>{
+  assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block/);
+  assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],input:'wrong'}]},'PF01','R26BK01787028','N01'),/block\/official/);
+  assert.throws(()=>validateProvenance({...blocked,automatic_bid_submission:true},'PF01','R26BK01787028','N01'),/response contract/);
+  assert.throws(()=>validateProvenance({...blocked,workflow_execution_engine:'mock'},'PF01','R26BK01787028','N01'),/response contract/);
+});
+test('exact manifest feature IDs are required for VERIFIED; wrong IDs remain HOLD',async()=>{
+  configure();
+  const feature=(feature_no)=>({feature_no,acceptance:'verified',missing_gates:[]});
+  const inspect=(ids)=>({...blocked,official_notice_verified:true,
+    blocks:[{...blocked.blocks[0],status:'verified',
+      features:ids.map(feature),
+      output_value:{evidence_verified:true,real_api_result_state:'verified',
+        missing_evidence_keys:[],verified_evidence_keys:['official_notice']}}]});
+  const instance=new ProcureFlowBusinessOperation();
+  const good=await instance.execute.call(ctx(getParam,async()=>inspect([1,2])));
+  assert.equal(good[0].length,1);
+  assert.equal(good[1].length,0);
+  assert.equal(good[0][0].json.inspection_status,'VERIFIED');
+  assert.equal(good[0][0].json.actual_business_handler_executed,false);
+  assert.equal(good[0][0].json.bid_submitted,false);
+  const wrong=await instance.execute.call(ctx(getParam,async()=>inspect([1,3])));
+  assert.equal(wrong[0].length,0);
+  assert.equal(wrong[1].length,1);
+  assert.equal(wrong[1][0].json.inspection_status,'HOLD');
+  const duplicate=await instance.execute.call(ctx(getParam,async()=>inspect([1,1])));
+  assert.equal(duplicate[0].length,0);
+  assert.equal(duplicate[1].length,1);
 });
