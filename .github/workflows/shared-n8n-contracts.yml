@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'n8n/source-build/shared-adapter-contracts.mjs'
+      - 'n8n/source-build/debug-80-audit.mjs'
+      - 'reports/workflow_81_160_implementation_20261025.md'
       - 'n8n/operational_manifest.json'
       - '.github/workflows/shared-n8n-contracts.yml'
   workflow_dispatch:
@@ -30,8 +32,12 @@ jobs:
             /tmp/shared-n8n-studio/playground/src/node-catalog.js \
             shared-adapter-contracts.json
           node -e 'const r=require("./shared-adapter-contracts.json");if(r.verification.runnableBusinessHandlers!==0||r.adapters.some(x=>x.canDispatch||x.canBid||x.officialEvidenceVerified))process.exit(1)'
+      - name: Audit 80 separate debugging requirements without claiming completion
+        run: node n8n/source-build/debug-80-audit.mjs reports/workflow_81_160_implementation_20261025.md shared-debug-80-audit.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: shared-n8n-50-kind-43-block-contract-audit
-          path: shared-adapter-contracts.json
+          path: |
+            shared-adapter-contracts.json
+            shared-debug-80-audit.json
