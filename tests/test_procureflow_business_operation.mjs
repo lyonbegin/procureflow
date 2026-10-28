@@ -37,6 +37,7 @@ test.after(()=>{for(const [k,v] of Object.entries(original))v===undefined?delete
 test('exactly one official node kind carries 43 manifest operation IDs',()=>{
   const n=new ProcureFlowBusinessOperation();
   assert.equal(n.description.name,'procureFlowBusinessOperation');
+  assert.deepEqual(n.description.outputNames,['success','hold_or_error']);
   const choices=n.description.properties.find(x=>x.name==='operationId').options;
   assert.equal(choices.length,43);
   assert.equal(new Set(choices.map(x=>x.value)).size,43);
@@ -64,7 +65,9 @@ test('blocked official evidence remains HOLD, never submitted or marked verified
     return blocked;
   }));
   assert.equal(count,1);
-  const x=res[0][0].json;
+  assert.equal(res[0].length,0);
+  assert.equal(res[1].length,1);
+  const x=res[1][0].json;
   assert.equal(x.operation_id,'N01');
   assert.equal(x.inspection_status,'HOLD');
   assert.equal(x.evidence_verified,false);
