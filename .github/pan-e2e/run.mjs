@@ -49,7 +49,7 @@ async function drag(x1,y1,x2,y2,button='left') {
   await sleep(500);
 }
 async function viewport() {
-  return await page.locator('.vue-flow__viewport').evaluate(el=> {
+  return await page.locator('.vue-flow__transformationpane').evaluate(el=> {
     const st=getComputedStyle(el).transform;
     const m=new DOMMatrix(st==='none'?undefined:st);
     return {x:m.m41,y:m.m42,scale:m.a,transform:st};
