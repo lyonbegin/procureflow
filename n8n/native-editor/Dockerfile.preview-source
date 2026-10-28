@@ -15,6 +15,9 @@ RUN git clone --depth 1 --branch "${N8N_SOURCE_REF}" \
       https://github.com/n8n-io/n8n.git /src/n8n \
     && test "$(git -C /src/n8n rev-parse HEAD)" = "${N8N_SOURCE_SHA}"
 WORKDIR /src/n8n
+# Patch upstream Vue components only in the isolated n8n demo route (never production permissions).
+COPY n8n/native-editor/patches/enable-native-editable-test.py /tmp/enable-native-editable-test.py
+RUN python3 /tmp/enable-native-editable-test.py
 # Official upstream production builder generates ./compiled from original source.
 RUN pnpm install --frozen-lockfile --trust-lockfile \
     && pnpm run build:deploy \
