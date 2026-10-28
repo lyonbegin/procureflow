@@ -84,19 +84,39 @@ export function createAdapterRegistry(manifest,catalog) {
   }
   assert(ownership.size===43,'orphan ownership entries');
   const native=catalog.filter(n=>n.implementation==='native').map(n=>({kind:n.kind,type:n.nativeType}));
-  const unimplemented=catalog.filter(n=>n.implementation!=='native').map(n=>({
-    kind:n.kind,implementation:n.implementation,executable:false,requires:'project verified n8n composite/extension adapter'
+  // The shared catalog calls Business Operation an extension, but this
+  // consumer already registers ONE native n8n custom node for read-only
+  // inspection. Do not count it among unsupported kinds or as a runnable
+  // procurement business handler.
+  const customReadOnly=[Object.freeze({
+    kind:'business-operation',
+    type:'CUSTOM.procureFlowBusinessOperation',
+    executable:true,
+    capability:'read_only_evidence_inspection',
+    actualBusinessHandler:false,
+    canDispatch:false,
+    canBid:false
+  })];
+  const unimplemented=catalog.filter(n=>n.implementation!=='native'&&
+    n.kind!=='business-operation').map(n=>({
+    kind:n.kind,implementation:n.implementation,executable:false,
+    requires:'project verified n8n composite/extension adapter',
+    acceptance:'UNSUPPORTED_NO_EXECUTABLE_N8N_MAPPING'
   }));
+  assert(unimplemented.length===35,'unsupported composite/extension count must be 35');
   return Object.freeze({
     schemaVersion:'procureflow.shared-n8n-contract.v1',
     engine:'official-n8n',
     source:'n8n/operational_manifest.json + pinned shared-n8n-studio catalog',
     native,
+    customReadOnly,
     unimplemented,
     adapters,
     verification:{
       kindCount:catalog.length,
       nativeCount:native.length,
+      registeredReadOnlyCustomCount:customReadOnly.length,
+      unsupportedKindCount:unimplemented.length,
       compositeCount:catalog.filter(n=>n.implementation==='composite').length,
       extensionCount:catalog.filter(n=>n.implementation==='extension').length,
       businessBlockCount:adapters.length,
