@@ -1,0 +1,8 @@
+FROM node:26.12.1-bookworm-slim AS runtime
+WORKDIR /home/node
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tini && rm -rf /var/lib/apt/lists/*
+# This source-only test image is intentionally not published as a native editor;
+# full upstream n8n build and original permissions are required before enabling edits.
+EXPOSE 5678
+ENTRYPOINT ["tini","--"]
+CMD ["node","--version"]
