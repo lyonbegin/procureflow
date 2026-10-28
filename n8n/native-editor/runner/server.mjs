@@ -23,7 +23,7 @@ async function runN8n(id) {
   return await new Promise((resolve,reject)=>{
     execFile(N8N_BIN,['execute','--id',workflowId],
       {timeout:75000,maxBuffer:12*1024*1024,env:{...process.env,N8N_DIAGNOSTICS_ENABLED:'false'}},
-      (error,stdout,stderr)=>{
+      async (error,stdout,stderr)=>{
         const raw=(stdout||'')+'\n'+(stderr||'');
         const success=!error && /"executionStatus":\s*"success"/.test(raw);
         const errorMessage=error?String(error.message).slice(0,350):null;
