@@ -6,7 +6,7 @@ ENV CI=true \
     NODE_OPTIONS=--max-old-space-size=6144 \
     PNPM_HOME=/opt/pnpm
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git python3 make g++ pkg-config cmake libssl-dev \
+    ca-certificates git python3 make g++ pkg-config cmake libssl-dev ripgrep \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@12.4.2
 ARG N8N_SOURCE_REF=n8n@2.44.6
@@ -18,8 +18,16 @@ WORKDIR /src/n8n
 # Patch upstream Vue components only in the isolated n8n demo route (never production permissions).
 COPY n8n/native-editor/patches/enable-native-editable-test.py /tmp/enable-native-editable-test.py
 RUN python3 /tmp/enable-native-editable-test.py
+# n8n's pinned vscode-ripgrep postinstall calls the anonymous GitHub API; 
+# shared Railway builders can hit 403 rate limits. Use distribution ripgrep
+# and skip only this nonessential package install script, never all scripts.
+RUN sed -i "s/'@vscode\\/ripgrep': true/'@vscode\\/ripgrep': false/" pnpm-workspace.yaml \
+    && grep -q "'@vscode/ripgrep': false" pnpm-workspace.yaml
 # Official upstream production builder generates ./compiled from original source.
 RUN pnpm install --frozen-lockfile --trust-lockfile \
+    && for pkg in node_modules/.pnpm/@vscode+ripgrep@*/node_modules/@vscode/ripgrep; do \
+        test -d "$pkg" || continue; mkdir -p "$pkg/bin"; ln -sf /usr/bin/rg "$pkg/bin/rg"; \
+    done \
     && pnpm run build:deploy \
     && test -f compiled/bin/n8n \
     && node -p "require('./compiled/package.json').version" | grep -qx '2.44.6'
