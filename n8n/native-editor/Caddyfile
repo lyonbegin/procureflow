@@ -34,7 +34,7 @@
     }
     handle @scenarioRunner {
         uri strip_prefix /api/demo-run
-        reverse_proxy http://procureflow-n8n-safe-scenario-runner.railway.internal:3001
+        reverse_proxy http://procureflow-n8n-safe-scenario-ru.railway.internal:3001
     }
     # Allow only read-only requests to a dedicated, credential-free preview instance.
     @preview {
