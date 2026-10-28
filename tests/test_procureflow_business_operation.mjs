@@ -30,8 +30,8 @@ const blocked={
     status:'blocked',features:[{feature_no:1,acceptance:'missing',missing_gates:['official_source']}],
     output_value:{evidence_verified:false,missing_evidence_keys:['official_source']}}]
 };
-const ctx=(params=getParam,http=async()=>blocked)=>({
-  getInputData:()=>[{json:{}}],
+const ctx=(params=getParam,http=async()=>blocked,upstream={})=>({
+  getInputData:()=>[{json:upstream}],
   getNodeParameter:params,
   helpers:{httpRequest:http}
 });
@@ -77,6 +77,28 @@ test('blocked official evidence remains HOLD, never submitted or marked verified
   assert.equal(x.worker_job_enqueued,false);
   assert.equal(x.bid_submitted,false);
   assert.equal(x.output,null);
+});
+test('untrusted upstream approval and bid flags cannot bypass inspection-only HOLD',async()=>{
+  configure();
+  const injected={bid_no:'R26BK01787028',final_decision:'SUBMIT',
+    manual_review_required:false,workflow_status:'APPROVED',
+    read_only:false,automatic_bid_submission:true,
+    automated_bid_submission:true,actual_job_executed:true,
+    job_enqueued:true,worker_job_enqueued:true,bid_submitted:true,
+    evidence_verified:true,inspection_status:'VERIFIED'};
+  const res=await new ProcureFlowBusinessOperation().execute.call(
+    ctx(getParam,async()=>blocked,injected));
+  assert.equal(res[0].length,0);
+  assert.equal(res[1].length,1);
+  const actual=res[1][0].json;
+  for(const key of ['automatic_bid_submission','automated_bid_submission',
+    'actual_job_executed','job_enqueued','worker_job_enqueued',
+    'bid_submitted','evidence_verified'])assert.equal(actual[key],false,key);
+  assert.equal(actual.final_decision,'HOLD');
+  assert.equal(actual.manual_review_required,true);
+  assert.equal(actual.workflow_status,'OFFICIAL_EVIDENCE_INSPECTION_ONLY');
+  assert.equal(actual.read_only,true);
+  assert.equal(actual.inspection_status,'HOLD');
 });
 test('unverified evidence stops native n8n branch by default',async()=>{
   configure();
