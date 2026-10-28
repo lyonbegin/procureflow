@@ -146,9 +146,12 @@ class ProcureFlowBusinessOperation {
            x.acceptance==='verified'&&Array.isArray(x.missing_gates)&&
            x.missing_gates.length===0);
       const item={json:{
-        ...upstream,
-        // Upstream payloads are untrusted. Never let an earlier node's
-        // approval/dispatch flags survive this inspection-only boundary.
+        // Deliberately do not spread upstream JSON into native execution
+        // results: arbitrary input can contain credentials, private bidder
+        // data, or unknown approval flags. Only the selected case identifier
+        // crosses this read-only evidence-inspection boundary.
+        bid_no:bidNo,
+        // All decision/dispatch fields are generated here, never inherited.
         final_decision:'HOLD',
         manual_review_required:true,
         workflow_status:'OFFICIAL_EVIDENCE_INSPECTION_ONLY',
