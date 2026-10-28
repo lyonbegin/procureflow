@@ -86,8 +86,63 @@ try{
   await record('official-candidate-vue-canvas-rendered','PASS',{workflowId:id});
   await page.screenshot({path:path.join(OUT,'01-candidate-editor.png'),fullPage:true});
 
+  // Negative official Chrome acceptance: these 35 shared catalog recipes
+  // have NO verified executable adapter in ProcureFlow. They must not be
+  // advertised as first-class custom nodes in the native n8n palette.
+  // This does not claim that unrelated n8n native nodes are disabled.
+  const unsupportedSharedKinds=[
+    "Retry / Timeout",
+    "Error Handler / HALT",
+    "Join / Quorum",
+    "Human Approval",
+    "File / Document",
+    "Schema Validator",
+    "Evidence / Audit",
+    "Worker / Queue",
+    "Resource / Lock",
+    "Test / Mock / Assert",
+    "Parallel Fork",
+    "Event Publish",
+    "Event Subscribe / Wait",
+    "State Machine",
+    "Compensation / Rollback",
+    "Checkpoint / Resume",
+    "Idempotency",
+    "Deduplication",
+    "Rate Limit",
+    "Circuit Breaker",
+    "Dead Letter Queue",
+    "Lease / Fencing",
+    "Data Mapper",
+    "Split / Aggregate",
+    "JSON Diff / Compare",
+    "Completeness Gate",
+    "Hash / Integrity",
+    "Source Provenance",
+    "Human Input / Form",
+    "Permission Gate",
+    "Notification / Alert",
+    "Metrics / Counter",
+    "Execution Probe",
+    "Replay",
+    "Fault Injection"
+  ];
   await page.getByTestId('node-creator-plus-button').click();
-  await page.getByTestId('node-creator-search-bar').fill('Business Operation');
+  const paletteSearch=page.getByTestId('node-creator-search-bar');
+  for(const unsupportedName of unsupportedSharedKinds){
+    await paletteSearch.fill(unsupportedName);
+    await page.waitForTimeout(300);
+    const exact=page.getByTestId('node-creator-item-name').getByText(
+      unsupportedName,{exact:true});
+    assert(await exact.count()===0,
+      'Unverified shared kind unexpectedly advertised in official palette: '+unsupportedName);
+  }
+  await record('real-chrome-35-unsupported-shared-kinds-not-advertised','PASS',{
+    checked:unsupportedSharedKinds.length,
+    limitation:'not a runnable mapping or a test of unrelated native n8n nodes'
+  });
+  await page.screenshot({path:path.join(OUT,'01b-unsupported-shared-kinds.png'),fullPage:true});
+  await paletteSearch.fill('Business Operation');
   const item=page.getByTestId('node-creator-item-name').getByText('Business Operation · ProcureFlow',{exact:true});
   await item.click({timeout:20000});
   await record('real-chrome-custom-node-palette-add','PASS');
