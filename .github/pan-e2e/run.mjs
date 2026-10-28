@@ -167,6 +167,53 @@ try {
   await rec('save-reopen-position-and-edge-persist','PASS',{nodePosition:moved});
   await page.screenshot({path:path.join(OUT,'04-reopened.png'),fullPage:true});
 
+  // Native official n8n zoom controls, measured via actual Vue Flow transform.
+  const zoomBefore=await viewport();
+  await page.getByTestId('zoom-in-button').click();
+  await poll('zoom in',async()=>(await viewport()).scale>zoomBefore.scale+0.01);
+  const zoomIn=await viewport();
+  await page.getByTestId('zoom-out-button').click();
+  await rec('real-editor-zoom-in-out','PASS',{before:zoomBefore,zoomIn,zoomOut:await viewport()});
+
+  // User inserts a new n8n node via the actual searchable node palette.
+  await page.getByTestId('node-creator-plus-button').click();
+  await page.getByTestId('node-creator-search-bar').fill('No Operation');
+  await page.getByTestId('node-creator-item-name').getByText('No Operation, do nothing',{exact:true}).click();
+  const closeNdv=page.getByTestId('ndv-close-button');
+  if(await closeNdv.isVisible().catch(()=>false))await closeNdv.click();
+  const added=await poll('native palette node persisted',async()=>{
+    const d=await storageWorkflow(workflowId);
+    return d.nodes.find(n=>n.type==='n8n-nodes-base.noOp')??null;
+  },30000);
+  await rec('real-chrome-palette-add-node-and-autosave','PASS',{id:added.id,type:added.type});
+  await page.screenshot({path:path.join(OUT,'05-palette-added.png'),fullPage:true});
+
+  // Native toolbar delete, not REST deletion.
+  const addedEl=page.locator('[data-test-id="canvas-node"][data-node-name="'+added.name+'"]').first();
+  await addedEl.hover();
+  await addedEl.getByTestId('delete-node-button').click();
+  await poll('deleted node absent in saved DB',async()=>{
+    const d=await storageWorkflow(workflowId);
+    return !d.nodes.some(n=>n.id===added.id);
+  },30000);
+  await rec('real-chrome-delete-node-and-autosave','PASS',{deletedNodeId:added.id});
+
+  // Actual CodeMirror parameter edit through official NDV; verify server persistence.
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').dblclick();
+  const newJs='return [{json:{pan_test:true,answer:43}}];';
+  await page.getByTestId('parameter-input-jsCode').locator('.cm-content').fill(newJs);
+  await page.getByTestId('ndv-close-button').click();
+  await poll('CodeMirror edit saved in server',async()=>{
+    const d=await storageWorkflow(workflowId);
+    return d.nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs;
+  },30000);
+  await rec('real-chrome-parameter-edit-and-server-persistence','PASS',{jsCode:newJs});
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('[data-node-name="Code"]').waitFor({timeout:30000});
+  assert((await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs,'Code parameter lost after reload');
+  await rec('real-chrome-parameter-reopen-persistence','PASS');
+  await page.screenshot({path:path.join(OUT,'06-settings-reopened.png'),fullPage:true});
+
   // Use actual official editor UI for safe manual execution of Code-only result.
   await page.locator('[data-test-id="execute-workflow-button"]').first().click({timeout:15000});
   await poll('native code execution result',async()=>{
