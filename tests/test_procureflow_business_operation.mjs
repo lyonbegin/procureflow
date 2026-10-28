@@ -317,3 +317,22 @@ test('provider errors and untrusted evidence keys cannot leak serviceKey into na
     error=>error.message==='Unregistered Business Operation ID'&&
       !error.message.includes('SECRET_OPERATION_ID_123'));
 });
+
+test('read-only evidence HTTP helper forbids cross-origin redirects and redacts redirect errors',async()=>{
+  configure();
+  let called=0;
+  const instance=new ProcureFlowBusinessOperation();
+  await assert.rejects(
+    ()=>instance.execute.call(ctx(getParam,async options=>{
+      called++;
+      assert.equal(options.method,'GET');
+      assert.equal(options.disableFollowRedirect,true);
+      assert.equal(options.url,'http://127.0.0.1:58491/api/n8n/operational/flows/PF01/inspect');
+      // A real n8n helper rejects the redirect instead of contacting Location.
+      throw Error('302 Location: https://evil.example/?serviceKey=REDIRECT_SECRET_123');
+    })),
+    error=>error.message==='Business Operation N01: read-only evidence request failed'&&
+      !error.message.includes('REDIRECT_SECRET_123')
+  );
+  assert.equal(called,1);
+});
