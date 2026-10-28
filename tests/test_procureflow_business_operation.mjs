@@ -199,6 +199,47 @@ test('exact manifest feature IDs are required for VERIFIED; wrong IDs remain HOL
 });
 
 
+test('verified read-only inspection whitelists output and never forwards secrets or forged approval fields',async()=>{
+  configure();
+  // Stubbed helper only: no network or production credential access.
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_OPERATION_API_BASE='https://procureflow-api-production.up.railway.app';
+  const verified={
+    ...blocked,
+    official_notice_verified:true,
+    blocks:[{
+      ...blocked.blocks[0],status:'verified',
+      features:[1,2].map(feature_no=>({feature_no,acceptance:'verified',missing_gates:[]})),
+      output_value:{
+        evidence_verified:true,real_api_result_state:'verified',
+        missing_evidence_keys:[],
+        serviceKey:'SECRET_VERIFIED_KEY_123',
+        bearerToken:'SECRET_VERIFIED_TOKEN_123',
+        bidder:{bankAccount:'SECRET_VERIFIED_BANK_123'},
+        bid_submitted:true,final_decision:'SUBMIT',
+        worker_job_enqueued:true,
+        verified_evidence_keys:['official_notice']
+      }
+    }]
+  };
+  const result=await new ProcureFlowBusinessOperation().execute.call(
+    ctx(getParam,async()=>verified,{custom_secret:'SECRET_UPSTREAM_123'}));
+  assert.equal(result[0].length,1);
+  assert.equal(result[1].length,0);
+  const item=result[0][0].json;
+  assert.equal(item.inspection_status,'VERIFIED');
+  assert.equal(item.actual_business_handler_executed,false);
+  assert.equal(item.bid_submitted,false);
+  assert.equal(item.worker_job_enqueued,false);
+  assert.deepEqual(item.output,{
+    evidence_verified:true,real_api_result_state:'verified',missing_evidence_keys:[]
+  });
+  for(const field of ['serviceKey','bearerToken','bidder','bid_submitted','final_decision','worker_job_enqueued'])
+    assert.equal(Object.hasOwn(item.output,field),false,field);
+  assert.ok(!JSON.stringify(result).includes('SECRET_'));
+  configure();
+});
+
 test('all 43 manifest operations fail closed with isolated evidence and exact GET routing',async()=>{
   configure();
   const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
