@@ -82,7 +82,10 @@ jobs:
           NODE
       - name: Inspect exact custom-node copy and n8n extension loader configuration
         run: |
-          docker exec pf-shared-candidate sh -lc 'echo N8N_CUSTOM_EXTENSIONS="$N8N_CUSTOM_EXTENSIONS"; ls -al /home/node/procureflow-custom-nodes/; node -e "const s=require(\x27/home/node/procureflow-custom-nodes/ProcureFlowBusinessOperation.node.js\x27);const n=new s.ProcureFlowBusinessOperation();console.log(\x27CUSTOM_NODE_LOCAL_OK\x27,n.description.name,n.description.properties[0].options.length)"'
+          docker exec pf-shared-candidate printenv N8N_CUSTOM_EXTENSIONS
+          docker exec pf-shared-candidate ls -al /home/node/procureflow-custom-nodes/
+          docker exec --user node pf-shared-candidate node -e 'const s=require("/home/node/procureflow-custom-nodes/ProcureFlowBusinessOperation.node.js");const n=new s.ProcureFlowBusinessOperation();console.log("CUSTOM_NODE_LOCAL_OK",n.description.name,n.description.properties[0].options.length)'
+
       - name: Verify Business Operation native n8n node registration and 43 UI choices
         run: |
           node <<'NODE'
