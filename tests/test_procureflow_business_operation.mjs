@@ -47,7 +47,7 @@ test('exactly one official node kind carries 43 manifest operation IDs',()=>{
 test('disallow any external URL, credentials, nonselected case, or unapproved mode',async()=>{
   configure();
   process.env.PROCUREFLOW_OPERATION_API_BASE='https://evil.test';
-  assert.throws(()=>safeApiBase(),/blocked/);
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback|blocked/);
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
   assert.equal(safeApiBase(),'http://127.0.0.1:58491');
   process.env.PROCUREFLOW_OPERATION_API_BASE='https://procureflow-api-production.up.railway.app';
