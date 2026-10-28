@@ -11,11 +11,11 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 echo "[procureflow] Compile 15 PF native DAGs (43 business blocks) and PF00 controller..."
 node /usr/local/bin/procureflow-compile-topology
+echo "[procureflow] Validate generated native n8n workflow edges and 43 read-only business operations..."
+node /usr/local/bin/procureflow-test-topology
 # Shared Studio candidate ONLY: each official block is followed by a native
 # Business Operation evidence gate with an explicit HOLD output.
 node /usr/local/bin/procureflow-augment-business-operations
-echo "[procureflow] Validate generated native n8n workflow edges and 43 read-only business operations..."
-node /usr/local/bin/procureflow-test-topology
 version_marker="$n8n_dir/.procureflow-native-v2"
 if [ ! -f "$version_marker" ]; then
   echo "[procureflow] Importing 16 native PF workflows with IF/Merge/ExecuteWorkflow dependencies..."
