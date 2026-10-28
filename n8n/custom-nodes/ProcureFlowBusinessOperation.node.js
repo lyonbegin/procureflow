@@ -65,6 +65,14 @@ function validateProvenance(body,flowId,bidNo,operationId){
     throw Error('Business Operation block/official evidence contract mismatch');
   return block;
 }
+// Evidence key names are identifiers, not free-form upstream messages. Never
+// echo untrusted URLs, request errors or credentials into execution output.
+function safeMissingEvidenceKeys(value){
+  if(!Array.isArray(value))return ['invalid_evidence_keys'];
+  const keys=value.filter(x=>typeof x==='string'&&/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(x));
+  if(keys.length!==value.length)keys.push('invalid_evidence_key');
+  return [...new Set(keys)].slice(0,100);
+}
 class ProcureFlowBusinessOperation {
   description={
     displayName:'Business Operation · ProcureFlow',
@@ -103,13 +111,20 @@ class ProcureFlowBusinessOperation {
       const block=byId.get(operationId);
       if(!block)throw Error('Unregistered Business Operation ID '+String(operationId));
       if(bidNo!=='R26BK01787028'||(upstream.bid_no&&upstream.bid_no!==bidNo))throw Error('Unsupported tender: official single-case gate');
-      const response=await this.helpers.httpRequest({
-        method:'GET',
-        url:base+'/api/n8n/operational/flows/'+block.flowId+'/inspect',
-        qs:{bid_no:bidNo},
-        timeout:30000,
-        json:true
-      });
+      let response;
+      try{
+        response=await this.helpers.httpRequest({
+          method:'GET',
+          url:base+'/api/n8n/operational/flows/'+block.flowId+'/inspect',
+          qs:{bid_no:bidNo},
+          timeout:30000,
+          json:true
+        });
+      }catch{
+        // Provider error bodies can contain serviceKey and request headers.
+        // A generic fail-closed error keeps secrets out of native n8n logs.
+        throw Error('Business Operation '+operationId+': read-only evidence request failed');
+      }
       const inspected=validateProvenance(response,block.flowId,bidNo,operationId);
       // Match the exact manifest feature IDs, not merely the number of rows:
       // a foreign feature with the same row count must never be approved.
@@ -153,7 +168,7 @@ class ProcureFlowBusinessOperation {
         inspection_status:verified?'VERIFIED':'HOLD',
         evidence_provenance:response.source_provenance,
         evidence_verified:verified,
-        missing_evidence:inspected.output_value?.missing_evidence_keys||[],
+        missing_evidence:safeMissingEvidenceKeys(inspected.output_value?.missing_evidence_keys),
         output:verified?inspected.output_value:null,
         bid_submitted:false,
         worker_job_enqueued:false
