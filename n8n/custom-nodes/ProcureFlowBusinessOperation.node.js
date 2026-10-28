@@ -80,12 +80,13 @@ class ProcureFlowBusinessOperation {
     const input=this.getInputData();
     const passed=[],held=[];
     for(let i=0;i<input.length;i++){
+      const upstream=input[i]?.json||{};
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
       const block=byId.get(operationId);
       if(!block)throw Error('Unregistered Business Operation ID '+String(operationId));
-      if(bidNo!=='R26BK01787028')throw Error('Unsupported tender: official single-case gate');
+      if(bidNo!=='R26BK01787028'||(upstream.bid_no&&upstream.bid_no!==bidNo))throw Error('Unsupported tender: official single-case gate');
       const response=await this.helpers.httpRequest({
         method:'GET',
         url:base+'/api/n8n/operational/flows/'+block.flowId+'/inspect',
@@ -102,6 +103,7 @@ class ProcureFlowBusinessOperation {
          inspected.features?.length===block.features.length&&
          inspected.features.every(x=>x.acceptance==='verified'&&x.missing_gates?.length===0);
       const item={json:{
+        ...upstream,
         schema_version:'procureflow.business-operation.v1',
         adapter:'procureflow',operation_id:operationId,
         flow_id:block.flowId,case_id:bidNo,

@@ -69,7 +69,8 @@ COPY --chown=node:node n8n/workflows /home/node/procureflow-demo-workflows
 COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-operational-manifest.json
 COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /usr/local/bin/procureflow-compile-topology
 COPY --chown=node:node n8n/source-build/test-native-topology.mjs /usr/local/bin/procureflow-test-topology
-COPY --chown=node:node n8n/source-build/bootstrap-workflows.sh /usr/local/bin/procureflow-n8n-bootstrap
+COPY --chown=node:node n8n/source-build/augment-business-operations.mjs /usr/local/bin/procureflow-augment-business-operations
+COPY --chown=node:node n8n/source-build/bootstrap-shared-studio.sh /usr/local/bin/procureflow-n8n-bootstrap
 RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap
 USER root
 EXPOSE 5678

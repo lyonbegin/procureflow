@@ -78,7 +78,26 @@ jobs:
           for(const id of required)if(!ids.includes(id))throw Error('Missing imported official n8n workflow '+id);
           if(new Set(ids).size!==ids.length)throw Error('Duplicate native n8n IDs');
           if(required.length!==26)throw Error('Incorrect expected count');
-          console.log('OFFICIAL_NATIVE_PF_IMPORT_PASS',JSON.stringify({workflows:ids.length,required:required.length}));
+          const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json'));
+          const expectedOperations=new Set(manifest.blocks.map(b=>b.id));
+          const foundOperations=[];
+          for(const w of workflows.filter(x=>/^PFOP2026PF(?:0[1-9]|1[0-5])WF$/.test(x.id))){
+            const custom=w.nodes.filter(n=>n.type==='CUSTOM.procureFlowBusinessOperation');
+            for(const n of custom){
+              foundOperations.push(n.parameters.operationId);
+              const good=w.connections?.[n.name]?.main;
+              if(!Array.isArray(good)||good.length!==2||
+                !good[0]?.length||!good[1]?.length)
+                throw Error('Missing native Business Operation success/HOLD branches '+n.name);
+              if(n.parameters.evidenceHandling!=='hold'||n.parameters.bidNo!=='R26BK01787028')
+                throw Error('Unsafe native operation defaults '+n.name);
+            }
+          }
+          if(foundOperations.length!==43||
+            new Set(foundOperations).size!==43||
+            ![...expectedOperations].every(id=>foundOperations.includes(id)))
+             throw Error('Native 43-operation graph mismatch: '+foundOperations.join(','));
+          console.log('OFFICIAL_NATIVE_PF_IMPORT_PASS',JSON.stringify({workflows:ids.length,required:required.length,businessOperations:foundOperations.length,safety:'hold_or_readonly'}));
           NODE
       - name: Inspect exact custom-node copy and n8n extension loader configuration
         run: |
