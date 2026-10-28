@@ -174,7 +174,7 @@ jobs:
       - name: Install real Google Chrome test driver
         run: |
           google-chrome --version
-          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2
+          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2 flatted@3.3.3
       - name: Real Chrome custom Business Operation palette, configuration, save/reopen/delete
         timeout-minutes: 12
         env:
