@@ -8,6 +8,7 @@ import json
 import os
 import re
 from datetime import date
+import calendar
 from urllib.parse import urlencode
 from urllib.request import urlopen,Request
 from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,ensure_schema
@@ -181,3 +182,65 @@ def scan_month(first, pages_max=30):
                     "matched":matched,"total_records":total}
     return {"status":"partial","first_day":str(first),"next_page":page,
             "checked":inspected,"matched":matched}
+
+
+def summarize_month_cursor(rows):
+    """Pure, read-only and credential-free audit of the 121 discovery windows.
+
+    A completed MONTH is a parent8 notice search only; neither official
+    10-digit detail matching nor bidder-by-bidder opening/award completeness
+    can be inferred from these cursors.
+    """
+    expected={}
+    for year in range(BEGIN.year,END.year+1):
+        for month in range(1,13):
+            start=max(BEGIN,date(year,month,1))
+            stop=min(END,date(year,month,calendar.monthrange(year,month)[1]))
+            if start<=stop:expected[start]=stop
+    seen=set()
+    months=[]
+    invalid=0
+    for row in rows:
+        start=row.get("first_day")
+        stop=row.get("last_day")
+        if (start not in expected or start in seen or stop!=expected.get(start)):
+            invalid+=1
+            continue
+        seen.add(start)
+        stat=str(row.get("status") or "unsearched")
+        checked=max(0,int(row.get("checked") or 0))
+        matched=max(0,int(row.get("matched") or 0))
+        page=max(1,int(row.get("page_cursor") or 1))
+        months.append({"first_day":start.isoformat(),
+                       "last_day":stop.isoformat(),
+                       "status":stat,"checked":checked,"matched":matched,
+                       "next_page":page})
+    months.sort(key=lambda r:r["first_day"])
+    complete=sum(r["status"]=="completed" for r in months)
+    candidates=[x for x in months if x["status"]!="completed"]
+    candidates.sort(key=lambda r:(r["status"]!="partial",r["first_day"]))
+    registry_ok=len(seen)==len(expected)==121 and invalid==0
+    return {"bid_no":CASE_BID,"configured_parent8":CAT8,
+            "requested_10digit_from_selected_notice":"8111159901",
+            "period_start":BEGIN.isoformat(),"period_end":END.isoformat(),
+            "registry_complete":registry_ok,
+            "required_months":len(expected),
+            "registered_months":len(seen),
+            "invalid_or_duplicate_rows":invalid,
+            "discovery_months_completed":complete,
+            "discovery_months_remaining":len(expected)-complete,
+            "next_month":candidates[0] if candidates else None,
+            "eight_digit_notice_discovery_complete":registry_ok and complete==len(expected),
+            "ten_year_exact_opening_and_award_complete":False,
+            "read_only":True,"job_enqueued":False,"bid_submitted":False,
+            "months":months,
+            "caution":"A completed 8-digit discovery window is not verified 10-digit bidding, bidder amounts, rankings or final awards."}
+
+
+def official_month_progress():
+    """Read only saved monthly cursors; NEVER call the G2B API or mutate jobs."""
+    with session() as con:
+        rows=con.execute("""SELECT first_day,last_day,status,checked,matched,page_cursor
+          FROM procureflow.g2b_case_10yr_windows
+          WHERE case_bid_no=%s ORDER BY first_day""",(CASE_BID,)).fetchall()
+    return summarize_month_cursor([dict(row) for row in rows])
