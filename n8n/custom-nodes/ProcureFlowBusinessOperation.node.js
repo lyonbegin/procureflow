@@ -178,7 +178,15 @@ class ProcureFlowBusinessOperation {
         evidence_provenance:response.source_provenance,
         evidence_verified:verified,
         missing_evidence:safeMissingEvidenceKeys(inspected.output_value?.missing_evidence_keys),
-        output:verified?inspected.output_value:null,
+        // Even a verified read-only API response is untrusted for n8n logs:
+        // never propagate arbitrary output_value keys (credentials, bidder
+        // details, or forged submission/approval flags) to downstream nodes.
+        // The inspection adapter exposes only a fixed evidence verdict.
+        output:verified?{
+          evidence_verified:true,
+          real_api_result_state:'verified',
+          missing_evidence_keys:[]
+        }:null,
         bid_submitted:false,
         worker_job_enqueued:false
       },pairedItem:{item:i}};
