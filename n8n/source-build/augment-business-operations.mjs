@@ -43,7 +43,11 @@ for(const flow of manifest.flows){
       parameters:{mode:'runOnceForAllItems',jsCode:
         "const v=$input.first().json;return [{json:{...v,final_decision:'HOLD',"+
         "workflow_status:'OFFICIAL_EVIDENCE_NOT_VERIFIED',"+
-        "manual_review_required:true,bid_submitted:false,automated_bid_submission:false}}];"},
+        "inspection_status:'HOLD',evidence_verified:false,"+
+        "manual_review_required:true,read_only:true,"+
+        "automatic_bid_submission:false,automated_bid_submission:false,"+
+        "actual_job_executed:false,actual_business_handler_executed:false,"+
+        "job_enqueued:false,worker_job_enqueued:false,bid_submitted:false}}];"},
       notes:'Unverified source is never an approved bid. Terminal branch; no automatic dispatch.',
       notesInFlow:true
     };
