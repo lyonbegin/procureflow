@@ -100,6 +100,25 @@ test('untrusted upstream approval and bid flags cannot bypass inspection-only HO
   assert.equal(actual.read_only,true);
   assert.equal(actual.inspection_status,'HOLD');
 });
+test('isolated synthetic provenance is explicit, never VERIFIED, and blocked outside test mode',async()=>{
+  configure();
+  const synthetic={...blocked,source_provenance:'isolated_synthetic_test_evidence',
+    simulation_only:true,official_notice_verified:true,
+    blocks:[{...blocked.blocks[0],real_data:false,simulation_only:true,
+      status:'verified',features:[
+        {feature_no:1,acceptance:'verified',missing_gates:[]},
+        {feature_no:2,acceptance:'verified',missing_gates:[]}],
+      output_value:{evidence_verified:true,real_api_result_state:'verified',
+        missing_evidence_keys:[]}}]};
+  const result=await new ProcureFlowBusinessOperation().execute.call(ctx(getParam,async()=>synthetic));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1].length,1);
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(result[1][0].json.evidence_provenance,'isolated_synthetic_test_evidence');
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  assert.throws(()=>validateProvenance(synthetic,'PF01','R26BK01787028','N01'),/contract mismatch/);
+  configure();
+});
 test('unverified evidence stops native n8n branch by default',async()=>{
   configure();
   await assert.rejects(()=>new ProcureFlowBusinessOperation().execute.call(ctx(
