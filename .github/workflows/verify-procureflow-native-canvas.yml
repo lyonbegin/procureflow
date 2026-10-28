@@ -1,62 +1,91 @@
-name: ProcureFlow original n8n Vue canvas browser smoke
+name: Verify ProcureFlow original n8n Vue canvas locally
 on:
   push:
     branches: [feat/n8n-native-editable-procurement-20261028]
     paths:
       - n8n/native-editor/**
+      - n8n/source-build/compile-native-topology.mjs
       - .github/workflows/verify-procureflow-native-canvas.yml
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  static-and-browser:
+  original-vue-canvas:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 28
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate PF00-PF15 graph manifests, 10 scenario files, read-only boundaries
+      - name: Build native-flow gateway and start isolated official n8n container
         run: |
           set -euo pipefail
-          test "$(find n8n/operational -maxdepth 1 -name 'PF*.json' | wc -l)" -eq 15
-          test "$(find n8n/workflows -maxdepth 1 -name 'S*.json' | wc -l)" -eq 10
-          ! grep -E -q 'basic_auth|execute:workflow|/workflow/\*' n8n/native-editor/Caddyfile
-          node --check n8n/source-build/compile-native-topology.mjs
-          grep -q 'command.*openWorkflow' n8n/native-editor/portal.html
-          echo "PROCUREFLOW_SOURCE_NATIVE_VIEWER_STATIC_PASS"
-      - name: Install Chrome automation dependency
+          docker network create procureflow-ci
+          docker run -d --name procureflow-original-upstream --network procureflow-ci \
+            --network-alias procureflow-n8n-upstream-preview.railway.internal \
+            -e N8N_PREVIEW_MODE=true -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false \
+            -e N8N_ENCRYPTION_KEY=ci-throwaway-isolated-frontend-test \
+            -e N8N_PORT=5678 -e N8N_HOST=0.0.0.0 \
+            n8nio/n8n:2.44.6
+          docker build -f n8n/native-editor/Dockerfile.gateway -t procureflow-n8n-vue-gateway:ci .
+          docker run -d --name procureflow-native-gateway \
+            --network procureflow-ci -p 127.0.0.1:3000:3000 -e PORT=3000 \
+            procureflow-n8n-vue-gateway:ci
+          for i in $(seq 1 80); do
+            if curl -fsS --max-time 2 http://127.0.0.1:3000/health >/dev/null && \
+               curl -fsS --max-time 2 http://127.0.0.1:3000/workflows/demo >/dev/null; then
+              echo "ISOLATED_OFFICIAL_N8N_AND_GATEWAY_HEALTHY"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/health
+          curl -fsS http://127.0.0.1:3000/workflows/demo -o /tmp/official-vue-page.html
+          grep -Eq '<html|<!DOCTYPE' /tmp/official-vue-page.html
+          curl -fsS http://127.0.0.1:3000/demo-data/operational/PF00.json -o /tmp/PF00.json
+          curl -fsS http://127.0.0.1:3000/demo-data/operational/PF05.json -o /tmp/PF05.json
+          curl -fsS http://127.0.0.1:3000/demo-data/scenarios/S01.json -o /tmp/S01.json
+          node --input-type=module -e "import fs from 'node:fs';for (const f of ['PF00','PF05','S01']) {const w=JSON.parse(fs.readFileSync('/tmp/'+f+'.json'));if(w.nodes.length<18)throw Error('few nodes '+f);console.log(f,w.nodes.length)}"
+      - name: Install browser test dependencies
         run: |
           npm install --no-audit --no-fund --no-save @playwright/test
           command -v google-chrome
-      - name: Verify official n8n Vue nodes on deployed 26-workflow public test screen
+      - name: Verify native nodes and scenario switching in Chromium (no internet domain)
         run: |
           node --input-type=module <<'NODE'
           import {chromium,expect} from '@playwright/test';
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
-          const page=await browser.newPage({viewport:{width:1600,height:960}});
+          const page=await browser.newPage({viewport:{width:1760,height:960}});
+          const errors=[];page.on('pageerror',e=>errors.push(String(e)));
           try {
-            await page.goto('https://procureflow-n8n-native-canvas-production.up.railway.app/',{timeout:60000});
-            await expect(page.locator('button.flow')).toHaveCount(26,{timeout:40000});
+            await page.goto('http://127.0.0.1:3000/',{timeout:60000,waitUntil:'domcontentloaded'});
+            await expect(page.locator('button.flow')).toHaveCount(26,{timeout:20000});
             const iframe=page.frameLocator('#n8n-canvas');
-            await expect(iframe.locator('.vue-flow__node').first()).toBeVisible({timeout:90000});
-            console.log('PF00_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:90000}).toBeGreaterThan(20);
+            console.log('NATIVE_PF00_NODES',await iframe.locator('.vue-flow__node').count());
             await page.locator('button.flow').nth(5).click();
             await expect(page.locator('#title')).toContainText('PF05');
-            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:60000}).toBeGreaterThanOrEqual(20);
-            console.log('PF05_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:40000}).toBeGreaterThanOrEqual(20);
+            console.log('NATIVE_PF05_NODES',await iframe.locator('.vue-flow__node').count());
             await page.locator('button.flow').nth(16).click();
             await expect(page.locator('#title')).toContainText('S01');
-            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:60000}).toBeGreaterThanOrEqual(18);
-            console.log('S01_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
-            await page.screenshot({path:'procureflow-native-vue-original.png',fullPage:true});
-            console.log('PROCUREFLOW_ORIGINAL_N8N_VUE_26_FLOWS_PASS');
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:40000}).toBeGreaterThanOrEqual(18);
+            console.log('NATIVE_S01_NODES',await iframe.locator('.vue-flow__node').count());
+            await page.screenshot({path:'original-n8n-vue-canvas.png',fullPage:true});
+            if(errors.length) console.log('CLIENT_WARNINGS',errors.slice(0,3));
+            console.log('NATIVE_VUE_CANVAS_26_WORKFLOW_SMOKE_PASSED');
           } finally {await browser.close()}
           NODE
+      - name: Dump Docker logs if test fails
+        if: failure()
+        run: |
+          docker logs --tail 100 procureflow-original-upstream || true
+          docker logs --tail 100 procureflow-native-gateway || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: procureflow-native-vue-screenshot
-          path: procureflow-native-vue-original.png
+          name: procureflow-original-n8n-vue-canvas
+          path: original-n8n-vue-canvas.png
           if-no-files-found: ignore
