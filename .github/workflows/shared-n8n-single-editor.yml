@@ -7,6 +7,8 @@ on:
       - 'main.py'
       - 'tests/test_n8n_only_migration.py'
       - 'tests/test_shared_n8n_redirect.mjs'
+      - 'n8n/custom-nodes/**'
+      - 'tests/test_procureflow_business_operation.mjs'
       - '.github/workflows/shared-n8n-single-editor.yml'
   workflow_dispatch:
 permissions:
@@ -27,7 +29,7 @@ jobs:
           test ! -f n8n/native-preview/package.json
           ! grep -E 'vite build|vue-flow|VueFlow|npm install|workflows/operational' n8n/native-preview/Dockerfile
       - name: Browser-independent real HTTP redirect regression
-        run: node --test tests/test_shared_n8n_redirect.mjs
+        run: node --test tests/test_shared_n8n_redirect.mjs tests/test_procureflow_business_operation.mjs
       - name: Python routes compile correctly
         run: python -m py_compile main.py n8n_landing.py
   n8n-api-only:
