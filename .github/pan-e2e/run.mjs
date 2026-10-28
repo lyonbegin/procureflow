@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Issue #21 — real Google Chrome against *patched official n8n*, not a fixture.
 // Isolated Docker container + SQLite only. No operational G2B, jobs or credentials.
-import {chromium} from 'playwright';
+import {chromium, selectors} from 'playwright';
+// Native n8n marks controls with data-test-id (not Playwright's data-testid default).
+selectors.setTestIdAttribute('data-test-id');
 import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
