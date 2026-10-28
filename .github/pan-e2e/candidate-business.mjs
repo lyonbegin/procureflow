@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * Issue #21: real Google Chrome, OFFICIAL n8n 2.44.6 candidate editor.
- * Isolated SQLite only. Business Operation is NEVER executed: this verifies
- * native palette registration, UI settings, persistence and deletion.
+ * Isolated SQLite only. Native palette, settings, persistence, deletion and
+ * one synthetic-only HOLD execution via localhost fixture; no real G2B.
  */
 import {chromium,selectors} from 'playwright';
+import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -127,8 +128,62 @@ try{
   });
   await record('real-chrome-custom-node-delete-and-server-save','PASS',{id:added.id});
   await page.screenshot({path:path.join(OUT,'04-deleted.png'),fullPage:true});
-  await record('no-business-execution-or-bid-submission','PASS',{
-    nodeExecutionCount:0,actualBidSubmitted:false,productionApiRequests:0
+  // Real official n8n execution, but synthetic fixture only: the response
+  // identifies itself as synthetic and MUST route to HOLD, never success.
+  const holdFlow={
+    name:'Issue21 Synthetic Business Operation HOLD Execution',
+    nodes:[
+      {id:'hold-manual-01',name:'Manual Trigger',type:'n8n-nodes-base.manualTrigger',
+       typeVersion:1,position:[120,150],parameters:{}},
+      {id:'hold-business-02',name:'Business Operation',
+       type:'CUSTOM.procureFlowBusinessOperation',typeVersion:1,
+       position:[420,150],parameters:{operationId:'N01',
+         bidNo:'R26BK01787028',evidenceHandling:'hold'}}
+    ],
+    connections:{'Manual Trigger':{main:[[
+      {node:'Business Operation',type:'main',index:0}
+    ]]}},settings:{executionOrder:'v1'},staticData:null,pinData:{}
+  };
+  const holdCreated=(await api('POST','/rest/workflows',holdFlow)).data;
+  assert(holdCreated?.id,'Synthetic HOLD workflow creation failed');
+  await page.goto(URL+'/workflow/'+holdCreated.id,{waitUntil:'domcontentloaded'});
+  await page.getByTestId('canvas').waitFor({timeout:30000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Business Operation"]').waitFor({timeout:30000});
+  const startedResponse=page.waitForResponse(r=>
+    r.url().includes('/rest/workflows/')&&r.url().includes('/run')&&r.request().method()==='POST',
+    {timeout:45000});
+  await page.getByTestId('execute-workflow-button').first().click({timeout:15000});
+  const started=(await (await startedResponse).json()).data;
+  const executionId=String(started?.executionId??started?.id??'');
+  assert(executionId,'Native Business Operation execution missing ID: '+JSON.stringify(started));
+  const holdExecution=await poll('native synthetic Business Operation HOLD result',async()=>{
+    const d=(await api('GET','/rest/executions/'+executionId)).data;
+    const payload=typeof d?.data==='string'?parseFlatted(d.data):d?.data;
+    const runData=payload?.resultData?.runData??d?.resultData?.runData;
+    const nodeRun=runData?.['Business Operation']?.[0];
+    const success=nodeRun?.data?.main?.[0]||[];
+    const held=nodeRun?.data?.main?.[1]||[];
+    const output=held[0]?.json;
+    if(!output)return null;
+    assert(success.length===0,'Synthetic evidence incorrectly reached success output');
+    assert(output.inspection_status==='HOLD'&&output.evidence_verified===false,
+      'Synthetic evidence incorrectly VERIFIED');
+    assert(output.evidence_provenance==='isolated_synthetic_test_evidence',
+      'Synthetic evidence source mislabeled');
+    assert(output.final_decision==='HOLD'&&output.manual_review_required===true,
+      'Native HOLD result lacks human review gate');
+    assert(output.bid_submitted===false&&output.worker_job_enqueued===false,
+      'Native HOLD unexpectedly dispatched business action');
+    return {executionId,status:d.status,outputIndex:1,
+      inspectionStatus:output.inspection_status,
+      evidenceProvenance:output.evidence_provenance,
+      bidSubmitted:output.bid_submitted,workerJobEnqueued:output.worker_job_enqueued};
+  },60000);
+  await record('real-chrome-native-business-operation-synthetic-hold-execution','PASS',holdExecution);
+  await page.screenshot({path:path.join(OUT,'05-native-business-hold-executed.png'),fullPage:true});
+  await record('no-real-business-handler-or-bid-submission','PASS',{
+    syntheticNativeExecutionCount:1,realBusinessHandlerCount:0,
+    actualBidSubmitted:false,productionApiRequests:0
   });
 }catch(error){
   console.error('CANDIDATE_CHROME_FAIL',error?.stack||String(error));
