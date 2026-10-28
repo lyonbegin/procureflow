@@ -58,12 +58,21 @@ jobs:
           import {chromium,expect} from '@playwright/test';
           const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
           const page=await browser.newPage({viewport:{width:1760,height:960}});
-          const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+          const errors=[];page.on('pageerror',e=>{errors.push(String(e));console.log('PAGE_ERROR',String(e).slice(0,350))});
+          page.on('console',m=>{if(['error','warning'].includes(m.type()))console.log('PAGE_CONSOLE',m.type(),m.text().slice(0,360))});
+          page.on('requestfailed',r=>console.log('REQUEST_FAILED',r.method(),r.url().slice(0,250),r.failure()?.errorText));
+          page.on('response',r=>{if(r.status()>=400)console.log('HTTP_ERROR',r.status(),r.url().slice(0,260))});
           try {
             await page.goto('http://127.0.0.1:3000/',{timeout:60000,waitUntil:'domcontentloaded'});
             await expect(page.locator('button.flow')).toHaveCount(26,{timeout:20000});
             const iframe=page.frameLocator('#n8n-canvas');
-            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:90000}).toBeGreaterThan(20);
+            console.log('PORTAL_STATUS',await page.locator('#status').innerText());
+            await page.waitForTimeout(6000);
+            console.log('PORTAL_STATUS_AFTER_6S',await page.locator('#status').innerText());
+            console.log('NATIVE_FRAME_BODY',String(await iframe.locator('body').innerText().catch(e=>e.message)).slice(0,800));
+            console.log('INITIAL_NODES',await iframe.locator('.vue-flow__node').count());
+            await page.screenshot({path:'original-n8n-vue-canvas.png',fullPage:true});
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:35000}).toBeGreaterThan(20);
             console.log('NATIVE_PF00_NODES',await iframe.locator('.vue-flow__node').count());
             await page.locator('button.flow').nth(5).click();
             await expect(page.locator('#title')).toContainText('PF05');
