@@ -121,6 +121,9 @@ class ProcureFlowBusinessOperation {
       try{
         response=await this.helpers.httpRequest({
           method:'GET',
+          // Never follow a 3xx off the allowlisted read-only origin.
+          // n8n's HTTP helper otherwise follows redirects by default.
+          disableFollowRedirect:true,
           url:base+'/api/n8n/operational/flows/'+block.flowId+'/inspect',
           qs:{bid_no:bidNo},
           timeout:30000,
