@@ -1,7 +1,9 @@
 :{$PORT:3000} {
     encode zstd gzip
     @health path /health /healthz
-    handle @health { respond "ok" 200 }
+    handle @health {
+        respond "ok" 200
+    }
     @landing path / /index.html
     handle @landing {
         root * /srv/site
@@ -23,7 +25,9 @@
             header_up X-Forwarded-Host {host}
         }
     }
-    handle { respond "실제 업무 실행과 n8n 관리자 기능은 이 테스트 포털에서 사용할 수 없습니다." 403 }
+    handle {
+        respond "실제 업무 실행과 n8n 관리자 기능은 이 테스트 포털에서 사용할 수 없습니다." 403
+    }
     header {
         X-Content-Type-Options nosniff
         Referrer-Policy no-referrer
