@@ -93,6 +93,11 @@ try{
   const operationControl=page.getByTestId('parameter-input-operationId');
   await operationControl.waitFor({timeout:20000});
   await record('real-chrome-business-operation-configuration-visible','PASS');
+  // n8n does not serialize a parameter's default until the user selects it.
+  // Exercise the actual options dropdown and persist an explicit N02 choice.
+  await operationControl.click();
+  await page.getByText('N02 · 공고번호·차수 식별',{exact:true}).last().click({timeout:15000});
+  await record('real-chrome-operationId-dropdown-selection','PASS',{operationId:'N02'});
   const close=page.getByTestId('ndv-close-button');
   if(await close.isVisible().catch(()=>false))await close.click();
 
@@ -100,7 +105,7 @@ try{
     const w=(await api('GET','/rest/workflows/'+id)).data;
     return w?.nodes?.find(isBusiness)||null;
   });
-  assert(added.parameters?.operationId==='N01','Unexpected default business operation ID '+JSON.stringify(added.parameters));
+  assert(added.parameters?.operationId==='N02','Selected operation ID not persisted '+JSON.stringify(added.parameters));
   await record('real-chrome-custom-node-server-save','PASS',{
     nodeId:added.id,type:added.type,operationId:added.parameters.operationId
   });
@@ -110,7 +115,7 @@ try{
   await nodeElement.waitFor({timeout:30000});
   const persisted=(await api('GET','/rest/workflows/'+id)).data;
   const reloaded=persisted.nodes.find(n=>n.id===added.id);
-  assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N01','Custom node lost after browser reload');
+  assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02','Custom node settings lost after browser reload');
   await record('real-chrome-custom-node-reopen-persistence','PASS',{id:added.id});
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
