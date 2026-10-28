@@ -55,7 +55,7 @@ test('all 43 candidate Business Operation HOLD paths sanitize forged upstream ap
         job_enqueued:true,worker_job_enqueued:true,bid_submitted:true,
         case_id:'synthetic-only'
       };
-      const result=vm.runInNewContext(hold.parameters.jsCode,{
+      const result=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
         $input:{first:()=>({json:hostile})}
       },{timeout:1000});
       assert.equal(result.length,1);
