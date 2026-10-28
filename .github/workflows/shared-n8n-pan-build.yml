@@ -60,7 +60,7 @@ jobs:
       - name: Install real-browser test driver
         run: |
           google-chrome --version
-          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2
+          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2 flatted@3.3.3
       - name: Real Chrome gestures, save/reload, and safe n8n execution
         timeout-minutes: 12
         run: node .github/pan-e2e/run.mjs
