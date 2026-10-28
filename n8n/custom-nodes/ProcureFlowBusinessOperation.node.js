@@ -39,13 +39,21 @@ function safeApiBase(){
   return url.origin;
 }
 function validateProvenance(body,flowId,bidNo,operationId){
-  if(body.flow_id!==flowId||body.case_id!==bidNo||body.read_only!==true||
+  if(!body||typeof body!=='object'||Array.isArray(body)||
+     body.flow_id!==flowId||body.case_id!==bidNo||body.read_only!==true||
      body.simulation_only!==false||body.actual_job_executed!==false||
+     body.automatic_bid_submission!==false||
+     body.workflow_execution_engine!=='native_n8n_only'||
      body.source_provenance!=='live_procureflow_postgresql_verified_evidence')
     throw Error('Business Operation official evidence response contract mismatch');
-  const block=body.blocks?.find(x=>x.id===operationId);
-  if(!block||block.real_data!==true||block.simulation_only!==false||
-     block.job_enqueued!==false)
+  const matches=Array.isArray(body.blocks)?
+    body.blocks.filter(x=>x&&x.id===operationId):[];
+  const expected=byId.get(operationId);
+  if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
+  const block=matches[0];
+  if(block.real_data!==true||block.simulation_only!==false||
+     block.job_enqueued!==false||block.input!==expected.input||
+     block.output!==expected.output)
     throw Error('Business Operation block/official evidence contract mismatch');
   return block;
 }
@@ -95,13 +103,23 @@ class ProcureFlowBusinessOperation {
         json:true
       });
       const inspected=validateProvenance(response,block.flowId,bidNo,operationId);
+      // Match the exact manifest feature IDs, not merely the number of rows:
+      // a foreign feature with the same row count must never be approved.
+      const features=Array.isArray(inspected.features)?inspected.features:[];
+      const expectedFeatures=new Set(block.features);
       const verified=response.official_notice_verified===true&&
          (!['PF05','PF06'].includes(block.flowId) ||
            (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&response.official_detail10.length>0))&&
          inspected.status==='verified'&&
          inspected.output_value?.evidence_verified===true&&
-         inspected.features?.length===block.features.length&&
-         inspected.features.every(x=>x.acceptance==='verified'&&x.missing_gates?.length===0);
+         inspected.output_value?.real_api_result_state==='verified'&&
+         Array.isArray(inspected.output_value?.missing_evidence_keys)&&
+         inspected.output_value.missing_evidence_keys.length===0&&
+         features.length===expectedFeatures.size&&
+         new Set(features.map(x=>x.feature_no)).size===expectedFeatures.size&&
+         features.every(x=>expectedFeatures.has(x.feature_no)&&
+           x.acceptance==='verified'&&Array.isArray(x.missing_gates)&&
+           x.missing_gates.length===0);
       const item={json:{
         ...upstream,
         schema_version:'procureflow.business-operation.v1',
