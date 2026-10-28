@@ -48,7 +48,11 @@ jobs:
             console.log('NATIVE_BASELINE',JSON.stringify({nodes:baseline,edges:originalEdges}));
             // Native nodeCreator plus real source operation, not a JSON-only append.
             await page.locator('#openNativeCreator').click();
-            await expect(f.locator('[data-test-id="node-creator"]')).toBeVisible({timeout:30000});
+            await page.waitForTimeout(2500);
+            console.log('AFTER_CREATOR_CLICK_STATUS',await page.locator('#status').innerText());
+            console.log('CREATOR_COUNT',await f.locator('[data-test-id="node-creator"]').count());
+            console.log('CREATOR_POSSIBLE',await f.locator('[data-test-id*="node-creator"], [class*="node-creator"]').count());
+            await expect(f.locator('[data-test-id="node-creator"]')).toBeVisible({timeout:9000});
             console.log('NODE_CREATOR_OPEN_PASS');
             await page.keyboard.press('Escape');
             await page.locator('#addSafeNoOp').click();
