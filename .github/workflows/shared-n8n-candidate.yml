@@ -9,6 +9,7 @@ on:
       - 'n8n/source-build/compile-native-topology.mjs'
       - 'n8n/custom-nodes/**'
       - '.github/pan-e2e/candidate-business.mjs'
+      - '.github/pan-e2e/mock-business-evidence.cjs'
       - '.github/workflows/shared-n8n-candidate.yml'
   workflow_dispatch:
 permissions:
