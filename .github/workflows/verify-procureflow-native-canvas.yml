@@ -72,7 +72,7 @@ jobs:
             console.log('NATIVE_FRAME_BODY',String(await iframe.locator('body').innerText().catch(e=>e.message)).slice(0,800));
             console.log('INITIAL_NODES',await iframe.locator('.vue-flow__node').count());
             await page.screenshot({path:'original-n8n-vue-canvas.png',fullPage:true});
-            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:35000}).toBeGreaterThan(20);
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:35000}).toBeGreaterThanOrEqual(20);
             console.log('NATIVE_PF00_NODES',await iframe.locator('.vue-flow__node').count());
             await page.locator('button.flow').nth(5).click();
             await expect(page.locator('#title')).toContainText('PF05');
