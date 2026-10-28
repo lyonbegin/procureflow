@@ -27,18 +27,27 @@ async function runN8n(id) {
         const raw=(stdout||'')+'\n'+(stderr||'');
         const success=!error && /"executionStatus":\s*"success"/.test(raw);
         const errorMessage=error?String(error.message).slice(0,350):null;
-        const completedIds=[];
-        // The native CLI exposes per-node runData in its serialized execution JSON.
-        const lines=raw.split('\n');
-        let runData=false,braceDepth=0;
-        for(const line of lines){
-          if(line.includes('"runData":')){runData=true;braceDepth=0}
-          if(runData && /^\s{10,}"[^"]+"\s*:\s*\[\s*$/.test(line)){
-            const name=line.trim().match(/^"([^"]+)"/)?.[1];
-            if(name && !completedIds.includes(name))completedIds.push(name);
+        // Parse actual n8n CLI runData, not arbitrary nested JSON field names.
+        function getRunData(text){
+          const marker=/"runData"\s*:\s*\{/.exec(text);
+          if(!marker)return null;
+          const start=text.indexOf('{',marker.index);
+          let depth=0,inString=false,escape=false;
+          for(let i=start;i<text.length;i++){
+            const ch=text[i];
+            if(inString){if(escape)escape=false;else if(ch==='\\\\')escape=true;else if(ch==='"')inString=false;continue}
+            if(ch==='"'){inString=true;continue}
+            if(ch==='{')depth++;
+            if(ch==='}'&&--depth===0){
+              try{return JSON.parse(text.slice(start,i+1))}catch{return null}
+            }
           }
-          if(runData && line.includes('"lastNodeExecuted"'))runData=false;
+          return null;
         }
+        const nativeRunData=getRunData(raw);
+        const immutableSource=await readFile(join('/opt/procureflow-scenarios',id+'.json'),'utf8');
+        const actualNames=new Set(JSON.parse(immutableSource).nodes.map(n=>n.name));
+        const completedIds=nativeRunData?Object.keys(nativeRunData).filter(name=>actualNames.has(name)):[];
         resolve({scenario:id,engine:'n8n-cli-2.44.6',success,error:errorMessage,
           executedNodes:completedIds,
           logTail:success?undefined:raw.slice(-1400),
