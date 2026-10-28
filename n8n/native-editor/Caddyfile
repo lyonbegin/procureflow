@@ -29,7 +29,7 @@
     # Public demo can execute only immutable S01-S10 fixtures on a private runner.
     # The runner rejects browser-supplied workflow code/URLs and enforces rate limits.
     @scenarioRunner {
-        path /api/demo-run/run/S01 /api/demo-run/run/S02 /api/demo-run/run/S03 /api/demo-run/run/S04 /api/demo-run/run/S05 /api/demo-run/run/S06 /api/demo-run/run/S07 /api/demo-run/run/S08 /api/demo-run/run/S09 /api/demo-run/run/S10 /api/demo-run/scenarios
+        path /api/demo-run/run/S01 /api/demo-run/run/S02 /api/demo-run/run/S03 /api/demo-run/run/S04 /api/demo-run/run/S05 /api/demo-run/run/S06 /api/demo-run/run/S07 /api/demo-run/run/S08 /api/demo-run/run/S09 /api/demo-run/run/S10 /api/demo-run/run-step/* /api/demo-run/scenarios
         method GET POST
     }
     handle @scenarioRunner {
