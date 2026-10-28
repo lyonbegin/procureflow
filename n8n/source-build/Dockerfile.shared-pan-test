@@ -16,10 +16,10 @@ RUN git clone --depth 1 --branch "${N8N_SOURCE_REF}" \
     && test "$(git -C /src/n8n rev-parse HEAD)" = "${N8N_SOURCE_SHA}"
 # Issue #21: isolated test image with pinned shared Pan patch.
 ARG SHARED_N8N_STUDIO_COMMIT=999062f1676bdffafa852a36e6c986ef5ce7589f
-RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio \\
-    && git -C /tmp/shared-n8n-studio checkout --detach "${SHARED_N8N_STUDIO_COMMIT}" \\
-    && test "$(git -C /tmp/shared-n8n-studio rev-parse HEAD)" = "${SHARED_N8N_STUDIO_COMMIT}" \\
-    && node /tmp/shared-n8n-studio/scripts/apply-pan-patch.mjs \\
+RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio \
+    && git -C /tmp/shared-n8n-studio checkout --detach "${SHARED_N8N_STUDIO_COMMIT}" \
+    && test "$(git -C /tmp/shared-n8n-studio rev-parse HEAD)" = "${SHARED_N8N_STUDIO_COMMIT}" \
+    && node /tmp/shared-n8n-studio/scripts/apply-pan-patch.mjs \
       /src/n8n/packages/frontend/editor-ui/src/features/workflows/canvas/components/Canvas.vue
 WORKDIR /src/n8n
 # Official upstream production builder generates ./compiled from original source.
@@ -57,14 +57,10 @@ RUN chmod +x /usr/local/lib/node_modules/n8n/bin/n8n \
     && ln -s /usr/local/lib/node_modules/n8n/bin/n8n /usr/local/bin/n8n \
     && mkdir -p /home/node/.n8n \
     && chown -R node:node /home/node
-COPY --chown=node:node n8n/operational /home/node/procureflow-operational-workflows
-COPY --chown=node:node n8n/workflows /home/node/procureflow-demo-workflows
-COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-operational-manifest.json
-COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /usr/local/bin/procureflow-compile-topology
-COPY --chown=node:node n8n/source-build/test-native-topology.mjs /usr/local/bin/procureflow-test-topology
-COPY --chown=node:node n8n/source-build/bootstrap-workflows.sh /usr/local/bin/procureflow-n8n-bootstrap
-RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap
-USER root
+# Isolated smoke environment: do NOT import ProcureFlow PF/S workflows, credentials,
+# production Redis/DB connections or run ProcureFlow bootstrap scripts.
+RUN mkdir -p /home/node/.n8n && chown -R node:node /home/node/.n8n
+USER node
 EXPOSE 5678
 ENTRYPOINT ["tini", "--"]
-CMD ["/usr/local/bin/procureflow-n8n-bootstrap"]
+CMD ["n8n", "start"]
