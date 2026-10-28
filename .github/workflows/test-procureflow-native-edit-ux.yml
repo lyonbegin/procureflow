@@ -1,0 +1,134 @@
+name: ProcureFlow native n8n edit UX - actual Chrome interactions
+on:
+  push:
+    branches: [feat/n8n-native-editable-procurement-20261028]
+    paths:
+      - n8n/native-editor/**
+      - .github/workflows/test-procureflow-native-edit-ux.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-edit-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright and verify Chrome
+        run: |
+          npm install --no-audit --no-fund --no-save @playwright/test
+          google-chrome --version
+      - name: Run actual n8n Vue create/move/connect/delete/save/reload test
+        run: |
+          node --input-type=module <<'NODE'
+          import {chromium,expect} from '@playwright/test';
+          const base='https://procureflow-n8n-native-canvas-production.up.railway.app/';
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const context=await browser.newContext({viewport:{width:1900,height:1100},acceptDownloads:true});
+          const page=await context.newPage();
+          const savedKey='procureflow-native-edit-v1:scenarios/S01.json';
+          const errors=[];
+          page.on('pageerror',e=>{console.log('PAGE_ERROR',String(e).slice(0,400));errors.push(String(e))});
+          page.on('response',r=>{if(r.status()>=400&&r.url().includes('/workflows/demo'))console.log('NATIVE_ROUTE_HTTP_ERROR',r.status(),r.url())});
+          try{
+            await page.goto(base,{waitUntil:'domcontentloaded',timeout:60000});
+            await expect(page.locator('button.flow')).toHaveCount(26,{timeout:30000});
+            await expect(page.locator('#addSafeNoOp')).toBeVisible({timeout:20000});
+            await page.locator('button.flow').nth(16).click(); // S01
+            await expect(page.locator('button.flow').nth(16)).toHaveClass(/active/);
+            const f=page.frameLocator('#n8n-canvas');
+            const nodes=f.locator('.vue-flow__node');
+            const edges=f.locator('.vue-flow__edge');
+            await expect.poll(async()=>nodes.count(),{timeout:100000}).toBeGreaterThanOrEqual(18);
+            const baseline=await nodes.count();
+            const originalEdges=await edges.count();
+            console.log('NATIVE_BASELINE',JSON.stringify({nodes:baseline,edges:originalEdges}));
+            // Native nodeCreator plus real source operation, not a JSON-only append.
+            await page.locator('#openNativeCreator').click();
+            await expect(f.locator('[data-test-id="node-creator"]')).toBeVisible({timeout:30000});
+            console.log('NODE_CREATOR_OPEN_PASS');
+            await page.keyboard.press('Escape');
+            await page.locator('#addSafeNoOp').click();
+            await expect(nodes).toHaveCount(baseline+1,{timeout:30000});
+            await expect(page.locator('#status')).toContainText('추가 호출 성공',{timeout:10000});
+            console.log('NATIVE_ADD_1_PASS');
+            await page.locator('#addSafeNoOp').click();
+            await expect(nodes).toHaveCount(baseline+2,{timeout:30000});
+            console.log('NATIVE_ADD_2_PASS');
+            await page.locator('#saveDraft').click();
+            await expect(page.locator('#status')).toContainText('초안 저장 성공',{timeout:25000});
+            const first=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)||'null'),savedKey);
+            if(!first || first.nodes.length!==baseline+2)throw Error('Snapshot node count incorrect: '+first?.nodes?.length);
+            const newNodes=first.nodes.filter(n=>n.type==='n8n-nodes-base.noOp');
+            if(newNodes.length<2)throw Error('Native NoOp not serialized');
+            const firstId=newNodes.at(-2).id,secondId=newNodes.at(-1).id;
+            const pos0=newNodes.at(-2).position;
+            console.log('NATIVE_SAVE_PASS',firstId,secondId,JSON.stringify(pos0));
+            // Native VueFlow drag: test actual saved coordinates, not just CSS animation.
+            const dragNode=nodes.filter({has:f.locator('.node-view-wrapper')}).filter({hasText:newNodes.at(-2).name}).first();
+            const locate=nodes.locator('[data-test-id="canvas-node"]').count();
+            const nodeById=f.locator('.vue-flow__node').filter({hasText:newNodes.at(-2).name}).first();
+            await nodeById.scrollIntoViewIfNeeded();
+            let rect=await nodeById.boundingBox();
+            if(!rect)throw Error('NoOp not visible for dragging');
+            await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);
+            await page.mouse.down();
+            await page.mouse.move(rect.x+rect.width/2+145,rect.y+rect.height/2+95,{steps:14});
+            await page.mouse.up();
+            await page.locator('#saveDraft').click();
+            await expect(page.locator('#status')).toContainText('초안 저장 성공');
+            const second=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),savedKey);
+            const moved=second.nodes.find(n=>n.id===firstId);
+            if(!moved || (moved.position[0]===pos0[0]&&moved.position[1]===pos0[1]))throw Error('Dragged native node coordinates unchanged');
+            console.log('NATIVE_DRAG_PASS',JSON.stringify({before:pos0,after:moved.position}));
+            // Real VueFlow connection source-handle to target-handle (native n8n).
+            const sourceNode=f.locator('.vue-flow__node').filter({hasText:newNodes.at(-2).name}).first();
+            const targetNode=f.locator('.vue-flow__node').filter({hasText:newNodes.at(-1).name}).first();
+            const sourceHandle=sourceNode.locator('.vue-flow__handle-right').first();
+            const targetHandle=targetNode.locator('.vue-flow__handle-left').first();
+            await sourceNode.scrollIntoViewIfNeeded();
+            await expect(sourceHandle).toBeVisible({timeout:10000});
+            await expect(targetHandle).toBeVisible({timeout:10000});
+            const a=await sourceHandle.boundingBox(),b=await targetHandle.boundingBox();
+            if(!a||!b)throw Error('Native connection handles not positioned');
+            await page.mouse.move(a.x+a.width/2,a.y+a.height/2);
+            await page.mouse.down();
+            await page.mouse.move(b.x+b.width/2,b.y+b.height/2,{steps:18});
+            await page.mouse.up();
+            await page.locator('#saveDraft').click();
+            await expect(page.locator('#status')).toContainText('초안 저장 성공');
+            const connected=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),savedKey);
+            const originalName=newNodes.at(-2).name,targetName=newNodes.at(-1).name;
+            const actual=(connected.connections[originalName]?.main||[]).flat().some(c=>c.node===targetName);
+            if(!actual)throw Error('VueFlow edge not saved in official n8n connections: '+originalName+' -> '+targetName);
+            console.log('NATIVE_CONNECT_PASS',originalName,targetName);
+            // Native keyboard deletion of selected test node (source editor's history).
+            await targetNode.click();
+            await page.keyboard.press('Delete');
+            await expect(nodes).toHaveCount(baseline+1,{timeout:20000});
+            await page.locator('#saveDraft').click();
+            await expect(page.locator('#status')).toContainText('초안 저장 성공');
+            const deleted=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),savedKey);
+            if(deleted.nodes.some(n=>n.id===secondId))throw Error('Deleted native NoOp still in serialized workflow');
+            console.log('NATIVE_DELETE_PASS');
+            // Browser-local draft survives a full page reload, no service account needed.
+            await page.reload({waitUntil:'domcontentloaded'});
+            await expect(page.locator('button.flow').nth(16)).toHaveClass(/active/,{timeout:30000});
+            await expect.poll(async()=>nodes.count(),{timeout:90000}).toBe(baseline+1);
+            await expect(page.locator('#status')).toContainText('저장된 초안 복원',{timeout:12000});
+            console.log('NATIVE_RESTORE_PASS');
+            await page.screenshot({path:'procureflow-native-editor-after-edit.png',fullPage:true});
+            // Do not leave a persisted draft in a user's browser context.
+            await page.evaluate(key=>localStorage.removeItem(key),savedKey);
+            console.log('PROCUREFLOW_NATIVE_EDITOR_CRUD_MOVE_EDGE_SAVE_RELOAD_PASS');
+          }finally{await browser.close()}
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: procureflow-native-editor-real-chrome-proof
+          path: procureflow-native-editor-after-edit.png
+          if-no-files-found: ignore
