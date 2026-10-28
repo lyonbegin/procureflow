@@ -64,6 +64,12 @@ jobs:
       - name: Real Chrome gestures, save/reload, and safe n8n execution
         timeout-minutes: 12
         run: node .github/pan-e2e/run.mjs
+      - name: Real Chrome S01-S10 safe isolated scenario execution
+        if: always()
+        timeout-minutes: 20
+        run: |
+          docker ps --format '{{.Names}}' | grep -qx pf-pan-smoke
+          node .github/pan-e2e/scenarios.mjs
       - name: Save isolated runtime logs
         if: always()
         run: docker logs pf-pan-smoke > isolated-n8n.log 2>&1 || true
