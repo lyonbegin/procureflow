@@ -32,6 +32,10 @@ function safeApiBase(){
   const internal=url.hostname.endsWith('.railway.internal')&&process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1';
   const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
   const publicHost=url.protocol==='https:'&&url.hostname==='procureflow-api-production.up.railway.app';
+  // Synthetic fixture mode is loopback-only: never allow a test-mode node to
+  // contact a Railway production/internal API, even if its origin is allowlisted.
+  if(process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1'&&!local)
+    throw Error('Business Operation test mode requires isolated loopback origin');
   if(!(publicHost||internal||local)||url.username||url.password||url.search||url.hash||url.pathname!=='/')
     throw Error('Business Operation read-only API origin blocked');
   if(!['https:','http:'].includes(url.protocol)||url.protocol==='http:'&&!(internal||local))
@@ -111,7 +115,8 @@ class ProcureFlowBusinessOperation {
       // a foreign feature with the same row count must never be approved.
       const features=Array.isArray(inspected.features)?inspected.features:[];
       const expectedFeatures=new Set(block.features);
-      const verified=response.source_provenance==='live_procureflow_postgresql_verified_evidence'&&
+      const verified=process.env.PROCUREFLOW_OPERATION_TEST_MODE!=='1'&&
+         response.source_provenance==='live_procureflow_postgresql_verified_evidence'&&
          response.official_notice_verified===true&&
          (!['PF05','PF06'].includes(block.flowId) ||
            (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&response.official_detail10.length>0))&&
