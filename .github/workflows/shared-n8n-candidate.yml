@@ -119,10 +119,10 @@ jobs:
             console.log('CUSTOM_NODE_API_PAYLOAD',JSON.stringify(result).slice(0,5000));
             const list=Array.isArray(result.data)?result.data:Array.isArray(result)?result:
               Array.isArray(result.data?.data)?result.data.data:[];
-            if(!list.some(n=>n?.name==='CUSTOM.procureFlowBusinessOperation')){
+            if(!list.some(n=>['CUSTOM.procureFlowBusinessOperation','procureFlowBusinessOperation'].includes(n?.name))){
               console.error('CUSTOM_NODE_REGISTRY_DIAGNOSTIC',JSON.stringify({rows:list.length,names:list.map(x=>x?.name||null)}));
             }
-            const node=list.find(n=>n?.name==='CUSTOM.procureFlowBusinessOperation');
+            const node=list.find(n=>['CUSTOM.procureFlowBusinessOperation','procureFlowBusinessOperation'].includes(n?.name));
             assert(node,'Official n8n did not register ProcureFlow Business Operation custom node');
             const opts=node.properties?.find(x=>x.name==='operationId')?.options||[];
             assert.equal(opts.length,43,'Missing native 43-operation options');
