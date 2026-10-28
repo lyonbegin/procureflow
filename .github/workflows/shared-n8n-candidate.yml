@@ -52,6 +52,9 @@ jobs:
             --env N8N_PERSONALIZATION_ENABLED=false \
             --env N8N_TEMPLATES_ENABLED=false \
             --env N8N_RUNNERS_ENABLED=false \
+            --env PROCUREFLOW_BUSINESS_READONLY_ENABLED=1 \
+            --env PROCUREFLOW_OPERATION_TEST_MODE=1 \
+            --env PROCUREFLOW_OPERATION_API_BASE=http://127.0.0.1:5855/ \
             pf-shared-studio-candidate:${{ github.sha }}
           for i in $(seq 1 180); do
             if curl --fail --silent http://127.0.0.1:5681/healthz/readiness; then
@@ -155,6 +158,18 @@ jobs:
             }));
           })().catch(e=>{console.error(e);process.exitCode=1;});
           NODE
+      - name: Start strictly local synthetic HOLD evidence fixture (no real G2B)
+        run: |
+          docker cp .github/pan-e2e/mock-business-evidence.cjs pf-shared-candidate:/tmp/mock-business-evidence.cjs
+          docker exec -d --user node pf-shared-candidate node /tmp/mock-business-evidence.cjs
+          for i in $(seq 1 30); do
+            if docker exec pf-shared-candidate node -e "fetch('http://127.0.0.1:5855/api/n8n/operational/flows/PF01/inspect?bid_no=R26BK01787028').then(r=>r.json()).then(x=>{if(x.source_provenance!=='isolated_synthetic_test_evidence'||x.simulation_only!==true)process.exit(1)}).catch(()=>process.exit(1))"; then
+              echo ISOLATED_SYNTHETIC_HOLD_FIXTURE_PASS
+              break
+            fi
+            if [ "$i" -eq 30 ]; then exit 1; fi
+            sleep 1
+          done
       - name: Install real Google Chrome test driver
         run: |
           google-chrome --version
