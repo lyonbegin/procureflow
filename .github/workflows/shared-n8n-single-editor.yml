@@ -1,0 +1,43 @@
+name: Official shared n8n single editor migration (isolated)
+on:
+  pull_request:
+    paths:
+      - 'n8n/native-preview/**'
+      - 'n8n_landing.py'
+      - 'main.py'
+      - 'tests/test_n8n_only_migration.py'
+      - 'tests/test_shared_n8n_redirect.mjs'
+      - '.github/workflows/shared-n8n-single-editor.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  legacy-editor-retirement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Old Vue Flow app must be physically removed
+        run: |
+          test ! -f n8n/native-preview/src/main.js
+          test ! -f n8n/native-preview/src/style.css
+          test ! -f n8n/native-preview/index.html
+          test ! -f n8n/native-preview/package.json
+          ! grep -E 'vite build|vue-flow|VueFlow|npm install|workflows/operational' n8n/native-preview/Dockerfile
+      - name: Browser-independent real HTTP redirect regression
+        run: node --test tests/test_shared_n8n_redirect.mjs
+      - name: Python routes compile correctly
+        run: python -m py_compile main.py n8n_landing.py
+  n8n-api-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install project backend dependencies and test runner only (no browser)
+        run: python -m pip install -r requirements.txt pytest httpx
+      - name: Verify no React DAG routes and one n8n editor only
+        run: python -m pytest -q tests/test_n8n_only_migration.py
