@@ -35,7 +35,7 @@ async function runN8n(id) {
           let depth=0,inString=false,escape=false;
           for(let i=start;i<text.length;i++){
             const ch=text[i];
-            if(inString){if(escape)escape=false;else if(ch==='\\\\')escape=true;else if(ch==='"')inString=false;continue}
+            if(inString){if(escape)escape=false;else if(ch==='\\')escape=true;else if(ch==='"')inString=false;continue}
             if(ch==='"'){inString=true;continue}
             if(ch==='{')depth++;
             if(ch==='}'&&--depth===0){
