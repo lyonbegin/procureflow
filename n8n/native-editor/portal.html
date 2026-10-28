@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · n8n 원본 Vue 노드 캔버스</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101e2b;color:#eaf5fb;font:14px system-ui,"Malgun Gothic",sans-serif}
+header{padding:14px 20px;background:#183246;border-bottom:1px solid #38566b;display:flex;align-items:center;justify-content:space-between;gap:18px}
+h1{margin:0;font-size:18px}small{color:#a5ccde}a{color:#9bd8f8}
+main{height:calc(100vh - 70px);display:flex}aside{background:#11283a;flex:0 0 280px;overflow:auto;padding:16px 10px}
+aside h2{font-size:13px;color:#9ddbd6;margin:12px 10px}button.flow{display:block;border:0;border-radius:6px;cursor:pointer;background:transparent;color:#dceaf1;width:100%;text-align:left;padding:10px;font:inherit}
+button.flow.active{background:#23616a}button.flow:hover{background:#29495a}
+section{flex:1;display:flex;flex-direction:column;min-width:0}
+.toolbar{padding:10px 16px;border-bottom:1px solid #35516a;display:flex;align-items:center;justify-content:space-between;gap:12px}
+#status{font-size:12px;color:#bad3de}iframe{border:0;flex:1;width:100%;background:#fff}
+button.export{padding:8px 12px;border:0;border-radius:5px;background:#a8e5d4;color:#19342f;cursor:pointer}
+@media(max-width:740px){aside{flex-basis:135px;padding:8px 3px}.toolbar{flex-wrap:wrap}header{padding:10px}h1{font-size:14px}}
+</style></head><body>
+<header><div><h1>조달청 자동화 · n8n 공식 Vue 노드 캔버스</h1><small>PF00~PF15 · S01~S10 / 원본 소스 기반 읽기 전용 테스트</small></div><a href="https://procureflow-api-production.up.railway.app/" target="_blank" rel="noopener">조달청 자동화 메인</a></header>
+<main><aside><h2>운영 플로우 (16)</h2><div id="ops"></div><h2>시나리오 (10)</h2><div id="cases"></div></aside>
+<section><div class="toolbar"><div><strong id="title">원본 n8n 노드 로딩</strong><div id="status">편집기 초기화 중</div></div><button class="export" id="download">원본 JSON 내려받기</button></div>
+<iframe id="n8n-canvas" title="원본 n8n VueFlow 노드 캔버스" src="/workflows/demo?canExecute=false" referrerpolicy="same-origin"></iframe>
+</section></main>
+<script>
+const flows=[["operational/PF00.json","PF00 · 전체 업무 오케스트레이터"],["operational/PF01.json","PF01 · 공고 상시 수집"],["operational/PF02.json","PF02 · 발주 등록·1차 심사"],["operational/PF03.json","PF03 · 분석 작업 할당"],["operational/PF04.json","PF04 · 공식 공고·첨부 처리"],["operational/PF05.json","PF05 · 10년 개찰·낙찰 전수"],["operational/PF06.json","PF06 · 발주기관·경쟁업체 분석"],["operational/PF07.json","PF07 · 입찰참가자격 검증"],["operational/PF08.json","PF08 · 공급업체·인력 조사"],["operational/PF09.json","PF09 · 원가·가격전략"],["operational/PF10.json","PF10 · 제안서·서류"],["operational/PF11.json","PF11 · 독립 원본·결과 감사"],["operational/PF12.json","PF12 · 입찰 참여 의사결정"],["operational/PF13.json","PF13 · 정정·분석버전 갱신"],["operational/PF14.json","PF14 · 전역 API·Worker 자원 통제"],["operational/PF15.json","PF15 · 장애 복구·상태 대조"],["scenarios/S01.json","S01 · 가상 실행 테스트"],["scenarios/S02.json","S02 · 가상 실행 테스트"],["scenarios/S03.json","S03 · 가상 실행 테스트"],["scenarios/S04.json","S04 · 가상 실행 테스트"],["scenarios/S05.json","S05 · 가상 실행 테스트"],["scenarios/S06.json","S06 · 가상 실행 테스트"],["scenarios/S07.json","S07 · 가상 실행 테스트"],["scenarios/S08.json","S08 · 가상 실행 테스트"],["scenarios/S09.json","S09 · 가상 실행 테스트"],["scenarios/S10.json","S10 · 가상 실행 테스트"]];
+const frame=document.getElementById('n8n-canvas'),title=document.getElementById('title'),status=document.getElementById('status');
+let ready=false,chosen=0;
+const buttons=flows.map(([path,label],i)=>{
+ const b=document.createElement('button');b.className='flow';b.textContent=label;b.type='button';b.onclick=()=>select(i);
+ (i<16?document.getElementById('ops'):document.getElementById('cases')).appendChild(b);return b;
+});
+async function select(i){
+ chosen=i;buttons.forEach((b,j)=>b.classList.toggle('active',i===j));title.textContent=flows[i][1];
+ try{
+  const r=await fetch('/demo-data/'+flows[i][0],{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
+  const workflow=await r.json();if(!Array.isArray(workflow.nodes)||!workflow.connections)throw Error('잘못된 워크플로 JSON');
+  if(i!==chosen)return;
+  if(!ready){status.textContent='원본 n8n Vue 초기화 중';return}
+  frame.contentWindow.postMessage(JSON.stringify({command:'openWorkflow',workflow:{...workflow,active:false},canOpenNDV:true,suppressNotifications:true}),location.origin);
+  status.textContent='원본 노드 '+workflow.nodes.length+'개 · 실제 실행과 수정은 이 테스트 화면에서 차단됩니다.';
+ }catch(e){status.textContent='로드 오류: '+String(e.message||e)}
+}
+window.addEventListener('message',e=>{
+ if(e.origin!==location.origin||e.source!==frame.contentWindow)return;
+ let d;try{d=typeof e.data==='string'?JSON.parse(e.data):e.data}catch{return}
+ if(d?.command==='n8nReady'){ready=true;select(chosen)}
+ if(d?.command==='error')status.textContent='원본 n8n 오류: '+d.message;
+});
+document.getElementById('download').onclick=async()=>{
+ const [file]=flows[chosen];const r=await fetch('/demo-data/'+file);if(!r.ok){status.textContent='파일 다운로드 실패';return}
+ const u=URL.createObjectURL(new Blob([JSON.stringify(await r.json(),null,2)],{type:'application/json'}));
+ const a=document.createElement('a');a.href=u;a.download=file.split('/').pop();a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+};
+select(0);
+</script></body></html>
