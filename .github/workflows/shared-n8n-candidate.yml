@@ -62,6 +62,47 @@ jobs:
           done
           docker logs pf-shared-candidate || true
           exit 1
+      - name: Verify Business Operation native n8n node registration and 43 UI choices
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const base='http://127.0.0.1:5681';
+          let cookie='';
+          async function request(method,path,data){
+            const res=await fetch(base+path,{method,headers:{
+              ...(cookie?{Cookie:cookie}:{}),
+              ...(data!==undefined?{'Content-Type':'application/json'}:{})
+            },...(data!==undefined?{body:JSON.stringify(data)}:{})});
+            const raw=res.headers.getSetCookie?.()||[res.headers.get('set-cookie')||''];
+            for(const v of raw){
+              const m=v.match(/n8n-auth=[^;]+/);
+              if(m)cookie=m[0];
+            }
+            const body=await res.json().catch(()=>({}));
+            if(!res.ok)throw Error(method+' '+path+' HTTP '+res.status()+' '+JSON.stringify(body).slice(0,350));
+            return body;
+          }
+          (async()=>{
+            const settings=await request('GET','/rest/settings');
+            if(settings.data?.userManagement?.showSetupOnFirstLoad){
+              await request('POST','/rest/owner/setup',
+                {email:'candidate@example.invalid',firstName:'Candidate',lastName:'Test',password:'CandidatePass123!'});
+            }
+            await request('POST','/rest/login',
+              {emailOrLdapLoginId:'candidate@example.invalid',password:'CandidatePass123!'});
+            const result=await request('POST','/rest/node-types',
+              {nodeInfos:[{name:'CUSTOM.procureFlowBusinessOperation',version:1}]});
+            const list=Array.isArray(result.data)?result.data:Array.isArray(result)?result:[];
+            const node=list.find(n=>n?.name==='CUSTOM.procureFlowBusinessOperation');
+            assert(node,'Official n8n did not register ProcureFlow Business Operation custom node');
+            const opts=node.properties?.find(x=>x.name==='operationId')?.options||[];
+            assert.equal(opts.length,43,'Missing native 43-operation options');
+            assert.deepEqual(node.outputNames,['success','hold_or_error']);
+            console.log('OFFICIAL_N8N_BUSINESS_OPERATION_REGISTERED',JSON.stringify({
+              type:node.name,operations:opts.length,ports:node.outputNames
+            }));
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          NODE
       - name: Inspect actual isolated SQLite workflow imports via native n8n CLI
         run: |
           docker exec --user node pf-shared-candidate n8n export:workflow --all --output=/tmp/pf-candidate-workflows.json
