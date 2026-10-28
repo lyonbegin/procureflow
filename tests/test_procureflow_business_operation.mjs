@@ -50,6 +50,9 @@ test('disallow any external URL, credentials, nonselected case, or unapproved mo
   assert.throws(()=>safeApiBase(),/blocked/);
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
   assert.equal(safeApiBase(),'http://127.0.0.1:58491');
+  process.env.PROCUREFLOW_OPERATION_API_BASE='https://procureflow-api-production.up.railway.app';
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
   process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='0';
   await assert.rejects(()=>new ProcureFlowBusinessOperation().execute.call(ctx()),/disabled/);
   configure();
@@ -145,6 +148,16 @@ test('exact manifest feature IDs are required for VERIFIED; wrong IDs remain HOL
       output_value:{evidence_verified:true,real_api_result_state:'verified',
         missing_evidence_keys:[],verified_evidence_keys:['official_notice']}}]});
   const instance=new ProcureFlowBusinessOperation();
+  // A fixture that falsely labels itself as live must NEVER produce VERIFIED
+  // while the process is in isolated test mode.
+  const spoofed=await instance.execute.call(ctx(getParam,async()=>inspect([1,2])));
+  assert.equal(spoofed[0].length,0);
+  assert.equal(spoofed[1].length,1);
+  assert.equal(spoofed[1][0].json.inspection_status,'HOLD');
+  // The remaining tests use a stubbed HTTP helper, not a network request,
+  // to check the production-mode acceptance predicate independently.
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_OPERATION_API_BASE='https://procureflow-api-production.up.railway.app';
   const good=await instance.execute.call(ctx(getParam,async()=>inspect([1,2])));
   assert.equal(good[0].length,1);
   assert.equal(good[1].length,0);
