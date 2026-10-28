@@ -12,7 +12,7 @@ no credentials. The portal clearly labels this as browser-local draft storage.
 """
 from pathlib import Path
 
-root = Path("/src/packages/frontend/editor-ui/src")
+root = Path("/src/n8n/packages/frontend/editor-ui/src")
 changes = []
 
 def edit(relpath, replacements):
