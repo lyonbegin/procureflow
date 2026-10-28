@@ -76,7 +76,12 @@ export function createAdapterRegistry(manifest,catalog) {
   });
   for(const [prefix,count] of Object.entries(EXPECTED_PREFIX_COUNTS))assert(prefixes[prefix]===count,'incorrect '+prefix+' block count');
   assert(features.size===104&&REQUIRED_FEATURES.every(n=>features.has(n)),'missing one or more of 104 feature contracts');
-  for(const b of adapters)for(const successor of b.successors)assert(seen.has(successor),'unknown successor '+b.operationId+' -> '+successor);
+  const flowIds=new Set(manifest.flows.map(f=>f.id));
+  for(const b of adapters)for(const successor of b.successors){
+    const targetFlow=successor.split('.')[0];
+    assert(seen.has(successor)||flowIds.has(targetFlow),'unknown block/flow successor '+b.operationId+' -> '+successor);
+    assert(!successor.includes('.')||/^PF\d{2}\.revalidate$/.test(successor),'unsupported flow action '+successor);
+  }
   assert(ownership.size===43,'orphan ownership entries');
   const native=catalog.filter(n=>n.implementation==='native').map(n=>({kind:n.kind,type:n.nativeType}));
   const unimplemented=catalog.filter(n=>n.implementation!=='native').map(n=>({
