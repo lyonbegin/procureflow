@@ -122,6 +122,16 @@ class ProcureFlowBusinessOperation {
            x.missing_gates.length===0);
       const item={json:{
         ...upstream,
+        // Upstream payloads are untrusted. Never let an earlier node's
+        // approval/dispatch flags survive this inspection-only boundary.
+        final_decision:'HOLD',
+        manual_review_required:true,
+        workflow_status:'OFFICIAL_EVIDENCE_INSPECTION_ONLY',
+        read_only:true,
+        automatic_bid_submission:false,
+        automated_bid_submission:false,
+        actual_job_executed:false,
+        job_enqueued:false,
         schema_version:'procureflow.business-operation.v1',
         adapter:'procureflow',operation_id:operationId,
         flow_id:block.flowId,case_id:bidNo,
