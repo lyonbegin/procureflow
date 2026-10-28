@@ -394,9 +394,14 @@ def execute_one(bid_no: str, number: int, parameters: dict | None = None) -> dic
             from g2b_original_reparse import run
             result = run()
         elif action == "collect_exact_ten_digit_outcomes":
-            from g2b_exact_outcome_history import run_batch
-            result = run_batch(limit=args.get("candidate_limit", 4),
-                               opening_limit=args.get("opening_limit", 2))
+            # One bounded, resumable official 8-digit discovery month
+            # must precede the independent 10-digit original-document and
+            # actual opening/final-award checks. No new DAG engine.
+            from g2b_full_runner import historical_month_batch
+            result = historical_month_batch(
+                candidate_limit=args.get("candidate_limit", 4),
+                opening_limit=args.get("opening_limit", 2),
+                month_pages_max=2)
         elif action == "evaluate_company_eligibility":
             from g2b_bid_package import evaluate_eligibility
             result = evaluate_eligibility(bid_no)
