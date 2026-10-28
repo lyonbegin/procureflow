@@ -1,0 +1,62 @@
+name: ProcureFlow original n8n Vue canvas browser smoke
+on:
+  push:
+    branches: [feat/n8n-native-editable-procurement-20261028]
+    paths:
+      - n8n/native-editor/**
+      - .github/workflows/verify-procureflow-native-canvas.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-and-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate PF00-PF15 graph manifests, 10 scenario files, read-only boundaries
+        run: |
+          set -euo pipefail
+          test "$(find n8n/operational -maxdepth 1 -name 'PF*.json' | wc -l)" -eq 15
+          test "$(find n8n/workflows -maxdepth 1 -name 'S*.json' | wc -l)" -eq 10
+          ! grep -E -q 'basic_auth|execute:workflow|/workflow/\*' n8n/native-editor/Caddyfile
+          node --check n8n/source-build/compile-native-topology.mjs
+          grep -q 'command.*openWorkflow' n8n/native-editor/portal.html
+          echo "PROCUREFLOW_SOURCE_NATIVE_VIEWER_STATIC_PASS"
+      - name: Install Chrome automation dependency
+        run: |
+          npm install --no-audit --no-fund --no-save @playwright/test
+          command -v google-chrome
+      - name: Verify official n8n Vue nodes on deployed 26-workflow public test screen
+        run: |
+          node --input-type=module <<'NODE'
+          import {chromium,expect} from '@playwright/test';
+          const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+          const page=await browser.newPage({viewport:{width:1600,height:960}});
+          try {
+            await page.goto('https://procureflow-n8n-native-canvas-production.up.railway.app/',{timeout:60000});
+            await expect(page.locator('button.flow')).toHaveCount(26,{timeout:40000});
+            const iframe=page.frameLocator('#n8n-canvas');
+            await expect(iframe.locator('.vue-flow__node').first()).toBeVisible({timeout:90000});
+            console.log('PF00_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
+            await page.locator('button.flow').nth(5).click();
+            await expect(page.locator('#title')).toContainText('PF05');
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:60000}).toBeGreaterThanOrEqual(20);
+            console.log('PF05_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
+            await page.locator('button.flow').nth(16).click();
+            await expect(page.locator('#title')).toContainText('S01');
+            await expect.poll(async()=>iframe.locator('.vue-flow__node').count(),{timeout:60000}).toBeGreaterThanOrEqual(18);
+            console.log('S01_NATIVE_NODES',await iframe.locator('.vue-flow__node').count());
+            await page.screenshot({path:'procureflow-native-vue-original.png',fullPage:true});
+            console.log('PROCUREFLOW_ORIGINAL_N8N_VUE_26_FLOWS_PASS');
+          } finally {await browser.close()}
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: procureflow-native-vue-screenshot
+          path: procureflow-native-vue-original.png
+          if-no-files-found: ignore
