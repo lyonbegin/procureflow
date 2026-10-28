@@ -262,6 +262,17 @@ test('provider errors and untrusted evidence keys cannot leak serviceKey into na
           'https://bad.test/?token=TOP_SECRET_123','official_source']}}]};
   const result=await instance.execute.call(ctx(getParam,async()=>malicious));
   const keys=result[1][0].json.missing_evidence;
-  assert.deepEqual(keys,['official_source','invalid_evidence_key']);
+  assert.deepEqual(keys,['official_source','redacted_evidence_key']);
   assert.ok(!JSON.stringify(result).includes('TOP_SECRET_123'));
+  const identifierSecret={...malicious,
+    blocks:[{...malicious.blocks[0],output_value:{evidence_verified:false,
+      missing_evidence_keys:['TOP_SECRET_123','official_source']}}]};
+  const secretResult=await instance.execute.call(ctx(getParam,async()=>identifierSecret));
+  assert.deepEqual(secretResult[1][0].json.missing_evidence,
+    ['redacted_evidence_key','official_source']);
+  assert.ok(!JSON.stringify(secretResult).includes('TOP_SECRET_123'));
+  await assert.rejects(()=>instance.execute.call(ctx(
+    name=>name==='operationId'?'SECRET_OPERATION_ID_123':getParam(name))),
+    error=>error.message==='Unregistered Business Operation ID'&&
+      !error.message.includes('SECRET_OPERATION_ID_123'));
 });
