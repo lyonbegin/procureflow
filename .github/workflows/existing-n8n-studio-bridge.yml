@@ -1,0 +1,23 @@
+name: Existing official n8n read-only bridge — owner/auth/DB preservation
+on:
+  pull_request:
+    paths:
+      - 'n8n/studio-bridge/**'
+      - 'tests/test_studio_existing_n8n_bridge.mjs'
+      - '.github/workflows/existing-n8n-studio-bridge.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-auth-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify code contains no credentials or write/execution endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -E "method:[[:space:]]*['\"](POST|PUT|PATCH|DELETE)|/rest/owner/setup['\"]|/executions" n8n/studio-bridge/inspect-existing-n8n.mjs
+      - name: Verify owner-unclaimed and unauthenticated states are blocked without any writes
+        run: node tests/test_studio_existing_n8n_bridge.mjs
