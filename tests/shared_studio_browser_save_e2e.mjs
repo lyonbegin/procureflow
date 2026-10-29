@@ -28,6 +28,7 @@ try{
  // Reopen using the SAME anonymous cookie; verify stored version and name.
  await page.reload({waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>document.body.innerText.includes('DB 연결됨 · v1'),{timeout:20000});
+ await page.waitForFunction(expected=>document.querySelector('input[aria-label="워크플로 이름"]')?.value===expected,testName,{timeout:15000});
  assert.equal(await page.locator('input[aria-label="워크플로 이름"]').inputValue(),testName);
  assert.equal(await page.locator('.vue-flow__node').count(),35);
  assert(!await page.locator('body').innerText().then(x=>x.includes('Set up owner account')));
