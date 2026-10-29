@@ -217,6 +217,33 @@ try{
   });
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
+  // Exercise the real native n8n handle drag on BOTH custom-node outputs.
+  async function connectHandle(source,target){
+    await source.waitFor({timeout:20000});
+    await target.waitFor({timeout:20000});
+    const s=await source.boundingBox(),t=await target.boundingBox();
+    assert(s&&t,'Custom node output or target handle not visible');
+    await page.mouse.move(s.x+s.width/2,s.y+s.height/2);
+    await page.mouse.down({button:'left'});
+    await page.mouse.move(t.x+t.width/2,t.y+t.height/2,{steps:18});
+    await page.mouse.up({button:'left'});
+  }
+  const handles=nodeElement.getByTestId('canvas-node-output-handle');
+  assert(await handles.count()===2,'Custom node has fewer than two UI output handles');
+  for(const [index,targetName] of [[0,'Accepted Sink'],[1,'Hold Sink']]){
+    const target=page.locator(
+      '[data-node-name="'+targetName+'"] [data-test-id="canvas-node-input-handle"]').first();
+    await connectHandle(handles.nth(index),target);
+    await poll('custom output '+index+' saved',async()=>{
+      const w=(await api('GET','/rest/workflows/'+id)).data;
+      return w?.connections?.[added.name]?.main?.[index]?.some(
+        e=>e.node===targetName&&e.type==='main'&&e.index===0);
+    });
+    await record('real-chrome-custom-output-'+index+'-connected','PASS',{
+      outputIndex:index,target:targetName});
+  }
+  await page.screenshot({path:path.join(OUT,'03b-two-output-edges.png'),fullPage:true});
+
   await nodeElement.hover();
   await nodeElement.getByTestId('delete-node-button').click({timeout:15000});
   await poll('custom node deletion saved',async()=>{
