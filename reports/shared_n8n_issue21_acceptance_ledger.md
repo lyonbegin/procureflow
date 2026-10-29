@@ -82,3 +82,15 @@
 - **백업 제약**: 사용 가능한 Railway 연결 도구로 PostgreSQL 백업본의 존재·복구 검증을 실행하지 못했다. 따라서 백업 검증 완료로 표시하지 않음. 신중한 후속 조치를 위해 기존 이전 deployment ID를 기록: Main `73422967-bfb7-4d26-8ed4-e496fd526abe` (교체로 REMOVED), Worker 이전 성공 `4a810cd1-8a04-4fa9-bdf3-37480f2df4c1`; 옛 이미지 복구 가능성을 별도 검증하기 전에는 롤백 완료를 주장하지 않음.
 - Main 첫 시작 당시 `Detected 2 instances claiming leader role` 경고 1건을 관찰함. 배포 중 인스턴스 겹침 관련 가능성은 있으나 근본원인은 확인되지 않아 사후 관찰 필요.
 - 기능 브랜치의 문서 변경은 라이브에 재배포되지 않으며, 두 운영 서비스는 상기 커밋 SHA로 고정되어 있음.
+
+
+## 2026-10-29 — 기존 공식 편집기 진입 실패 원인 실측 (재설치·신규 계정 없음)
+
+- 사용자가 제시한 `Set up owner account`는 **기존 공용 n8n의 현재 상태**와 일치한다. 실서비스 `https://procureflow-n8n-editor-gateway-production.up.railway.app/rest/settings`에서 `userManagement.showSetupOnFirstLoad=true` (HTTP 200) 재확인.
+- 이 공용 게이트웨이의 `/setup`는 HTTP **403** (소스 `n8n/editor-proxy/Caddyfile`의 외부 최초 소유자 등록 차단), `/rest/workflows`는 HTTP **401** (인증 필요), `/healthz`는 HTTP **200**. 따라서 **게이트웨이 정상과 편집기 진입 가능은 다름**.
+- 이전부터 존재하는 시험 서비스 `procureflow-n8n-github-source-test`의 `/rest/settings`도 `showSetupOnFirstLoad=true`. 이 서비스의 **별도 지속 볼륨에 26개 워크플로를 import 한 로그가 존재한다 해도 편집기 owner 인증이 완료되었다는 증거는 아님**.
+- 운영 `n8n` Main은 `DB_POSTGRESDB_*` 및 `N8N_ENCRYPTION_KEY` 등 Postgres 설정이 있는 상태이고 시작 로그에 `n8n ready`, 과거 `Successfully imported 15 workflows`가 기록됨. 하지만 공식 소유자 `settings` 행/실제 워크플로 소유관계/DB 백업의 존재는 **도구로 SQL 조회 불가**. 지금 기록은 Postgres 연결 여부이지 기존 owner가 있었다는 증거가 아니다.
+- Railway 공개 변수/민감정보는 연결된 접근 권한에서 **이름만 제공**됨. 실제 DB 호스트·DB명·키 일치, `user`/ `settings`/ `workflow_entity`/ `shared_workflow`/ `project_relation` 원본 행과 복구 백업 비교는 **추가 권한·원본 증빙이 있어야 가능**. 이를 확인하지 않고 DB 연결을 변경하면 원래 데이터 손실 위험이 있다.
+- n8n 공식 사용자 관리 문서: n8n 1.0 이상에서 로그인 화면을 끄는 지원 설정은 없음. `n8n user-management:reset`는 기존 사용자 계정을 제거하는 명령이므로 **절대 실행 금지**.
+- [실제 공개 상태 읽기 전용 CI](https://github.com/lyonbegin/procureflow/actions/workflows/existing-n8n-editor-readiness.yml): `GET /healthz`, `/rest/settings`, `/setup`, `/rest/workflows`만 확인하고 신규 n8n/owner/DB 변경 없이 **owner 미설정이면 명시적으로 FAIL**. 이 검사가 성공하기 전에는 공용 편집기를 사용 가능하다고 보고하지 않는다.
+- **운영 수정 경계**: 임의 관리자 생성·새 계정/비밀번호·비밀번호 우회·공개 `/setup` 개방·추가 n8n 설치·DB 초기화/재연결·추측에 의한 운영 이전은 모두 금지. 우선 기존 데이터베이스 또는 복원 가능한 스냅샷에 기존 owner가 있었는지 권한 있는 읽기 전용 조사 → 발견 시 기존 owner와 워크플로 공유 관계 복원 검토. 기존 owner 부재가 실제로 확인되면 사용자의 명시적 동의하에 공식 1회 소유자 초기화 절차가 필요하다.
