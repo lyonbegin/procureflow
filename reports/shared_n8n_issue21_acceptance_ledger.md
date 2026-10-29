@@ -143,3 +143,15 @@
 - [**현재 운영 n8n owner/readiness #40966375345 — FAIL**](https://github.com/lyonbegin/procureflow/actions/runs/40966375345): `showSetupOnFirstLoad=true`, 공개 `/setup=403`, 비인증 `/rest/workflows=401` 차단 지속. 운영 DB/계정 초기화나 인증 우회 없이 실패로 유지.
 - [이번 새 HEAD `d2013b5` 공식 후보 #40966375240](https://github.com/lyonbegin/procureflow/actions/runs/40966375240), [Pan #40966375370](https://github.com/lyonbegin/procureflow/actions/runs/40966375370), [S01~S10/native #40966375337](https://github.com/lyonbegin/procureflow/actions/runs/40966375337)는 **최종 결과 확인 전 PASS 판정 금지**.
 - **남은 필수 수용:** 35종 실행 미지원 어댑터, 43개 실제 업무 핸들러/정식 payload 스키마, 공식 10년 개찰·낙찰 실데이터, 80개 디버깅 전체 런타임, 운영 owner·DB·키 호환성 및 승인. Issue Open / PR Draft·미병합 유지.
+
+
+## 2026-10-30 KST — S01~S10 안전 변환기를 **실제 공식 Chrome 드라이버에 연결** (전체 미완료)
+
+- [실제 Chrome 드라이버 연결 커밋 `49338f0`](https://github.com/lyonbegin/procureflow/commit/49338f09a4101059c66db8b054e4e5e771111fbb): `.github/pan-e2e/scenarios.mjs`의 별도·느슨한 `makeSafe()` 구현을 삭제하고, 기존 오프라인 검증된 `makeSafeScenario()`를 직접 import하여 **원본 n8n JSON을 공식 Chrome/격리 n8n에 import하기 직전** 동일 fail-closed 검사를 적용. 기존 브라우저의 원격 요청 차단도 유지.
+- [드라이버 결속 테스트 `3cb2718`](https://github.com/lyonbegin/procureflow/commit/3cb2718c42adf7ab76f921a67d3a9b1eaf03a865): 실제 Chrome 드라이버가 공용 안전 변환기를 import·호출하고 중복 구현이 없는지 검사하는 테스트 추가.
+- [CI 트리거 연결 `2558c63`](https://github.com/lyonbegin/procureflow/commit/2558c6346ad9d66ce5d3d0bc08360539bcc6ee77): Chrome 드라이버 변경 시 오프라인 S01~S10 안전성 회귀 CI가 자동 실행되도록 워크플로 경로 추가.
+- [**최신 오프라인 안전성 CI #40968291400 — SUCCESS, 실제 job 로그 28/28 PASS**](https://github.com/lyonbegin/procureflow/actions/runs/40968291400): S01~S10 원본 비활성/원격 QA POST를 로컬 Code assertion으로 변환, 자격증명·외부 호출·동적 코드·잘못된 노드/ID/이름 차단, 실제 Chrome 드라이버와 같은 변환기 사용까지 검사.
+- **공식 Google Chrome에서 S01~S10 실제 재실행:** [최신 Pan Docker/Chrome CI #40968291464](https://github.com/lyonbegin/procureflow/actions/runs/40968291464) **최종 결과 확인 전**, 오프라인 PASS를 실제 브라우저 PASS로 선판정하지 않음. 같은 SHA의 [공식 후보 #40968291774](https://github.com/lyonbegin/procureflow/actions/runs/40968291774)도 별도 검증 대상.
+- [기존 공식 운영 owner/readiness #40968291455](https://github.com/lyonbegin/procureflow/actions/runs/40968291455)는 별도 읽기 전용 게이트. 기존 owner/DB 상태가 미해결이면 FAIL 유지; 우회·초기화 금지.
+
+**최종 수용은 여전히 미완료:** 35종 실행 미지원 어댑터, 43개 실업무 핸들러·payload schema, 정확 세부품명 기준 10년 공식 개찰/낙찰 원본 전수, 디버깅 80개 런타임 전수, 운영 owner/DB 호환성·승인. 기능 브랜치만 수정. 운영 `main`, Railway 운영 서비스/DB/자격증명 및 실제 투찰 변경 없음. PR Draft·Issue Open 유지.
