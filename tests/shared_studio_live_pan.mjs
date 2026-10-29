@@ -22,9 +22,16 @@ try{
     const pane=document.querySelector('.vue-flow__pane');
     const node=document.querySelector('.vue-flow__node[data-id="pf05-5"]');
     if(!viewport||!pane||!node)throw Error('Required native Vue Flow DOM missing');
-    const matrix=new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
-    return {transform:getComputedStyle(viewport).transform,x:matrix.m41,y:matrix.m42,
-      scale:matrix.m11,nodeStyle:node.getAttribute('style')||'',
+    // Vue Flow moves its TRANSFORMATION PANE, not necessarily .vue-flow__viewport.
+    // Measure both so a non-moving wrapper cannot produce false PASS or FAIL.
+    const transformPane=document.querySelector('.vue-flow__transformationpane');
+    const coord=el=>{
+      if(!el)return null;
+      const matrix=new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      return {css:getComputedStyle(el).transform,x:matrix.m41,y:matrix.m42,scale:matrix.m11};
+    };
+    return {viewport:coord(viewport),transformationpane:coord(transformPane),
+      nodeStyle:node.getAttribute('style')||'',
       nodeCount:document.querySelectorAll('.vue-flow__node').length};
   });
   const before=await inspect();
@@ -46,14 +53,20 @@ try{
   await page.mouse.up({button:'left'});
   await page.waitForTimeout(450);
   const after=await inspect();
-  const dx=after.x-before.x,dy=after.y-before.y;
-  const result={url,before,after,dragStart:point,intendedDelta:{x:140,y:75},actualDelta:{x:dx,y:dy},
+  const elements=['transformationpane','viewport'];
+  const shifts=elements.filter(k=>before[k]&&after[k]).map(k=>({
+    element:k,dx:after[k].x-before[k].x,dy:after[k].y-before[k].y,
+    scaleBefore:before[k].scale,scaleAfter:after[k].scale
+  }));
+  const changed=shifts.find(x=>Math.abs(x.dx)>15||Math.abs(x.dy)>15);
+  const result={url,before,after,dragStart:point,intendedDelta:{x:140,y:75},
+    observedTransforms:shifts,changedElement:changed?.element||null,
     logicalNodePositionUnchanged:before.nodeStyle===after.nodeStyle,
     noPageErrors:errors.length===0,errors};
   await page.screenshot({path:'shared-studio-live-pan-artifacts/live-PF05-pan-after.png',fullPage:true});
   await writeFile('shared-studio-live-pan-artifacts/pan-verdict.json',JSON.stringify(result,null,2));
   console.log('PROCUREFLOW_SHARED_STUDIO_LIVE_PAN_VERDICT',JSON.stringify(result));
-  assert(Math.abs(dx)>15||Math.abs(dy)>15,'Blank canvas left mouse drag did NOT change viewport');
+  assert(changed,'Blank canvas left mouse drag did NOT change either the transformationpane or viewport');
   assert.equal(before.nodeStyle,after.nodeStyle,'Logical node moved while dragging blank canvas');
   assert.equal(before.nodeCount,35);
   assert.equal(after.nodeCount,35);
