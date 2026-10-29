@@ -1,0 +1,54 @@
+# ProcureFlow uses EXACTLY the same shared-n8n-studio project as Investment.
+# No n8n server, no n8nio/n8n image, no owner creation, no API/Worker execution.
+# Reuses one already-existing ProcureFlow canvas service (no extra n8n).
+FROM node:22-alpine AS topology
+WORKDIR /work
+COPY n8n/operational_manifest.json /work/procureflow-operational-manifest.json
+COPY n8n/operational/ /work/procureflow-operational-workflows/
+COPY n8n/workflows/ /work/procureflow-demo-workflows/
+COPY n8n/source-build/compile-native-topology.mjs /tools/compile-native-topology.mjs
+COPY n8n/source-build/test-native-topology.mjs /tools/test-native-topology.mjs
+COPY n8n/source-build/augment-business-operations.mjs /tools/augment-business-operations.mjs
+COPY n8n/source-build/verify-packaged-graph.mjs /tools/verify-packaged-graph.mjs
+RUN PF_SOURCE=/work PF_OUTPUT=/generated node /tools/compile-native-topology.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/test-native-topology.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/augment-business-operations.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/verify-packaged-graph.mjs \
+    && echo SHARED_STUDIO_PROCUREFLOW_26_FLOWS_43_GATES_PACKAGED
+
+# Shared editor is sourced from exactly one upstream commit.
+# The original n8n execution engine and credentials remain completely separate.
+FROM node:22-alpine AS ui
+RUN apk add --no-cache git
+WORKDIR /app
+ARG SHARED_STUDIO_COMMIT=18e2ce915265a5a2351383942c6f9312d802513f
+RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /app/shared \
+    && git -C /app/shared checkout --detach "$SHARED_STUDIO_COMMIT" \
+    && test "$(git -C /app/shared rev-parse HEAD)" = "$SHARED_STUDIO_COMMIT" \
+    && grep -q "PROCURE_WORKFLOWS" /app/shared/playground/src/App.vue
+RUN npm install --prefix /app/shared/playground --no-audit --no-fund
+RUN mkdir -p /app/shared/playground/public/procure-workflows/operations \
+    /app/shared/playground/public/procure-workflows/scenarios
+COPY --from=topology /generated/operational/ /app/shared/playground/public/procure-workflows/operations/
+COPY n8n/workflows/ /app/shared/playground/public/procure-workflows/scenarios/
+ENV VITE_EDITOR_PROJECT=procurement
+RUN npm --prefix /app/shared/playground run build \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/PF00.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/PF15.json \
+    && test -s /app/shared/playground/dist/procure-workflows/scenarios/S10.json
+
+# Same Python draft-storage server used by Investment, not an n8n instance.
+# Public writes are browser-cookie scoped; no job/collect/submit endpoints.
+FROM python:3.12-alpine
+RUN apk add --no-cache su-exec
+WORKDIR /app
+COPY --from=ui /app/shared/playground/dist /app/dist
+COPY --from=ui /app/shared/server/studio_server.py /app/studio_server.py
+RUN mkdir -p /data && addgroup -S studio && adduser -S studio -G studio \
+    && chown -R studio:studio /data /app
+ENV PORT=3000
+ENV STUDIO_STATIC_ROOT=/app/dist
+ENV STUDIO_WORKFLOW_DIR=procure-workflows
+ENV STUDIO_DB_PATH=/data/studio.sqlite3
+EXPOSE 3000
+CMD ["sh","-c","chown -R studio:studio /data && exec su-exec studio python3 -u /app/studio_server.py"]
