@@ -326,6 +326,14 @@ try{
     const holdSink=runData?.['Hold Runtime Sink']?.[0]?.data?.main?.[0]||[];
     if(!output||d.status==='running'||!holdSink.length)return null;
     assert(d.status==='success','Synthetic HOLD execution did not finish successfully');
+    // Per-node debugging must prove the actual native trigger INPUT path and
+    // exact HOLD OUTPUT propagation, not just an execution-level green status.
+    const triggerItems=runData?.['Manual Trigger']?.[0]?.data?.main?.[0]||[];
+    assert(triggerItems.length===1,'Native manual trigger input item missing');
+    assert(nodeRun?.data?.main?.length===2,
+      'Native Business Operation did not expose both debug output ports');
+    assert(JSON.stringify(holdSink[0]?.json)===JSON.stringify(output),
+      'Downstream HOLD sink altered the native node debug output');
     assert(!runData?.['Accepted Runtime Sink']?.length,
       'Synthetic HOLD unexpectedly executed the accepted downstream branch');
     assert(holdSink.length===1,'Synthetic HOLD downstream sink received wrong item count');
