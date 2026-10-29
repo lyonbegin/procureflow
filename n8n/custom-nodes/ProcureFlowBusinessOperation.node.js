@@ -51,7 +51,10 @@ function safeApiBase(){
     url.hostname===approvedInternalHost&&internalPortAllowed&&
     ['http','https'].includes(approvedInternalScheme)&&
     url.protocol===approvedInternalScheme+':';
-  const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
+  // Use a numeric loopback address for the synthetic fixture. A hostname such
+  // as localhost can be remapped by hosts/DNS in a runner or container and
+  // would make a purportedly isolated test call leave the test boundary.
+  const local=url.hostname==='127.0.0.1'&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
   // The public read-only origin is HTTPS on its standard port only. A
   // hostname match on a caller-selected port is not the approved API origin.
   const publicHost=url.protocol==='https:'&&url.hostname==='procureflow-api-production.up.railway.app'&&!url.port;
