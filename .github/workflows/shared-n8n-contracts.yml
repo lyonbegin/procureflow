@@ -4,6 +4,7 @@ on:
     paths:
       - 'n8n/source-build/shared-adapter-contracts.mjs'
       - 'n8n/source-build/debug-80-audit.mjs'
+      - 'n8n/source-build/inspection-envelope-schemas.mjs'
       - 'reports/workflow_81_160_implementation_20261025.md'
       - 'n8n/operational_manifest.json'
       - '.github/workflows/shared-n8n-contracts.yml'
@@ -52,6 +53,37 @@ jobs:
             unsupported:r.unimplemented.length,runnableBusinessHandlers:0
           }));
           NODE
+      - name: Generate 43 strict read-only inspection input/output JSON Schemas
+        run: |
+          node --check n8n/source-build/inspection-envelope-schemas.mjs
+          node n8n/source-build/inspection-envelope-schemas.mjs \
+            n8n/operational_manifest.json shared-inspection-envelope-schemas.json
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const a=require('./shared-inspection-envelope-schemas.json');
+          const m=require('./n8n/operational_manifest.json');
+          assert.equal(a.count,43);
+          assert.equal(a.actualBusinessHandlersWithStrictPayloadSchemas,0);
+          assert.equal(a.scope,'READ_ONLY_INSPECTION_NOT_BUSINESS_HANDLER');
+          assert.deepEqual(new Set(a.schemas.map(x=>x.operationId)),
+            new Set(m.blocks.map(x=>x.id)));
+          for(const entry of a.schemas){
+            assert.equal(entry.actualBusinessHandler,false);
+            assert.equal(entry.inputParameters.additionalProperties,false);
+            assert.equal(entry.outputItem.additionalProperties,false);
+            assert.equal(entry.inputParameters.properties.operationId.const,entry.operationId);
+            assert.equal(entry.outputItem.properties.operation_id.const,entry.operationId);
+            assert.equal(entry.outputItem.properties.flow_id.const,entry.flowId);
+            assert.equal(entry.outputItem.properties.bid_submitted.const,false);
+            assert.equal(entry.outputItem.properties.worker_job_enqueued.const,false);
+            assert.equal(entry.outputItem.properties.actual_business_handler_executed.const,false);
+            assert.equal(entry.outputItem.properties.final_decision.const,'HOLD');
+            assert(entry.outputItem.allOf.length===2);
+            assert(entry.outputItem.required.includes('inspection_status'));
+            assert(entry.outputItem.required.includes('output'));
+          }
+          console.log('INSPECTION_43_STRICT_ENVELOPES_PASS (business handlers still 0)');
+          NODE
       - name: Audit 80 separate debugging requirements without claiming completion
         run: node n8n/source-build/debug-80-audit.mjs reports/workflow_81_160_implementation_20261025.md shared-debug-80-audit.json
       - uses: actions/upload-artifact@v4
@@ -60,4 +92,5 @@ jobs:
           name: shared-n8n-50-kind-43-block-contract-audit
           path: |
             shared-adapter-contracts.json
+            shared-inspection-envelope-schemas.json
             shared-debug-80-audit.json
