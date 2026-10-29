@@ -184,7 +184,7 @@ jobs:
           N8N_E2E_URL: http://127.0.0.1:5681
           N8N_E2E_ARTIFACTS: candidate-business-chrome-artifacts
         run: node .github/pan-e2e/candidate-business.mjs
-      - name: Verify five native debugging subchecks against real Chrome evidence (80 requirements remain open)
+      - name: Verify seven narrow native debugging subchecks against real Chrome evidence (80 requirements remain open)
         run: |
           node n8n/source-build/debug-80-audit.mjs \
             reports/workflow_81_160_implementation_20261025.md \
@@ -195,9 +195,9 @@ jobs:
           const r=require('./candidate-business-chrome-artifacts/debug-80-native-runtime.json');
           assert.equal(r.total,80);
           assert.equal(r.runtimeVerified,0);
-          assert.equal(r.nativeRuntimeSubchecksObserved,5);
+          assert.equal(r.nativeRuntimeSubchecksObserved,7);
           assert.deepEqual(r.nativeRuntimeSubcheckEvidence.map(x=>x.id),
-            [127,128,144,146,150]);
+            [127,128,135,144,146,147,150]);
           assert(r.nativeRuntimeSubcheckEvidence.every(x=>
             x.requirementFullyAccepted===false));
           console.log('REAL_CHROME_DEBUG_80_SUBCHECKS_PASS',JSON.stringify({
