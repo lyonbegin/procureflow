@@ -47,3 +47,10 @@ for(const [name,mutate] of attacks){
 test('reject non-S01..S10 scenario IDs',()=>{
   assert.throws(()=>makeSafeScenario(fixture('S01'),'S11'),/Invalid synthetic scenario ID/);
 });
+
+test('official Google Chrome scenario driver must use the same fail-closed transformer',()=>{
+  const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
+  assert.match(source,/import\s*\{makeSafeScenario\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
+  assert.match(source,/makeSafeScenario\(JSON\.parse\(await readFile\(/);
+  assert.doesNotMatch(source,/function\s+makeSafe\s*\(/);
+});
