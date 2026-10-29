@@ -32,9 +32,19 @@ function safeApiBase(){
   // A Railway suffix alone would permit reading from unrelated internal services.
   // An operator must explicitly pin the exact approved internal API DNS name.
   const approvedInternalHost=process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST||'';
+  // An exact hostname still has multiple TCP services. Never let an imported
+  // workflow or environment URL select an arbitrary Railway internal port.
+  // For non-default internal ports, require a second explicit operator pin.
+  const approvedInternalPort=process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT||'';
+  const effectivePort=url.port||(url.protocol==='https:'?'443':'80');
+  const internalPortAllowed=approvedInternalPort
+    ? /^(?:[1-9][0-9]{0,4})$/.test(approvedInternalPort)&&
+      Number(approvedInternalPort)<=65535&&
+      effectivePort===approvedInternalPort
+    : !url.port;
   const internal=process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1'&&
     approvedInternalHost.endsWith('.railway.internal')&&
-    url.hostname===approvedInternalHost;
+    url.hostname===approvedInternalHost&&internalPortAllowed;
   const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
   // The public read-only origin is HTTPS on its standard port only. A
   // hostname match on a caller-selected port is not the approved API origin.
