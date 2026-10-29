@@ -31,9 +31,11 @@ jobs:
           grep -F 'procureflow-n8n-bootstrap' n8n/source-build/Dockerfile.shared-studio-candidate
           grep -F 'apply-pan-patch.mjs' n8n/source-build/Dockerfile.shared-studio-candidate
       - name: Build full official n8n 2.44.6 with pinned shared studio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          docker build --progress=plain \
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
             -f n8n/source-build/Dockerfile.shared-studio-candidate \
             -t pf-shared-studio-candidate:${{ github.sha }} . 2>&1 | tee candidate-build.log
           grep -F 'PAN_PATCH_PATCHED:' candidate-build.log
