@@ -69,6 +69,7 @@ try{
   const options=kind.properties?.find(x=>x.name==='operationId')?.options||[];
   assert(options.length===43,'Native custom node must expose 43 operation IDs');
   assert(JSON.stringify(kind.outputNames)===JSON.stringify(['success','hold_or_error']),'Native HOLD port absent');
+  assert(kind.outputs?.length===2,'Custom node must expose two physical outputs');
   await record('official-n8n-native-43-operation-registration','PASS',{count:options.length});
 
   const synthetic={
