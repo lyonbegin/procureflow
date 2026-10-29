@@ -46,7 +46,9 @@ jobs:
           cat studio-health.json
           node -e 'const v=require("./studio-health.json");if(v.status!=="ok"||v.executionEnabled!==false||v.mode!=="isolated-demo")process.exit(1)'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/rest/owner/setup)" = 405
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3031/rest/settings)" = 404
+          # The shared Studio is an SPA: unknown GET routes render index.html, not n8n REST JSON.
+          curl -fsS http://127.0.0.1:3031/rest/settings | grep -F '<div id="app"></div>'
+          ! curl -fsS http://127.0.0.1:3031/rest/settings | grep -q 'showSetupOnFirstLoad'
       - name: Verify all 26 original workflow routes and all 43 custom gate nodes
         shell: bash
         run: |
