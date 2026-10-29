@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 const base=process.env.PF_OUTPUT||'/home/node/compiled-native';
-const manifest=JSON.parse(await readFile('/home/node/procureflow-operational-manifest.json','utf8'));
+const manifest=JSON.parse(await readFile(join(process.env.PF_SOURCE||'/home/node','procureflow-operational-manifest.json'),'utf8'));
 const dir=join(base,'operational');
 const files=(await readdir(dir)).filter(x=>/^PF(?:0[0-9]|1[0-5])\.json$/.test(x)).sort();
 const check=(x,msg)=>{if(!x)throw Error('Topology invalid: '+msg)};
