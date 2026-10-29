@@ -14,7 +14,8 @@ const original={
   PROCUREFLOW_OPERATION_API_BASE:process.env.PROCUREFLOW_OPERATION_API_BASE,
   PROCUREFLOW_OPERATION_TEST_MODE:process.env.PROCUREFLOW_OPERATION_TEST_MODE,
   PROCUREFLOW_ALLOW_INTERNAL_READONLY:process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY,
-  PROCUREFLOW_APPROVED_INTERNAL_API_HOST:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST
+  PROCUREFLOW_APPROVED_INTERNAL_API_HOST:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST,
+  PROCUREFLOW_APPROVED_INTERNAL_API_PORT:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT
 };
 function configure(){
   process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='1';
@@ -22,6 +23,7 @@ function configure(){
   process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
   delete process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY;
   delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST;
+  delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT;
 }
 const getParam=(v,i)=>({operationId:'N01',bidNo:'R26BK01787028',evidenceHandling:'hold'})[v];
 const blocked={
@@ -389,6 +391,33 @@ test('Railway internal read-only origin requires exact approved hostname, never 
   assert.throws(()=>safeApiBase(),/blocked/,'lookalike host must be blocked');
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://procureflow-api.railway.internal/';
   process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
+  configure();
+});
+
+test('Railway internal inspection pins TCP port, not only DNS hostname',()=>{
+  configure();
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY='1';
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST='procureflow-api.railway.internal';
+  const host='http://procureflow-api.railway.internal';
+  process.env.PROCUREFLOW_OPERATION_API_BASE=host+':8000/';
+  assert.throws(()=>safeApiBase(),/blocked/,'unapproved nondefault port must be blocked');
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT='8000';
+  assert.equal(safeApiBase(),host+':8000');
+  process.env.PROCUREFLOW_OPERATION_API_BASE=host+':8001/';
+  assert.throws(()=>safeApiBase(),/blocked/,'another service port must be blocked');
+  process.env.PROCUREFLOW_OPERATION_API_BASE=host+':8000/';
+  for(const bad of ['08000','65536','8000 ','0','abc']){
+    process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT=bad;
+    assert.throws(()=>safeApiBase(),/blocked/,bad);
+  }
+  delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT;
+  process.env.PROCUREFLOW_OPERATION_API_BASE=host+'/';
+  assert.equal(safeApiBase(),host);
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT='8000';
+  process.env.PROCUREFLOW_OPERATION_API_BASE=host+':8000/';
   assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
   configure();
 });
