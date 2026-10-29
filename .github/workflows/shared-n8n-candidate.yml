@@ -212,7 +212,7 @@ jobs:
           const expected=Object.fromEntries(manifest.flows.map(flow=>[
             flow.id,flow.owned_blocks.length+
               (flow.id===n01Owner?2:0)+(flow.id==='PF01'?1:0)
-          ]));
+          ]).filter(([,count])=>count>0)); // PF15 owns no blocks; no HTTP GET expected
           assert.equal(stats.validReads,46,'Expected 43 + 2 real n8n runs + 1 fixture probe');
           assert.deepEqual(
             Object.fromEntries(Object.entries(stats.byFlow).sort()),
