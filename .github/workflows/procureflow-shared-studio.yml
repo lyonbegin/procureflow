@@ -34,6 +34,17 @@ jobs:
           set -euo pipefail
           docker build --progress=plain -f n8n/Dockerfile.shared-studio-editor -t pf-shared-studio-only . 2>&1 | tee shared-studio-build.log
           grep -F SHARED_STUDIO_PROCUREFLOW_26_FLOWS_43_GATES_PACKAGED shared-studio-build.log
+      - name: Round-trip all 26 n8n JSON workflows through the shared Studio adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
+          git -C /tmp/shared-n8n-studio checkout --detach 18e2ce915265a5a2351383942c6f9312d802513f
+          container_id=$(docker create pf-shared-studio-only)
+          mkdir -p /tmp/pf-workflows
+          docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
+          docker rm "$container_id"
+          node tests/shared_studio_roundtrip.mjs /tmp/shared-n8n-studio /tmp/pf-workflows | tee studio-roundtrip.log
       - name: Run standalone Studio UI server ONLY — NO n8n process
         shell: bash
         run: |
@@ -104,3 +115,4 @@ jobs:
             shared-studio-build.log
             studio-health.json
             studio.log
+            studio-roundtrip.log
