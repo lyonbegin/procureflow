@@ -4,6 +4,8 @@ on:
     paths:
       - 'n8n/studio-bridge/**'
       - 'tests/test_existing_n8n_inactive_import.mjs'
+      - 'tests/test_fixture_runner.mjs'
+      - 'n8n/scenarios.json'
       - '.github/workflows/existing-n8n-inactive-import.yml'
   workflow_dispatch:
 permissions:
@@ -23,3 +25,5 @@ jobs:
           node --check tests/test_existing_n8n_inactive_import.mjs
       - name: Test blocked owner and explicit inactive-only import
         run: node tests/test_existing_n8n_inactive_import.mjs
+      - name: Ten offline scenario traces (no network, no real G2B)
+        run: node tests/test_fixture_runner.mjs
