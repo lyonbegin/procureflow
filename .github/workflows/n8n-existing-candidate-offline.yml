@@ -1,0 +1,53 @@
+name: Existing shared n8n 26-flow candidate parity (offline)
+on:
+  pull_request:
+    paths:
+      - 'n8n/Dockerfile'
+      - 'n8n/source-build/compile-native-topology.mjs'
+      - 'n8n/source-build/augment-business-operations.mjs'
+      - 'n8n/source-build/test-native-topology.mjs'
+      - 'n8n/source-build/verify-packaged-graph.mjs'
+      - '.github/workflows/n8n-existing-candidate-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm existing n8n runtime and database remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'CMD ["n8n", "start"]' n8n/Dockerfile
+          grep -F 'N8N_CUSTOM_EXTENSIONS=/home/node/procureflow-custom-nodes' n8n/Dockerfile
+          grep -F 'verify-packaged-graph.mjs' n8n/Dockerfile
+          if grep -E '^[[:space:]]*(RUN|CMD|ENTRYPOINT)[[:space:]].*(n8n import:workflow|n8n publish:workflow|owner/setup|user-management:reset|DB_TYPE=sqlite)' n8n/Dockerfile; then
+            echo "Unexpected database or owner mutation in runtime Dockerfile"; exit 1
+          fi
+      - name: Compile Issue 21 26-flow 43-gate topology with Node only — NO n8n server
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PF_SOURCE="$RUNNER_TEMP/pf-staged-source"
+          export PF_OUTPUT="$GITHUB_WORKSPACE/pf-generated"
+          mkdir -p "$PF_SOURCE"
+          cp -r n8n/operational "$PF_SOURCE/procureflow-operational-workflows"
+          cp -r n8n/workflows "$PF_SOURCE/procureflow-demo-workflows"
+          cp n8n/operational_manifest.json "$PF_SOURCE/procureflow-operational-manifest.json"
+          node n8n/source-build/compile-native-topology.mjs
+          node n8n/source-build/test-native-topology.mjs
+          node n8n/source-build/augment-business-operations.mjs
+          node n8n/source-build/verify-packaged-graph.mjs
+          node -e 'const a=require("./pf-generated/package-audit.json"); if(a.databaseImported||a.ownerCreated||a.workflows!==26||a.nativeBusinessOperationNodes!==43) process.exit(1);'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: existing-n8n-issue21-offline-candidate
+          path: |
+            pf-generated/package-audit.json
+            pf-generated/topology-report.json
+            pf-generated/business-operation-report.json
+            pf-generated/operational/*.json
