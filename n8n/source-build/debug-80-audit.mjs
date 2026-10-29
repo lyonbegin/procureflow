@@ -90,7 +90,7 @@ if(chromeVerdictPath){
     'real-chrome-native-business-operation-fail-closed-debugging'
   ];
   const executions=executionNames.map(name=>by.get(name));
-  if(executions.some(v=>typeof v?.executionId!=='string'||!/^\\d+$/.test(v.executionId))||
+  if(executions.some(v=>typeof v?.executionId!=='string'||!/^\d+$/.test(v.executionId))||
      new Set(executions.map(v=>v.executionId)).size!==3||
      executions[0].holdSinkItemCount!==1||
      executions[1].actualBidSubmitted!==false||
