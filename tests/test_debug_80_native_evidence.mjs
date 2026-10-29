@@ -17,6 +17,10 @@ function fixture(){
   return [
     {name:'official-candidate-vue-canvas-rendered',result:'PASS'},
     {name:'real-chrome-35-unsupported-shared-kinds-not-advertised',result:'PASS',checked:35},
+    {name:'real-chrome-custom-node-palette-add',result:'PASS'},
+    {name:'real-chrome-business-operation-configuration-visible',result:'PASS'},
+    {name:'real-chrome-operationId-dropdown-selection',result:'PASS',operationId:'N02'},
+    {name:'real-chrome-evidence-handling-dropdown-selection',result:'PASS',evidenceHandling:'hold'},
     {name:'real-chrome-custom-node-server-save',result:'PASS',nodeId:'native-node-001',
       type:'CUSTOM.procureFlowBusinessOperation',operationId:'N02'},
     {name:'real-chrome-custom-node-reopen-persistence',result:'PASS',id:'native-node-001'},
@@ -27,7 +31,8 @@ function fixture(){
     {name:'real-chrome-custom-output-0-connected',result:'PASS',outputIndex:0,target:'Accepted Sink'},
     {name:'real-chrome-custom-output-1-connected',result:'PASS',outputIndex:1,target:'Hold Sink'},
     {name:'real-chrome-custom-dual-edge-reopen',result:'PASS',nodeId:'native-node-001'},
-    {name:'real-chrome-custom-node-delete-and-server-save',result:'PASS',id:'native-node-001'},
+    {name:'real-chrome-custom-node-delete-and-server-save',result:'PASS',id:'native-node-001',
+      nodeAbsent:true,danglingEdges:false},
     {name:'real-chrome-native-business-operation-synthetic-hold-execution',
       result:'PASS',executionId:'1',status:'success',outputIndex:1,acceptedSinkExecuted:false,
       holdSinkExecuted:true,holdSinkItemCount:1,bidSubmitted:false,workerJobEnqueued:false,
@@ -116,7 +121,17 @@ const attacks=[
   ['unsupported node palette must remain excluded',rows=>
     rows.find(x=>x.name==='real-chrome-35-unsupported-shared-kinds-not-advertised').checked=34],
   ['fail-closed debugging must identify failed native node',rows=>
-    rows.find(x=>x.name.includes('fail-closed-debugging')).failedNode='Unrelated Node']
+    rows.find(x=>x.name.includes('fail-closed-debugging')).failedNode='Unrelated Node'],
+  ['palette creation must have actual Chrome evidence',rows=>
+    rows.splice(rows.findIndex(x=>x.name==='real-chrome-custom-node-palette-add'),1)],
+  ['operation dropdown selection must be N02',rows=>
+    rows.find(x=>x.name==='real-chrome-operationId-dropdown-selection').operationId='N03'],
+  ['evidence handling dropdown must be hold',rows=>
+    rows.find(x=>x.name==='real-chrome-evidence-handling-dropdown-selection').evidenceHandling='stop'],
+  ['saved deletion must remove the actual node',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-delete-and-server-save').nodeAbsent=false],
+  ['saved deletion must remove inbound edges too',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-delete-and-server-save').danglingEdges=true]
 ];
 for(const [name,mutate] of attacks){
   test(name,()=>{
