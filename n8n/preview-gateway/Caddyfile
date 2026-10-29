@@ -1,6 +1,6 @@
-# Public preview gateway; the n8n app itself has NO public Railway domain.
-# Protect ALL editor, REST, and initial-owner setup paths with HTTP Basic Auth.
-# Only intended for this isolated test service. Not the production n8n gateway.
+# Shared n8n editor gateway: NO additional HTTP Basic Auth.
+# n8n maintains its own account/session authentication.
+# Never expose an unclaimed n8n initial-owner registration endpoint publicly.
 {
     auto_https off
     admin off
@@ -10,13 +10,13 @@
     handle @health {
         respond "preview-gateway-up" 200
     }
+    @owner_setup path /setup /setup/* /rest/owner/setup /rest/owner/setup/*
+    handle @owner_setup {
+        respond "n8n initial owner setup is restricted to a private operator session." 403
+    }
     handle {
-        basic_auth {
-            preview-operator {$PREVIEW_BASIC_HASH}
-        }
         reverse_proxy http://procureflow-shared-n8n-branch-pr.railway.internal:5678 {
             header_up X-Forwarded-Proto https
-            header_up X-Forwarded-Host {host}
         }
         header Cache-Control "no-store"
         header X-Content-Type-Options "nosniff"
