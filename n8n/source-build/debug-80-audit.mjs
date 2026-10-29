@@ -49,6 +49,14 @@ if(chromeVerdictPath){
         return v?.status==='error'&&v.successOutputs===0&&
           typeof v.reason==='string'&&v.reason.includes('official evidence incomplete');
       }},
+    {id:135,scope:'43 native synthetic inspection outputs checked against strict read-only envelope schemas (not real business payload schemas)',
+      names:['real-chrome-all-43-native-operations-synthetic-hold-execution'],
+      valid:()=>{
+        const v=by.get('real-chrome-all-43-native-operations-synthetic-hold-execution');
+        return v?.status==='success'&&v.nativeOperations===43&&
+          v.strictInspectionEnvelopesValidated===43&&v.holdOutputs===43&&
+          v.successOutputs===0&&v.realBusinessHandlers===0;
+      }},
     {id:144,scope:'native conditional HOLD branch, no accepted branch',
       names:['real-chrome-native-business-operation-synthetic-hold-execution'],
       valid:()=>{
@@ -68,6 +76,17 @@ if(chromeVerdictPath){
           v.strictInspectionEnvelopesValidated===43&&v.realBusinessHandlers===0&&
           v.actualBidSubmitted===false&&s?.actualBidSubmitted===false&&
           s.productionApiRequests===0;
+      }},
+    {id:147,scope:'isolated loopback HTTP mock evidence consumed by official native n8n (not a generic Mock API service)',
+      names:['real-chrome-native-business-operation-synthetic-hold-execution',
+        'no-real-business-handler-or-bid-submission'],
+      valid:()=>{
+        const v=by.get('real-chrome-native-business-operation-synthetic-hold-execution');
+        const s=by.get('no-real-business-handler-or-bid-submission');
+        return v?.status==='success'&&v.evidenceProvenance==='isolated_synthetic_test_evidence'&&
+          v.inspectionStatus==='HOLD'&&v.bidSubmitted===false&&
+          s?.syntheticNativeExecutionCount===44&&s.productionApiRequests===0&&
+          s.actualBidSubmitted===false;
       }},
     {id:150,scope:'native success/error execution-state evidence',
       names:['real-chrome-native-business-operation-synthetic-hold-execution',
