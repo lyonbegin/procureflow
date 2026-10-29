@@ -15,3 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check existing n8n Gateway authentication + real owner readiness (no writes)
         run: node tests/test_existing_n8n_editor_readiness.mjs
+      - name: Preserve redacted owner-readiness verdict (including blocked FAIL)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: existing-n8n-editor-owner-readiness-verdict
+          path: existing-n8n-readiness-artifacts/readiness-verdict.json
+          if-no-files-found: warn
