@@ -5,6 +5,19 @@
 > 조달청 통합 PR: [#24](https://github.com/lyonbegin/procureflow/pull/24) (Draft)  
 > **실제 확인된 편집기:** [PF05 — 10년 개찰·낙찰 분석](https://procureflow-n8n-native-canvas-production.up.railway.app/?workflow=operations%2FPF05.json)
 
+## 2026-10-30 후속 개발: JSON 무손실 변환·Chrome 저장 검증·엔진 연결 사전 검사
+
+**이 단락은 기존 인수인계서의 추가 변경 기록이다.** 공식 n8n의 인증 문제와 실업무 실행은 별도 미완료이며, 새 코드는 운영 Railway에 아직 재배포하지 않았다.
+
+- **공용 소스 수정:** [shared-n8n-studio PR #5](https://github.com/lyonbegin/shared-n8n-studio/pull/5) · 검증 Git SHA `bff56f8544b2f2a521ca92b125c2d9641d8269e9`. 원본에 없던 `disabled:false` 필드 추가를 방지하고 연결의 원래 type, sourceIndex, targetIndex, 멀티포트·HOLD 출력/빈 포트 및 node metadata 보존. Studio 내보내기는 계속 `active=false` 강제.
+- **26개 실제 n8n 원본 무손실 왕복 검사:** [CI #40971060236](https://github.com/lyonbegin/shared-n8n-studio/actions/runs/40971060236) **PASS**. PF00~PF15·S01~S10 전부 원본 → Vue Flow → n8n JSON 구조를 비교. PF05 Business Operation 이름·좌표 변경 후 성공/HOLD 분기 연결도 확인. 43개 비즈니스 게이트 검사.
+- **소비자 이미지 소스 핀 갱신:** `n8n/Dockerfile.shared-studio-editor`가 해당 공용 SHA를 사용하도록 코드를 변경하고 CI도 맞춤. 실제 운영 Railway는 여전히 이전 `33bce353...` 커밋에 핀되어 있으므로 **새 코드가 운영에 배포됐다고 주장하지 않음**.
+- **Chrome UI → 서버 저장 → 새로고침:** [CI #40971790335](https://github.com/lyonbegin/procureflow/actions/runs/40971790335) **PASS**. *격리 테스트 Studio/SQLite*에서 PF05 35개 노드·43개 연결 표시, 이름 수정, 실제 브라우저 `서버 저장` 클릭, `v1` 저장 확인, 새로고침 후 동일 이름 유지, 별도 브라우저는 원본 `v0` 유지. 저장본 `active=false`, 실제 업무 실행·관리자 생성 0건. **운영 서비스 SQLite에 직접 써서 검증한 것은 아님.**
+- **기존 공식 n8n 조회 전용 브리지:** `n8n/studio-bridge/inspect-existing-n8n.mjs` 및 `tests/test_studio_existing_n8n_bridge.mjs`, [CI #40971790314](https://github.com/lyonbegin/procureflow/actions/runs/40971790314) **PASS**. `GET /rest/settings`의 owner 설정 여부 확인 → 준비 완료 및 서버 측 `N8N_API_KEY`가 있을 때에만 `GET /api/v1/workflows` 목록 조회·26개 원본 후보와 이름/중복 비교. POST/PUT/PATCH/DELETE, owner 생성, n8n 임포트·게시·실행은 없음. 인증이 없으면 `BLOCKED` 판정.
+- **운영 공식 n8n 장애 확인:** 해당 게이트웨이 `/rest/settings`를 읽기 전용으로 재확인한 결과 `showSetupOnFirstLoad: true`. 관리자·DB 소유권/인증 복구 없이는 운영 엔진 실사용 미완료. 새 Studio의 로그인 없는 UI와 혼동하면 안 됨.
+
+**다음 배포/연결을 위한 필수 조건:** 운영 초안 볼륨 보존·기존 운영 owner/워크플로 목록 조회 가능성·새 공용 SHA에서 Chrome 수용검사·보안 권한 설계 확인. 새 n8n 설치, owner 초기화, 비밀번호 우회, 자동 투찰 금지.
+
 ## 1. 개발 결론 및 범위
 
 **주식 자동화가 사용하던 `lyonbegin/shared-n8n-studio` 소스의 Vue Flow 편집기와 초안 서버를 조달청 프로젝트가 재사용하도록 구현·배포했다.** 이미 있던 Railway `procureflow-n8n-native-canvas` 서비스 **한 개**의 구현을 교체했으며, 운영 중인 공식 n8n Main/Worker·PostgreSQL·Redis·기존 owner 기록은 변경하지 않았다.
