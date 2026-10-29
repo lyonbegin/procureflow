@@ -4,6 +4,7 @@ on:
     paths:
       - 'n8n/source-build/shared-adapter-contracts.mjs'
       - 'n8n/source-build/debug-80-audit.mjs'
+      - 'tests/test_debug_80_native_evidence.mjs'
       - 'n8n/source-build/inspection-envelope-schemas.mjs'
       - 'reports/workflow_81_160_implementation_20261025.md'
       - 'n8n/operational_manifest.json'
@@ -86,6 +87,8 @@ jobs:
           NODE
       - name: Audit 80 separate debugging requirements without claiming completion
         run: node n8n/source-build/debug-80-audit.mjs reports/workflow_81_160_implementation_20261025.md shared-debug-80-audit.json
+      - name: Fail-closed evidence verifier regression (forged Chrome PASS/FAIL)
+        run: node --test tests/test_debug_80_native_evidence.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
