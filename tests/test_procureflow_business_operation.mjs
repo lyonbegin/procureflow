@@ -15,7 +15,8 @@ const original={
   PROCUREFLOW_OPERATION_TEST_MODE:process.env.PROCUREFLOW_OPERATION_TEST_MODE,
   PROCUREFLOW_ALLOW_INTERNAL_READONLY:process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY,
   PROCUREFLOW_APPROVED_INTERNAL_API_HOST:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST,
-  PROCUREFLOW_APPROVED_INTERNAL_API_PORT:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT
+  PROCUREFLOW_APPROVED_INTERNAL_API_PORT:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT,
+  PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME
 };
 function configure(){
   process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='1';
@@ -24,6 +25,7 @@ function configure(){
   delete process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY;
   delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST;
   delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT;
+  delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME;
 }
 const getParam=(v,i)=>({operationId:'N01',bidNo:'R26BK01787028',evidenceHandling:'hold'})[v];
 const blocked={
@@ -418,6 +420,29 @@ test('Railway internal inspection pins TCP port, not only DNS hostname',()=>{
   process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
   process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT='8000';
   process.env.PROCUREFLOW_OPERATION_API_BASE=host+':8000/';
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
+  configure();
+});
+
+test('Railway internal inspection pins transport scheme as part of the exact origin',()=>{
+  configure();
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY='1';
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST='procureflow-api.railway.internal';
+  const http='http://procureflow-api.railway.internal';
+  const https='https://procureflow-api.railway.internal';
+  process.env.PROCUREFLOW_OPERATION_API_BASE=http+'/';
+  assert.equal(safeApiBase(),http,'default approved internal scheme is HTTP');
+  process.env.PROCUREFLOW_OPERATION_API_BASE=https+'/';
+  assert.throws(()=>safeApiBase(),/blocked/,'HTTPS cannot be silently substituted');
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME='https';
+  assert.equal(safeApiBase(),https,'explicitly approved HTTPS origin is allowed');
+  process.env.PROCUREFLOW_OPERATION_API_BASE=http+'/';
+  assert.throws(()=>safeApiBase(),/blocked/,'HTTP cannot downgrade approved HTTPS');
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME='ftp';
+  assert.throws(()=>safeApiBase(),/blocked/,'invalid scheme pin cannot approve an origin');
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME='http';
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
   assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
   configure();
 });
