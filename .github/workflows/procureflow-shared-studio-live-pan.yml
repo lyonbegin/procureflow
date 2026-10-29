@@ -1,0 +1,24 @@
+name: Existing ProcureFlow shared Studio LIVE Chrome blank Pan
+on:
+  pull_request:
+    paths:
+      - 'tests/shared_studio_live_pan.mjs'
+      - '.github/workflows/procureflow-shared-studio-live-pan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-pan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --no-save --no-audit --no-fund playwright@1.56.0
+      - run: npx playwright install --with-deps chromium
+      - name: REAL Chrome mouse drag on blank PF05 canvas of existing Railway Studio
+        run: node tests/shared_studio_live_pan.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-chrome-pf05-live-blank-pan
+          path: shared-studio-live-pan-artifacts/
