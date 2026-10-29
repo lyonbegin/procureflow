@@ -33,6 +33,11 @@ if(chromeVerdictPath){
   for(const v of verdicts){
     if(!v||typeof v.name!=='string'||by.has(v.name))
       throw Error('Duplicate or invalid real Chrome verdict');
+    // A test-run FAIL must never be hidden by seven other PASS records.
+    // Fail closed on ANY failed/incomplete native Chrome observation before
+    // attributing debugging evidence to the actual n8n execution.
+    if(v.result!=='PASS')
+      throw Error('Real Chrome verdict failed or incomplete: '+v.name);
     by.set(v.name,v);
   }
   const checks=[
