@@ -8,6 +8,7 @@ import {chromium,selectors} from 'playwright';
 import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {createInspectionEnvelopeSchemas} from '../../n8n/source-build/inspection-envelope-schemas.mjs';
 
 selectors.setTestIdAttribute('data-test-id');
 const URL=process.env.N8N_E2E_URL||'http://127.0.0.1:5681';
@@ -173,6 +174,36 @@ try{
   const reloaded=persisted.nodes.find(n=>n.id===added.id);
   assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02','Custom node settings lost after browser reload');
   await record('real-chrome-custom-node-reopen-persistence','PASS',{id:added.id});
+  // The ProcureFlow custom node itself must support the same actual Chrome
+  // drag -> n8n server autosave -> browser reload contract as native nodes.
+  const originalPosition=[...reloaded.position];
+  const dragBox=await nodeElement.boundingBox();
+  assert(dragBox,'Custom node is not visible for real Chrome drag');
+  const dragX=dragBox.x+dragBox.width*.5;
+  const dragY=dragBox.y+dragBox.height*.5;
+  await page.mouse.move(dragX,dragY);
+  await page.mouse.down({button:'left'});
+  await page.mouse.move(dragX+84,dragY+46,{steps:14});
+  await page.mouse.up({button:'left'});
+  const movedPosition=await poll('custom node drag server autosave',async()=>{
+    const w=(await api('GET','/rest/workflows/'+id)).data;
+    const p=w?.nodes?.find(n=>n.id===added.id)?.position;
+    return p&&Math.abs(p[0]-originalPosition[0])>30&&
+      Math.abs(p[1]-originalPosition[1])>20?p:null;
+  },30000);
+  await record('real-chrome-custom-node-drag-server-coordinate-save','PASS',{
+    nodeId:added.id,before:originalPosition,after:movedPosition
+  });
+  await page.reload({waitUntil:'domcontentloaded'});
+  await nodeElement.waitFor({timeout:30000});
+  const movedReload=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id);
+  assert(JSON.stringify(movedReload?.position)===JSON.stringify(movedPosition),
+    'Custom node coordinates changed on browser reopen');
+  assert(movedReload.parameters?.operationId==='N02',
+    'Custom node setting lost after coordinate move and reload');
+  await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
+    nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId
+  });
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
   await nodeElement.hover();
@@ -241,6 +272,12 @@ try{
   // fixture and EVERY native node must take the HOLD output, never success.
   const manifest=JSON.parse(await fs.readFile('n8n/operational_manifest.json','utf8'));
   assert(manifest.blocks.length===43,'43-block native runtime manifest missing');
+  const inspectionSchemas=createInspectionEnvelopeSchemas(manifest);
+  const schemaById=new Map(inspectionSchemas.schemas.map(s=>[s.operationId,s.outputItem]));
+  const manifestById=new Map(manifest.blocks.map(b=>[b.id,b]));
+  const flowOwner=new Map(manifest.flows.flatMap(f=>
+    f.owned_blocks.map(blockId=>[blockId,f.id])));
+  assert(schemaById.size===43,'43 strict inspection schemas missing');
   const allNodes=manifest.blocks.map((block,i)=>({
     id:'hold-all-'+block.id,name:'Business '+block.id,
     type:'CUSTOM.procureFlowBusinessOperation',typeVersion:1,
@@ -285,11 +322,35 @@ try{
         n.name+' unexpectedly dispatched business work');
       assert(item.evidence_provenance==='isolated_synthetic_test_evidence',
         n.name+' missing synthetic provenance');
+      // Cross-check the REAL native n8n execution output against the strict
+      // generated inspection envelope for each manifest operation. This is
+      // still synthetic HOLD verification, not a business handler acceptance.
+      const schema=schemaById.get(n.parameters.operationId);
+      const block=manifestById.get(n.parameters.operationId);
+      assert(schema&&block,n.name+' strict inspection schema missing');
+      assert(JSON.stringify(Object.keys(item).sort())===
+        JSON.stringify(Object.keys(schema.properties).sort()),
+        n.name+' emitted missing or extra output fields');
+      for(const [key,property] of Object.entries(schema.properties)){
+        if(Object.hasOwn(property,'const'))
+          assert(JSON.stringify(item[key])===JSON.stringify(property.const),
+            n.name+' strict constant mismatch: '+key);
+      }
+      assert(item.flow_id===flowOwner.get(block.id),n.name+' wrong flow owner');
+      assert(JSON.stringify(item.feature_ids)===JSON.stringify(block.features),
+        n.name+' feature contract changed');
+      assert(item.inspection_status==='HOLD'&&item.output===null,
+        n.name+' strict HOLD output must be null');
+      assert(Array.isArray(item.missing_evidence)&&
+        item.missing_evidence.every(key=>
+          schema.properties.missing_evidence.items.enum.includes(key)),
+        n.name+' unapproved evidence diagnostics');
     }
     assert(d.status==='success','43-operation native n8n run failed: '+d.status);
     return {executionId:allExecutionId,nativeOperations:allNodes.length,
       holdOutputs:allNodes.length,successOutputs:0,status:d.status,
-      realBusinessHandlers:0,actualBidSubmitted:false};
+      realBusinessHandlers:0,actualBidSubmitted:false,
+      strictInspectionEnvelopesValidated:43};
   },120000);
   await record('real-chrome-all-43-native-operations-synthetic-hold-execution',
     'PASS',allVerdict);
