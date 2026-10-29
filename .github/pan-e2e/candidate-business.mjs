@@ -243,6 +243,12 @@ try{
       outputIndex:index,target:targetName});
   }
   await page.screenshot({path:path.join(OUT,'03b-two-output-edges.png'),fullPage:true});
+  await page.reload({waitUntil:'domcontentloaded'});
+  await nodeElement.waitFor({timeout:30000});
+  const withEdges=(await api('GET','/rest/workflows/'+id)).data;
+  assert(withEdges.connections?.[added.name]?.main?.[0]?.some(e=>e.node==='Accepted Sink'),'Success edge not persisted');
+  assert(withEdges.connections?.[added.name]?.main?.[1]?.some(e=>e.node==='Hold Sink'),'Hold edge not persisted');
+  await record('real-chrome-custom-dual-edge-reopen','PASS',{nodeId:added.id});
 
   await nodeElement.hover();
   await nodeElement.getByTestId('delete-node-button').click({timeout:15000});
