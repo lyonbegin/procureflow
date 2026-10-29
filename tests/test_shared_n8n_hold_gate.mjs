@@ -53,7 +53,12 @@ test('all 43 candidate Business Operation HOLD paths sanitize forged upstream ap
         automatic_bid_submission:true,automated_bid_submission:true,
         actual_job_executed:true,actual_business_handler_executed:true,
         job_enqueued:true,worker_job_enqueued:true,bid_submitted:true,
-        case_id:'synthetic-only'
+        case_id:'synthetic-only',operation_id:'INJECTED_OP',
+        serviceKey:'PRIVATE_SERVICE_KEY_123',
+        bearerToken:'PRIVATE_BEARER_123',
+        bidder:{bankAccount:'PRIVATE_ACCOUNT_123'},
+        output:{approval:'SUBMIT',nestedSecret:'PRIVATE_NESTED_123'},
+        arbitrarySecret:'PRIVATE_ARBITRARY_123'
       };
       const result=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
         $input:{first:()=>({json:hostile})}
@@ -71,7 +76,26 @@ test('all 43 candidate Business Operation HOLD paths sanitize forged upstream ap
       assert.equal(safe.workflow_status,'OFFICIAL_EVIDENCE_NOT_VERIFIED');
       assert.equal(safe.manual_review_required,true);
       assert.equal(safe.read_only,true);
-      assert.equal(safe.case_id,'synthetic-only');
+      assert.equal(safe.case_id,null,'unapproved case ID must be discarded');
+      assert.equal(safe.bid_no,null);
+      assert.equal(safe.operation_id,null,'unowned operation ID must be discarded');
+      assert.equal(safe.flow_id,flow.id,'flow ID is generated from the manifest');
+      assert.equal(safe.output,null);
+      assert.equal(safe.schema_version,'procureflow.business-operation.hold.v1');
+      assert.ok(!JSON.stringify(result).includes('PRIVATE_'),flow.id+' secret leaked');
+      for(const key of ['serviceKey','bearerToken','bidder','arbitrarySecret'])
+        assert.equal(Object.hasOwn(safe,key),false,flow.id+' '+key);
+      // Valid, manifest-owned metadata may survive HOLD without inheriting
+      // arbitrary upstream JSON or a forged execution/approval verdict.
+      const allowedResult=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
+        $input:{first:()=>({json:{...hostile,case_id:'R26BK01787028',
+          operation_id:flow.owned_blocks[0]}})}
+      },{timeout:1000});
+      assert.equal(allowedResult[0].json.case_id,'R26BK01787028');
+      assert.equal(allowedResult[0].json.bid_no,'R26BK01787028');
+      assert.equal(allowedResult[0].json.operation_id,flow.owned_blocks[0]);
+      assert.equal(allowedResult[0].json.bid_submitted,false);
+      assert.ok(!JSON.stringify(allowedResult).includes('PRIVATE_'));
       for(const id of flow.owned_blocks){
         const name=id+' · Business Operation (공식 증빙 게이트)';
         const node=w.nodes.find(n=>n.name===name);
