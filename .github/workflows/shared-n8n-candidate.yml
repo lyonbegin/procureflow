@@ -185,6 +185,46 @@ jobs:
           N8N_E2E_URL: http://127.0.0.1:5681
           N8N_E2E_ARTIFACTS: candidate-business-chrome-artifacts
         run: node .github/pan-e2e/candidate-business.mjs
+      - name: Independently verify local synthetic HTTP traffic from real native executions
+        run: |
+          set -euo pipefail
+          # Read the isolated loopback fixture INSIDE the disposable Docker container.
+          # The response is counters only; no operating API or production database is accessed.
+          docker exec pf-shared-candidate node -e '
+            fetch("http://127.0.0.1:5855/__fixture_stats").then(async r=>{
+              if(!r.ok)throw Error("fixture stats HTTP "+r.status);
+              process.stdout.write(JSON.stringify(await r.json())+"\\n");
+            }).catch(e=>{console.error(e);process.exitCode=1})
+          ' > candidate-fixture-traffic.json
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
+          const stats=JSON.parse(fs.readFileSync('candidate-fixture-traffic.json','utf8'));
+          assert.equal(stats.schemaVersion,'procureflow.fixture-traffic.v1');
+          assert.equal(stats.rejectedRequests,0,'Unexpected method/path/bid was sent to isolated fixture');
+          assert.equal(manifest.blocks.length,43);
+          const n01Owner=manifest.flows.find(f=>f.owned_blocks.includes('N01'))?.id;
+          assert(n01Owner,'Missing N01 owner');
+          // 43-operation native Chrome run = one GET per manifest block.
+          // Additional N01 requests = single HOLD run + fail-closed error run.
+          // The startup fixture readiness probe = one additional PF01 GET.
+          const expected=Object.fromEntries(manifest.flows.map(flow=>[
+            flow.id,flow.owned_blocks.length+
+              (flow.id===n01Owner?2:0)+(flow.id==='PF01'?1:0)
+          ]));
+          assert.equal(stats.validReads,46,'Expected 43 + 2 real n8n runs + 1 fixture probe');
+          assert.deepEqual(
+            Object.fromEntries(Object.entries(stats.byFlow).sort()),
+            Object.fromEntries(Object.entries(expected).sort()),
+            'Actual local fixture HTTP reads do not match 43 manifest operations and Chrome runs'
+          );
+          console.log('ISOLATED_NATIVE_43_BLOCK_HTTP_TRAFFIC_PASS',JSON.stringify({
+            validReads:stats.validReads,rejectedRequests:stats.rejectedRequests,
+            checkedFlows:Object.keys(stats.byFlow).length,
+            claim:'local synthetic fixture only; no production API observation'
+          }));
+          NODE
       - name: Verify seven narrow native debugging subchecks against real Chrome evidence (80 requirements remain open)
         run: |
           node n8n/source-build/debug-80-audit.mjs \
@@ -216,6 +256,7 @@ jobs:
           path: |
             candidate-build.log
             candidate-version.log
+            candidate-fixture-traffic.json
             candidate-runtime.log
             candidate-workflows.json
             candidate-business-chrome-artifacts/
