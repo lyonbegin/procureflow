@@ -1,0 +1,21 @@
+name: Isolated n8n S01-S10 fixture safety regression (offline only)
+on:
+  pull_request:
+    paths:
+      - 'n8n/workflows/S*.json'
+      - '.github/pan-e2e/scenario-safety.mjs'
+      - 'tests/test_isolated_scenario_safety.mjs'
+      - '.github/workflows/shared-n8n-scenario-safety.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixture-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert all S01-S10 original workflows are inactive and local-only converted
+        run: node --test tests/test_isolated_scenario_safety.mjs
+      - name: Confirm no Railway, database, credential or live API access in this job
+        run: echo ISOLATED_SCENARIO_OFFLINE_CONTRACT_ONLY
