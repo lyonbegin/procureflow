@@ -112,6 +112,11 @@ jobs:
       - name: REAL Chrome UI edit -> SQLite save -> reload, isolate browser cookies
         shell: bash
         run: STUDIO_BASE=http://127.0.0.1:3031 node tests/shared_studio_browser_save_e2e.mjs
+      - name: Chrome S01-S02 mock stage controls and offline input-output
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/shared_studio_fixture_ui_e2e.mjs
       - name: Retain container logs for failure analysis
         if: always()
         shell: bash
