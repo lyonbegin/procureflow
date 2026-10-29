@@ -43,3 +43,10 @@
 
 **배포는 여전히 금지:** 기능 브랜치에 한정해 코드를 구현하고 합성 테스트를 통과했을 뿐, 공식 API 키·운영 DB·실 Worker의 121개월 실제 결과와 최종 개찰/낙찰 원본은 미검증이다.
 
+
+
+## 2026-10-29 — Railway 내부 read-only 포트 pin 회귀
+
+- [기능 브랜치 보안 패치](https://github.com/lyonbegin/procureflow/commit/3b46c74f57e594d4b394af58550f209a363fa8c9): 기존 정확한 `PROCUREFLOW_APPROVED_INTERNAL_API_HOST` 검증에 **TCP 포트 검증**을 추가. 내부 서비스의 기본 포트만 별도 설정 없이 허용하며, 비표준 포트를 쓰려면 `PROCUREFLOW_APPROVED_INTERNAL_API_PORT`에 숫자 포트를 명시적으로 고정해야 합니다. 이 환경변수는 기능 브랜치 후보 코드의 읽기 전용 검사에만 해당하며 운영 환경은 수정하지 않았습니다.
+- [회귀 테스트](https://github.com/lyonbegin/procureflow/commit/d80dfa0df8def19bce34289ff8ab7eab6ab42e6a): 호스트 일치·포트 불일치, 포트 미승인, 잘못된 포트 설정, 시험 모드 내부 접근 차단을 검증합니다. [동일 SHA CI](https://github.com/lyonbegin/procureflow/actions/runs/40828211477)는 별도 최종 확인이 필요하며 **이 기록 시점 PASS로 선판정하지 않습니다**.
+- 35종 실행 매핑, 43개 실제 업무 핸들러, 공식 10년 원본 데이터, 80개 디버깅 전수 및 운영 호환성·승인은 계속 미완료입니다. Issue Open/PR Draft, 운영 main·Railway DB·자격증명·실제 투찰 불변.
