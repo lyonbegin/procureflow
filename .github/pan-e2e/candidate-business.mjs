@@ -74,9 +74,19 @@ try{
 
   const synthetic={
     name:'Issue21 Candidate Chrome Business Operation Palette',
-    nodes:[{id:'candidate-manual-01',name:'Manual Trigger',
-      type:'n8n-nodes-base.manualTrigger',typeVersion:1,
-      position:[120,150],parameters:{}}],
+    nodes:[
+      {id:'candidate-manual-01',name:'Manual Trigger',
+       type:'n8n-nodes-base.manualTrigger',typeVersion:1,
+       position:[120,530],parameters:{}},
+      {id:'candidate-success-sink',name:'Accepted Sink',
+       type:'n8n-nodes-base.code',typeVersion:2,
+       position:[650,70],parameters:{mode:'runOnceForAllItems',
+         jsCode:'return $input.all();'}},
+      {id:'candidate-hold-sink',name:'Hold Sink',
+       type:'n8n-nodes-base.code',typeVersion:2,
+       position:[650,360],parameters:{mode:'runOnceForAllItems',
+         jsCode:'return $input.all();'}}
+    ],
     connections:{},settings:{executionOrder:'v1'},staticData:null,pinData:{}
   };
   const created=(await api('POST','/rest/workflows',synthetic)).data;
