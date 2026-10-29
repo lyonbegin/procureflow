@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {inspectExistingN8n,blockingVerdicts} from '../n8n/studio-bridge/inspect-existing-n8n.mjs';
+import {inspectExistingN8n,blockingVerdicts,candidatePaths} from '../n8n/studio-bridge/inspect-existing-n8n.mjs';
 const root=await mkdtemp(join(tmpdir(),'procureflow-existing-n8n-'));
 const ops=join(root,'operations'),scenes=join(root,'scenarios');
 await mkdir(ops);await mkdir(scenes);
-await writeFile(join(ops,'PF00.json'),JSON.stringify({name:'[운영 PF00] 테스트 후보',nodes:[{id:'1'}]}));
-await writeFile(join(scenes,'S01.json'),JSON.stringify({name:'[테스트 S01] 가상 후보',nodes:[{id:'2'}]}));
+for(const [scope,file] of candidatePaths){
+ const name=file==='PF00.json'?'[운영 PF00] 테스트 후보':
+    file==='S01.json'?'[테스트 S01] 가상 후보':'[그 외 '+file+']';
+ const folder=scope==='operations'?ops:scenes;
+ await writeFile(join(folder,file),JSON.stringify({name,nodes:[{id:'1'}]}));
+}
 try{
  const urls=[],makeTransport=(owner,authorized)=>async (url,req)=>{
    urls.push({url,method:req.method,headers:req.headers});
@@ -38,10 +42,10 @@ try{
  });
  assert.equal(report.ready,true);
  assert.equal(report.installedWorkflows,1);
- assert.equal(report.candidates.length,2);
+ assert.equal(report.candidates.length,26);
  assert.equal(report.candidates[0].status,'NAME_MATCH');
  assert.equal(report.candidates[1].status,'NOT_FOUND');
- assert.equal(report.missing,1);
+ assert.equal(report.missing,25);
  assert.equal(report.apiWrites,0);
  assert.equal(report.workflowExecuted,false);
  assert.equal(report.ownerCreated,false);
