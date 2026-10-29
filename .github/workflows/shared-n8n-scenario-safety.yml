@@ -4,6 +4,7 @@ on:
     paths:
       - 'n8n/workflows/S*.json'
       - '.github/pan-e2e/scenario-safety.mjs'
+      - '.github/pan-e2e/scenarios.mjs'
       - 'tests/test_isolated_scenario_safety.mjs'
       - '.github/workflows/shared-n8n-scenario-safety.yml'
   workflow_dispatch:
