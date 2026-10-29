@@ -147,6 +147,21 @@ test('isolated synthetic provenance is explicit, never VERIFIED, and blocked out
   assert.throws(()=>validateProvenance(synthetic,'PF01','R26BK01787028','N01'),/contract mismatch/);
   configure();
 });
+test('tampered imported workflow evidenceHandling is rejected before any HTTP request',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  for(const mode of ['skip','verified','SUBMIT','',null,42]){
+    const params=name=>name==='evidenceHandling'?mode:getParam(name);
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(params,async()=>{requests++;return blocked;})),
+      error=>error.message==='Business Operation evidence handling mode blocked',
+      String(mode)
+    );
+  }
+  assert.equal(requests,0);
+});
+
 test('unverified evidence stops native n8n branch by default',async()=>{
   configure();
   await assert.rejects(()=>new ProcureFlowBusinessOperation().execute.call(ctx(
