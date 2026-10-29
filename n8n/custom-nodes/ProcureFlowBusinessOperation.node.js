@@ -29,7 +29,12 @@ function safeApiBase(){
   if(!raw)throw Error('Business Operation is disabled: explicit read-only API base required');
   let url;
   try{url=new URL(raw)}catch{throw Error('Business Operation API base invalid')}
-  const internal=url.hostname.endsWith('.railway.internal')&&process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1';
+  // A Railway suffix alone would permit reading from unrelated internal services.
+  // An operator must explicitly pin the exact approved internal API DNS name.
+  const approvedInternalHost=process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST||'';
+  const internal=process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1'&&
+    approvedInternalHost.endsWith('.railway.internal')&&
+    url.hostname===approvedInternalHost;
   const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
   // The public read-only origin is HTTPS on its standard port only. A
   // hostname match on a caller-selected port is not the approved API origin.

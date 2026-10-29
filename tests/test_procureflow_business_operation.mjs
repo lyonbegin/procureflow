@@ -12,12 +12,16 @@ const {ProcureFlowBusinessOperation,safeApiBase,validateProvenance}=node;
 const original={
   PROCUREFLOW_BUSINESS_READONLY_ENABLED:process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED,
   PROCUREFLOW_OPERATION_API_BASE:process.env.PROCUREFLOW_OPERATION_API_BASE,
-  PROCUREFLOW_OPERATION_TEST_MODE:process.env.PROCUREFLOW_OPERATION_TEST_MODE
+  PROCUREFLOW_OPERATION_TEST_MODE:process.env.PROCUREFLOW_OPERATION_TEST_MODE,
+  PROCUREFLOW_ALLOW_INTERNAL_READONLY:process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY,
+  PROCUREFLOW_APPROVED_INTERNAL_API_HOST:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST
 };
 function configure(){
   process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='1';
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
   process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  delete process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY;
+  delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST;
 }
 const getParam=(v,i)=>({operationId:'N01',bidNo:'R26BK01787028',evidenceHandling:'hold'})[v];
 const blocked={
@@ -368,5 +372,23 @@ test('production read-only API host rejects nonstandard ports without making a r
   }
   process.env.PROCUREFLOW_OPERATION_API_BASE=origin+'/';
   assert.equal(safeApiBase(),origin);
+  configure();
+});
+
+test('Railway internal read-only origin requires exact approved hostname, never suffix-only',()=>{
+  configure();
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY='1';
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://other-service.railway.internal/';
+  assert.throws(()=>safeApiBase(),/blocked/,'suffix alone must not grant access');
+  process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST='procureflow-api.railway.internal';
+  assert.throws(()=>safeApiBase(),/blocked/,'unrelated internal service must remain blocked');
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://procureflow-api.railway.internal/';
+  assert.equal(safeApiBase(),'http://procureflow-api.railway.internal');
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://procureflow-api.railway.internal.evil.test/';
+  assert.throws(()=>safeApiBase(),/blocked/,'lookalike host must be blocked');
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://procureflow-api.railway.internal/';
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
   configure();
 });
