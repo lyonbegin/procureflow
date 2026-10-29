@@ -336,3 +336,22 @@ test('read-only evidence HTTP helper forbids cross-origin redirects and redacts 
   );
   assert.equal(called,1);
 });
+
+test('production read-only API host rejects nonstandard ports without making a request',()=>{
+  configure();
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  const origin='https://procureflow-api-production.up.railway.app';
+  for(const base of [
+    origin+':4443/',
+    origin+':8080/',
+    'http://procureflow-api-production.up.railway.app/',
+    'https://procureflow-api-production.up.railway.app.evil.test/',
+    'https://evil.test@procureflow-api-production.up.railway.app/'
+  ]){
+    process.env.PROCUREFLOW_OPERATION_API_BASE=base;
+    assert.throws(()=>safeApiBase(),/blocked|invalid|policy/,base);
+  }
+  process.env.PROCUREFLOW_OPERATION_API_BASE=origin+'/';
+  assert.equal(safeApiBase(),origin);
+  configure();
+});
