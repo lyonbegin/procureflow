@@ -1,0 +1,17 @@
+name: EXISTING public n8n editor owner/readiness (read only)
+on:
+  pull_request:
+    paths:
+      - 'tests/test_existing_n8n_editor_readiness.mjs'
+      - '.github/workflows/existing-n8n-editor-readiness.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  existing-editor-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check existing n8n Gateway authentication + real owner readiness (no writes)
+        run: node tests/test_existing_n8n_editor_readiness.mjs
