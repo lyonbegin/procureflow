@@ -27,7 +27,13 @@ RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n
       /src/n8n/packages/frontend/editor-ui/src/features/workflows/canvas/components/Canvas.vue
 WORKDIR /src/n8n
 # Official upstream production builder generates ./compiled from original source.
-RUN pnpm install --frozen-lockfile --trust-lockfile \
+# @vscode/ripgrep@1.17.1 downloads a pinned GitHub release in postinstall.
+# Anonymous GitHub API requests are rate-limited (HTTP 403 in CI).
+# Mount the workflow's short-lived, read-only GitHub token as a BuildKit
+# secret; NEVER use ARG/ENV/COPY for the token or persist it in the image.
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
+    pnpm install --frozen-lockfile --trust-lockfile \
     && pnpm run build:deploy \
     && test -f compiled/bin/n8n \
     && node -p "require('./compiled/package.json').version" | grep -qx '2.44.6'
