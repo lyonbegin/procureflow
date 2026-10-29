@@ -31,6 +31,7 @@ RUN mkdir -p /app/shared/playground/public/procure-workflows/operations \
     /app/shared/playground/public/procure-workflows/scenarios
 COPY --from=topology /generated/operational/ /app/shared/playground/public/procure-workflows/operations/
 COPY n8n/workflows/ /app/shared/playground/public/procure-workflows/scenarios/
+COPY n8n/scenarios.json /app/shared/playground/public/procure-workflows/fixture-scenarios.json
 ENV VITE_EDITOR_PROJECT=procurement
 RUN npm --prefix /app/shared/playground run build \
     && test -s /app/shared/playground/dist/procure-workflows/operations/PF00.json \
