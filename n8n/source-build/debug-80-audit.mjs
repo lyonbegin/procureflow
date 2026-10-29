@@ -40,6 +40,65 @@ if(chromeVerdictPath){
       throw Error('Real Chrome verdict failed or incomplete: '+v.name);
     by.set(v.name,v);
   }
+  // A PASS label alone is not enough: bind the seven narrow debugging
+  // observations to the SAME native Chrome node and to distinct n8n executions.
+  // This validates evidence consistency, not cryptographic origin or the
+  // remaining 80 full business-debugging requirements.
+  const requiredUi=[
+    'official-candidate-vue-canvas-rendered',
+    'real-chrome-35-unsupported-shared-kinds-not-advertised',
+    'real-chrome-custom-node-server-save',
+    'real-chrome-custom-node-reopen-persistence',
+    'real-chrome-custom-node-drag-server-coordinate-save',
+    'real-chrome-custom-node-position-and-setting-reopen',
+    'real-chrome-custom-output-0-connected',
+    'real-chrome-custom-output-1-connected',
+    'real-chrome-custom-dual-edge-reopen',
+    'real-chrome-custom-node-delete-and-server-save'
+  ];
+  for(const name of requiredUi)if(by.get(name)?.result!=='PASS')
+    throw Error('Native Chrome UI persistence evidence missing: '+name);
+  const save=by.get('real-chrome-custom-node-server-save');
+  const reopen=by.get('real-chrome-custom-node-reopen-persistence');
+  const drag=by.get('real-chrome-custom-node-drag-server-coordinate-save');
+  const restored=by.get('real-chrome-custom-node-position-and-setting-reopen');
+  const dual=by.get('real-chrome-custom-dual-edge-reopen');
+  const removed=by.get('real-chrome-custom-node-delete-and-server-save');
+  const id=save?.nodeId;
+  if(typeof id!=='string'||id.length<8||save.type!=='CUSTOM.procureFlowBusinessOperation'||
+     save.operationId!=='N02'||reopen.id!==id||drag.nodeId!==id||
+     restored.nodeId!==id||dual.nodeId!==id||removed.id!==id)
+    throw Error('Native Chrome custom node identity/persistence mismatch');
+  const validPoint=p=>Array.isArray(p)&&p.length===2&&
+    p.every(x=>typeof x==='number'&&Number.isFinite(x));
+  if(!validPoint(drag.before)||!validPoint(drag.after)||
+     !validPoint(restored.position)||
+     drag.before.every((v,i)=>v===drag.after[i])||
+     !drag.after.every((v,i)=>v===restored.position[i])||
+     restored.operationId!=='N02'||restored.evidenceHandling!=='hold')
+    throw Error('Native Chrome coordinate/settings save and reload mismatch');
+  const edge0=by.get('real-chrome-custom-output-0-connected');
+  const edge1=by.get('real-chrome-custom-output-1-connected');
+  if(edge0.outputIndex!==0||edge0.target!=='Accepted Sink'||
+     edge1.outputIndex!==1||edge1.target!=='Hold Sink')
+    throw Error('Native Chrome two-output handle mapping mismatch');
+  if(by.get('real-chrome-35-unsupported-shared-kinds-not-advertised').checked!==35)
+    throw Error('Unsupported shared kinds must remain absent from executable palette');
+  const executionNames=[
+    'real-chrome-native-business-operation-synthetic-hold-execution',
+    'real-chrome-all-43-native-operations-synthetic-hold-execution',
+    'real-chrome-native-business-operation-fail-closed-debugging'
+  ];
+  const executions=executionNames.map(name=>by.get(name));
+  if(executions.some(v=>typeof v?.executionId!=='string'||!/^\\d+$/.test(v.executionId))||
+     new Set(executions.map(v=>v.executionId)).size!==3||
+     executions[0].holdSinkItemCount!==1||
+     executions[1].actualBidSubmitted!==false||
+     executions[2].failedNode!=='Business Operation'||
+     executions[2].realBusinessHandlers!==0||
+     executions[2].actualBidSubmitted!==false||
+     by.get('no-real-business-handler-or-bid-submission')?.realBusinessHandlerCount!==0)
+    throw Error('Native Chrome execution ID / fail-closed safety evidence mismatch');
   const checks=[
     {id:127,scope:'native two-output edge tracing and reload persistence',
       names:['real-chrome-custom-output-0-connected',
