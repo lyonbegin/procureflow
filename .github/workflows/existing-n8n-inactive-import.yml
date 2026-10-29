@@ -1,0 +1,25 @@
+name: Existing n8n inactive import safety gate
+on:
+  pull_request:
+    paths:
+      - 'n8n/studio-bridge/**'
+      - 'tests/test_existing_n8n_inactive_import.mjs'
+      - '.github/workflows/existing-n8n-inactive-import.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-owner-reset-no-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate JavaScript syntax
+        run: |
+          node --check n8n/studio-bridge/import-inactive-existing-n8n.mjs
+          node --check tests/test_existing_n8n_inactive_import.mjs
+      - name: Test blocked owner and explicit inactive-only import
+        run: node tests/test_existing_n8n_inactive_import.mjs
