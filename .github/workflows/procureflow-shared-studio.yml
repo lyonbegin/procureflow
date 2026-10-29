@@ -1,0 +1,104 @@
+name: ProcureFlow SAME shared Studio as investment (no n8n server)
+on:
+  pull_request:
+    paths:
+      - 'n8n/Dockerfile.shared-studio-editor'
+      - 'n8n/operational/**'
+      - 'n8n/operational_manifest.json'
+      - 'n8n/workflows/**'
+      - 'n8n/source-build/**'
+      - '.github/workflows/procureflow-shared-studio.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  shared-studio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract — reuse investment's shared studio and NEVER boot a new n8n
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'SHARED_STUDIO_COMMIT=18e2ce915265a5a2351383942c6f9312d802513f' n8n/Dockerfile.shared-studio-editor
+          grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
+          grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
+          grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
+          if grep -E '(^FROM n8nio/n8n| n8n start|owner/setup|n8n import:workflow|user-management:reset|DB_POSTGRESDB)' n8n/Dockerfile.shared-studio-editor; then
+            echo 'A n8n server or owner/DB mutation must not be included'; exit 1
+          fi
+      - name: Build ONLY the same shared Vue Flow Studio used by investment
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --progress=plain -f n8n/Dockerfile.shared-studio-editor -t pf-shared-studio-only . 2>&1 | tee shared-studio-build.log
+          grep -F SHARED_STUDIO_PROCUREFLOW_26_FLOWS_43_GATES_PACKAGED shared-studio-build.log
+      - name: Run standalone Studio UI server ONLY — NO n8n process
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name pf-shared-studio-only -p 127.0.0.1:3031:3000 pf-shared-studio-only
+          for x in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3031/api/studio/health > studio-health.json; then break; fi
+            sleep 1
+          done
+          cat studio-health.json
+          node -e 'const v=require("./studio-health.json");if(v.status!=="ok"||v.executionEnabled!==false||v.mode!=="isolated-demo")process.exit(1)'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/rest/owner/setup)" = 405
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3031/rest/settings)" = 404
+      - name: Verify all 26 original workflow routes and all 43 custom gate nodes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'EOF'
+          import assert from 'node:assert/strict';
+          const base='http://127.0.0.1:3031/api/studio/workflows/';
+          const names=[...Array.from({length:16},(_,i)=>'operations/PF'+String(i).padStart(2,'0')+'.json'),
+                       ...Array.from({length:10},(_,i)=>'scenarios/S'+String(i+1).padStart(2,'0')+'.json')];
+          let total=0;
+          for(const name of names){
+            const res=await fetch(base+name);assert.equal(res.status,200,name);
+            const json=await res.json();
+            assert.equal(json.source,'original');assert.equal(json.version,0);
+            assert.equal(json.workflow.active,false);assert(json.workflow.nodes.length>0);
+            total+=json.workflow.nodes.filter(n=>n.type==='CUSTOM.procureFlowBusinessOperation').length;
+          }
+          assert.equal(names.length,26);assert.equal(total,43);
+          console.log('PROCUREFLOW_SHARED_STUDIO_26_WORKFLOWS_43_GATES_READONLY_PASS');
+          EOF
+      - name: Verify isolated draft saving, version history and no execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, http.cookiejar, json
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          url='http://127.0.0.1:3031/api/studio/workflows/operations/PF05.json'
+          initial=json.load(opener.open(url))
+          assert initial['version']==0
+          workflow=initial['workflow']
+          workflow['active']=True # server MUST overwrite this to false
+          req=urllib.request.Request(url,data=json.dumps({'expectedVersion':0,'workflow':workflow}).encode(),headers={'Content-Type':'application/json'},method='PUT')
+          saved=json.load(opener.open(req))
+          assert saved['version']==1,saved
+          again=json.load(opener.open(url))
+          assert again['version']==1 and again['workflow']['active'] is False
+          history=json.load(opener.open(url+'/versions'))
+          assert len(history['versions'])==1
+          print('PROCUREFLOW_SHARED_STUDIO_PERSISTENCE_OWNERLESS_NO_EXEC_PASS')
+          PY
+      - name: Retain container logs for failure analysis
+        if: always()
+        shell: bash
+        run: |
+          docker logs pf-shared-studio-only > studio.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: procureflow-shared-investment-style-studio
+          path: |
+            shared-studio-build.log
+            studio-health.json
+            studio.log
