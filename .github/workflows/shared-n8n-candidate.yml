@@ -58,6 +58,7 @@ jobs:
             --env N8N_RUNNERS_ENABLED=false \
             --env PROCUREFLOW_BUSINESS_READONLY_ENABLED=1 \
             --env PROCUREFLOW_OPERATION_TEST_MODE=1 \
+            --env PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT=5855 \
             --env PROCUREFLOW_OPERATION_API_BASE=http://127.0.0.1:5855/ \
             pf-shared-studio-candidate:${{ github.sha }}
           for i in $(seq 1 180); do
