@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'n8n/Dockerfile.shared-studio-editor'
+      - 'tests/shared_studio_browser_save_e2e.mjs'
       - 'n8n/operational/**'
       - 'n8n/operational_manifest.json'
       - 'n8n/workflows/**'
@@ -102,6 +103,14 @@ jobs:
           assert len(history['versions'])==1
           print('PROCUREFLOW_SHARED_STUDIO_PERSISTENCE_OWNERLESS_NO_EXEC_PASS')
           PY
+      - name: Install real Chromium for isolated end-to-end Studio editor save
+        shell: bash
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.56.0
+          npx playwright install --with-deps chromium
+      - name: REAL Chrome UI edit -> SQLite save -> reload, isolate browser cookies
+        shell: bash
+        run: STUDIO_BASE=http://127.0.0.1:3031 node tests/shared_studio_browser_save_e2e.mjs
       - name: Retain container logs for failure analysis
         if: always()
         shell: bash
