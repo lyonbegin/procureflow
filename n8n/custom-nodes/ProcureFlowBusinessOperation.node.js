@@ -36,6 +36,10 @@ function safeApiBase(){
   // workflow or environment URL select an arbitrary Railway internal port.
   // For non-default internal ports, require a second explicit operator pin.
   const approvedInternalPort=process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT||'';
+  // An approved internal hostname and TCP port are not a complete origin:
+  // pin the scheme as well, defaulting to Railway's private HTTP transport.
+  // HTTPS requires an explicit operator choice, never a workflow override.
+  const approvedInternalScheme=process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME||'http';
   const effectivePort=url.port||(url.protocol==='https:'?'443':'80');
   const internalPortAllowed=approvedInternalPort
     ? /^(?:[1-9][0-9]{0,4})$/.test(approvedInternalPort)&&
@@ -44,7 +48,9 @@ function safeApiBase(){
     : !url.port;
   const internal=process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1'&&
     approvedInternalHost.endsWith('.railway.internal')&&
-    url.hostname===approvedInternalHost&&internalPortAllowed;
+    url.hostname===approvedInternalHost&&internalPortAllowed&&
+    ['http','https'].includes(approvedInternalScheme)&&
+    url.protocol===approvedInternalScheme+':';
   const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
   // The public read-only origin is HTTPS on its standard port only. A
   // hostname match on a caller-selected port is not the approved API origin.
