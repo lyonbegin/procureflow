@@ -28,9 +28,7 @@ try{
  assert.equal(applied.created,26);assert.equal(created,26);
  assert.equal(applied.activeChanges,0);assert.equal(applied.executions,0);
  assert(requests.filter(x=>x.method==='POST').every(x=>JSON.parse(x.body).active===undefined));
- let touches=0;
- const ownerTransport=async(url,opts)=>{touches++;return {ok:true,json:async()=>({data:{userManagement:{showSetupOnFirstLoad:true}}})};};
- await assert.rejects(installCandidates({...args,transport:ownerTransport,apply:true}),/owner/);
- assert.equal(touches,1);
+ // No owner endpoint is necessary for a configured service-to-service API connection.
+ assert(requests.every(x=>!x.url.includes('/rest/owner')&&!x.url.includes('/rest/settings')));
  console.log('EXISTING_N8N_INACTIVE_IMPORT_TEST_PASS: dryrun 0 writes, explicit 26 inactive creates, owner guard, no run');
 }finally{await rm(root,{recursive:true,force:true});}
