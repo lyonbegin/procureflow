@@ -47,6 +47,10 @@ if(chromeVerdictPath){
   const requiredUi=[
     'official-candidate-vue-canvas-rendered',
     'real-chrome-35-unsupported-shared-kinds-not-advertised',
+    'real-chrome-custom-node-palette-add',
+    'real-chrome-business-operation-configuration-visible',
+    'real-chrome-operationId-dropdown-selection',
+    'real-chrome-evidence-handling-dropdown-selection',
     'real-chrome-custom-node-server-save',
     'real-chrome-custom-node-reopen-persistence',
     'real-chrome-custom-node-drag-server-coordinate-save',
@@ -64,6 +68,12 @@ if(chromeVerdictPath){
   const restored=by.get('real-chrome-custom-node-position-and-setting-reopen');
   const dual=by.get('real-chrome-custom-dual-edge-reopen');
   const removed=by.get('real-chrome-custom-node-delete-and-server-save');
+  // The official Chrome editor must actually create a palette node and
+  // select BOTH dropdown values, not merely import a preconfigured JSON.
+  // The two selections are independently reported by candidate-business.mjs.
+  if(by.get('real-chrome-operationId-dropdown-selection')?.operationId!=='N02'||
+     by.get('real-chrome-evidence-handling-dropdown-selection')?.evidenceHandling!=='hold')
+    throw Error('Native Chrome palette/settings selection evidence mismatch');
   const id=save?.nodeId;
   if(typeof id!=='string'||id.length<8||save.type!=='CUSTOM.procureFlowBusinessOperation'||
      save.operationId!=='N02'||reopen.id!==id||drag.nodeId!==id||
@@ -82,6 +92,11 @@ if(chromeVerdictPath){
   if(edge0.outputIndex!==0||edge0.target!=='Accepted Sink'||
      edge1.outputIndex!==1||edge1.target!=='Hold Sink')
     throw Error('Native Chrome two-output handle mapping mismatch');
+  // Deletion must be persisted by the server AND leave no dangling edges.
+  // PASS alone is insufficient; require the deletion postconditions recorded
+  // by the actual n8n /rest/workflows reload after Chrome clicked Delete.
+  if(removed.nodeAbsent!==true||removed.danglingEdges!==false)
+    throw Error('Native Chrome node deletion persistence evidence mismatch');
   if(by.get('real-chrome-35-unsupported-shared-kinds-not-advertised').checked!==35)
     throw Error('Unsupported shared kinds must remain absent from executable palette');
   const executionNames=[
