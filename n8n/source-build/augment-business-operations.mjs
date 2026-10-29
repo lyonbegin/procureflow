@@ -34,20 +34,34 @@ for(const flow of manifest.flows){
   if(flow.owned_blocks?.length){
     const holdName='HOLD · 공식 업무 증빙 미충족 — 입찰 제출 금지';
     ensure(!w.nodes.some(n=>n.name===holdName),id+': duplicate HOLD gate');
+    // The terminal HOLD node must not spread untrusted input into persisted
+    // n8n execution data. It may be reached by a future malformed graph or
+    // a manually wired node, not just the sanitized Business Operation port.
+    // Preserve only validated, manifest-owned identifiers; all decisions and
+    // dispatch flags are generated as fixed fail-closed values.
+    const holdCode=[
+      'const v=$input.first()?.json??{};',
+      'const allowed='+JSON.stringify(flow.owned_blocks)+';',
+      "const operationId=allowed.includes(v.operation_id)?v.operation_id:null;",
+      "const caseId=v.case_id==='R26BK01787028'?'R26BK01787028':null;",
+      'return [{json:{',
+      "schema_version:'procureflow.business-operation.hold.v1',",
+      'case_id:caseId,bid_no:caseId,operation_id:operationId,flow_id:'+JSON.stringify(id)+',',
+      "final_decision:'HOLD',workflow_status:'OFFICIAL_EVIDENCE_NOT_VERIFIED',",
+      "inspection_status:'HOLD',evidence_verified:false,",
+      "manual_review_required:true,read_only:true,",
+      "automatic_bid_submission:false,automated_bid_submission:false,",
+      "actual_job_executed:false,actual_business_handler_executed:false,",
+      "job_enqueued:false,worker_job_enqueued:false,bid_submitted:false,output:null",
+      '}}];'
+    ].join('');
     const hold={
       id:idFor(id+'-hold'),
       name:holdName,
       type:'n8n-nodes-base.code',
       typeVersion:2,
       position:[8500,1150],
-      parameters:{mode:'runOnceForAllItems',jsCode:
-        "const v=$input.first().json;return [{json:{...v,final_decision:'HOLD',"+
-        "workflow_status:'OFFICIAL_EVIDENCE_NOT_VERIFIED',"+
-        "inspection_status:'HOLD',evidence_verified:false,"+
-        "manual_review_required:true,read_only:true,"+
-        "automatic_bid_submission:false,automated_bid_submission:false,"+
-        "actual_job_executed:false,actual_business_handler_executed:false,"+
-        "job_enqueued:false,worker_job_enqueued:false,bid_submitted:false}}];"},
+      parameters:{mode:'runOnceForAllItems',jsCode:holdCode},
       notes:'Unverified source is never an approved bid. Terminal branch; no automatic dispatch.',
       notesInFlow:true
     };
