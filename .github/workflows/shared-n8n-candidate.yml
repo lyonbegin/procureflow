@@ -193,7 +193,7 @@ jobs:
           docker exec pf-shared-candidate node -e '
             fetch("http://127.0.0.1:5855/__fixture_stats").then(async r=>{
               if(!r.ok)throw Error("fixture stats HTTP "+r.status);
-              process.stdout.write(JSON.stringify(await r.json())+"\\n");
+              process.stdout.write(JSON.stringify(await r.json())+"\n");
             }).catch(e=>{console.error(e);process.exitCode=1})
           ' > candidate-fixture-traffic.json
           node <<'NODE'
