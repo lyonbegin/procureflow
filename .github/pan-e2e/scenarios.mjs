@@ -9,6 +9,7 @@ import {chromium} from 'playwright';
 import {parse as parseFlatted} from 'flatted';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
+import {makeSafeScenario} from './scenario-safety.mjs';
 const base=process.env.N8N_E2E_URL||'http://127.0.0.1:5678';
 const out=process.env.N8N_SCENARIO_ARTIFACTS||'shared-pan-e2e-artifacts/scenarios';
 const email='pan-test@example.invalid', password='PanSmokeStrong123!';
@@ -40,39 +41,7 @@ async function savedExecution(id) {
   const data=typeof exec?.data==='string'?parseFlatted(exec.data):exec?.data;
   return {exec, runData:data?.resultData?.runData||{}};
 }
-function makeSafe(fixture,id) {
-  const allowed=new Set(['n8n-nodes-base.manualTrigger','n8n-nodes-base.code','n8n-nodes-base.httpRequest']);
-  const httpNodes=fixture.nodes.filter(n=>n.type==='n8n-nodes-base.httpRequest');
-  assert(httpNodes.length===1,id+': one original QA node required');
-  for(const n of fixture.nodes) {
-    assert(allowed.has(n.type),id+': unsupported node '+n.type);
-    if(n.type==='n8n-nodes-base.httpRequest'){
-      assert(n.parameters.method==='POST' &&
-        n.parameters.url==='https://procureflow-api-production.up.railway.app/api/n8n/scenarios/'+id+'/verify',
-        id+': unapproved external HTTP source');
-      // This is a LOCAL deterministic QA stub only. It never executes an HTTP request.
-      n.type='n8n-nodes-base.code';
-      n.typeVersion=2;
-      n.parameters={mode:'runOnceForAllItems',jsCode:
-        "const v=$input.first().json;"+
-        "if(v.scenario_id!=="+JSON.stringify(id)+"||v.case_id!=='DEMO_ONLY'||v.simulation_only!==true||v.bid_submitted!==false||v.verdict!==v.expected||v.passed!==true) throw new Error('Scenario mocked QA assertion failed');"+
-        "return [{json:{...v,qa_local_only:true}}];"};
-      n.notes='ISOLATED CHROME TEST ONLY — local QA assertion; not remote G2B verification';
-      continue;
-    }
-    if(n.type==='n8n-nodes-base.code')
-      assert(!/\bfetch\s*\(|\$http\b|\$request\b|require\s*\(/.test(n.parameters.jsCode||''),
-      id+': unexpected side-effectful Code node '+n.name);
-  }
-  assert(!fixture.nodes.some(n=>n.type==='n8n-nodes-base.httpRequest'),id+': HTTP node not fully disabled');
-  delete fixture.id;
-  delete fixture.active;
-  delete fixture.staticData;
-  delete fixture.meta;
-  fixture.tags=[];
-  fixture.name='[ISOLATED CHROME '+id+'] '+fixture.name;
-  return fixture;
-}
+
 try{
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   context=await browser.newContext({viewport:{width:1440,height:900}});
@@ -94,7 +63,7 @@ try{
     const item=plan.scenarios.find(x=>x.id===id);
     assert(item && item.expected,'missing expected test state '+id);
     try{
-      const fixture=makeSafe(JSON.parse(await readFile('n8n/workflows/'+id+'.json','utf8')),id);
+      const fixture=makeSafeScenario(JSON.parse(await readFile('n8n/workflows/'+id+'.json','utf8')),id);
       const saved=(await api('POST','/rest/workflows',fixture)).data;
       assert(saved?.id,'n8n did not persist '+id);
       await page.goto(base+'/workflow/'+saved.id,{waitUntil:'domcontentloaded'});
