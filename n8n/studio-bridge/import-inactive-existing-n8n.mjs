@@ -30,11 +30,7 @@ export async function installCandidates({baseUrl,apiKey,operationsDir,scenariosD
   if(!response.ok)throw Error('Official n8n API HTTP '+response.status);
   return response.json();
  };
- const settingsResponse=await transport(root+'/rest/settings',{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000)});
- if(!settingsResponse.ok)throw Error('Existing owner status unreadable; stop');
- const status=await settingsResponse.json();
- if(status?.data?.userManagement?.showSetupOnFirstLoad!==false)
-  throw Error('Existing owner not confirmed configured; no writes');
+ // Do not inspect, create or configure a n8n owner. Only use the existing API integration.
  const installed=[],seen=new Set();let cursor='';
  do{
   const suffix=cursor?'&cursor='+encodeURIComponent(cursor):'';
