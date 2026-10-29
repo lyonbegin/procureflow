@@ -19,8 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build isolated upstream n8n with pinned Pan patch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          docker build --progress=plain \
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
             -f n8n/source-build/Dockerfile.shared-pan-test \
             -t procureflow-n8n-pan-test:${{ github.sha }} . \
             2>&1 | tee shared-pan-build.log
