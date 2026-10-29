@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'tests/test_existing_n8n_editor_readiness.mjs'
+      - 'tests/test_existing_n8n_editor_readiness_unit.mjs'
       - '.github/workflows/existing-n8n-editor-readiness.yml'
   workflow_dispatch:
 permissions:
@@ -13,6 +14,8 @@ jobs:
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
+      - name: Verify owner gate and redacted artifact with isolated mock HTTP (no Railway)
+        run: node --test tests/test_existing_n8n_editor_readiness_unit.mjs
       - name: Check existing n8n Gateway authentication + real owner readiness (no writes)
         run: node tests/test_existing_n8n_editor_readiness.mjs
       - name: Preserve redacted owner-readiness verdict (including blocked FAIL)
