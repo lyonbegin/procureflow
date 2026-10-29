@@ -31,7 +31,9 @@ function safeApiBase(){
   try{url=new URL(raw)}catch{throw Error('Business Operation API base invalid')}
   const internal=url.hostname.endsWith('.railway.internal')&&process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY==='1';
   const local=['localhost','127.0.0.1'].includes(url.hostname)&&process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1';
-  const publicHost=url.protocol==='https:'&&url.hostname==='procureflow-api-production.up.railway.app';
+  // The public read-only origin is HTTPS on its standard port only. A
+  // hostname match on a caller-selected port is not the approved API origin.
+  const publicHost=url.protocol==='https:'&&url.hostname==='procureflow-api-production.up.railway.app'&&!url.port;
   // Synthetic fixture mode is loopback-only: never allow a test-mode node to
   // contact a Railway production/internal API, even if its origin is allowlisted.
   if(process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1'&&!local)
