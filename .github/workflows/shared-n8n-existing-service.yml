@@ -60,9 +60,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the exact image used by EXISTING Railway main and worker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          docker build --progress=plain -f n8n/Dockerfile -t pf-existing-n8n:pr . 2>&1 | tee existing-n8n-build.log
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN -f n8n/Dockerfile -t pf-existing-n8n:pr . 2>&1 | tee existing-n8n-build.log
           grep -F 'PAN_PATCH_PATCHED:' existing-n8n-build.log
       - name: Verify n8n version and compiled business extension without creating a server
         run: |
