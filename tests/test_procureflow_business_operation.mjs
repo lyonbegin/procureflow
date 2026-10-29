@@ -446,3 +446,16 @@ test('Railway internal inspection pins transport scheme as part of the exact ori
   assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/);
   configure();
 });
+
+test('synthetic evidence origin requires numeric loopback, not a remappable hostname',()=>{
+  configure();
+  for(const host of ['localhost','localhost.localdomain','127.0.0.1.nip.io',
+    '127.0.0.2','[::1]']){
+    process.env.PROCUREFLOW_OPERATION_API_BASE='http://'+host+':58491/';
+    assert.throws(()=>safeApiBase(),/test mode requires isolated loopback|blocked/,
+      'test fixture origin must reject '+host);
+  }
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491/';
+  assert.equal(safeApiBase(),'http://127.0.0.1:58491');
+  configure();
+});
