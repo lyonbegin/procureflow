@@ -50,3 +50,16 @@
 - [기능 브랜치 보안 패치](https://github.com/lyonbegin/procureflow/commit/3b46c74f57e594d4b394af58550f209a363fa8c9): 기존 정확한 `PROCUREFLOW_APPROVED_INTERNAL_API_HOST` 검증에 **TCP 포트 검증**을 추가. 내부 서비스의 기본 포트만 별도 설정 없이 허용하며, 비표준 포트를 쓰려면 `PROCUREFLOW_APPROVED_INTERNAL_API_PORT`에 숫자 포트를 명시적으로 고정해야 합니다. 이 환경변수는 기능 브랜치 후보 코드의 읽기 전용 검사에만 해당하며 운영 환경은 수정하지 않았습니다.
 - [회귀 테스트](https://github.com/lyonbegin/procureflow/commit/d80dfa0df8def19bce34289ff8ab7eab6ab42e6a): 호스트 일치·포트 불일치, 포트 미승인, 잘못된 포트 설정, 시험 모드 내부 접근 차단을 검증합니다. [동일 SHA CI](https://github.com/lyonbegin/procureflow/actions/runs/40828211477)는 별도 최종 확인이 필요하며 **이 기록 시점 PASS로 선판정하지 않습니다**.
 - 35종 실행 매핑, 43개 실제 업무 핸들러, 공식 10년 원본 데이터, 80개 디버깅 전수 및 운영 호환성·승인은 계속 미완료입니다. Issue Open/PR Draft, 운영 main·Railway DB·자격증명·실제 투찰 불변.
+
+
+## 2026-10-29 — 기존 공용 n8n에만 통합하도록 배포 방향 수정
+
+**사용자 지시: 새 독립 n8n 설치·추가 계정·새 SQLite를 만들지 않는다.**
+이미 존재하는 Railway `n8n` Main(서비스 `22eae389-025e-4ff1-bc56-1dff039ed6f9`), `procureflow-n8n-worker`(`86849fe0-0f82-4d6e-98ef-4b401a5592c2`) 및 공용 편집기 게이트웨이(`e3dcc972-2747-43a0-84c2-5280536f5671`)를 재사용한다. 이 Main·Worker는 모두 `main` + `n8n/Dockerfile`을 공유하고 운영 PostgreSQL·Redis·암호화 키를 사용한다.
+
+- **잘못된 배포 경위**: 2026-10-29 `procureflow-shared-n8n-branch-preview`라는 별도 서비스를 새 SQLite와 함께 생성한 결과, n8n `Set up owner account` 최초 설치 화면이 표시되었다. 원인은 Pan 패치 부재가 아니라 **기존 공용 n8n 사용자 DB를 재사용하지 않은 것**이다.
+- **즉시 처리**: 잘못 만든 게이트웨이의 공개 Railway 도메인을 제거하고, 독립 n8n 본체 서비스를 삭제했다. 해당 미리보기 SQLite 볼륨은 데이터 파괴를 피하려고 **분리·보존**했다. 별도 게이트웨이는 외부 도메인이 해제된 상태로 남아 있으며, 이를 공용 접속점으로 사용하면 안 된다.
+- **공용 소스 통합**: 기능 브랜치의 `n8n/Dockerfile`을 기존 Main/Worker에서 함께 사용하는 **공식 upstream n8n 2.44.6 + 고정 공유 Pan 패치** 이미지로 수정했다. `N8N_CUSTOM_EXTENSIONS`로 43개 읽기 전용 게이트 노드를 포함하되, 업무 실행은 별도 승인 없이는 차단한다. 기존 `n8n start` CMD, Worker `n8n worker --concurrency=3` Railway override, 운영 워크플로 import 경로를 보존한다. **별도 owner/계정/bootstrap/SQLite/추가 로그인은 포함하지 않는다.**
+- **기존 공용 n8n 미해결 문제**: 공개된 기존 게이트웨이의 읽기 전용 `/rest/settings`가 `userManagement.showSetupOnFirstLoad=true`를 반환하는 것을 관찰했다. 즉 **기존 공용 n8n도 관리자 초기화가 미완료인 상태**로 보인다. 보안을 위해 기존 게이트웨이의 공개 owner setup 경로 차단을 유지한다. UI를 정상적으로 쓰기 위한 신뢰된 최초 소유자 설정 또는 합법적인 기존 관리자 확인은 아직 미완료다.
+- **검증 절차**: [기존 Main/Worker 통합 이미지 CI](https://github.com/lyonbegin/procureflow/actions/runs/40884401454)는 **새 서버를 띄우지 않고** 원본 이미지를 빌드·버전·확장 로드·CMD를 점검한다. 정적 구성 검사는 PASS, 실제 소스 이미지 빌드 최종 결과는 별도 CI 상태 확인 필요.
+- **중요한 경계**: 변경은 `feature/shared-n8n-pan-integration`에만 존재한다. 기존 `main`, 운영 Main/Worker 이미지, 운영 PostgreSQL, 암호화 키, 워크플로, 실제 입찰은 바꾸지 않았다. 운영으로 적용하기 전 **복원 가능한 운영 DB 백업·현재 owner/credential 호환성·기존 Worker 일치·롤백**을 검증해야 한다. 새 독립 n8n 서비스를 이용한 우회 테스트/배포는 금지한다.
