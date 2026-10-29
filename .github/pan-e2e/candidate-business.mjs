@@ -270,11 +270,25 @@ try{
       {id:'hold-business-02',name:'Business Operation',
        type:'CUSTOM.procureFlowBusinessOperation',typeVersion:1,
        position:[420,150],parameters:{operationId:'N01',
-         bidNo:'R26BK01787028',evidenceHandling:'hold'}}
+         bidNo:'R26BK01787028',evidenceHandling:'hold'}},
+      {id:'hold-accepted-sink',name:'Accepted Runtime Sink',
+       type:'n8n-nodes-base.code',typeVersion:2,
+       position:[750,70],parameters:{mode:'runOnceForAllItems',
+         jsCode:'return $input.all();'}},
+      {id:'hold-rejected-sink',name:'Hold Runtime Sink',
+       type:'n8n-nodes-base.code',typeVersion:2,
+       position:[750,340],parameters:{mode:'runOnceForAllItems',
+         jsCode:'return $input.all();'}}
     ],
-    connections:{'Manual Trigger':{main:[[
-      {node:'Business Operation',type:'main',index:0}
-    ]]}},settings:{executionOrder:'v1'},staticData:null,pinData:{}
+    connections:{
+      'Manual Trigger':{main:[[
+        {node:'Business Operation',type:'main',index:0}
+      ]]},
+      'Business Operation':{main:[
+        [{node:'Accepted Runtime Sink',type:'main',index:0}],
+        [{node:'Hold Runtime Sink',type:'main',index:0}]
+      ]}
+    },settings:{executionOrder:'v1'},staticData:null,pinData:{}
   };
   const holdCreated=(await api('POST','/rest/workflows',holdFlow)).data;
   assert(holdCreated?.id,'Synthetic HOLD workflow creation failed');
@@ -296,7 +310,17 @@ try{
     const success=nodeRun?.data?.main?.[0]||[];
     const held=nodeRun?.data?.main?.[1]||[];
     const output=held[0]?.json;
-    if(!output)return null;
+    // Verify the actual n8n execution graph, not just the custom node's
+    // return arrays: a HOLD must execute its downstream HOLD sink and must
+    // NEVER execute the success/accepted sink.
+    const holdSink=runData?.['Hold Runtime Sink']?.[0]?.data?.main?.[0]||[];
+    if(!output||d.status==='running'||!holdSink.length)return null;
+    assert(d.status==='success','Synthetic HOLD execution did not finish successfully');
+    assert(!runData?.['Accepted Runtime Sink']?.length,
+      'Synthetic HOLD unexpectedly executed the accepted downstream branch');
+    assert(holdSink.length===1,'Synthetic HOLD downstream sink received wrong item count');
+    assert(holdSink[0]?.json?.inspection_status==='HOLD',
+      'HOLD downstream sink lost fail-closed verdict');
     assert(success.length===0,'Synthetic evidence incorrectly reached success output');
     assert(output.inspection_status==='HOLD'&&output.evidence_verified===false,
       'Synthetic evidence incorrectly VERIFIED');
@@ -307,6 +331,8 @@ try{
     assert(output.bid_submitted===false&&output.worker_job_enqueued===false,
       'Native HOLD unexpectedly dispatched business action');
     return {executionId,status:d.status,outputIndex:1,
+      acceptedSinkExecuted:false,holdSinkExecuted:true,
+      holdSinkItemCount:holdSink.length,
       inspectionStatus:output.inspection_status,
       evidenceProvenance:output.evidence_provenance,
       bidSubmitted:output.bid_submitted,workerJobEnqueued:output.worker_job_enqueued};
