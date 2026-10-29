@@ -116,6 +116,10 @@ class ProcureFlowBusinessOperation {
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
+      // Imported workflows can bypass the editor's options dropdown. Reject
+      // unknown modes before contacting even the read-only evidence API.
+      if(evidenceHandling!=='stop'&&evidenceHandling!=='hold')
+        throw Error('Business Operation evidence handling mode blocked');
       const block=byId.get(operationId);
       if(!block)throw Error('Unregistered Business Operation ID');
       if(bidNo!=='R26BK01787028'||(upstream.bid_no&&upstream.bid_no!==bidNo))throw Error('Unsupported tender: official single-case gate');
