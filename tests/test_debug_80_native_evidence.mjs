@@ -15,22 +15,32 @@ test.after(()=>rmSync(dir,{recursive:true,force:true}));
 
 function fixture(){
   return [
-    {name:'real-chrome-custom-output-0-connected',result:'PASS'},
-    {name:'real-chrome-custom-output-1-connected',result:'PASS'},
-    {name:'real-chrome-custom-dual-edge-reopen',result:'PASS'},
+    {name:'official-candidate-vue-canvas-rendered',result:'PASS'},
+    {name:'real-chrome-35-unsupported-shared-kinds-not-advertised',result:'PASS',checked:35},
+    {name:'real-chrome-custom-node-server-save',result:'PASS',nodeId:'native-node-001',
+      type:'CUSTOM.procureFlowBusinessOperation',operationId:'N02'},
+    {name:'real-chrome-custom-node-reopen-persistence',result:'PASS',id:'native-node-001'},
+    {name:'real-chrome-custom-node-drag-server-coordinate-save',result:'PASS',
+      nodeId:'native-node-001',before:[0,9],after:[80,64]},
+    {name:'real-chrome-custom-node-position-and-setting-reopen',result:'PASS',
+      nodeId:'native-node-001',position:[80,64],operationId:'N02',evidenceHandling:'hold'},
+    {name:'real-chrome-custom-output-0-connected',result:'PASS',outputIndex:0,target:'Accepted Sink'},
+    {name:'real-chrome-custom-output-1-connected',result:'PASS',outputIndex:1,target:'Hold Sink'},
+    {name:'real-chrome-custom-dual-edge-reopen',result:'PASS',nodeId:'native-node-001'},
+    {name:'real-chrome-custom-node-delete-and-server-save',result:'PASS',id:'native-node-001'},
     {name:'real-chrome-native-business-operation-synthetic-hold-execution',
-      result:'PASS',status:'success',outputIndex:1,acceptedSinkExecuted:false,
-      holdSinkExecuted:true,bidSubmitted:false,workerJobEnqueued:false,
+      result:'PASS',executionId:'1',status:'success',outputIndex:1,acceptedSinkExecuted:false,
+      holdSinkExecuted:true,holdSinkItemCount:1,bidSubmitted:false,workerJobEnqueued:false,
       evidenceProvenance:'isolated_synthetic_test_evidence',inspectionStatus:'HOLD'},
     {name:'real-chrome-native-business-operation-fail-closed-debugging',
-      result:'PASS',status:'error',successOutputs:0,
+      result:'PASS',executionId:'3',status:'error',failedNode:'Business Operation',successOutputs:0,realBusinessHandlers:0,actualBidSubmitted:false,
       reason:'Business Operation N01 held: official evidence incomplete'},
     {name:'real-chrome-all-43-native-operations-synthetic-hold-execution',
-      result:'PASS',status:'success',nativeOperations:43,
+      result:'PASS',executionId:'2',status:'success',nativeOperations:43,
       strictInspectionEnvelopesValidated:43,holdOutputs:43,successOutputs:0,
       realBusinessHandlers:0,actualBidSubmitted:false},
     {name:'no-real-business-handler-or-bid-submission',
-      result:'PASS',syntheticNativeExecutionCount:44,productionApiRequests:0,
+      result:'PASS',syntheticNativeExecutionCount:44,realBusinessHandlerCount:0,productionApiRequests:0,
       actualBidSubmitted:false}
   ];
 }
@@ -84,7 +94,29 @@ const attacks=[
   ['native error must contain the fail-closed reason',rows=>
     rows.find(x=>x.name.includes('fail-closed-debugging')).reason='unexpected success'],
   ['missing runtime verdict cannot pass',rows=>
-    rows.splice(rows.findIndex(x=>x.name==='real-chrome-custom-dual-edge-reopen'),1)]
+    rows.splice(rows.findIndex(x=>x.name==='real-chrome-custom-dual-edge-reopen'),1)],
+  ['saved custom node identity must match on reload',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-reopen-persistence').id='different-node'],
+  ['dragged coordinates must persist across reload',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-position-and-setting-reopen').position=[81,64]],
+  ['custom node settings must persist across reload',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-position-and-setting-reopen').operationId='N03'],
+  ['custom node must actually move',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-drag-server-coordinate-save').after=[0,9]],
+  ['output handles cannot be swapped',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-output-0-connected').target='Hold Sink'],
+  ['execution IDs must be distinct and numeric',rows=>
+    rows.find(x=>x.name.includes('fail-closed-debugging')).executionId='2'],
+  ['fake Chrome execution ID is rejected',rows=>
+    rows.find(x=>x.name.includes('all-43')).executionId='not-an-execution'],
+  ['missing actual HOLD sink item is rejected',rows=>
+    rows.find(x=>x.name.includes('synthetic-hold-execution')).holdSinkItemCount=0],
+  ['actual handler count cannot be concealed',rows=>
+    rows.find(x=>x.name==='no-real-business-handler-or-bid-submission').realBusinessHandlerCount=1],
+  ['unsupported node palette must remain excluded',rows=>
+    rows.find(x=>x.name==='real-chrome-35-unsupported-shared-kinds-not-advertised').checked=34],
+  ['fail-closed debugging must identify failed native node',rows=>
+    rows.find(x=>x.name.includes('fail-closed-debugging')).failedNode='Unrelated Node']
 ];
 for(const [name,mutate] of attacks){
   test(name,()=>{
