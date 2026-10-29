@@ -166,6 +166,12 @@ try{
   await operationControl.click();
   await page.getByText('N02 · 공고번호·차수 식별',{exact:true}).last().click({timeout:15000});
   await record('real-chrome-operationId-dropdown-selection','PASS',{operationId:'N02'});
+  // Also exercise the real custom-node evidence policy selector; a default
+  // shown in the editor is not proof that n8n persisted the parameter.
+  const evidenceControl=page.getByTestId('parameter-input-evidenceHandling');
+  await evidenceControl.click();
+  await page.getByText('Return HOLD status, never mark complete',{exact:true}).last().click({timeout:15000});
+  await record('real-chrome-evidence-handling-dropdown-selection','PASS',{evidenceHandling:'hold'});
   const close=page.getByTestId('ndv-close-button');
   if(await close.isVisible().catch(()=>false))await close.click();
 
@@ -174,6 +180,7 @@ try{
     return w?.nodes?.find(isBusiness)||null;
   });
   assert(added.parameters?.operationId==='N02','Selected operation ID not persisted '+JSON.stringify(added.parameters));
+  assert(added.parameters?.evidenceHandling==='hold','Selected HOLD policy not persisted '+JSON.stringify(added.parameters));
   await record('real-chrome-custom-node-server-save','PASS',{
     nodeId:added.id,type:added.type,operationId:added.parameters.operationId
   });
@@ -183,7 +190,8 @@ try{
   await nodeElement.waitFor({timeout:30000});
   const persisted=(await api('GET','/rest/workflows/'+id)).data;
   const reloaded=persisted.nodes.find(n=>n.id===added.id);
-  assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02','Custom node settings lost after browser reload');
+  assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02'&&
+    reloaded.parameters?.evidenceHandling==='hold','Custom node settings lost after browser reload');
   await record('real-chrome-custom-node-reopen-persistence','PASS',{id:added.id});
   // The ProcureFlow custom node itself must support the same actual Chrome
   // drag -> n8n server autosave -> browser reload contract as native nodes.
@@ -210,10 +218,12 @@ try{
   const movedReload=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id);
   assert(JSON.stringify(movedReload?.position)===JSON.stringify(movedPosition),
     'Custom node coordinates changed on browser reopen');
-  assert(movedReload.parameters?.operationId==='N02',
-    'Custom node setting lost after coordinate move and reload');
+  assert(movedReload.parameters?.operationId==='N02'&&
+    movedReload.parameters?.evidenceHandling==='hold',
+    'Custom node setting or HOLD policy lost after coordinate move and reload');
   await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
-    nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId
+    nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
+    evidenceHandling:movedReload.parameters.evidenceHandling
   });
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
