@@ -16,12 +16,14 @@ const original={
   PROCUREFLOW_ALLOW_INTERNAL_READONLY:process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY,
   PROCUREFLOW_APPROVED_INTERNAL_API_HOST:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST,
   PROCUREFLOW_APPROVED_INTERNAL_API_PORT:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT,
-  PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME
+  PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME:process.env.PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME,
+  PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT:process.env.PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT
 };
 function configure(){
   process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='1';
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
   process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  process.env.PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT='58491';
   delete process.env.PROCUREFLOW_ALLOW_INTERNAL_READONLY;
   delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_HOST;
   delete process.env.PROCUREFLOW_APPROVED_INTERNAL_API_PORT;
@@ -457,5 +459,32 @@ test('synthetic evidence origin requires numeric loopback, not a remappable host
   }
   process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491/';
   assert.equal(safeApiBase(),'http://127.0.0.1:58491');
+  configure();
+});
+
+
+test('synthetic loopback fixture pins HTTP transport and exact approved TCP port',()=>{
+  configure();
+  assert.equal(safeApiBase(),'http://127.0.0.1:58491');
+  for(const base of [
+    'http://127.0.0.1:5855/',
+    'http://127.0.0.1:58492/',
+    'http://127.0.0.1:22/',
+    'http://127.0.0.1/',
+    'https://127.0.0.1:58491/'
+  ]){
+    process.env.PROCUREFLOW_OPERATION_API_BASE=base;
+    assert.throws(()=>safeApiBase(),/test mode requires isolated loopback|blocked/,base);
+  }
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491/';
+  for(const bad of ['058491','65536','0','abc','58491 ']){
+    process.env.PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT=bad;
+    assert.throws(()=>safeApiBase(),/test mode requires isolated loopback|blocked/,bad);
+  }
+  process.env.PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT='5855';
+  assert.throws(()=>safeApiBase(),/test mode requires isolated loopback/,
+    'test fixture port override must not silently permit the old port');
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:5855/';
+  assert.equal(safeApiBase(),'http://127.0.0.1:5855');
   configure();
 });
