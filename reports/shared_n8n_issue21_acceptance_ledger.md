@@ -94,3 +94,10 @@
 - n8n 공식 사용자 관리 문서: n8n 1.0 이상에서 로그인 화면을 끄는 지원 설정은 없음. `n8n user-management:reset`는 기존 사용자 계정을 제거하는 명령이므로 **절대 실행 금지**.
 - [실제 공개 상태 읽기 전용 CI](https://github.com/lyonbegin/procureflow/actions/workflows/existing-n8n-editor-readiness.yml): `GET /healthz`, `/rest/settings`, `/setup`, `/rest/workflows`만 확인하고 신규 n8n/owner/DB 변경 없이 **owner 미설정이면 명시적으로 FAIL**. 이 검사가 성공하기 전에는 공용 편집기를 사용 가능하다고 보고하지 않는다.
 - **운영 수정 경계**: 임의 관리자 생성·새 계정/비밀번호·비밀번호 우회·공개 `/setup` 개방·추가 n8n 설치·DB 초기화/재연결·추측에 의한 운영 이전은 모두 금지. 우선 기존 데이터베이스 또는 복원 가능한 스냅샷에 기존 owner가 있었는지 권한 있는 읽기 전용 조사 → 발견 시 기존 owner와 워크플로 공유 관계 복원 검토. 기존 owner 부재가 실제로 확인되면 사용자의 명시적 동의하에 공식 1회 소유자 초기화 절차가 필요하다.
+
+
+### 시험 10/10 PASS vs 운영 setup 실패의 차이 (확인된 직접 원인)
+
+`.github/workflows/shared-n8n-candidate.yml`은 격리 n8n에 `DB_TYPE=sqlite`와 테스트 전용 `N8N_ENCRYPTION_KEY`를 넣고 `POST /rest/owner/setup`에 `candidate@example.invalid` 테스트 owner를 생성한 뒤 실제 Chrome/노드 API를 검사한다. 이 가상 계정 생성은 **오직 CI 임시 시험 DB에서** 수행되며 운영 Railway Main PostgreSQL에는 적용하지 않는다. 따라서 이전 10/10 Chrome PASS는 운영 사용자가 별도의 owner setup 없이 로그인할 수 있다는 뜻이 아니다.
+
+[실제 운영 차단 CI run 40892467553](https://github.com/lyonbegin/procureflow/actions/runs/40892467553) 콘솔: `EXISTING_N8N_EDITOR_READINESS {"gatewayHealthStatus":200,"settingsStatus":200,"ownerSetupRequired":true,"publicOwnerSetupStatus":403,"unauthenticatedWorkflowApiStatus":401,...}` 다음 `EDITOR_BLOCKED_UNCLAIMED_OWNER` 로 정상 차단. **운영 소유자 문제 해결 전 화면 사용 가능 판정 불가**.
