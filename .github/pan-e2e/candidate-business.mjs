@@ -267,8 +267,17 @@ try{
     return !w?.nodes?.some(n=>n.id===added.id);
   });
   const afterDelete=(await api('GET','/rest/workflows/'+id)).data;
-  assert(!afterDelete.connections?.[added.name],'Deleted node left dangling edges');
-  await record('real-chrome-custom-node-delete-and-server-save','PASS',{id:added.id});
+  const nodeAbsent=!afterDelete.nodes.some(n=>n.id===added.id);
+  const danglingEdges=!!afterDelete.connections?.[added.name]||
+    Object.values(afterDelete.connections||{}).some(byType=>
+      Object.values(byType||{}).some(ports=>
+        (ports||[]).some(targets=>
+          (targets||[]).some(target=>target.node===added.name))));
+  assert(nodeAbsent,'Deleted node unexpectedly persisted after reload');
+  assert(!danglingEdges,'Deleted node left dangling inbound/outbound edges');
+  await record('real-chrome-custom-node-delete-and-server-save','PASS',{
+    id:added.id,nodeAbsent,danglingEdges
+  });
   await page.screenshot({path:path.join(OUT,'04-deleted.png'),fullPage:true});
   // Real official n8n execution, but synthetic fixture only: the response
   // identifies itself as synthetic and MUST route to HOLD, never success.
