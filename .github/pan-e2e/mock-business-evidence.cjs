@@ -30,11 +30,27 @@ for(const flow of manifest.flows){
 }
 if([...byFlow.values()].reduce((sum,blocks)=>sum+blocks.length,0)!==43)
   throw Error('Synthetic HOLD fixture: incomplete 43-block ownership');
+// Evidence of actual fixture traffic, independent of Chrome PASS labels.
+// Loopback-only diagnostic; does not collect credentials, payloads or bid data.
+const traffic={validReads:0,rejectedRequests:0,byFlow:Object.create(null)};
 const server=http.createServer((req,res)=>{
   const u=new URL(req.url,'http://127.0.0.1:5855');
+  if(req.method==='GET'&&u.pathname==='/__fixture_stats'&&!u.search){
+    res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});
+    res.end(JSON.stringify({schemaVersion:'procureflow.fixture-traffic.v1',
+      validReads:traffic.validReads,rejectedRequests:traffic.rejectedRequests,
+      byFlow:traffic.byFlow}));
+    return;
+  }
   const match=u.pathname.match(/^\/api\/n8n\/operational\/flows\/(PF(?:0[1-9]|1[0-5]))\/inspect$/);
   const valid=req.method==='GET'&&match&&byFlow.has(match[1])&&
     u.searchParams.get('bid_no')==='R26BK01787028'&&u.searchParams.size===1;
+  if(valid){
+    traffic.validReads++;
+    traffic.byFlow[match[1]]=(traffic.byFlow[match[1]]||0)+1;
+  }else{
+    traffic.rejectedRequests++;
+  }
   const body=valid?{
     flow_id:match[1],case_id:'R26BK01787028',read_only:true,
     simulation_only:true,actual_job_executed:false,
