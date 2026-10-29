@@ -256,6 +256,8 @@ try{
     const w=(await api('GET','/rest/workflows/'+id)).data;
     return !w?.nodes?.some(n=>n.id===added.id);
   });
+  const afterDelete=(await api('GET','/rest/workflows/'+id)).data;
+  assert(!afterDelete.connections?.[added.name],'Deleted node left dangling edges');
   await record('real-chrome-custom-node-delete-and-server-save','PASS',{id:added.id});
   await page.screenshot({path:path.join(OUT,'04-deleted.png'),fullPage:true});
   // Real official n8n execution, but synthetic fixture only: the response
