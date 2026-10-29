@@ -63,3 +63,22 @@
 - **기존 공용 n8n 미해결 문제**: 공개된 기존 게이트웨이의 읽기 전용 `/rest/settings`가 `userManagement.showSetupOnFirstLoad=true`를 반환하는 것을 관찰했다. 즉 **기존 공용 n8n도 관리자 초기화가 미완료인 상태**로 보인다. 보안을 위해 기존 게이트웨이의 공개 owner setup 경로 차단을 유지한다. UI를 정상적으로 쓰기 위한 신뢰된 최초 소유자 설정 또는 합법적인 기존 관리자 확인은 아직 미완료다.
 - **검증 절차**: [기존 Main/Worker 통합 이미지 CI](https://github.com/lyonbegin/procureflow/actions/runs/40884401454)는 **새 서버를 띄우지 않고** 원본 이미지를 빌드·버전·확장 로드·CMD를 점검한다. 정적 구성 검사는 PASS, 실제 소스 이미지 빌드 최종 결과는 별도 CI 상태 확인 필요.
 - **중요한 경계**: 변경은 `feature/shared-n8n-pan-integration`에만 존재한다. 기존 `main`, 운영 Main/Worker 이미지, 운영 PostgreSQL, 암호화 키, 워크플로, 실제 입찰은 바꾸지 않았다. 운영으로 적용하기 전 **복원 가능한 운영 DB 백업·현재 owner/credential 호환성·기존 Worker 일치·롤백**을 검증해야 한다. 새 독립 n8n 서비스를 이용한 우회 테스트/배포는 금지한다.
+
+
+## 2026-10-29 14:08 UTC — 기존 공용 Railway n8n Main + Worker 실제 배포
+
+사용자의 명시적인 배포 요청을 받아, **기존** Railway 서비스만 전환했다. 새 n8n 서비스·새 DB·사용자 계정·추가 비밀번호를 만들지 않았다.
+
+| 대상 | Railway 배포 | 커밋 | 검증 |
+|---|---|---|---|
+| 기존 `procureflow-n8n-worker` | `9ff8d763-5baa-4a4c-a988-55bb26b8e856` | `b4dad318f2b2604d5032d1def5083aa8d3999e02` | `SUCCESS`, 실행 로그 `n8n worker is now ready`, Queue jobs |
+| 기존 `n8n` Main | `6e52b659-525a-4580-85bf-a83ab6b72a73` | 동일 | `SUCCESS`, 실행 로그 `n8n ready` 및 Editor URL |
+| 기존 `procureflow-n8n-editor-gateway` | 기존 배포 변경 없음 | `main` | `/healthz` 정상, 접속 주소 유지 |
+
+- 두 서비스의 실제 Railway Docker 빌드 로그에서 `PAN_PATCH_PATCHED: .../Canvas.vue` 확인. 이는 패치 코드 적용 증거이며, **로그인 후 캔버스의 실제 사용자 동작 검증은 아님**.
+- 운영 PostgreSQL/Redis/기존 `N8N_ENCRYPTION_KEY` 등의 **환경변수 이름 및 기존 설정을 유지**. 원래 Main에 지정되어 있던 무조건적 `n8n import:workflow --separate` pre-deploy 명령은 이번 배포 전 제거하여 기존 DB의 워크플로를 재덮어쓰지 않도록 했음.
+- **중요 미완료**: 기존 게이트웨이 `/rest/settings`는 배포 이후에도 `userManagement.showSetupOnFirstLoad=true`; `/setup`은 403(공개 최초-owner 등록 차단). 사용자 인증 기반 실제 Chrome Pan/노드 검증 미완료. 실제 n8n 엔진 로그는 `Processed 0 draft workflows, 0 published workflows`였으며 DB 내 모든 워크플로 수를 검증하지 못했으므로 26개 기존 운영 흐름 활성화/작동 성공을 주장하지 않음.
+- 첫 번째 Worker 배포 `43d75c48-8d25-440b-9daf-daa9a34f5426`는 Railway가 BuildKit `RUN --mount=type=secret`를 지원하지 않아 **빌드 FAILED**, 해당 문제를 `b4dad318`에서 수정 후 동일 운영 서비스에 성공 배포함.
+- **백업 제약**: 사용 가능한 Railway 연결 도구로 PostgreSQL 백업본의 존재·복구 검증을 실행하지 못했다. 따라서 백업 검증 완료로 표시하지 않음. 신중한 후속 조치를 위해 기존 이전 deployment ID를 기록: Main `73422967-bfb7-4d26-8ed4-e496fd526abe` (교체로 REMOVED), Worker 이전 성공 `4a810cd1-8a04-4fa9-bdf3-37480f2df4c1`; 옛 이미지 복구 가능성을 별도 검증하기 전에는 롤백 완료를 주장하지 않음.
+- Main 첫 시작 당시 `Detected 2 instances claiming leader role` 경고 1건을 관찰함. 배포 중 인스턴스 겹침 관련 가능성은 있으나 근본원인은 확인되지 않아 사후 관찰 필요.
+- 기능 브랜치의 문서 변경은 라이브에 재배포되지 않으며, 두 운영 서비스는 상기 커밋 SHA로 고정되어 있음.
