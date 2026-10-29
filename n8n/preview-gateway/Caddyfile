@@ -14,7 +14,7 @@
         basic_auth {
             preview-operator {$PREVIEW_BASIC_HASH}
         }
-        reverse_proxy http://procureflow-shared-n8n-branch-preview.railway.internal:5678 {
+        reverse_proxy http://procureflow-shared-n8n-branch-pr.railway.internal:5678 {
             header_up X-Forwarded-Proto https
             header_up X-Forwarded-Host {host}
         }
