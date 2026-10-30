@@ -102,10 +102,17 @@ export function makeSafeScenario(original,id){
  * The caller must pass the actual /rest/executions/{id} result and runData.
  * Offline tests exercise only this verifier's failure modes.
  */
-export function verifyNativeScenarioEvidence({payload,scenario,baseState,execution,runData,fixture}) {
+export function verifyNativeScenarioEvidence({payload,scenario,baseState,execution,runData,fixture,expectedExecutionId}) {
   const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   assert(scenario&&/^S(?:0[1-9]|10)$/.test(scenario.id),'Invalid native scenario plan');
   assert(execution?.status==='success','Native n8n execution did not succeed');
+  // The Chrome POST /run execution ID must be the ID returned by the saved
+  // native GET /rest/executions/:id. Reject a result from another execution.
+  if(expectedExecutionId!==undefined){
+    assert(typeof expectedExecutionId==='string'&&expectedExecutionId.length>0&&
+      String(execution.id)===expectedExecutionId,
+      'Native scenario execution ID does not match the Chrome run');
+  }
   assert(payload?.scenario_id===scenario.id&&payload.case_id==='DEMO_ONLY',
     'Native scenario/case identity mismatch');
   assert(payload.expected===scenario.expected&&payload.verdict===scenario.expected,
@@ -124,6 +131,21 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
   const actualNodes=Object.keys(runData).sort();
   assert(same(actualNodes,expectedNodes),
     'Native scenario did not execute exactly the reviewed workflow nodes');
+  // A runData key alone is not evidence that a node actually ran. Require
+  // exactly one successful native execution with a JSON output per node.
+  const nativeOutput=new Map();
+  for(const name of expectedNodes){
+    const runs=runData[name];
+    assert(Array.isArray(runs)&&runs.length===1&&!runs[0]?.error,
+      'Native scenario missing or failed node execution: '+name);
+    const items=runs[0]?.data?.main?.[0];
+    assert(Array.isArray(items)&&items.length===1&&
+      items[0]?.json&&typeof items[0].json==='object'&&!Array.isArray(items[0].json),
+      'Native scenario missing node JSON output: '+name);
+    nativeOutput.set(name,items[0].json);
+  }
+  assert(same(nativeOutput.get('전체 사건 기록 검증됨'),payload),
+    'Native scenario final payload differs from saved n8n runData');
   const state=structuredClone(baseState);
   for(let i=0;i<scenario.steps.length;i++){
     const step=scenario.steps[i];
@@ -143,6 +165,18 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
     assert(same(payload.trace[i],expected),
       'Native scenario trace mismatch at step '+(i+1));
     Object.assign(state,patch);
+    // Each intermediate PF step must have emitted the exact trace prefix and
+    // state transition. A forged final trace cannot hide an incorrect step.
+    const prefix=String(i+1).padStart(2,'0')+' · ';
+    const stageNodes=fixture.nodes.filter(n=>n.name.startsWith(prefix));
+    assert(stageNodes.length===1,'Native scenario reviewed PF step node missing: '+prefix);
+    const stage=nativeOutput.get(stageNodes[0].name);
+    assert(stage?.scenario_id===scenario.id&&stage.case_id==='DEMO_ONLY'&&
+      stage.simulation_only===true&&stage.bid_submitted===false&&
+      stage.latest_event===step.event&&stage.active_flow===step.flow&&
+      same(stage.latest_output,patch)&&same(stage.trace,payload.trace.slice(0,i+1))&&
+      same(stage.state,state),
+      'Native scenario PF step output differs from reviewed transition: '+prefix);
   }
   assert(same(payload.state,state),'Native scenario final state differs from reviewed patches');
   return {
