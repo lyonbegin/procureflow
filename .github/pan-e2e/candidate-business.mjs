@@ -310,24 +310,11 @@ try{
   await record('real-chrome-custom-node-drag-server-coordinate-save','PASS',{
     nodeId:added.id,before:originalPosition,after:movedPosition
   });
-  await page.reload({waitUntil:'domcontentloaded'});
-  await nodeElement.waitFor({timeout:30000});
-  const movedReload=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id);
-  assert(JSON.stringify(movedReload?.position)===JSON.stringify(movedPosition),
-    'Custom node coordinates changed on browser reopen');
-  assert(movedReload.parameters?.operationId==='N02'&&
-    movedReload.parameters?.evidenceHandling==='hold',
-    'Custom node setting or HOLD policy lost after coordinate move and reload');
-  await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
-    nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
-    evidenceHandling:movedReload.parameters.evidenceHandling
-  });
-  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
-    workflowScopes:(await api('GET','/rest/workflows/'+id)).data.scopes??null,
-    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
-    note:'Node drag used genuine Chrome before reload; this separately records post-reload creator availability.'
-  });
-  await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
+  // Perform genuine two-port Chrome handle connections while the native
+  // candidate editor is still writable. The prior run confirmed that after
+  // browser reload its creator toolbar disappears even with workflow:update
+  // scope; attempting the first connection in that state falsely blocks the
+  // connection persistence contract. We still reload and verify both edges.
 
   // Exercise the real native n8n handle drag on BOTH custom-node outputs.
   async function connectHandle(source,target){
@@ -357,6 +344,22 @@ try{
   await page.screenshot({path:path.join(OUT,'03b-two-output-edges.png'),fullPage:true});
   await page.reload({waitUntil:'domcontentloaded'});
   await nodeElement.waitFor({timeout:30000});
+  const movedReload=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id);
+  assert(JSON.stringify(movedReload?.position)===JSON.stringify(movedPosition),
+    'Custom node coordinates changed on browser reopen');
+  assert(movedReload.parameters?.operationId==='N02'&&
+    movedReload.parameters?.evidenceHandling==='hold',
+    'Custom node setting or HOLD policy lost after coordinate move and reload');
+  await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
+    nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
+    evidenceHandling:movedReload.parameters.evidenceHandling
+  });
+  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
+    workflowScopes:(await api('GET','/rest/workflows/'+id)).data.scopes??null,
+    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
+    note:'Node drag used genuine Chrome before reload; this separately records post-reload creator availability.'
+  });
+  await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
   const withEdges=(await api('GET','/rest/workflows/'+id)).data;
   assert(withEdges.connections?.[added.name]?.main?.[0]?.some(e=>e.node==='Accepted Sink'),'Success edge not persisted');
   assert(withEdges.connections?.[added.name]?.main?.[1]?.some(e=>e.node==='Hold Sink'),'Hold edge not persisted');
