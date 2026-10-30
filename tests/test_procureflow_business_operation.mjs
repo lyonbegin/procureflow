@@ -356,6 +356,52 @@ test('verified read-only inspection whitelists output and never forwards secrets
   configure();
 });
 
+test('PF05/PF06 VERIFIED requires real 10-digit official detail codes, not merely a nonempty array',async()=>{
+  configure();
+  // Exercise the real native custom-node execute() with an in-memory helper.
+  // This is NOT a live G2B query or proof of ten-year historical completeness.
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='0';
+  process.env.PROCUREFLOW_OPERATION_API_BASE='https://procureflow-api-production.up.railway.app';
+  const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  for(const flowId of ['PF05','PF06']){
+    const flow=manifest.flows.find(x=>x.id===flowId);
+    const block=manifest.blocks.find(x=>x.id===flow.owned_blocks[0]);
+    assert.ok(block,'manifest must contain an owned block for '+flowId);
+    const params=name=>({operationId:block.id,bidNo:'R26BK01787028',evidenceHandling:'hold'})[name];
+    const response=(codes)=>({
+      flow_id:flowId,case_id:'R26BK01787028',read_only:true,
+      simulation_only:false,actual_job_executed:false,
+      automatic_bid_submission:false,workflow_execution_engine:'native_n8n_only',
+      source_provenance:'live_procureflow_postgresql_verified_evidence',
+      official_notice_verified:true,business_state:'VERIFIED',
+      official_detail10:codes,
+      blocks:[{
+        id:block.id,input:block.input,output:block.output,
+        real_data:true,simulation_only:false,job_enqueued:false,status:'verified',
+        features:block.features.map(feature_no=>({feature_no,acceptance:'verified',missing_gates:[]})),
+        output_value:{evidence_verified:true,real_api_result_state:'verified',missing_evidence_keys:[]}
+      }]
+    });
+    for(const invalid of [[],['81111599'],['81111599AB'],[null],['8111159901','BAD_CODE'],[8111159901]]){
+      const result=await instance.execute.call(ctx(params,async()=>{requests++;return response(invalid);}));
+      assert.equal(result[0].length,0,flowId+' must not verify '+JSON.stringify(invalid));
+      assert.equal(result[1].length,1,flowId+' should return HOLD');
+      assert.equal(result[1][0].json.inspection_status,'HOLD');
+      assert.equal(result[1][0].json.bid_submitted,false);
+    }
+    const valid=await instance.execute.call(ctx(params,async()=>{requests++;return response(['8111159901']);}));
+    assert.equal(valid[0].length,1,flowId+' should allow a structurally valid official detail10 fixture');
+    assert.equal(valid[1].length,0);
+    assert.equal(valid[0][0].json.inspection_status,'VERIFIED');
+    assert.equal(valid[0][0].json.actual_business_handler_executed,false);
+    assert.equal(valid[0][0].json.bid_submitted,false);
+  }
+  assert.equal(requests,14,'two flows × six rejected shapes plus one valid fixture');
+  configure();
+});
+
 test('all 43 manifest operations fail closed with isolated evidence and exact GET routing',async()=>{
   configure();
   const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
