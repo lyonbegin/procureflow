@@ -139,8 +139,27 @@ function syntheticNativeEvidence(id){
     bid_submitted:false,not_a_real_bid:true,state,trace
   };
   const runData=Object.fromEntries(fixtureSafe.nodes.map(n=>[n.name,[{data:{main:[[{json:{}}]]}}]]));
+  // Model native intermediate node outputs separately from the final payload.
+  // A verifier which only checks runData keys must reject missing/forged stages.
+  const replayState=structuredClone(plan.base_state);
+  for(let i=0;i<scenario.steps.length;i++){
+    const step=scenario.steps[i];
+    Object.assign(replayState,step.patch||{});
+    const prefix=String(i+1).padStart(2,'0')+' · ';
+    const name=fixtureSafe.nodes.find(n=>n.name.startsWith(prefix))?.name;
+    assert(name,'Missing canonical fixture PF step '+prefix);
+    runData[name][0].data.main[0][0].json={
+      scenario_id:id,case_id:'DEMO_ONLY',simulation_only:true,
+      bid_submitted:false,latest_event:step.event,active_flow:step.flow,
+      latest_output:structuredClone(step.patch||{}),
+      trace:structuredClone(trace.slice(0,i+1)),
+      state:structuredClone(replayState)
+    };
+  }
+  runData['전체 사건 기록 검증됨'][0].data.main[0][0].json=structuredClone(payload);
   return {payload,scenario,baseState:plan.base_state,
-    execution:{status:'success'},runData,fixture:fixtureSafe};
+    execution:{status:'success',id:'native-test-1'},expectedExecutionId:'native-test-1',
+    runData,fixture:fixtureSafe};
 }
 for(let i=1;i<=10;i++){
   const id='S'+String(i).padStart(2,'0');
@@ -174,6 +193,16 @@ const nativeEvidenceAttacks=[
   ['wrong expected verdict',v=>{v.payload.verdict='READY_FOR_MANUAL_PARTICIPATION';}],
   ['not marked simulated',v=>{v.payload.simulation_only=false;}],
   ['missing no-real-bid marker',v=>{v.payload.not_a_real_bid=false;}],
+  ['native execution ID mismatch',v=>{v.execution.id='another-run';}],
+  ['native execution ID absent',v=>{delete v.execution.id;}],
+  ['native node key without execution',v=>{v.runData[v.fixture.nodes[0].name]=[];}],
+  ['native node failed execution',v=>{v.runData[v.fixture.nodes[0].name][0].error={message:'failed'};}],
+  ['native node output missing',v=>{v.runData[v.fixture.nodes[0].name][0].data.main=[[]];}],
+  ['native node duplicate executions',v=>{v.runData[v.fixture.nodes[0].name].push(structuredClone(v.runData[v.fixture.nodes[0].name][0]));}],
+  ['final native output differs from claimed payload',v=>{v.runData['전체 사건 기록 검증됨'][0].data.main[0][0].json.verdict='FORGED';}],
+  ['intermediate native state forged',v=>{const n=v.fixture.nodes.find(n=>n.name.startsWith('01 · ')).name;v.runData[n][0].data.main[0][0].json.state.qualified=true;}],
+  ['intermediate native trace forged',v=>{const n=v.fixture.nodes.find(n=>n.name.startsWith('02 · ')).name;v.runData[n][0].data.main[0][0].json.trace[0].event='FAKE';}],
+  ['intermediate native event forged',v=>{const n=v.fixture.nodes.find(n=>n.name.startsWith('01 · ')).name;v.runData[n][0].data.main[0][0].json.latest_event='FAKE';}],
 ];
 for(const [name,attack] of nativeEvidenceAttacks){
   test('native execution evidence fail closed: '+name,()=>{
