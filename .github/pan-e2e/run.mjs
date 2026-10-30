@@ -202,17 +202,47 @@ try {
   await page.reload({waitUntil:'domcontentloaded'});
   await page.getByTestId('canvas').waitFor({timeout:30000});
   await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
-  const plus=page.getByTestId('node-creator-plus-button');
-  if(await plus.isVisible().catch(()=>false)){
-    await plus.click({timeout:15000});
-  }else{
-    // Native n8n also exposes its node creator by double-clicking empty
-    // canvas. This is a REAL Chrome gesture, not a DOM injection/API write.
-    const empty=await panePoint();
-    await page.mouse.dblclick(empty.x,empty.y);
-  }
+  // On n8n 2.44.6 the plus toolbar can be hidden after zoom/navigation,
+  // and a blank-pane double click may focus the canvas without opening the
+  // creator. Try genuine Chrome UI entry points, checking the REAL palette
+  // after each attempt. Never insert a node through REST/DOM in this test.
   const palette=page.getByTestId('node-creator-search-bar');
-  await palette.waitFor({state:'visible',timeout:15000});
+  const plus=page.getByTestId('node-creator-plus-button');
+  const entryAttempts=[];
+  for(const method of ['toolbar-plus','blank-pane-doubleclick','keyboard-tab']){
+    if(await palette.isVisible().catch(()=>false))break;
+    try{
+      if(method==='toolbar-plus'){
+        if(!await plus.isVisible().catch(()=>false)){
+          entryAttempts.push({method,result:'toolbar not visible'});
+          continue;
+        }
+        await plus.click({timeout:6000});
+      }else{
+        const empty=await panePoint();
+        const hit=await page.evaluate(({x,y})=>{
+          const el=document.elementFromPoint(x,y);
+          return {onPane:!!el?.closest('.vue-flow__pane'),
+            onNode:!!el?.closest('.vue-flow__node'),
+            tag:el?.tagName||null};
+        },empty);
+        if(!hit.onPane||hit.onNode){
+          entryAttempts.push({method,result:'no verified blank pane',hit});
+          continue;
+        }
+        await page.mouse.click(empty.x,empty.y,{clickCount:method==='blank-pane-doubleclick'?2:1,delay:110});
+        if(method==='keyboard-tab')await page.keyboard.press('Tab');
+      }
+      await palette.waitFor({state:'visible',timeout:6000});
+      entryAttempts.push({method,result:'palette opened'});
+    }catch(error){
+      entryAttempts.push({method,result:'not opened',error:String(error).slice(0,180)});
+      await page.screenshot({path:path.join(OUT,'palette-'+method+'-diagnostic.png'),fullPage:true});
+    }
+  }
+  assert(await palette.isVisible().catch(()=>false),
+    'Native node creator did not open using Chrome UI: '+JSON.stringify(entryAttempts));
+  await rec('real-chrome-native-palette-open','PASS',{entryAttempts});
   await palette.fill('No Operation');
   await page.getByTestId('node-creator-item-name').getByText('No Operation, do nothing',{exact:true}).click();
   const closeNdv=page.getByTestId('ndv-close-button');
