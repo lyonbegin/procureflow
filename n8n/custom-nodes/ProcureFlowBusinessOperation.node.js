@@ -84,6 +84,12 @@ function validateProvenance(body,flowId,bidNo,operationId){
      body.flow_id!==flowId||body.case_id!==bidNo||body.read_only!==true||
      body.simulation_only!==synthetic||body.actual_job_executed!==false||
      body.automatic_bid_submission!==false||
+     // A read-only inspection response may omit dispatch/decision fields, but
+     // if present they must NEVER claim an actual bid, queued worker job, or
+     // automated submission. A forged response cannot be VERIFIED by omission
+     // from the downstream output whitelist alone.
+     ['bid_submitted','worker_job_enqueued','job_enqueued',
+      'automated_bid_submission'].some(key=>Object.hasOwn(body,key)&&body[key]!==false)||
      body.workflow_execution_engine!=='native_n8n_only'||
      (!synthetic&&body.source_provenance!=='live_procureflow_postgresql_verified_evidence'))
     throw Error('Business Operation official evidence response contract mismatch');
