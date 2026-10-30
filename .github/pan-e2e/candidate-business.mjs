@@ -263,6 +263,45 @@ try{
     // Avoid retrying a stale rectangle if the actual node has moved.
     await page.waitForTimeout(250);
   }
+  // Playwright dragTo is another genuine Chrome pointer sequence (not an
+  // API/DOM coordinate edit). It first selects the node and drags from the
+  // node body into an empty area of the official Vue Flow pane. This covers
+  // versions where a raw mouse.down on a hovered node is not enough to enter
+  // the Vue Flow node-drag state.
+  if(!movedPosition){
+    const pane=page.locator('.vue-flow__pane');
+    const box=await nodeElement.boundingBox(),paneBox=await pane.boundingBox();
+    assert(box&&paneBox,'Native dragTo fallback has no visible node/pane');
+    const sourcePosition={x:Math.round(box.width*.5),y:Math.round(box.height*.5)};
+    const targetPosition={
+      x:Math.round(Math.min(paneBox.width-25,Math.max(25,box.x+sourcePosition.x-paneBox.x+135))),
+      y:Math.round(Math.min(paneBox.height-25,Math.max(25,box.y+sourcePosition.y-paneBox.y+85)))
+    };
+    const hit=await page.evaluate(({box,paneBox,targetPosition})=>{
+      const el=document.elementFromPoint(paneBox.x+targetPosition.x,paneBox.y+targetPosition.y);
+      return {tag:el?.tagName||null,node:el?.closest('.vue-flow__node')?.getAttribute('data-node-name')||null,
+        onPane:!!el?.closest('.vue-flow__pane')};
+    },{box,paneBox,targetPosition});
+    if(hit.onPane&&!hit.node){
+      try{
+        await nodeElement.click({position:sourcePosition,timeout:12000});
+        await nodeElement.dragTo(pane,{sourcePosition,targetPosition,timeout:20000});
+        movedPosition=await poll('native Playwright dragTo server autosave',async()=>{
+          const w=(await api('GET','/rest/workflows/'+id)).data;
+          const p=w?.nodes?.find(n=>n.id===added.id)?.position;
+          return p&&Math.abs(p[0]-originalPosition[0])>30&&
+            Math.abs(p[1]-originalPosition[1])>20?p:null;
+        },25000);
+        dragAttempts.push({method:'native-dragTo',sourcePosition,targetPosition,hit,result:'persisted',position:movedPosition});
+      }catch(error){
+        const current=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id)?.position;
+        dragAttempts.push({method:'native-dragTo',sourcePosition,targetPosition,hit,current,error:String(error)});
+        await page.screenshot({path:path.join(OUT,'dragTo-fallback-failure.png'),fullPage:true});
+      }
+    }else{
+      dragAttempts.push({method:'native-dragTo',sourcePosition,targetPosition,hit,skipped:'target is not empty Vue Flow pane'});
+    }
+  }
   assert(movedPosition,'Custom node real Chrome drag did not persist: '+JSON.stringify(dragAttempts));
   await record('real-chrome-custom-node-drag-server-coordinate-save','PASS',{
     nodeId:added.id,before:originalPosition,after:movedPosition
