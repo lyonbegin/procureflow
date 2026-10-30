@@ -210,6 +210,31 @@ try{
   assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02'&&
     reloaded.parameters?.evidenceHandling==='hold','Custom node settings lost after browser reload');
   await record('real-chrome-custom-node-reopen-persistence','PASS',{id:added.id});
+  // A workflow may render nodes while the native editor is still hydrating
+  // or in view-only mode. Capture permissions and actual Chrome hit testing
+  // before interpreting a failed drag as a node-movement implementation bug.
+  const editState=await page.evaluate(()=>{
+    const body=document.body.innerText;
+    const controls=[...document.querySelectorAll('[data-test-id]')]
+      .map(e=>e.getAttribute('data-test-id'))
+      .filter(x=>/creator|zoom|edit|readonly|read-only/i.test(x||''));
+    const node=document.querySelector('[data-test-id="canvas-node"][data-node-name="Business Operation"]');
+    const rect=node?.getBoundingClientRect();
+    const center=rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null;
+    const hit=center?document.elementFromPoint(center.x,center.y):null;
+    return {readOnlyText:/read.only|view.only|no edit permission/i.test(body),
+      readOnlyExcerpt:body.match(/.{0,65}(?:read.only|view.only|no edit permission).{0,65}/i)?.[0]||null,
+      controls:[...new Set(controls)].slice(0,45),nodeRect:rect?{
+        x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,
+      centerHitNode:hit?.closest('[data-test-id="canvas-node"]')?.getAttribute('data-node-name')||null,
+      centerHitTag:hit?.tagName||null};
+  });
+  const editWorkflow=(await api('GET','/rest/workflows/'+id)).data;
+  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
+    workflowScopes:editWorkflow.scopes??null,
+    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
+    editState
+  });
   // The ProcureFlow custom node itself must support the same actual Chrome
   // drag -> n8n server autosave -> browser reload contract as native nodes.
   const originalPosition=[...reloaded.position];
