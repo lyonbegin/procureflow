@@ -5,6 +5,7 @@ on:
       - 'n8n/source-build/shared-adapter-contracts.mjs'
       - 'n8n/source-build/debug-80-audit.mjs'
       - 'tests/test_debug_80_native_evidence.mjs'
+      - 'tests/test_inspection_envelope_runtime.mjs'
       - 'n8n/source-build/inspection-envelope-schemas.mjs'
       - 'reports/workflow_81_160_implementation_20261025.md'
       - 'n8n/operational_manifest.json'
@@ -85,6 +86,10 @@ jobs:
           }
           console.log('INSPECTION_43_STRICT_ENVELOPES_PASS (business handlers still 0)');
           NODE
+      - name: Execute all 43 isolated read-only nodes and validate emitted JSON with strict 2020-12 schemas
+        run: |
+          npm install --no-save --no-audit --no-fund ajv@8.17.1
+          node --test tests/test_inspection_envelope_runtime.mjs
       - name: Audit 80 separate debugging requirements without claiming completion
         run: node n8n/source-build/debug-80-audit.mjs reports/workflow_81_160_implementation_20261025.md shared-debug-80-audit.json
       - name: Fail-closed evidence verifier regression (forged Chrome PASS/FAIL)
