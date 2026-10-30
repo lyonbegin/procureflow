@@ -649,3 +649,60 @@ test('synthetic loopback fixture pins HTTP transport and exact approved TCP port
   assert.equal(safeApiBase(),'http://127.0.0.1:5855');
   configure();
 });
+
+
+test('nested block/output dispatch claims reject entire read-only inspection, including foreign blocks',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const baseline={
+    ...structuredClone(blocked),
+    source_provenance:'isolated_synthetic_test_evidence',
+    simulation_only:true,
+    blocks:[{...structuredClone(blocked.blocks[0]),
+      real_data:false,simulation_only:true}]
+  };
+  let requests=0;
+  const execute=reply=>instance.execute.call(ctx(getParam,async()=>{
+    requests++;
+    return reply;
+  }));
+  const good=await execute(baseline);
+  assert.equal(good[0].length,0);
+  assert.equal(good[1].length,1);
+  assert.equal(good[1][0].json.inspection_status,'HOLD');
+  const flags=[
+    'bid_submitted','worker_job_enqueued','job_enqueued',
+    'automated_bid_submission','automatic_bid_submission','actual_job_executed'
+  ];
+  let rejected=0;
+  for(const location of ['block','output_value']){
+    for(const flag of flags){
+      for(const forgedValue of [true,'true',1]){
+        const forged=structuredClone(baseline);
+        const target=location==='block'?forged.blocks[0]:forged.blocks[0].output_value;
+        target[flag]=forgedValue;
+        await assert.rejects(()=>execute(forged),/nested dispatch claim blocked/,
+          location+'.'+flag+'='+String(forgedValue));
+        rejected++;
+      }
+    }
+  }
+  const foreign=structuredClone(baseline);
+  foreign.blocks.push({id:'N02',job_enqueued:true});
+  await assert.rejects(()=>execute(foreign),/nested dispatch claim blocked/,
+    'unrelated block cannot claim a queued job');
+  rejected++;
+  const explicitFalse=structuredClone(baseline);
+  for(const flag of flags){
+    explicitFalse.blocks[0][flag]=false;
+    explicitFalse.blocks[0].output_value[flag]=false;
+  }
+  const permitted=await execute(explicitFalse);
+  assert.equal(permitted[1][0].json.inspection_status,'HOLD');
+  assert.equal(requests,rejected+2);
+  assert.equal(rejected,37);
+  console.log('PROCUREFLOW_NESTED_DISPATCH_FORGERY_BLOCKED',JSON.stringify({
+    forgedNestedClaimsRejected:rejected,realHTTPRequests:0,
+    mockedReadOnlyGET:requests,actualBids:0,actualWorkerDispatch:0
+  }));
+});
