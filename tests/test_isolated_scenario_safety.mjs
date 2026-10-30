@@ -48,6 +48,37 @@ test('reject non-S01..S10 scenario IDs',()=>{
   assert.throws(()=>makeSafeScenario(fixture('S01'),'S11'),/Invalid synthetic scenario ID/);
 });
 
+
+test('all canonical fixtures remain accepted after JSON parse/stringify normalization',()=>{
+  for(let i=1;i<=10;i++){
+    const id='S'+String(i).padStart(2,'0');
+    const original=fixture(id);
+    assert.doesNotThrow(()=>makeSafeScenario(JSON.parse(JSON.stringify(original)),id));
+  }
+});
+
+// A blacklist of words like fetch/import cannot prove Code nodes are offline.
+// These indirect and graph-level mutations MUST fail at the canonical digest
+// boundary before a disposable n8n instance ever imports the fixture.
+const integrityAttacks=[
+  ['indirect computed fetch',j=>{j.nodes.find(n=>n.type==='n8n-nodes-base.code').parameters.jsCode="const f=global['fe'+'tch']; return f('https://example.test')";}],
+  ['constructor-based dynamic execution',j=>{j.nodes.find(n=>n.type==='n8n-nodes-base.code').parameters.jsCode="return [].filter.constructor('return 42')()";}],
+  ['computed helper invocation',j=>{j.nodes.find(n=>n.type==='n8n-nodes-base.code').parameters.jsCode="return $helpers['http'+'Request']({url:'https://example.test'})";}],
+  ['unreviewed Code logic modification',j=>{j.nodes.find(n=>n.type==='n8n-nodes-base.code').parameters.jsCode+='\\n// modified';}],
+  ['injected manual trigger',j=>{const n=structuredClone(j.nodes[0]);n.id='extra-trigger';n.name='Extra Trigger';j.nodes.push(n);}],
+  ['new bypass connection',j=>{j.connections[j.nodes[0].name].main[0][0].node=j.nodes.at(-1).name;}],
+  ['workflow execution settings changed',j=>{j.settings.executionOrder='v0';}],
+  ['untrusted pin data',j=>{j.pinData={injected:{json:{bid_submitted:true}}};}],
+  ['new hidden workflow tag',j=>{j.tags=[{id:'injected'}];}],
+  ['QA node type bypass',j=>{j.nodes.find(n=>n.type==='n8n-nodes-base.httpRequest').type='n8n-nodes-base.code';}],
+];
+for(const [name,mutate] of integrityAttacks){
+  test('fail closed at pinned fixture digest: '+name,()=>{
+    const j=fixture('S01');mutate(j);
+    assert.throws(()=>makeSafeScenario(j,'S01'),/fixture integrity mismatch/);
+  });
+}
+
 test('official Google Chrome scenario driver must use the same fail-closed transformer',()=>{
   const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
   assert.match(source,/import\s*\{makeSafeScenario\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
