@@ -274,6 +274,30 @@ test('reject fake provenance and inconsistent JSON before returning any item',as
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],job_enqueued:true}]},'PF01','R26BK01787028','N01'),/contract mismatch/);
 });
 
+test('read-only provenance rejects forged top-level bid and worker dispatch claims',async()=>{
+  configure();
+  // Real node/manifest, stubbed HTTP only. A fake provider must not promote
+  // inspection to VERIFIED when it also claims a bid or Worker dispatch.
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  for(const field of ['bid_submitted','worker_job_enqueued','job_enqueued',
+    'automated_bid_submission']){
+    for(const value of [true,'true',1,null]){
+      const forged={...blocked,[field]:value};
+      assert.throws(()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+        /official evidence response contract mismatch/,field+'='+String(value));
+      await assert.rejects(
+        ()=>instance.execute.call(ctx(getParam,async()=>{requests++;return forged;})),
+        /official evidence response contract mismatch/);
+    }
+    // Explicit false and absence are both compatible with a read-only API.
+    const explicitlyFalse={...blocked,[field]:false};
+    assert.equal(validateProvenance(explicitlyFalse,'PF01','R26BK01787028','N01').id,'N01');
+  }
+  assert.equal(requests,16,'one isolated mock response per forged claim');
+  assert.equal(validateProvenance(blocked,'PF01','R26BK01787028','N01').id,'N01');
+});
+
 test('reject duplicate blocks, wrong input/output and simulated execution flags',()=>{
   assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block/);
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],input:'wrong'}]},'PF01','R26BK01787028','N01'),/block\/official/);
