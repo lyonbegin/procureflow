@@ -188,26 +188,13 @@ try {
   await rec('save-reopen-position-and-edge-persist','PASS',{nodePosition:moved});
   await page.screenshot({path:path.join(OUT,'04-reopened.png'),fullPage:true});
 
-  // Native official n8n zoom controls, measured via actual Vue Flow transform.
-  const zoomBefore=await viewport();
-  await page.getByTestId('zoom-in-button').click();
-  await poll('zoom in',async()=>(await viewport()).scale>zoomBefore.scale+0.01);
-  const zoomIn=await viewport();
-  await page.getByTestId('zoom-out-button').click();
-  await rec('real-editor-zoom-in-out','PASS',{before:zoomBefore,zoomIn,zoomOut:await viewport()});
-
-  // The official n8n toolbar may be unmounted while the canvas zoom
-  // transition or workflow navigation is settling. Reopen the actual editor
-  // before using the palette; never synthesize nodes via REST in this test.
-  await page.reload({waitUntil:'domcontentloaded'});
-  await page.getByTestId('canvas').waitFor({timeout:30000});
-  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
-  // On n8n 2.44.6 the plus toolbar can be hidden after zoom/navigation,
-  // and a blank-pane double click may focus the canvas without opening the
-  // creator. Try genuine Chrome UI entry points, checking the REAL palette
-  // after each attempt. Never insert a node through REST/DOM in this test.
+  // Add/delete nodes BEFORE zooming: n8n 2.44.6 can unmount the native
+  // creator toolbar after zoom transitions. Preserve genuine Chrome UI actions.
   const palette=page.getByTestId('node-creator-search-bar');
   const plus=page.getByTestId('node-creator-plus-button');
+  // Native toolbar may occasionally be hidden even before zoom; use only
+  // genuine Chrome UI entry points, never REST/DOM insertion. Try genuine Chrome UI entry points, checking the REAL palette
+  // after each attempt. Never insert a node through REST/DOM in this test.
   const entryAttempts=[];
   for(const method of ['toolbar-plus','blank-pane-doubleclick','keyboard-tab']){
     if(await palette.isVisible().catch(()=>false))break;
@@ -263,6 +250,15 @@ try {
     return !d.nodes.some(n=>n.id===added.id);
   },30000);
   await rec('real-chrome-delete-node-and-autosave','PASS',{deletedNodeId:added.id});
+
+  // Native official n8n zoom controls, measured via actual Vue Flow transform.
+  // Run after palette CRUD so zoom animations cannot hide the creator toolbar.
+  const zoomBefore=await viewport();
+  await page.getByTestId('zoom-in-button').click();
+  await poll('zoom in',async()=>(await viewport()).scale>zoomBefore.scale+0.01);
+  const zoomIn=await viewport();
+  await page.getByTestId('zoom-out-button').click();
+  await rec('real-editor-zoom-in-out','PASS',{before:zoomBefore,zoomIn,zoomOut:await viewport()});
 
   // Actual CodeMirror parameter edit through official NDV; verify server persistence.
   await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').dblclick();
