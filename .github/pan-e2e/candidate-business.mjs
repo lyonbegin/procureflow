@@ -213,29 +213,38 @@ try{
   // The ProcureFlow custom node itself must support the same actual Chrome
   // drag -> n8n server autosave -> browser reload contract as native nodes.
   const originalPosition=[...reloaded.position];
-  // After navigation the canvas may still be animating fitView. Verify the
-  // actual Chrome hit target and retry only with genuine mouse gestures.
-  // A failed drag must NEVER be replaced by a REST/DOM coordinate mutation.
+  // n8n node children can carry Vue Flow's .nodrag class. A pointer hit
+  // inside the node is NOT proof that the hit surface starts node dragging.
+  // Discover actual draggable Chrome hit targets, reject no-drag/interactive
+  // children, and use ONLY real mouse gestures. Do not REST/DOM-patch coords.
   await nodeElement.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
   let movedPosition=null;
   const dragAttempts=[];
-  for(const [fx,fy] of [[.42,.28],[.50,.55],[.32,.42]]){
+  const targets=[[.32,.14],[.50,.14],[.68,.14],[.18,.30],[.42,.28],
+    [.70,.28],[.16,.50],[.50,.55],[.80,.55],[.18,.78],[.50,.80],[.80,.80]];
+  for(const [fx,fy] of targets){
     const box=await nodeElement.boundingBox();
     assert(box,'Custom node is not visible for real Chrome drag');
     const x=box.x+box.width*fx,y=box.y+box.height*fy;
     const hit=await page.evaluate(({x,y})=>{
       const el=document.elementFromPoint(x,y);
+      const classes=[];
+      for(let p=el,i=0;p&&i<5;p=p.parentElement,i++)
+        classes.push(String(p.className?.baseVal||p.className||'').slice(0,120));
       return {tag:el?.tagName||null,testId:el?.getAttribute('data-test-id')||null,
         node:el?.closest('[data-test-id="canvas-node"]')?.getAttribute('data-node-name')||null,
-        handle:!!el?.closest('.vue-flow__handle,button,[data-test-id*="handle"]')};
+        noDrag:!!el?.closest('.nodrag,.nowheel,[data-no-drag],input,textarea,button,[role="button"]'),
+        handle:!!el?.closest('.vue-flow__handle,[data-test-id*="handle"]'),
+        classes};
     },{x,y});
-    if(hit.node!==added.name||hit.handle){
+    if(hit.node!==added.name||hit.noDrag||hit.handle){
       dragAttempts.push({fx,fy,hit,skipped:'not a draggable node surface'});
       continue;
     }
     await page.mouse.move(x,y);
     await page.mouse.down({button:'left'});
-    await page.mouse.move(x+84,y+46,{steps:18});
+    await page.mouse.move(x+96,y+60,{steps:24});
     await page.mouse.up({button:'left'});
     try{
       movedPosition=await poll('custom node drag server autosave',async()=>{
@@ -243,14 +252,16 @@ try{
         const p=w?.nodes?.find(n=>n.id===added.id)?.position;
         return p&&Math.abs(p[0]-originalPosition[0])>30&&
           Math.abs(p[1]-originalPosition[1])>20?p:null;
-      },8000);
+      },9000);
       dragAttempts.push({fx,fy,hit,result:'persisted',position:movedPosition});
       break;
-    }catch(e){
+    }catch(error){
       const current=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id)?.position;
-      dragAttempts.push({fx,fy,hit,current,error:e.message});
+      dragAttempts.push({fx,fy,hit,current,error:error.message});
       await page.screenshot({path:path.join(OUT,'drag-attempt-'+dragAttempts.length+'.png'),fullPage:true});
     }
+    // Avoid retrying a stale rectangle if the actual node has moved.
+    await page.waitForTimeout(250);
   }
   assert(movedPosition,'Custom node real Chrome drag did not persist: '+JSON.stringify(dragAttempts));
   await record('real-chrome-custom-node-drag-server-coordinate-save','PASS',{
