@@ -51,11 +51,20 @@ async function poll(label,fn,timeout=30000){
 const isBusiness=(node)=>node?.type?.endsWith('procureFlowBusinessOperation');
 try{
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
-  context=await browser.newContext({viewport:{width:1440,height:900}});
+  context=await browser.newContext({viewport:{width:1440,height:900},serviceWorkers:'block'});
   // The editor may fetch remote resources: isolate browser network too.
   await context.route('**/*',async route=>{
     if(new globalThis.URL(route.request().url()).origin!==URL)return route.abort();
     return route.continue();
+  });
+  // HTTP routing does not intercept WebSockets. Allow only the exact
+  // disposable n8n origin; never open a cross-origin WS handshake.
+  await context.routeWebSocket('**/*',async socket=>{
+    const target=new globalThis.URL(socket.url());
+    const allowed=new globalThis.URL(URL);
+    if(target.protocol!=='ws:'||target.host!==allowed.host||
+       target.username||target.password){await socket.close();return;}
+    socket.connectToServer();
   });
   page=await context.newPage();
   await context.tracing.start({screenshots:true,snapshots:true,sources:true});
