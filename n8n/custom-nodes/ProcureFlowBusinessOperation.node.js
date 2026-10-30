@@ -86,6 +86,25 @@ function hasUnsafeDispatchClaim(value){
   return value!==null&&typeof value==='object'&&!Array.isArray(value)&&
     DISPATCH_CLAIM_KEYS.some(key=>Object.hasOwn(value,key)&&value[key]!==false);
 }
+// Inspection envelopes may contain nested metadata and arrays from external
+// providers. Dispatch claims must be false at every depth, not only at the
+// selected block's immediate output_value. Bound traversal so an oversized
+// or cyclic in-memory response fails closed without exhausting the n8n worker.
+function hasUnsafeNestedDispatchClaim(root){
+  const pending=[root],seen=new WeakSet();
+  let inspected=0;
+  while(pending.length){
+    const value=pending.pop();
+    if(!value||typeof value!=='object')continue;
+    if(seen.has(value))continue;
+    seen.add(value);
+    if(++inspected>10000)return true;
+    if(hasUnsafeDispatchClaim(value))return true;
+    for(const child of Object.values(value))
+      if(child&&typeof child==='object')pending.push(child);
+  }
+  return false;
+}
 function validateProvenance(body,flowId,bidNo,operationId){
   // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
   // runtime. It must declare itself synthetic and can never become VERIFIED.
@@ -111,8 +130,7 @@ function validateProvenance(body,flowId,bidNo,operationId){
   // Reject forged dispatch claims in ANY block, including unrelated blocks
   // returned in the same inspection envelope. A selected block's nested
   // output_value is also untrusted evidence and cannot claim a submitted bid.
-  if(body.blocks.some(entry=>hasUnsafeDispatchClaim(entry)||
-      hasUnsafeDispatchClaim(entry?.output_value)))
+  if(hasUnsafeNestedDispatchClaim(body.blocks))
     throw Error('Business Operation nested dispatch claim blocked');
   if(block.real_data!==(synthetic?false:true)||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
