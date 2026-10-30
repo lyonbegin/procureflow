@@ -176,3 +176,12 @@
 - **기존 운영 편집기 owner/readiness #41070158453 — FAIL**: 실제 읽기 전용 검사 `gatewayHealthStatus=200`, `ownerSetupRequired=true`, `/setup=403`, 비인증 `/rest/workflows=401`, `ready=false`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 계정/DB 초기화·우회·수정 없음.
 - 동일 SHA의 [공식 n8n Docker/Chrome 후보 #41070158663](https://github.com/lyonbegin/procureflow/actions/runs/41070158663), [Pan 소스 #41070158426](https://github.com/lyonbegin/procureflow/actions/runs/41070158426), [S01~S10/native #41070158494](https://github.com/lyonbegin/procureflow/actions/runs/41070158494), [Main/Worker 격리 빌드 #41070158471](https://github.com/lyonbegin/procureflow/actions/runs/41070158471), [PF15 읽기 전용 #41070158475](https://github.com/lyonbegin/procureflow/actions/runs/41070158475)은 이 기록 시점 장시간 실행 중이므로 **최종 PASS 선판정 금지**.
 - **잔여 필수 수용:** 35종 미지원 공용 노드 실행 매핑, 43개 실제 업무 핸들러·정식 payload 스키마, 정확 세부품명 기준 10년 공식 개찰·낙찰 전수, 디버깅 80개 전체 실증, 기존 운영 owner/DB·키 호환성·복원/명시적 승인. **Issue OPEN / PR Draft·미병합 유지. 운영 main/Railway 운영 서비스·DB/자격증명·실제 투찰 변경 없음.**
+
+
+## 2026-10-31 KST — 선택 발주 식별자 falsey 값 차단 및 CI 실증 (전체 완료 아님)
+
+- **기능 브랜치 코드 변경:** [`c9dc8f7`](https://github.com/lyonbegin/procureflow/commit/c9dc8f71eeffb7d72d794c809bcc73b3d6b32a26) — `ProcureFlowBusinessOperation.execute()`의 기존 `upstream.bid_no && upstream.bid_no !== bidNo` 조건은 앞 노드가 `bid_no: ""`, `null`, `0`, `false`를 명시해도 truthiness 때문에 검사에서 누락했다. `Object.hasOwn(upstream,'bid_no')`로 **명시된 모든 불일치**를 HTTP 요청 전 차단하고, 수동 시작으로 입력에 `bid_no` 자체가 없는 경우는 유지한다.
+- **회귀 테스트:** [`3f1e1e1`](https://github.com/lyonbegin/procureflow/commit/3f1e1e1e0afb0d4e4210202e864c5b1d5da40c92) — 위 5개 잘못된 값 모두 HTTP **0회**, 누락/정상 ID 각각 HOLD 응답 및 GET **2회**를 검증한다.
+- **[실제 CI #41079299576 — SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41079299576)**: 공식 단일 편집기/Node 회귀 job 로그에 `explicit falsey or malformed upstream tender identifiers are blocked before HTTP` **ok**, Node **26/26 PASS**. [50종/43블록 계약 CI #41079299525](https://github.com/lyonbegin/procureflow/actions/runs/41079299525)도 SUCCESS.
+- **[기존 운영 owner/readiness #41079299527 — FAIL](https://github.com/lyonbegin/procureflow/actions/runs/41079299527)**: 운영 계정/DB 수정 없이 읽기 전용 검사만 수행, 인증 준비 장애는 미해결. 같은 SHA의 장시간 후보 Docker/Chrome, Pan, S01~S10 등은 **최종 결과 확인 전** PASS로 기록하지 않는다.
+- **전체 필수 미완료:** 35종 미지원 실행 어댑터, 43개 실업무 핸들러, 정확한 10자리 세부종목 10년 공식 원본 완전성, 디버깅 80개 전수, 운영 owner/DB/키 호환성·복구·승인. **Issue Open, PR Draft·미병합. 운영 main/Railway 운영 서비스·DB/자격증명/실제 투찰 변경 없음.**
