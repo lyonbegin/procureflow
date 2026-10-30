@@ -155,3 +155,13 @@
 - [기존 공식 운영 owner/readiness #40968291455](https://github.com/lyonbegin/procureflow/actions/runs/40968291455)는 별도 읽기 전용 게이트. 기존 owner/DB 상태가 미해결이면 FAIL 유지; 우회·초기화 금지.
 
 **최종 수용은 여전히 미완료:** 35종 실행 미지원 어댑터, 43개 실업무 핸들러·payload schema, 정확 세부품명 기준 10년 공식 개찰/낙찰 원본 전수, 디버깅 80개 런타임 전수, 운영 owner/DB 호환성·승인. 기능 브랜치만 수정. 운영 `main`, Railway 운영 서비스/DB/자격증명 및 실제 투찰 변경 없음. PR Draft·Issue Open 유지.
+
+
+## 2026-10-30 KST — 공식 Chrome 재진입 전 실제 UI CRUD/드래그 순서 회귀 수정 (전체 미완료)
+
+- [Pan UI 드라이버 수정 `e095f06`](https://github.com/lyonbegin/procureflow/commit/e095f0625968eb3e11a1d24b5d6fa8e8adabac27): 이전 [Chrome FAIL #41022772890](https://github.com/lyonbegin/procureflow/actions/runs/41022772890)에서 **재진입 직후 native node creator plus 버튼이 없던 현상**을 확인. 이제 원본 공식 n8n 화면 최초 진입 직후 **실제 Chrome 팔레트 노드 추가·삭제를 먼저 실행**하고, Pan/핸들/Code 좌표 저장·재진입·줌·CodeMirror·실제 n8n 실행을 계속 검사한다. 노드 삽입·삭제는 REST/DOM 직접 조작 금지, 실제 UI 동작으로만 판정. 재진입 후 팔레트 가시성은 별도 `OBSERVED`로 기록하며 그 회귀를 해결했다고 주장하지 않는다.
+- [후보 custom 드래그 수정 `88796fc`](https://github.com/lyonbegin/procureflow/commit/88796fcb711399dbada0c0336a4e410a71011fa0) / [구문 정리 `69201d3`](https://github.com/lyonbegin/procureflow/commit/69201d3bfbe689e3fb5a88c64be34a22a33038fa): 이전 [Chrome FAIL #41022772802](https://github.com/lyonbegin/procureflow/actions/runs/41022772802)에서 **커스텀 노드 서버 좌표가 [0,9]에서 변하지 않음**. 새 드라이버는 **팔레트에서 추가한 동일한 Chrome 편집 세션에서 실제 마우스로 custom 노드를 드래그**, 서버 저장 좌표를 확인한 다음 **새로고침 후 좌표·N02/evidenceHandling=hold를 재검증**한다. 재진입 후 편집기 툴바 가시성은 별도 기록. **좌표를 API/DOM으로 강제 변경하지 않는다.**
+- 두 드라이버 변경에 대한 V8 정적 구문 검사 **PASS**. 같은 코드 SHA `69201d3`의 [Pan 공식 Docker/Chrome CI #41027712029](https://github.com/lyonbegin/procureflow/actions/runs/41027712029), [후보 공식 Docker/Chrome CI #41027712300](https://github.com/lyonbegin/procureflow/actions/runs/41027712300) **실행 시작, 결과 대기**. 성공 전 PASS 선판정 금지.
+- [50종/43블록 계약 #41027712078](https://github.com/lyonbegin/procureflow/actions/runs/41027712078), [G2B 104 Node Lab #41027712119](https://github.com/lyonbegin/procureflow/actions/runs/41027712119), [S01~S10 오프라인 안전성 #41027712043](https://github.com/lyonbegin/procureflow/actions/runs/41027712043), [단일 공식 편집기 #41027712100](https://github.com/lyonbegin/procureflow/actions/runs/41027712100) **SUCCESS**.
+- [기존 운영 owner/readiness #41027711944](https://github.com/lyonbegin/procureflow/actions/runs/41027711944) **FAIL 지속**. 운영 DB/계정 초기화·우회 금지. 35종 실행 매핑, 43개 실제 핸들러, 공식 10년 실데이터, 디버깅 80개 런타임, 운영 호환성·승인 **미완료**.
+- **Issue Open / PR Draft·미병합. 운영 main/Railway 운영 서비스·DB/자격증명/실제 투찰 변경 없음.**
