@@ -146,7 +146,13 @@ class ProcureFlowBusinessOperation {
     // item in the same n8n execution contains a foreign tender or tampered
     // operation/mode. This preflight is independent of any network response.
     const plans=input.map((entry,i)=>{
-      const upstream=entry?.json||{};
+      // n8n items must carry an object JSON payload. Treating null, arrays or
+      // primitive values as an empty manual-trigger object would silently
+      // discard a malformed upstream case identifier and still issue HTTP.
+      // Reject the entire batch before the first GET (see preflight above).
+      const upstream=entry?.json;
+      if(!upstream||typeof upstream!=='object'||Array.isArray(upstream))
+        throw Error('Business Operation input JSON object required');
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
