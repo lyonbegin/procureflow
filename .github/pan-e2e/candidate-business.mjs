@@ -344,6 +344,21 @@ try{
   await page.screenshot({path:path.join(OUT,'03b-two-output-edges.png'),fullPage:true});
   await page.reload({waitUntil:'domcontentloaded'});
   await nodeElement.waitFor({timeout:30000});
+  // Use the official n8n collaboration pill when the reloaded browser tab
+  // shows "Edit here". This is a normal user gesture in the isolated test.
+  const editHere=page.getByRole('button',{name:'Edit here',exact:true});
+  const plusAfterReload=page.getByTestId('node-creator-plus-button');
+  const editMethod=await poll('native editor editability',async()=>{
+    if(await plusAfterReload.isVisible().catch(()=>false))return 'already-editable';
+    if(await editHere.isVisible().catch(()=>false)){
+      await editHere.click({timeout:10000});
+      return 'clicked-edit-here';
+    }
+    return null;
+  },45000);
+  await poll('native creator after Edit here',
+    async()=>await plusAfterReload.isVisible().catch(()=>false),45000);
+  await record('native-editability-after-reopen','PASS',{editMethod});
   const movedReload=(await api('GET','/rest/workflows/'+id)).data.nodes.find(n=>n.id===added.id);
   assert(JSON.stringify(movedReload?.position)===JSON.stringify(movedPosition),
     'Custom node coordinates changed on browser reopen');
