@@ -8,10 +8,12 @@ import {chromium,selectors} from 'playwright';
 import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {assertIsolatedN8nUrl} from './scenario-safety.mjs';
 import {createInspectionEnvelopeSchemas} from '../../n8n/source-build/inspection-envelope-schemas.mjs';
 
 selectors.setTestIdAttribute('data-test-id');
-const URL=process.env.N8N_E2E_URL||'http://127.0.0.1:5681';
+// Fail closed BEFORE Chrome launch or owner/workflow writes: no production targets.
+const URL=assertIsolatedN8nUrl(process.env.N8N_E2E_URL||'http://127.0.0.1:5681');
 const OUT=process.env.N8N_E2E_ARTIFACTS||'candidate-business-chrome-artifacts';
 const EMAIL='candidate@example.invalid';
 const PASSWORD='CandidatePass123!';
@@ -28,7 +30,8 @@ function assert(ok,message){if(!ok)throw Error(message);}
 async function api(method,endpoint,data){
   const response=await context.request.fetch(URL+endpoint,{
     method,...(data===undefined?{}:{data,headers:{'content-type':'application/json'}}),
-    timeout:30000
+    timeout:30000,
+    maxRedirects:0 // Playwright API requests bypass page.route()
   });
   const raw=await response.text();
   let body;
@@ -49,6 +52,11 @@ const isBusiness=(node)=>node?.type?.endsWith('procureFlowBusinessOperation');
 try{
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   context=await browser.newContext({viewport:{width:1440,height:900}});
+  // The editor may fetch remote resources: isolate browser network too.
+  await context.route('**/*',async route=>{
+    if(new globalThis.URL(route.request().url()).origin!==URL)return route.abort();
+    return route.continue();
+  });
   page=await context.newPage();
   await context.tracing.start({screenshots:true,snapshots:true,sources:true});
   page.on('pageerror',e=>console.error('CANDIDATE_PAGE_ERROR',e.message));
