@@ -44,7 +44,16 @@ async function savedExecution(id) {
 
 try{
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
-  context=await browser.newContext({viewport:{width:1440,height:900}});
+  context=await browser.newContext({viewport:{width:1440,height:900},serviceWorkers:'block'});
+  // Playwright HTTP routing does not cover WebSocket handshakes.
+  // Block cross-origin WS and proxy only the disposable n8n origin.
+  await context.routeWebSocket('**/*',async socket=>{
+    const target=new URL(socket.url());
+    const allowed=new URL(base);
+    if(target.protocol!=='ws:'||target.host!==allowed.host||
+       target.username||target.password){await socket.close();return;}
+    socket.connectToServer();
+  });
   page=await context.newPage();
   await context.tracing.start({screenshots:true,snapshots:true,sources:true});
   await page.route('**/*',async route=>{
