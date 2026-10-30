@@ -196,7 +196,9 @@ class ProcureFlowBusinessOperation {
          response.source_provenance==='live_procureflow_postgresql_verified_evidence'&&
          response.official_notice_verified===true&&
          (!['PF05','PF06'].includes(block.flowId) ||
-           (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&response.official_detail10.length>0))&&
+           (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&
+            response.official_detail10.length>0&&
+            response.official_detail10.every(code=>typeof code==='string'&&/^[0-9]{10}$/.test(code))))&&
          inspected.status==='verified'&&
          inspected.output_value?.evidence_verified===true&&
          inspected.output_value?.real_api_result_state==='verified'&&
