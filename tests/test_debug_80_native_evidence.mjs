@@ -23,7 +23,7 @@ function fixture(){
     {name:'real-chrome-evidence-handling-dropdown-selection',result:'PASS',evidenceHandling:'hold'},
     {name:'real-chrome-custom-node-server-save',result:'PASS',nodeId:'native-node-001',
       type:'CUSTOM.procureFlowBusinessOperation',operationId:'N02'},
-    {name:'real-chrome-custom-node-reopen-persistence',result:'PASS',id:'native-node-001'},
+    {name:'real-chrome-custom-node-pre-drag-server-persistence',result:'PASS',id:'native-node-001'},
     {name:'real-chrome-custom-node-drag-server-coordinate-save',result:'PASS',
       nodeId:'native-node-001',before:[0,9],after:[80,64]},
     {name:'real-chrome-custom-node-position-and-setting-reopen',result:'PASS',
@@ -111,8 +111,8 @@ const attacks=[
     rows.find(x=>x.name.includes('fail-closed-debugging')).reason='unexpected success'],
   ['missing runtime verdict cannot pass',rows=>
     rows.splice(rows.findIndex(x=>x.name==='real-chrome-custom-dual-edge-reopen'),1)],
-  ['saved custom node identity must match on reload',rows=>
-    rows.find(x=>x.name==='real-chrome-custom-node-reopen-persistence').id='different-node'],
+  ['pre-drag saved custom node identity must match actual Chrome node',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-node-pre-drag-server-persistence').id='different-node'],
   ['dragged coordinates must persist across reload',rows=>
     rows.find(x=>x.name==='real-chrome-custom-node-position-and-setting-reopen').position=[81,64]],
   ['custom node settings must persist across reload',rows=>
