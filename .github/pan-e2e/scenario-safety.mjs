@@ -130,7 +130,8 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
     const patch=step.patch||{};
     const before={},after={};
     for(const key of Object.keys(patch)){
-      assert(Object.hasOwn(state,key),'Native scenario patch contains unknown state field');
+      // Scenario steps may introduce a new state key; native Code uses
+      // prior.state[key] ?? null for its before snapshot.
       before[key]=state[key]??null;
       after[key]=patch[key];
     }
