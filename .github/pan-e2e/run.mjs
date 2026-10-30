@@ -196,9 +196,24 @@ try {
   await page.getByTestId('zoom-out-button').click();
   await rec('real-editor-zoom-in-out','PASS',{before:zoomBefore,zoomIn,zoomOut:await viewport()});
 
-  // User inserts a new n8n node via the actual searchable node palette.
-  await page.getByTestId('node-creator-plus-button').click();
-  await page.getByTestId('node-creator-search-bar').fill('No Operation');
+  // The official n8n toolbar may be unmounted while the canvas zoom
+  // transition or workflow navigation is settling. Reopen the actual editor
+  // before using the palette; never synthesize nodes via REST in this test.
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.getByTestId('canvas').waitFor({timeout:30000});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
+  const plus=page.getByTestId('node-creator-plus-button');
+  if(await plus.isVisible().catch(()=>false)){
+    await plus.click({timeout:15000});
+  }else{
+    // Native n8n also exposes its node creator by double-clicking empty
+    // canvas. This is a REAL Chrome gesture, not a DOM injection/API write.
+    const empty=await panePoint();
+    await page.mouse.dblclick(empty.x,empty.y);
+  }
+  const palette=page.getByTestId('node-creator-search-bar');
+  await palette.waitFor({state:'visible',timeout:15000});
+  await palette.fill('No Operation');
   await page.getByTestId('node-creator-item-name').getByText('No Operation, do nothing',{exact:true}).click();
   const closeNdv=page.getByTestId('ndv-close-button');
   if(await closeNdv.isVisible().catch(()=>false))await closeNdv.click();
