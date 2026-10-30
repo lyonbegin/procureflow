@@ -7,8 +7,11 @@ selectors.setTestIdAttribute('data-test-id');
 import {parse as parseFlatted} from 'flatted';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {assertIsolatedN8nUrl} from './scenario-safety.mjs';
 
-const URL = process.env.N8N_E2E_URL ?? 'http://127.0.0.1:5678';
+// Fail closed BEFORE Chrome launch or owner/workflow writes: never point this
+// destructive test driver at an operating Railway or external n8n instance.
+const URL = assertIsolatedN8nUrl(process.env.N8N_E2E_URL ?? 'http://127.0.0.1:5678');
 const OUT = process.env.N8N_E2E_ARTIFACTS ?? 'shared-pan-e2e-artifacts';
 const EMAIL = 'pan-test@example.invalid';
 const PASSWORD = 'PanSmokeStrong123!';
@@ -26,7 +29,8 @@ async function api(method, endpoint, data) {
   const response = await context.request.fetch(URL + endpoint, {
     method,
     ...(data === undefined ? {} : {data, headers: {'content-type':'application/json'}}),
-    timeout: 25000
+    timeout: 25000,
+    maxRedirects: 0 // Playwright API requests bypass page.route()
   });
   const raw = await response.text();
   let body;
@@ -87,6 +91,11 @@ await fs.mkdir(OUT,{recursive:true});
 try {
   browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   context=await browser.newContext({viewport:{width:1440,height:900}});
+  // The editor may fetch remote resources: isolate browser network too.
+  await context.route('**/*', async route => {
+    if(new globalThis.URL(route.request().url()).origin !== URL) return route.abort();
+    return route.continue();
+  });
   page=await context.newPage();
   await context.tracing.start({screenshots:true,snapshots:true,sources:true});
   page.on('pageerror',e=>console.error('PAGE ERROR',e.message));
