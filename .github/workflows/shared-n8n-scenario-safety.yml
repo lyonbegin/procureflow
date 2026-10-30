@@ -6,6 +6,8 @@ on:
       - 'n8n/scenarios.json'
       - '.github/pan-e2e/scenario-safety.mjs'
       - '.github/pan-e2e/scenarios.mjs'
+      - '.github/pan-e2e/run.mjs'
+      - '.github/pan-e2e/candidate-business.mjs'
       - 'tests/test_isolated_scenario_safety.mjs'
       - '.github/workflows/shared-n8n-scenario-safety.yml'
   workflow_dispatch:
