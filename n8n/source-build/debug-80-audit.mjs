@@ -55,6 +55,8 @@ if(chromeVerdictPath){
     'real-chrome-custom-node-reopen-persistence',
     'real-chrome-custom-node-drag-server-coordinate-save',
     'real-chrome-custom-node-position-and-setting-reopen',
+    'native-editability-after-reopen',
+    'native-custom-node-post-reload-editability-diagnostic',
     'real-chrome-custom-output-0-connected',
     'real-chrome-custom-output-1-connected',
     'real-chrome-custom-dual-edge-reopen',
@@ -62,6 +64,15 @@ if(chromeVerdictPath){
   ];
   for(const name of requiredUi)if(by.get(name)?.result!=='PASS')
     throw Error('Native Chrome UI persistence evidence missing: '+name);
+  // Do not silently treat a post-reload diagnostic as success. A genuine
+  // Chrome user must have the native creator visible after re-entering edit
+  // mode; later deletion independently proves the workflow stayed writable.
+  const editability=by.get('native-editability-after-reopen');
+  const diagnostic=by.get('native-custom-node-post-reload-editability-diagnostic');
+  if(!['already-editable','clicked-edit-here'].includes(editability?.editMethod)||
+     diagnostic?.editMethod!==editability.editMethod||
+     diagnostic.plusVisible!==true)
+    throw Error('Native Chrome post-reload editability evidence mismatch');
   const save=by.get('real-chrome-custom-node-server-save');
   const reopen=by.get('real-chrome-custom-node-reopen-persistence');
   const drag=by.get('real-chrome-custom-node-drag-server-coordinate-save');
