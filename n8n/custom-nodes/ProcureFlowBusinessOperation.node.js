@@ -75,6 +75,17 @@ function safeApiBase(){
     throw Error('Business Operation TLS or private-network policy blocked');
   return url.origin;
 }
+// A read-only response may omit dispatch claims, but an explicitly present
+// claim must be false at EVERY level (envelope, block and nested output).
+// Do not silently whitelist away a forged worker/bid action in provenance.
+const DISPATCH_CLAIM_KEYS=Object.freeze([
+  'bid_submitted','worker_job_enqueued','job_enqueued',
+  'automated_bid_submission','automatic_bid_submission','actual_job_executed'
+]);
+function hasUnsafeDispatchClaim(value){
+  return value!==null&&typeof value==='object'&&!Array.isArray(value)&&
+    DISPATCH_CLAIM_KEYS.some(key=>Object.hasOwn(value,key)&&value[key]!==false);
+}
 function validateProvenance(body,flowId,bidNo,operationId){
   // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
   // runtime. It must declare itself synthetic and can never become VERIFIED.
@@ -88,8 +99,7 @@ function validateProvenance(body,flowId,bidNo,operationId){
      // if present they must NEVER claim an actual bid, queued worker job, or
      // automated submission. A forged response cannot be VERIFIED by omission
      // from the downstream output whitelist alone.
-     ['bid_submitted','worker_job_enqueued','job_enqueued',
-      'automated_bid_submission'].some(key=>Object.hasOwn(body,key)&&body[key]!==false)||
+     hasUnsafeDispatchClaim(body)||
      body.workflow_execution_engine!=='native_n8n_only'||
      (!synthetic&&body.source_provenance!=='live_procureflow_postgresql_verified_evidence'))
     throw Error('Business Operation official evidence response contract mismatch');
@@ -98,6 +108,12 @@ function validateProvenance(body,flowId,bidNo,operationId){
   const expected=byId.get(operationId);
   if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
   const block=matches[0];
+  // Reject forged dispatch claims in ANY block, including unrelated blocks
+  // returned in the same inspection envelope. A selected block's nested
+  // output_value is also untrusted evidence and cannot claim a submitted bid.
+  if(body.blocks.some(entry=>hasUnsafeDispatchClaim(entry)||
+      hasUnsafeDispatchClaim(entry?.output_value)))
+    throw Error('Business Operation nested dispatch claim blocked');
   if(block.real_data!==(synthetic?false:true)||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
      block.output!==expected.output)
