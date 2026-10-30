@@ -3,6 +3,23 @@
  * No network access or n8n runtime is used by this module.
  * Production QA HTTP nodes are replaced with local Code assertions BEFORE import.
  */
+import {createHash} from 'node:crypto';
+// Review-pinned canonical fixture digests: protect the isolated n8n Code-node
+// sandbox from indirect network access / dynamic evaluation that regex cannot
+// reliably detect. Any intended S01-S10 edit MUST update these with review.
+// SHA256(JSON.stringify(JSON.parse(original JSON file))) — stable for formatting-only edits.
+const CANONICAL_SCENARIO_SHA256=Object.freeze({
+  S01:'320a72d13d2ed7171e1ce2238a86b8b2f4dffdcf6b62e86d5c8abfdd94218aa2',
+  S02:'743b36fb2fae7e5919d44138023f1b25d192bf80538d6070a61e18c0c923e45e',
+  S03:'8cc8b0971755708f101f2ca4c0d0562abe0b9f6e687f49d4cbabffa6233257fe',
+  S04:'c6de72eac7efc674f411f07a9ca36bc8561925ba6e445f956b4c2e99b5e24a6b',
+  S05:'1a64180b123e50ed940ee97f7bbaed120bdbfae28740fa0b2c9cdcbc59a15082',
+  S06:'ecb22c20900f970b87e6e3307cbe52cb6d84e643e0d01982c037987918334ae4',
+  S07:'35db1773b816da272f90e3cea059ffe3c37ed85d0e24d7cbb52f1002c0493c1f',
+  S08:'5d78b81a9b33683c7de14de780f0180c1b1481618d32003687524465aabbfb91',
+  S09:'ef505042f258fffb98944bd9954ee435dc254626931a5ab7194d1e6883c9b780',
+  S10:'4e4a51233a1e740e97ebdc562258a02ea5f9564a152ace3097750a3e6483e772',
+});
 const ALLOWED_TYPES=new Set([
   'n8n-nodes-base.manualTrigger','n8n-nodes-base.code','n8n-nodes-base.httpRequest'
 ]);
@@ -15,6 +32,9 @@ export function makeSafeScenario(original,id){
   assert(/^S(?:0[1-9]|10)$/.test(id),'Invalid synthetic scenario ID');
   assert(original&&typeof original==='object'&&!Array.isArray(original),'Invalid scenario JSON');
   assert(original.active===false,id+': original fixture must remain inactive');
+  const canonicalDigest=createHash('sha256').update(JSON.stringify(original)).digest('hex');
+  assert(canonicalDigest===CANONICAL_SCENARIO_SHA256[id],
+    id+': fixture integrity mismatch — executable graph changed without digest review');
   assert(Array.isArray(original.nodes)&&original.nodes.length>0,id+': missing native nodes');
   const fixture=structuredClone(original);
   const httpNodes=fixture.nodes.filter(n=>n.type==='n8n-nodes-base.httpRequest');
