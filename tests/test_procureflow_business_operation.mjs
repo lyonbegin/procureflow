@@ -298,6 +298,54 @@ test('read-only provenance rejects forged top-level bid and worker dispatch clai
   assert.equal(validateProvenance(blocked,'PF01','R26BK01787028','N01').id,'N01');
 });
 
+test('deep metadata and array dispatch claims fail closed before native output',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let stubRequests=0;
+  const forgedCases=[
+    {metadata:{dispatch:{bid_submitted:true}}},
+    {metadata:[{audit:[{worker_job_enqueued:'true'}]}]},
+    {records:[{source:{job_enqueued:1}}]},
+    {history:[{details:{automatic_bid_submission:null}}]},
+    {nested:{steps:[{actual_job_executed:true}]}},
+    {unrelated:{subflows:[{automated_bid_submission:true}]}}
+  ];
+  for(const payload of forgedCases){
+    const response=structuredClone(blocked);
+    response.blocks[0].output_value.extra=payload;
+    assert.throws(
+      ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
+      /nested dispatch claim blocked/
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{stubRequests++;return response;})),
+      /nested dispatch claim blocked/
+    );
+  }
+  // Even another block's nested metadata is untrusted and must be rejected.
+  const foreign=structuredClone(blocked);
+  foreign.blocks.push({id:'N02',metadata:{steps:[{bid_submitted:true}]}});
+  await assert.rejects(
+    ()=>instance.execute.call(ctx(getParam,async()=>{stubRequests++;return foreign;})),
+    /nested dispatch claim blocked/
+  );
+  // A deeply nested explicit false is compatible with the read-only contract.
+  const safe=structuredClone(blocked);
+  safe.blocks[0].output_value.metadata={history:[{bid_submitted:false,worker_job_enqueued:false}]};
+  const held=await instance.execute.call(ctx(getParam,async()=>{stubRequests++;return safe;}));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1].length,1);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  assert.equal(stubRequests,forgedCases.length+2);
+  // Bounded scanning: oversized in-memory evidence cannot hang an n8n worker.
+  const huge=structuredClone(blocked);
+  huge.blocks[0].output_value.metadata=Array.from({length:10050},(_,i)=>({index:i}));
+  assert.throws(
+    ()=>validateProvenance(huge,'PF01','R26BK01787028','N01'),
+    /nested dispatch claim blocked/
+  );
+});
+
 test('reject duplicate blocks, wrong input/output and simulated execution flags',()=>{
   assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block/);
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],input:'wrong'}]},'PF01','R26BK01787028','N01'),/block\/official/);
