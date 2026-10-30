@@ -766,3 +766,51 @@ test('nested block/output dispatch claims reject entire read-only inspection, in
     mockedReadOnlyGET:requests,actualBids:0,actualWorkerDispatch:0
   }));
 });
+
+
+test('top-level nested provenance metadata cannot forge bid or Worker dispatch',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const cases=[
+    {audit:{events:[{details:{bid_submitted:true}}]}},
+    {metadata:[{worker:{worker_job_enqueued:'true'}}]},
+    {history:{entries:[{job_enqueued:1}]}},
+    {provenance:{review:{automated_bid_submission:null}}},
+    {provider:{nested:[{automatic_bid_submission:true}]}},
+    {audit_trail:[{execution:{actual_job_executed:true}}]}
+  ];
+  let stubCalls=0;
+  for(const extra of cases){
+    const forged={...structuredClone(blocked),...extra};
+    assert.throws(
+      ()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+      /nested dispatch claim blocked/,
+      'top-level nested metadata must not bypass the read-only contract'
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{stubCalls++;return forged;})),
+      /nested dispatch claim blocked/
+    );
+  }
+  assert.equal(stubCalls,cases.length,'in-memory HTTP stubs only');
+  const safe={...structuredClone(blocked),audit:{history:[{
+    bid_submitted:false,worker_job_enqueued:false,job_enqueued:false,
+    automated_bid_submission:false,automatic_bid_submission:false,
+    actual_job_executed:false
+  }]}};
+  const held=await instance.execute.call(ctx(getParam,async()=>{stubCalls++;return safe;}));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  const oversized={...structuredClone(blocked),
+    audit_trail:Array.from({length:10050},(_,i)=>({event:i}))};
+  assert.throws(
+    ()=>validateProvenance(oversized,'PF01','R26BK01787028','N01'),
+    /nested dispatch claim blocked/,
+    'oversized top-level evidence metadata must fail closed'
+  );
+  assert.equal(stubCalls,cases.length+1);
+  console.log('PROCUREFLOW_TOP_LEVEL_NESTED_DISPATCH_BLOCKED',JSON.stringify({
+    forgedMetadataRejected:cases.length,loopbackMockCalls:stubCalls,
+    actualExternalHTTP:0,actualWorkerDispatch:0,actualBids:0
+  }));
+});
