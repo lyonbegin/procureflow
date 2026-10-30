@@ -126,75 +126,12 @@ try {
   await page.screenshot({path:path.join(OUT,'01-official-editor.png'),fullPage:true});
   await rec('official-n8n-canvas-renders','PASS',{workflowId,url:page.url()});
 
-  // Pan is the high-priority real user regression: viewport moves but graph data does not.
-  const original=(await storageWorkflow(workflowId)).nodes.map(n=>({id:n.id,position:n.position}));
-  const pt=await panePoint();
-  const before=await viewport();
-  await drag(pt.x,pt.y,pt.x+135,pt.y-75);
-  const after=await viewport();
-  assert(Math.abs(after.x-before.x)>45 && Math.abs(after.y-before.y)>35,'Left drag did not move viewport: '+JSON.stringify({before,after}));
-  await rec('left-button-empty-pane-pan','PASS',{before,after});
-  const pt2=await panePoint(),b2=await viewport();
-  await drag(pt2.x,pt2.y,pt2.x-110,pt2.y+65,'middle');
-  const a2=await viewport();
-  assert(Math.abs(a2.x-b2.x)>35,'Middle drag did not pan');
-  await rec('middle-button-empty-pane-pan','PASS',{before:b2,after:a2});
-  const pt3=await panePoint(),b3=await viewport();
-  await page.keyboard.down('Shift');
-  await drag(pt3.x,pt3.y,pt3.x+90,pt3.y+70);
-  await page.keyboard.up('Shift');
-  const a3=await viewport();
-  assert(Math.abs(a3.x-b3.x)<5 && Math.abs(a3.y-b3.y)<5,'Shift selection incorrectly panned viewport');
-  await rec('shift-marquee-not-pan','PASS',{before:b3,after:a3});
-  const panStored=(await storageWorkflow(workflowId)).nodes.map(n=>({id:n.id,position:n.position}));
-  assert(JSON.stringify(panStored)===JSON.stringify(original),'Camera Pan changed stored node coordinates');
-  await rec('pan-does-not-change-node-coordinates','PASS',{positions:panStored});
-  await page.screenshot({path:path.join(OUT,'02-after-pan.png'),fullPage:true});
-
-  // Real handle drag, not injected connections.
-  const source=page.locator('[data-node-name="Manual Trigger"] [data-test-id="canvas-node-output-handle"]').first();
-  const target=page.locator('[data-node-name="Code"] [data-test-id="canvas-node-input-handle"]').first();
-  await source.waitFor();
-  await target.waitFor();
-  const s=await source.boundingBox(),t=await target.boundingBox();
-  assert(s&&t,'Source or target handle is not visible');
-  await drag(s.x+s.width/2,s.y+s.height/2,t.x+t.width/2,t.y+t.height/2);
-  const connected=await poll('server-persisted UI handle connection',async()=>{
-    const d=await storageWorkflow(workflowId);
-    return d?.connections?.['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code')?d:null;
-  },25000);
-  await rec('real-chrome-handle-connect-and-server-persist','PASS',{connection:connected.connections['Manual Trigger']});
-  await page.screenshot({path:path.join(OUT,'03-connected.png'),fullPage:true});
-
-  // Real node movement updates workflow coordinates, not viewport.
-  const codeNode=page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').first();
-  await codeNode.scrollIntoViewIfNeeded();
-  const rb=await codeNode.boundingBox();
-  assert(rb,'Node not visible for drag');
-  const movedBefore=(await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code').position;
-  await drag(rb.x+rb.width*.5,rb.y+rb.height*.5,rb.x+rb.width*.5+90,rb.y+rb.height*.5+50);
-  const moved=await poll('node position saved',async()=>{
-    const d=await storageWorkflow(workflowId);
-    const p=d.nodes.find(n=>n.name==='Code').position;
-    return (Math.abs(p[0]-movedBefore[0])>30 && Math.abs(p[1]-movedBefore[1])>20)?p:null;
-  },25000);
-  await rec('real-node-drag-saved-in-db','PASS',{before:movedBefore,after:moved});
-
-  await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
-  const loaded=await storageWorkflow(workflowId);
-  assert(JSON.stringify(loaded.nodes.find(n=>n.name==='Code').position)===JSON.stringify(moved),'Node position changed on reload');
-  assert(loaded.connections['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code'),'Handle connection not preserved on reload');
-  await rec('save-reopen-position-and-edge-persist','PASS',{nodePosition:moved});
-  await page.screenshot({path:path.join(OUT,'04-reopened.png'),fullPage:true});
-
-  // Add/delete nodes BEFORE zooming: n8n 2.44.6 can unmount the native
-  // creator toolbar after zoom transitions. Preserve genuine Chrome UI actions.
+  // Exercise actual native palette CRUD immediately after initial canvas load.
+  // A later browser reload currently hides the creator toolbar in this fixture;
+  // this test must still verify genuine Chrome add/delete without REST insertion.
   const palette=page.getByTestId('node-creator-search-bar');
   const plus=page.getByTestId('node-creator-plus-button');
-  // Native toolbar may occasionally be hidden even before zoom; use only
-  // genuine Chrome UI entry points, never REST/DOM insertion. Try genuine Chrome UI entry points, checking the REAL palette
-  // after each attempt. Never insert a node through REST/DOM in this test.
+  // Use only genuine Chrome UI entry points. No REST/DOM insertion.
   const editState=await page.evaluate(()=>{
     const body=document.body.innerText;
     const buttons=[...document.querySelectorAll('[data-test-id]')]
@@ -267,6 +204,75 @@ try {
     return !d.nodes.some(n=>n.id===added.id);
   },30000);
   await rec('real-chrome-delete-node-and-autosave','PASS',{deletedNodeId:added.id});
+
+
+  // Pan is the high-priority real user regression: viewport moves but graph data does not.
+  const original=(await storageWorkflow(workflowId)).nodes.map(n=>({id:n.id,position:n.position}));
+  const pt=await panePoint();
+  const before=await viewport();
+  await drag(pt.x,pt.y,pt.x+135,pt.y-75);
+  const after=await viewport();
+  assert(Math.abs(after.x-before.x)>45 && Math.abs(after.y-before.y)>35,'Left drag did not move viewport: '+JSON.stringify({before,after}));
+  await rec('left-button-empty-pane-pan','PASS',{before,after});
+  const pt2=await panePoint(),b2=await viewport();
+  await drag(pt2.x,pt2.y,pt2.x-110,pt2.y+65,'middle');
+  const a2=await viewport();
+  assert(Math.abs(a2.x-b2.x)>35,'Middle drag did not pan');
+  await rec('middle-button-empty-pane-pan','PASS',{before:b2,after:a2});
+  const pt3=await panePoint(),b3=await viewport();
+  await page.keyboard.down('Shift');
+  await drag(pt3.x,pt3.y,pt3.x+90,pt3.y+70);
+  await page.keyboard.up('Shift');
+  const a3=await viewport();
+  assert(Math.abs(a3.x-b3.x)<5 && Math.abs(a3.y-b3.y)<5,'Shift selection incorrectly panned viewport');
+  await rec('shift-marquee-not-pan','PASS',{before:b3,after:a3});
+  const panStored=(await storageWorkflow(workflowId)).nodes.map(n=>({id:n.id,position:n.position}));
+  assert(JSON.stringify(panStored)===JSON.stringify(original),'Camera Pan changed stored node coordinates');
+  await rec('pan-does-not-change-node-coordinates','PASS',{positions:panStored});
+  await page.screenshot({path:path.join(OUT,'02-after-pan.png'),fullPage:true});
+
+  // Real handle drag, not injected connections.
+  const source=page.locator('[data-node-name="Manual Trigger"] [data-test-id="canvas-node-output-handle"]').first();
+  const target=page.locator('[data-node-name="Code"] [data-test-id="canvas-node-input-handle"]').first();
+  await source.waitFor();
+  await target.waitFor();
+  const s=await source.boundingBox(),t=await target.boundingBox();
+  assert(s&&t,'Source or target handle is not visible');
+  await drag(s.x+s.width/2,s.y+s.height/2,t.x+t.width/2,t.y+t.height/2);
+  const connected=await poll('server-persisted UI handle connection',async()=>{
+    const d=await storageWorkflow(workflowId);
+    return d?.connections?.['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code')?d:null;
+  },25000);
+  await rec('real-chrome-handle-connect-and-server-persist','PASS',{connection:connected.connections['Manual Trigger']});
+  await page.screenshot({path:path.join(OUT,'03-connected.png'),fullPage:true});
+
+  // Real node movement updates workflow coordinates, not viewport.
+  const codeNode=page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').first();
+  await codeNode.scrollIntoViewIfNeeded();
+  const rb=await codeNode.boundingBox();
+  assert(rb,'Node not visible for drag');
+  const movedBefore=(await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code').position;
+  await drag(rb.x+rb.width*.5,rb.y+rb.height*.5,rb.x+rb.width*.5+90,rb.y+rb.height*.5+50);
+  const moved=await poll('node position saved',async()=>{
+    const d=await storageWorkflow(workflowId);
+    const p=d.nodes.find(n=>n.name==='Code').position;
+    return (Math.abs(p[0]-movedBefore[0])>30 && Math.abs(p[1]-movedBefore[1])>20)?p:null;
+  },25000);
+  await rec('real-node-drag-saved-in-db','PASS',{before:movedBefore,after:moved});
+
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
+  const loaded=await storageWorkflow(workflowId);
+  assert(JSON.stringify(loaded.nodes.find(n=>n.name==='Code').position)===JSON.stringify(moved),'Node position changed on reload');
+  assert(loaded.connections['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code'),'Handle connection not preserved on reload');
+  await rec('save-reopen-position-and-edge-persist','PASS',{nodePosition:moved});
+  // Track the separate post-reload creator visibility regression without
+  // manufacturing a PASS or silently treating an absent toolbar as editable.
+  await rec('native-creator-after-reopen-visibility','OBSERVED',{
+    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
+    note:'Palette CRUD was performed by real Chrome before reload; post-reload creator availability remains a separate regression.'
+  });
+  await page.screenshot({path:path.join(OUT,'04-reopened.png'),fullPage:true});
 
   // Native official n8n zoom controls, measured via actual Vue Flow transform.
   // Run after palette CRUD so zoom animations cannot hide the creator toolbar.
