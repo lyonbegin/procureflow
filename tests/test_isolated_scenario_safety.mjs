@@ -81,7 +81,7 @@ for(const [name,mutate] of integrityAttacks){
 
 test('official Google Chrome scenario driver must use the same fail-closed transformer',()=>{
   const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
-  assert.match(source,/import\s*\{makeSafeScenario\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
+  assert.match(source,/import\s*\{makeSafeScenario(?:\s*,\s*assertIsolatedN8nUrl)?\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
   assert.match(source,/makeSafeScenario\(JSON\.parse\(await readFile\(/);
   assert.doesNotMatch(source,/function\s+makeSafe\s*\(/);
 });
