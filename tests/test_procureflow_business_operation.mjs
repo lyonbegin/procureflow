@@ -126,6 +126,42 @@ test('multi-item batch preflight rejects later invalid inputs before ANY HTTP re
   assert.ok(accepted[1].every(x=>x.json.inspection_status==='HOLD'));
 });
 
+
+test('malformed JSON input anywhere in a batch blocks all HTTP requests',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  const http=async()=>{requests++;return blocked;};
+  const good={json:{bid_no:'R26BK01787028'}};
+  const malformed=[
+    {json:null},{json:[]},{json:'R26BK01787028'},
+    {json:42},{json:false},{json:undefined},
+    {},null
+  ];
+  for(const bad of malformed){
+    for(const inputs of [[bad,good],[good,bad]]){
+      await assert.rejects(
+        ()=>instance.execute.call({
+          getInputData:()=>inputs,
+          getNodeParameter:getParam,
+          helpers:{httpRequest:http}
+        }),
+        error=>error.message==='Business Operation input JSON object required'
+      );
+      assert.equal(requests,0,'a malformed input must reject the whole batch before any GET');
+    }
+  }
+  // An actual empty object remains a valid manual-trigger payload.
+  const manual=await instance.execute.call({
+    getInputData:()=>[{json:{}}],
+    getNodeParameter:getParam,
+    helpers:{httpRequest:http}
+  });
+  assert.equal(requests,1);
+  assert.equal(manual[1].length,1);
+  assert.equal(manual[1][0].json.inspection_status,'HOLD');
+});
+
 test('blocked official evidence remains HOLD, never submitted or marked verified',async()=>{
   configure();
   let count=0;
