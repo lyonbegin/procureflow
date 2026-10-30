@@ -5,6 +5,8 @@ on:
       - 'n8n/studio-bridge/**'
       - 'tests/test_existing_n8n_inactive_import.mjs'
       - 'tests/test_fixture_runner.mjs'
+      - 'tests/test_mock_104_contracts.mjs'
+      - 'n8n/operational_manifest.json'
       - 'n8n/scenarios.json'
       - '.github/workflows/existing-n8n-inactive-import.yml'
   workflow_dispatch:
@@ -27,3 +29,5 @@ jobs:
         run: node tests/test_existing_n8n_inactive_import.mjs
       - name: Ten offline scenario traces (no network, no real G2B)
         run: node tests/test_fixture_runner.mjs
+      - name: Offline 43 business blocks / 104 feature contract validation
+        run: node tests/test_mock_104_contracts.mjs
