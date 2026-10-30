@@ -369,10 +369,18 @@ try{
     nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
     evidenceHandling:movedReload.parameters.evidenceHandling
   });
-  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
-    workflowScopes:(await api('GET','/rest/workflows/'+id)).data.scopes??null,
-    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
-    note:'Node drag used genuine Chrome before reload; this separately records post-reload creator availability.'
+  // A diagnostic must not be marked OBSERVED when the user actually
+  // regained edit mode in official Chrome. The audit fails closed on any
+  // non-PASS record, so bind PASS to the *observed* creator and edit gesture.
+  const creatorVisibleAfterReopen=await plusAfterReload.isVisible().catch(()=>false);
+  assert(creatorVisibleAfterReopen,
+    'Official n8n creator is not editable after browser reopen');
+  assert(['already-editable','clicked-edit-here'].includes(editMethod),
+    'Official n8n did not establish a recognized editing gesture');
+  await record('native-custom-node-post-reload-editability-diagnostic','PASS',{
+    editMethod,
+    plusVisible:creatorVisibleAfterReopen,
+    note:'Official Chrome edit mode restored after reload; server-side deletion and edge persistence are checked below.'
   });
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
   const withEdges=(await api('GET','/rest/workflows/'+id)).data;
