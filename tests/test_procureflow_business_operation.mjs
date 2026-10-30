@@ -271,7 +271,7 @@ test('unverified evidence stops native n8n branch by default',async()=>{
 test('reject fake provenance and inconsistent JSON before returning any item',async()=>{
   configure();
   assert.throws(()=>validateProvenance({...blocked,simulation_only:true},'PF01','R26BK01787028','N01'),/contract mismatch/);
-  assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],job_enqueued:true}]},'PF01','R26BK01787028','N01'),/contract mismatch/);
+  assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],job_enqueued:true}]},'PF01','R26BK01787028','N01'),/nested dispatch claim blocked/);
 });
 
 test('read-only provenance rejects forged top-level bid and worker dispatch claims',async()=>{
@@ -362,8 +362,20 @@ test('verified read-only inspection whitelists output and never forwards secrets
       }
     }]
   };
-  const result=await new ProcureFlowBusinessOperation().execute.call(
-    ctx(getParam,async()=>verified,{custom_secret:'SECRET_UPSTREAM_123'}));
+  // The nested dispatch claim is a contract violation, not a harmless
+  // output field to silently omit. Verify fail-closed BEFORE checking the
+  // output whitelist on a valid read-only inspection envelope.
+  const node=new ProcureFlowBusinessOperation();
+  await assert.rejects(
+    ()=>node.execute.call(ctx(getParam,async()=>verified,{custom_secret:'SECRET_UPSTREAM_123'})),
+    /nested dispatch claim blocked/,
+    'forged nested bid/Worker claims must never be promoted to VERIFIED'
+  );
+  const safe=structuredClone(verified);
+  delete safe.blocks[0].output_value.bid_submitted;
+  delete safe.blocks[0].output_value.worker_job_enqueued;
+  const result=await node.execute.call(
+    ctx(getParam,async()=>safe,{custom_secret:'SECRET_UPSTREAM_123'}));
   assert.equal(result[0].length,1);
   assert.equal(result[1].length,0);
   const item=result[0][0].json;
