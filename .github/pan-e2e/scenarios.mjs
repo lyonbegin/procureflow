@@ -91,7 +91,8 @@ try{
       // reviewed scenario plan, not merely a trace length or claimed verdict.
       const nativeProof=verifyNativeScenarioEvidence({
         payload:result.payload,scenario:item,baseState:plan.base_state,
-        execution:result.exec,runData:result.runData,fixture
+        execution:result.exec,runData:result.runData,fixture,
+        expectedExecutionId:executionId
       });
       await page.screenshot({path:path.join(out,id+'-executed.png'),fullPage:true});
       const row={scenario:id,verdict:'PASS',expected:item.expected,workflowId:saved.id,executionId,runNodes:Object.keys(result.runData).length,traceSteps:item.steps.length,nativeTraceVerified:true,executedNativeNodes:nativeProof.executedNativeNodes,source:'isolated_n8n_browser_synthetic_only'};
