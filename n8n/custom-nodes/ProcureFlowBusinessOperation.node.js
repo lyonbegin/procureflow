@@ -153,7 +153,13 @@ class ProcureFlowBusinessOperation {
         throw Error('Business Operation evidence handling mode blocked');
       const block=byId.get(operationId);
       if(!block)throw Error('Unregistered Business Operation ID');
-      if(bidNo!=='R26BK01787028'||(upstream.bid_no&&upstream.bid_no!==bidNo))throw Error('Unsupported tender: official single-case gate');
+      // Reject even falsey mismatched case IDs. The old truthiness check
+      // silently ignored explicit bid_no: '', null, 0 or false from a prior
+      // node, risking cross-case evidence reuse in an imported workflow.
+      // Missing bid_no remains valid for a manually started workflow.
+      if(bidNo!=='R26BK01787028'||
+         (Object.hasOwn(upstream,'bid_no')&&upstream.bid_no!==bidNo))
+        throw Error('Unsupported tender: official single-case gate');
       let response;
       try{
         response=await this.helpers.httpRequest({
