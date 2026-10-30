@@ -1,0 +1,36 @@
+name: Existing n8n inactive import safety gate
+on:
+  pull_request:
+    paths:
+      - 'n8n/studio-bridge/**'
+      - 'tests/test_existing_n8n_inactive_import.mjs'
+      - 'tests/test_fixture_runner.mjs'
+      - 'tests/test_mock_104_contracts.mjs'
+      - 'tests/test_n8n_execution_inspector.mjs'
+      - 'n8n/operational_manifest.json'
+      - 'n8n/scenarios.json'
+      - '.github/workflows/existing-n8n-inactive-import.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-owner-reset-no-execution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate JavaScript syntax
+        run: |
+          node --check n8n/studio-bridge/import-inactive-existing-n8n.mjs
+          node --check tests/test_existing_n8n_inactive_import.mjs
+      - name: Test blocked owner and explicit inactive-only import
+        run: node tests/test_existing_n8n_inactive_import.mjs
+      - name: Ten offline scenario traces (no network, no real G2B)
+        run: node tests/test_fixture_runner.mjs
+      - name: Offline 43 business blocks / 104 feature contract validation
+        run: node tests/test_mock_104_contracts.mjs
+      - name: Existing n8n read-only execution inspection using stubbed API
+        run: node tests/test_n8n_execution_inspector.mjs
