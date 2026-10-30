@@ -93,6 +93,39 @@ test('explicit falsey or malformed upstream tender identifiers are blocked befor
   assert.equal(requests,2);
 });
 
+test('multi-item batch preflight rejects later invalid inputs before ANY HTTP request',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  const http=async()=>{requests++;return blocked;};
+  const run=(secondParams,secondJson)=>instance.execute.call({
+    getInputData:()=>[
+      {json:{bid_no:'R26BK01787028'}},
+      {json:secondJson}
+    ],
+    getNodeParameter:(name,i)=>i===0?getParam(name):
+      (Object.hasOwn(secondParams,name)?secondParams[name]:getParam(name)),
+    helpers:{httpRequest:http}
+  });
+  const cases=[
+    [{}, {bid_no:'FOREIGN_TENDER'},/Unsupported tender/],
+    [{}, {bid_no:''},/Unsupported tender/],
+    [{}, {bid_no:null},/Unsupported tender/],
+    [{operationId:'UNKNOWN'}, {bid_no:'R26BK01787028'},/Unregistered/],
+    [{evidenceHandling:'SUBMIT'}, {bid_no:'R26BK01787028'},/handling mode blocked/],
+    [{bidNo:'FOREIGN_TENDER'}, {},/Unsupported tender/]
+  ];
+  for(const [params,json,reason] of cases){
+    await assert.rejects(()=>run(params,json),reason);
+    assert.equal(requests,0,'no item may trigger an HTTP request in a rejected batch');
+  }
+  const accepted=await run({}, {bid_no:'R26BK01787028'});
+  assert.equal(requests,2,'both valid items should still issue exactly one GET each');
+  assert.equal(accepted[0].length,0);
+  assert.equal(accepted[1].length,2);
+  assert.ok(accepted[1].every(x=>x.json.inspection_status==='HOLD'));
+});
+
 test('blocked official evidence remains HOLD, never submitted or marked verified',async()=>{
   configure();
   let count=0;
