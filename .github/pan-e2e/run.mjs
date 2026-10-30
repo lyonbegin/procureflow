@@ -195,13 +195,30 @@ try {
   // Native toolbar may occasionally be hidden even before zoom; use only
   // genuine Chrome UI entry points, never REST/DOM insertion. Try genuine Chrome UI entry points, checking the REAL palette
   // after each attempt. Never insert a node through REST/DOM in this test.
+  const editState=await page.evaluate(()=>{
+    const body=document.body.innerText;
+    const buttons=[...document.querySelectorAll('[data-test-id]')]
+      .map(e=>e.getAttribute('data-test-id'))
+      .filter(x=>/creator|zoom|edit|readonly|read-only/i.test(x||''));
+    return {readOnlyText:/read.only|view.only|no edit permission/i.test(body),
+      readOnlyExcerpt:body.match(/.{0,65}(?:read.only|view.only|no edit permission).{0,65}/i)?.[0]||null,
+      controls:[...new Set(buttons)].slice(0,45)};
+  });
+  const storedForEdit=await storageWorkflow(workflowId);
+  await rec('native-editor-post-reload-editability-diagnostic','OBSERVED',{
+    workflowScopes:storedForEdit.scopes??null,
+    plusInitiallyVisible:await plus.isVisible().catch(()=>false),
+    editState
+  });
   const entryAttempts=[];
   for(const method of ['toolbar-plus','blank-pane-doubleclick','keyboard-tab']){
     if(await palette.isVisible().catch(()=>false))break;
     try{
       if(method==='toolbar-plus'){
-        if(!await plus.isVisible().catch(()=>false)){
-          entryAttempts.push({method,result:'toolbar not visible'});
+        // Do not treat a still-hydrating toolbar as permanently absent.
+        try{await plus.waitFor({state:'visible',timeout:15000});}
+        catch{
+          entryAttempts.push({method,result:'toolbar not visible after 15s',editState});
           continue;
         }
         await plus.click({timeout:6000});
