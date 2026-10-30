@@ -284,6 +284,21 @@ try {
 
   await page.reload({waitUntil:'domcontentloaded'});
   await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
+  // In the isolated official n8n collaboration UI, a reloaded tab may show
+  // "Edit here" until the user takes the normal on-screen editing action.
+  const editHere=page.getByRole('button',{name:'Edit here',exact:true});
+  const plusAfterReload=page.getByTestId('node-creator-plus-button');
+  const editMethod=await poll('native editor editability after reopen',async()=>{
+    if(await plusAfterReload.isVisible().catch(()=>false))return 'already-editable';
+    if(await editHere.isVisible().catch(()=>false)){
+      await editHere.click({timeout:10000});
+      return 'clicked-edit-here';
+    }
+    return null;
+  },45000);
+  await poll('native creator after Edit here',
+    async()=>await plusAfterReload.isVisible().catch(()=>false),45000);
+  await rec('real-chrome-editable-after-reopen','PASS',{editMethod});
   const loaded=await storageWorkflow(workflowId);
   assert(JSON.stringify(loaded.nodes.find(n=>n.name==='Code').position)===JSON.stringify(moved),'Node position changed on reload');
   assert(loaded.connections['Manual Trigger']?.main?.[0]?.some(e=>e.node==='Code'),'Handle connection not preserved on reload');
