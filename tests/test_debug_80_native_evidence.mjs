@@ -28,6 +28,9 @@ function fixture(){
       nodeId:'native-node-001',before:[0,9],after:[80,64]},
     {name:'real-chrome-custom-node-position-and-setting-reopen',result:'PASS',
       nodeId:'native-node-001',position:[80,64],operationId:'N02',evidenceHandling:'hold'},
+    {name:'native-editability-after-reopen',result:'PASS',editMethod:'clicked-edit-here'},
+    {name:'native-custom-node-post-reload-editability-diagnostic',result:'PASS',
+      editMethod:'clicked-edit-here',plusVisible:true},
     {name:'real-chrome-custom-output-0-connected',result:'PASS',outputIndex:0,target:'Accepted Sink'},
     {name:'real-chrome-custom-output-1-connected',result:'PASS',outputIndex:1,target:'Hold Sink'},
     {name:'real-chrome-custom-dual-edge-reopen',result:'PASS',nodeId:'native-node-001'},
@@ -76,6 +79,14 @@ test('positive verifier fixture counts seven NARROW subchecks and accepts zero f
 });
 
 const attacks=[
+  ['post-reload diagnostic OBSERVED is not PASS',rows=>
+    rows.find(x=>x.name==='native-custom-node-post-reload-editability-diagnostic').result='OBSERVED'],
+  ['post-reload native creator must be visible',rows=>
+    rows.find(x=>x.name==='native-custom-node-post-reload-editability-diagnostic').plusVisible=false],
+  ['post-reload edit gesture must match actual Chrome action',rows=>
+    rows.find(x=>x.name==='native-custom-node-post-reload-editability-diagnostic').editMethod='not-edited'],
+  ['missing post-reload edit evidence cannot pass',rows=>
+    rows.splice(rows.findIndex(x=>x.name==='native-editability-after-reopen'),1)],
   ['unrelated failed Chrome test cannot be ignored',rows=>
     rows.push({name:'test-run',result:'FAIL',error:'Chrome crashed'})],
   ['incomplete Chrome observation is not PASS',rows=>
