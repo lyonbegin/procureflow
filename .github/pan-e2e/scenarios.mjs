@@ -9,8 +9,8 @@ import {chromium} from 'playwright';
 import {parse as parseFlatted} from 'flatted';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {makeSafeScenario} from './scenario-safety.mjs';
-const base=process.env.N8N_E2E_URL||'http://127.0.0.1:5678';
+import {makeSafeScenario,assertIsolatedN8nUrl} from './scenario-safety.mjs';
+const base=assertIsolatedN8nUrl(process.env.N8N_E2E_URL||'http://127.0.0.1:5678');
 const out=process.env.N8N_SCENARIO_ARTIFACTS||'shared-pan-e2e-artifacts/scenarios';
 const email='pan-test@example.invalid', password='PanSmokeStrong123!';
 const report=[];
@@ -19,7 +19,7 @@ let browser, context, page;
 const assert=(x,msg)=>{if(!x)throw Error(msg);};
 async function api(method,endpoint,data) {
   const res=await context.request.fetch(base+endpoint,{
-    method,timeout:25000,
+    method,timeout:25000,maxRedirects:0,
     ...(data===undefined?{}:{data,headers:{'content-type':'application/json'}})
   });
   const raw=await res.text();
