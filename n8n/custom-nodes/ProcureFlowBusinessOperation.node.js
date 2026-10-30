@@ -127,10 +127,12 @@ function validateProvenance(body,flowId,bidNo,operationId){
   const expected=byId.get(operationId);
   if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
   const block=matches[0];
-  // Reject forged dispatch claims in ANY block, including unrelated blocks
-  // returned in the same inspection envelope. A selected block's nested
-  // output_value is also untrusted evidence and cannot claim a submitted bid.
-  if(hasUnsafeNestedDispatchClaim(body.blocks))
+  // Reject forged dispatch claims throughout the ENTIRE inspection envelope:
+  // not only blocks and output_value, but also top-level metadata, audit
+  // records and arbitrary nested arrays. No provider-controlled subtree can
+  // claim a bid or Worker dispatch while the read-only gate returns VERIFIED.
+  // The bounded traversal also fails closed for oversized envelopes.
+  if(hasUnsafeNestedDispatchClaim(body))
     throw Error('Business Operation nested dispatch claim blocked');
   if(block.real_data!==(synthetic?false:true)||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
