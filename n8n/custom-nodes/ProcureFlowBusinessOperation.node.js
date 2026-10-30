@@ -141,25 +141,29 @@ class ProcureFlowBusinessOperation {
       throw Error('Business Operation disabled until authenticated official n8n rollout is approved');
     const base=safeApiBase();
     const input=this.getInputData();
-    const passed=[],held=[];
-    for(let i=0;i<input.length;i++){
-      const upstream=input[i]?.json||{};
+    // Validate EVERY item before issuing the first HTTP request. Otherwise
+    // a valid first item can contact a live read-only API even though a later
+    // item in the same n8n execution contains a foreign tender or tampered
+    // operation/mode. This preflight is independent of any network response.
+    const plans=input.map((entry,i)=>{
+      const upstream=entry?.json||{};
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
-      // Imported workflows can bypass the editor's options dropdown. Reject
-      // unknown modes before contacting even the read-only evidence API.
       if(evidenceHandling!=='stop'&&evidenceHandling!=='hold')
         throw Error('Business Operation evidence handling mode blocked');
       const block=byId.get(operationId);
       if(!block)throw Error('Unregistered Business Operation ID');
-      // Reject even falsey mismatched case IDs. The old truthiness check
-      // silently ignored explicit bid_no: '', null, 0 or false from a prior
-      // node, risking cross-case evidence reuse in an imported workflow.
-      // Missing bid_no remains valid for a manually started workflow.
+      // An absent bid_no is valid for manual triggers. An explicitly
+      // present falsey or foreign identifier must fail closed.
       if(bidNo!=='R26BK01787028'||
          (Object.hasOwn(upstream,'bid_no')&&upstream.bid_no!==bidNo))
         throw Error('Unsupported tender: official single-case gate');
+      return {operationId,bidNo,evidenceHandling,block};
+    });
+    const passed=[],held=[];
+    for(let i=0;i<plans.length;i++){
+      const {operationId,bidNo,evidenceHandling,block}=plans[i];
       let response;
       try{
         response=await this.helpers.httpRequest({
