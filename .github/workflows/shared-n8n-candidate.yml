@@ -7,6 +7,7 @@ on:
       - 'n8n/source-build/bootstrap-shared-studio.sh'
       - 'n8n/source-build/augment-business-operations.mjs'
       - 'n8n/source-build/debug-80-audit.mjs'
+      - 'tests/test_debug_80_native_evidence.mjs'
       - 'n8n/source-build/compile-native-topology.mjs'
       - 'n8n/custom-nodes/**'
       - '.github/pan-e2e/candidate-business.mjs'
@@ -30,6 +31,8 @@ jobs:
           grep -F 'N8N_SOURCE_SHA=b58d9e89d60e9a3485bb511c5091d8be0d9511e4' n8n/source-build/Dockerfile.shared-studio-candidate
           grep -F 'procureflow-n8n-bootstrap' n8n/source-build/Dockerfile.shared-studio-candidate
           grep -F 'apply-pan-patch.mjs' n8n/source-build/Dockerfile.shared-studio-candidate
+      - name: Validate fail-closed Chrome evidence verifier before expensive Docker build
+        run: node --test tests/test_debug_80_native_evidence.mjs
       - name: Build full official n8n 2.44.6 with pinned shared studio
         env:
           GITHUB_TOKEN: ${{ github.token }}
