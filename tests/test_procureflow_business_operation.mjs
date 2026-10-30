@@ -71,6 +71,28 @@ test('disallow any external URL, credentials, nonselected case, or unapproved mo
   await assert.rejects(()=>new ProcureFlowBusinessOperation().execute.call(
     ctx(n=>n==='bidNo'?'UNSELECTED':getParam(n))),/Unsupported tender/);
 });
+test('explicit falsey or malformed upstream tender identifiers are blocked before HTTP',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let requests=0;
+  const http=async()=>{requests++;return blocked;};
+  for(const supplied of ['',null,0,false,'OTHER_TENDER']){
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,http,{bid_no:supplied})),
+      error=>error.message==='Unsupported tender: official single-case gate',
+      'unexpected acceptance of '+JSON.stringify(supplied)
+    );
+  }
+  assert.equal(requests,0,'cross-tender inputs must never contact read-only API');
+  // A manual trigger without an upstream case ID is valid, and a matching
+  // explicit ID must still route to the selected official tender.
+  const missing=await instance.execute.call(ctx(getParam,http,{}));
+  const matching=await instance.execute.call(ctx(getParam,http,{bid_no:'R26BK01787028'}));
+  assert.equal(missing[1].length,1);
+  assert.equal(matching[1].length,1);
+  assert.equal(requests,2);
+});
+
 test('blocked official evidence remains HOLD, never submitted or marked verified',async()=>{
   configure();
   let count=0;
