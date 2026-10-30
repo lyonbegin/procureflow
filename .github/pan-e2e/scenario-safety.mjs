@@ -92,3 +92,61 @@ export function makeSafeScenario(original,id){
   fixture.name='[ISOLATED CHROME '+id+'] '+fixture.name;
   return fixture;
 }
+
+
+/**
+ * Verify the REAL n8n execution response, not merely the number of synthetic
+ * trace rows. Every flow/event, state patch, recipient and before/after value
+ * must match the reviewed scenario plan. No live G2B/business completion claim.
+ *
+ * The caller must pass the actual /rest/executions/{id} result and runData.
+ * Offline tests exercise only this verifier's failure modes.
+ */
+export function verifyNativeScenarioEvidence({payload,scenario,baseState,execution,runData,fixture}) {
+  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  assert(scenario&&/^S(?:0[1-9]|10)$/.test(scenario.id),'Invalid native scenario plan');
+  assert(execution?.status==='success','Native n8n execution did not succeed');
+  assert(payload?.scenario_id===scenario.id&&payload.case_id==='DEMO_ONLY',
+    'Native scenario/case identity mismatch');
+  assert(payload.expected===scenario.expected&&payload.verdict===scenario.expected,
+    'Native scenario expected verdict mismatch');
+  assert(payload.qa_local_only===true&&payload.passed===true&&
+    payload.workflow_status==='SIMULATED_PASS'&&payload.simulation_only===true&&
+    payload.bid_submitted===false&&payload.not_a_real_bid===true,
+    'Native scenario isolation and no-bid assertions missing');
+  assert(Array.isArray(scenario.steps)&&Array.isArray(payload.trace)&&
+    payload.trace.length===scenario.steps.length,
+    'Native scenario trace length mismatch');
+  assert(Array.isArray(fixture?.nodes)&&fixture.nodes.length>0&&
+    runData&&typeof runData==='object'&&!Array.isArray(runData),
+    'Native scenario execution nodes missing');
+  const expectedNodes=fixture.nodes.map(n=>n.name).sort();
+  const actualNodes=Object.keys(runData).sort();
+  assert(same(actualNodes,expectedNodes),
+    'Native scenario did not execute exactly the reviewed workflow nodes');
+  const state=structuredClone(baseState);
+  for(let i=0;i<scenario.steps.length;i++){
+    const step=scenario.steps[i];
+    const patch=step.patch||{};
+    const before={},after={};
+    for(const key of Object.keys(patch)){
+      assert(Object.hasOwn(state,key),'Native scenario patch contains unknown state field');
+      before[key]=state[key]??null;
+      after[key]=patch[key];
+    }
+    const expected={
+      index:step.index,flow:step.flow,event:step.event,
+      recipients:step.recipients,input:before,output:patch,
+      after,simulation_only:true
+    };
+    assert(same(payload.trace[i],expected),
+      'Native scenario trace mismatch at step '+(i+1));
+    Object.assign(state,patch);
+  }
+  assert(same(payload.state,state),'Native scenario final state differs from reviewed patches');
+  return {
+    scenario:scenario.id,traceSteps:scenario.steps.length,
+    executedNativeNodes:actualNodes.length,
+    status:'VERIFIED_ISOLATED_SYNTHETIC_EXECUTION_ONLY'
+  };
+}
