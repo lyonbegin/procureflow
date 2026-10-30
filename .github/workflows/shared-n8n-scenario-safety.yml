@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'n8n/workflows/S*.json'
+      - 'n8n/scenarios.json'
       - '.github/pan-e2e/scenario-safety.mjs'
       - '.github/pan-e2e/scenarios.mjs'
       - 'tests/test_isolated_scenario_safety.mjs'
