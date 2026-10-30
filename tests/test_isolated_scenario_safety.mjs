@@ -218,3 +218,24 @@ test('actual Chrome driver must call native evidence verifier before PASS',()=>{
     source.indexOf("report.push(row);"));
   assert.match(source,/nativeTraceVerified:true/);
 });
+
+// The other two official Chrome drivers create owners and workflows. Their
+// target/redirect/network boundary must match the S01-S10 driver BEFORE writes.
+for(const [driver,defaultPort] of [
+  ['.github/pan-e2e/run.mjs','5678'],
+  ['.github/pan-e2e/candidate-business.mjs','5681'],
+]){
+  test(driver+' rejects external target, redirects and browser cross-origin traffic',()=>{
+    const source=readFileSync(driver,'utf8');
+    assert.match(source,/import\s*\{assertIsolatedN8nUrl\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
+    assert.match(source,/const URL\s*=\s*assertIsolatedN8nUrl\(process\.env\.N8N_E2E_URL/);
+    assert(source.indexOf('const URL')<source.indexOf('await fs.mkdir(')||
+      source.indexOf('const URL')<source.indexOf('await browser.newContext('));
+    assert.match(source,/maxRedirects:\s*0/);
+    assert.match(source,/await context\.route\(['"]\*\*\/\*['"]/);
+    assert.match(source,/new globalThis\.URL\(route\.request\(\)\.url\(\)\)\.origin\s*!==?\s*URL/);
+    assert(source.indexOf('await context.route(')<source.indexOf('await context.newPage('));
+    assert(source.indexOf('const URL')<source.indexOf("api('POST','/rest/owner/setup'"));
+    assert(source.includes("http://127.0.0.1:"+defaultPort));
+  });
+}
