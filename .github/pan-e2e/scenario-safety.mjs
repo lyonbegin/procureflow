@@ -28,6 +28,23 @@ const ALLOWED_TYPES=new Set([
 const SIDE_EFFECTFUL_CODE=/\b(?:fetch|import|require|eval|Function|WebSocket|XMLHttpRequest)\s*\(|\b(?:globalThis|process)\s*(?:\.|\[)|\$(?:http|request|helpers)\b/;
 const assert=(condition,message)=>{if(!condition)throw Error(message);};
 
+/**
+ * Fail closed before launching Chrome, creating an owner or importing workflows.
+ * Playwright's request context is not protected by page.route(), so a mistaken
+ * production N8N_E2E_URL or a redirected API call must never reach the network.
+ */
+export function assertIsolatedN8nUrl(input){
+  let parsed;
+  try{parsed=new URL(input)}catch{throw Error('Isolated n8n URL must be a valid loopback HTTP origin');}
+  assert(parsed.protocol==='http:','Isolated n8n URL must use local HTTP');
+  assert(['localhost','127.0.0.1','[::1]'].includes(parsed.hostname),
+    'Isolated n8n URL must target loopback only');
+  assert(Boolean(parsed.port),'Isolated n8n URL requires an explicit test port');
+  assert(parsed.pathname==='/'&&!parsed.search&&!parsed.hash&&!parsed.username&&!parsed.password,
+    'Isolated n8n URL must be an origin without path, credentials or query');
+  return parsed.origin;
+}
+
 export function makeSafeScenario(original,id){
   assert(/^S(?:0[1-9]|10)$/.test(id),'Invalid synthetic scenario ID');
   assert(original&&typeof original==='object'&&!Array.isArray(original),'Invalid scenario JSON');
