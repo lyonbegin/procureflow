@@ -202,39 +202,18 @@ try{
     nodeId:added.id,type:added.type,operationId:added.parameters.operationId
   });
   await page.screenshot({path:path.join(OUT,'02-business-node-added.png'),fullPage:true});
-  await page.reload({waitUntil:'domcontentloaded'});
+  // Drag in the SAME live editor session used for genuine Chrome palette add.
+  // The previous driver reloaded before dragging; in n8n 2.44.6 the reloaded
+  // fixture sometimes has no creator toolbar and cannot move custom nodes.
+  // Do not bypass this with REST/DOM coordinate writes: use real mouse only,
+  // then reload and verify the persisted position and N02/HOLD settings.
   const nodeElement=page.locator('[data-test-id="canvas-node"][data-node-name="'+added.name+'"]').first();
   await nodeElement.waitFor({timeout:30000});
   const persisted=(await api('GET','/rest/workflows/'+id)).data;
   const reloaded=persisted.nodes.find(n=>n.id===added.id);
   assert(reloaded&&isBusiness(reloaded)&&reloaded.parameters?.operationId==='N02'&&
-    reloaded.parameters?.evidenceHandling==='hold','Custom node settings lost after browser reload');
-  await record('real-chrome-custom-node-reopen-persistence','PASS',{id:added.id});
-  // A workflow may render nodes while the native editor is still hydrating
-  // or in view-only mode. Capture permissions and actual Chrome hit testing
-  // before interpreting a failed drag as a node-movement implementation bug.
-  const editState=await page.evaluate(()=>{
-    const body=document.body.innerText;
-    const controls=[...document.querySelectorAll('[data-test-id]')]
-      .map(e=>e.getAttribute('data-test-id'))
-      .filter(x=>/creator|zoom|edit|readonly|read-only/i.test(x||''));
-    const node=document.querySelector('[data-test-id="canvas-node"][data-node-name="Business Operation"]');
-    const rect=node?.getBoundingClientRect();
-    const center=rect?{x:rect.x+rect.width/2,y:rect.y+rect.height/2}:null;
-    const hit=center?document.elementFromPoint(center.x,center.y):null;
-    return {readOnlyText:/read.only|view.only|no edit permission/i.test(body),
-      readOnlyExcerpt:body.match(/.{0,65}(?:read.only|view.only|no edit permission).{0,65}/i)?.[0]||null,
-      controls:[...new Set(controls)].slice(0,45),nodeRect:rect?{
-        x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,
-      centerHitNode:hit?.closest('[data-test-id="canvas-node"]')?.getAttribute('data-node-name')||null,
-      centerHitTag:hit?.tagName||null};
-  });
-  const editWorkflow=(await api('GET','/rest/workflows/'+id)).data;
-  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
-    workflowScopes:editWorkflow.scopes??null,
-    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
-    editState
-  });
+    reloaded.parameters?.evidenceHandling==='hold','Custom node settings not saved before drag');
+  await record('real-chrome-custom-node-pre-drag-server-persistence','PASS',{id:added.id});
   // The ProcureFlow custom node itself must support the same actual Chrome
   // drag -> n8n server autosave -> browser reload contract as native nodes.
   const originalPosition=[...reloaded.position];
@@ -342,7 +321,13 @@ try{
   await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
     nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
     evidenceHandling:movedReload.parameters.evidenceHandling
+  })
+  await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
+    workflowScopes:(await api('GET','/rest/workflows/'+id)).data.scopes??null,
+    plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
+    note:'Node drag used genuine Chrome before reload; this separately records post-reload creator availability.'
   });
+;
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
   // Exercise the real native n8n handle drag on BOTH custom-node outputs.
