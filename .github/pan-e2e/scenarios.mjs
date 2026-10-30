@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 import {parse as parseFlatted} from 'flatted';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {makeSafeScenario,assertIsolatedN8nUrl} from './scenario-safety.mjs';
+import {makeSafeScenario,assertIsolatedN8nUrl,verifyNativeScenarioEvidence} from './scenario-safety.mjs';
 const base=assertIsolatedN8nUrl(process.env.N8N_E2E_URL||'http://127.0.0.1:5678');
 const out=process.env.N8N_SCENARIO_ARTIFACTS||'shared-pan-e2e-artifacts/scenarios';
 const email='pan-test@example.invalid', password='PanSmokeStrong123!';
@@ -87,8 +87,14 @@ try{
       assert(result.payload.verdict===item.expected,id+': expected '+item.expected+' got '+result.payload.verdict);
       assert(result.payload.trace?.length===item.steps.length,id+': trace length mismatch');
       assert(result.payload.simulation_only===true && result.payload.bid_submitted===false,id+': unsafe result');
+      // Bind the PASS verdict to actual native n8n runData and the complete
+      // reviewed scenario plan, not merely a trace length or claimed verdict.
+      const nativeProof=verifyNativeScenarioEvidence({
+        payload:result.payload,scenario:item,baseState:plan.base_state,
+        execution:result.exec,runData:result.runData,fixture
+      });
       await page.screenshot({path:path.join(out,id+'-executed.png'),fullPage:true});
-      const row={scenario:id,verdict:'PASS',expected:item.expected,workflowId:saved.id,executionId,runNodes:Object.keys(result.runData).length,traceSteps:item.steps.length,source:'isolated_n8n_browser_synthetic_only'};
+      const row={scenario:id,verdict:'PASS',expected:item.expected,workflowId:saved.id,executionId,runNodes:Object.keys(result.runData).length,traceSteps:item.steps.length,nativeTraceVerified:true,executedNativeNodes:nativeProof.executedNativeNodes,source:'isolated_n8n_browser_synthetic_only'};
       report.push(row);
       console.log('CHROME_SCENARIO_PASS',JSON.stringify(row));
     }catch(e) {
