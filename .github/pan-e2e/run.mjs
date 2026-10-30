@@ -260,6 +260,28 @@ try {
   },25000);
   await rec('real-node-drag-saved-in-db','PASS',{before:movedBefore,after:moved});
 
+  // Edit through the genuine native NDV while the Chrome editor is demonstrably
+  // writable. In this isolated n8n fixture, a later browser reload may render
+  // CodeMirror aria-readonly=true; filling that DOM would falsely test an
+  // unavailable control rather than the native parameter persistence contract.
+  const newJs='return [{json:{pan_test:true,answer:43}}];';
+  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').dblclick();
+  const cm=page.getByTestId('parameter-input-jsCode').locator('.cm-content');
+  await cm.waitFor({state:'visible',timeout:20000});
+  const cmEditable=await cm.evaluate(el=>({
+    contenteditable:el.getAttribute('contenteditable'),
+    ariaReadonly:el.getAttribute('aria-readonly')
+  }));
+  assert(cmEditable.contenteditable==='true'&&cmEditable.ariaReadonly!=='true',
+    'Native CodeMirror is not editable before reload: '+JSON.stringify(cmEditable));
+  await cm.fill(newJs);
+  await page.getByTestId('ndv-close-button').click();
+  await poll('CodeMirror edit saved in server',async()=>{
+    const d=await storageWorkflow(workflowId);
+    return d.nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs;
+  },30000);
+  await rec('real-chrome-parameter-edit-and-server-persistence','PASS',{jsCode:newJs});
+
   await page.reload({waitUntil:'domcontentloaded'});
   await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
   const loaded=await storageWorkflow(workflowId);
@@ -283,20 +305,12 @@ try {
   await page.getByTestId('zoom-out-button').click();
   await rec('real-editor-zoom-in-out','PASS',{before:zoomBefore,zoomIn,zoomOut:await viewport()});
 
-  // Actual CodeMirror parameter edit through official NDV; verify server persistence.
-  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').dblclick();
-  const newJs='return [{json:{pan_test:true,answer:43}}];';
-  await page.getByTestId('parameter-input-jsCode').locator('.cm-content').fill(newJs);
-  await page.getByTestId('ndv-close-button').click();
-  await poll('CodeMirror edit saved in server',async()=>{
-    const d=await storageWorkflow(workflowId);
-    return d.nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs;
-  },30000);
-  await rec('real-chrome-parameter-edit-and-server-persistence','PASS',{jsCode:newJs});
-  await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').waitFor({timeout:30000});
-  assert((await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs,'Code parameter lost after reload');
-  await rec('real-chrome-parameter-reopen-persistence','PASS');
+  // The real Chrome NDV edit occurred before reload. Assert that the exact
+  // parameter survives the already-performed browser reload; never inject
+  // a value through REST/DOM to compensate for read-only post-reload controls.
+  assert((await storageWorkflow(workflowId)).nodes.find(n=>n.name==='Code')?.parameters?.jsCode===newJs,
+    'Code parameter lost after reload');
+  await rec('real-chrome-parameter-reopen-persistence','PASS',{jsCode:newJs});
   await page.screenshot({path:path.join(OUT,'06-settings-reopened.png'),fullPage:true});
 
   // Use actual official editor UI for safe manual execution of Code-only result.
