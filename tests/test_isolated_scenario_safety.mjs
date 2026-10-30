@@ -239,3 +239,24 @@ for(const [driver,defaultPort] of [
     assert(source.includes("http://127.0.0.1:"+defaultPort));
   });
 }
+
+test('all three official Chrome drivers block Service Workers and cross-origin WebSocket handshakes before page creation',()=>{
+  for(const driver of [
+    '.github/pan-e2e/run.mjs',
+    '.github/pan-e2e/candidate-business.mjs',
+    '.github/pan-e2e/scenarios.mjs'
+  ]){
+    const source=readFileSync(driver,'utf8');
+    assert(source.includes("serviceWorkers:'block'"),driver+': Service Worker routing bypass must be blocked');
+    assert(source.includes("await context.routeWebSocket('**/*'"),driver+': WebSocket route missing');
+    assert(source.includes("target.protocol!=='ws:'"),driver+': TLS/external WebSocket policy missing');
+    assert(source.includes("target.host!==allowed.host"),driver+': WebSocket host+port boundary missing');
+    assert(source.includes('target.username||target.password'),driver+': WebSocket URL credentials not rejected');
+    assert(source.includes('await socket.close()'),driver+': cross-origin WebSocket must close');
+    assert(source.includes('socket.connectToServer()'),driver+': local n8n WebSocket must proxy');
+    assert(source.indexOf('await context.routeWebSocket')<source.indexOf('page=await context.newPage()'),
+      driver+': WebSocket interception must precede page creation');
+    assert(source.indexOf("serviceWorkers:'block'")<source.indexOf('page=await context.newPage()'),
+      driver+': Service Worker policy must precede page creation');
+  }
+});
