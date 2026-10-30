@@ -321,13 +321,12 @@ try{
   await record('real-chrome-custom-node-position-and-setting-reopen','PASS',{
     nodeId:added.id,position:movedReload.position,operationId:movedReload.parameters.operationId,
     evidenceHandling:movedReload.parameters.evidenceHandling
-  })
+  });
   await record('native-custom-node-post-reload-editability-diagnostic','OBSERVED',{
     workflowScopes:(await api('GET','/rest/workflows/'+id)).data.scopes??null,
     plusVisible:await page.getByTestId('node-creator-plus-button').isVisible().catch(()=>false),
     note:'Node drag used genuine Chrome before reload; this separately records post-reload creator availability.'
   });
-;
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
 
   // Exercise the real native n8n handle drag on BOTH custom-node outputs.
