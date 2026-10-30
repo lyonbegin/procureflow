@@ -179,7 +179,7 @@ for(const [name,attack] of nativeEvidenceAttacks){
   test('native execution evidence fail closed: '+name,()=>{
     const v=syntheticNativeEvidence('S02');
     attack(v);
-    assert.throws(()=>verifyNativeScenarioEvidence(v),/Native scenario|Invalid native/);
+    assert.throws(()=>verifyNativeScenarioEvidence(v),/Native scenario|Invalid native|Native n8n/);
   });
 }
 test('actual Chrome driver must call native evidence verifier before PASS',()=>{
