@@ -52,7 +52,7 @@ if(chromeVerdictPath){
     'real-chrome-operationId-dropdown-selection',
     'real-chrome-evidence-handling-dropdown-selection',
     'real-chrome-custom-node-server-save',
-    'real-chrome-custom-node-reopen-persistence',
+    'real-chrome-custom-node-pre-drag-server-persistence',
     'real-chrome-custom-node-drag-server-coordinate-save',
     'real-chrome-custom-node-position-and-setting-reopen',
     'native-editability-after-reopen',
@@ -74,7 +74,7 @@ if(chromeVerdictPath){
      diagnostic.plusVisible!==true)
     throw Error('Native Chrome post-reload editability evidence mismatch');
   const save=by.get('real-chrome-custom-node-server-save');
-  const reopen=by.get('real-chrome-custom-node-reopen-persistence');
+  const persistedBeforeDrag=by.get('real-chrome-custom-node-pre-drag-server-persistence');
   const drag=by.get('real-chrome-custom-node-drag-server-coordinate-save');
   const restored=by.get('real-chrome-custom-node-position-and-setting-reopen');
   const dual=by.get('real-chrome-custom-dual-edge-reopen');
@@ -87,7 +87,7 @@ if(chromeVerdictPath){
     throw Error('Native Chrome palette/settings selection evidence mismatch');
   const id=save?.nodeId;
   if(typeof id!=='string'||id.length<8||save.type!=='CUSTOM.procureFlowBusinessOperation'||
-     save.operationId!=='N02'||reopen.id!==id||drag.nodeId!==id||
+     save.operationId!=='N02'||persistedBeforeDrag.id!==id||drag.nodeId!==id||
      restored.nodeId!==id||dual.nodeId!==id||removed.id!==id)
     throw Error('Native Chrome custom node identity/persistence mismatch');
   const validPoint=p=>Array.isArray(p)&&p.length===2&&
