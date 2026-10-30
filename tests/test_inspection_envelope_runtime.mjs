@@ -1,0 +1,140 @@
+/**
+ * Execute the ACTUAL isolated ProcureFlow n8n read-only custom node for each
+ * of the 43 manifest operations, then validate its emitted JSON against the
+ * generated JSON Schema 2020-12 with Ajv. No HTTP server, DB or credentials.
+ * This proves inspection-envelope compatibility, NOT 43 business handlers.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+import Ajv2020 from 'ajv/dist/2020.js';
+import {createInspectionEnvelopeSchemas} from '../n8n/source-build/inspection-envelope-schemas.mjs';
+
+const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
+const {schemas,count,actualBusinessHandlersWithStrictPayloadSchemas,scope}=
+  createInspectionEnvelopeSchemas(manifest);
+assert.equal(count,43);
+assert.equal(actualBusinessHandlersWithStrictPayloadSchemas,0);
+assert.equal(scope,'READ_ONLY_INSPECTION_NOT_BUSINESS_HANDLER');
+const owner=new Map(manifest.flows.flatMap(f=>(f.owned_blocks||[]).map(id=>[id,f.id])));
+const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pf-inspection-envelope-runtime-'));
+fs.copyFileSync('n8n/custom-nodes/ProcureFlowBusinessOperation.node.js',
+  path.join(tmp,'ProcureFlowBusinessOperation.node.js'));
+fs.copyFileSync('n8n/operational_manifest.json',path.join(tmp,'operational_manifest.json'));
+const {ProcureFlowBusinessOperation}=createRequire(import.meta.url)(
+  path.join(tmp,'ProcureFlowBusinessOperation.node.js'));
+const envNames=[
+  'PROCUREFLOW_BUSINESS_READONLY_ENABLED','PROCUREFLOW_OPERATION_API_BASE',
+  'PROCUREFLOW_OPERATION_TEST_MODE','PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT',
+  'PROCUREFLOW_ALLOW_INTERNAL_READONLY','PROCUREFLOW_APPROVED_INTERNAL_API_HOST',
+  'PROCUREFLOW_APPROVED_INTERNAL_API_PORT','PROCUREFLOW_APPROVED_INTERNAL_API_SCHEME'
+];
+const oldEnv=Object.fromEntries(envNames.map(k=>[k,process.env[k]]));
+test.after(()=>{
+  for(const [k,v] of Object.entries(oldEnv)) {
+    if(v===undefined)delete process.env[k];else process.env[k]=v;
+  }
+  fs.rmSync(tmp,{recursive:true,force:true});
+});
+function isolate(){
+  process.env.PROCUREFLOW_BUSINESS_READONLY_ENABLED='1';
+  process.env.PROCUREFLOW_OPERATION_TEST_MODE='1';
+  process.env.PROCUREFLOW_OPERATION_API_BASE='http://127.0.0.1:58491';
+  process.env.PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT='58491';
+  for(const k of envNames.slice(4))delete process.env[k];
+}
+const ajv=new Ajv2020({allErrors:true,strict:true});
+const byId=new Map(schemas.map(s=>[s.operationId,s]));
+assert.equal(byId.size,43);
+const invalidChanges=[
+  ['forged submission',x=>{x.bid_submitted=true;}],
+  ['forged worker dispatch',x=>{x.worker_job_enqueued=true;}],
+  ['forged actual business handler',x=>{x.actual_business_handler_executed=true;}],
+  ['forged automatic submission',x=>{x.automatic_bid_submission=true;}],
+  ['forged job execution',x=>{x.actual_job_executed=true;}],
+  ['forged decision',x=>{x.final_decision='READY_FOR_MANUAL_PARTICIPATION';}],
+  ['forged manual approval',x=>{x.manual_review_required=false;}],
+  ['forged verified evidence',x=>{x.evidence_verified=true;}],
+  ['forged VERIFIED with synthetic provenance',x=>{x.inspection_status='VERIFIED';}],
+  ['foreign operation',x=>{x.operation_id='UNLISTED';}],
+  ['foreign flow',x=>{x.flow_id='PF99';}],
+  ['foreign feature contract',x=>{x.feature_ids=[999];}],
+  ['untrusted evidence key',x=>{x.missing_evidence=['serviceKey=secret'];}],
+  ['untrusted output',x=>{x.output={bid_submitted:true};}],
+  ['unknown secret field',x=>{x.serviceKey='DO_NOT_EMIT';}]
+];
+test('43 isolated n8n node HOLD outputs match strict JSON Schema 2020-12; forged approval rejected',async()=>{
+  isolate();
+  let checked=0,rejected=0,requests=0;
+  for(const block of manifest.blocks){
+    const flowId=owner.get(block.id);
+    assert.equal(typeof flowId,'string');
+    const s=byId.get(block.id);
+    assert.equal(s.flowId,flowId);
+    const validateParams=ajv.compile(s.inputParameters);
+    const validateOutput=ajv.compile(s.outputItem);
+    const params={operationId:block.id,bidNo:'R26BK01787028',evidenceHandling:'hold'};
+    assert.equal(validateParams(params),true,block.id+' valid params');
+    for(const invalid of [
+      {...params,operationId:'UNLISTED'},
+      {...params,bidNo:'ANOTHER_CASE'},
+      {...params,evidenceHandling:'submit'},
+      {...params,serviceKey:'LEAK'}
+    ]){assert.equal(validateParams(invalid),false,block.id+' invalid params');rejected++;}
+    const synthetic={
+      flow_id:flowId,case_id:'R26BK01787028',read_only:true,
+      simulation_only:true,actual_job_executed:false,
+      source_provenance:'isolated_synthetic_test_evidence',
+      automatic_bid_submission:false,workflow_execution_engine:'native_n8n_only',
+      blocks:[{id:block.id,input:block.input,output:block.output,
+        real_data:false,simulation_only:true,job_enqueued:false,
+        status:'blocked',features:[],
+        output_value:{evidence_verified:false,missing_evidence_keys:['official_source']}}]
+    };
+    const ctx={
+      getInputData:()=>[{json:{bid_no:'R26BK01787028',final_decision:'SUBMIT',
+        serviceKey:'DO_NOT_EMIT',worker_job_enqueued:true}}],
+      getNodeParameter:name=>params[name],
+      helpers:{httpRequest:async options=>{
+        requests++;
+        assert.equal(options.method,'GET');
+        assert.equal(options.disableFollowRedirect,true);
+        assert.equal(options.url,'http://127.0.0.1:58491/api/n8n/operational/flows/'+flowId+'/inspect');
+        return synthetic;
+      }}
+    };
+    const result=await new ProcureFlowBusinessOperation().execute.call(ctx);
+    assert.equal(result[0].length,0,block.id+' must not enter success output');
+    assert.equal(result[1].length,1,block.id+' must enter HOLD output');
+    const actual=result[1][0].json;
+    assert.equal(validateOutput(actual),true,
+      block.id+' schema errors: '+JSON.stringify(validateOutput.errors));
+    assert.equal(actual.inspection_status,'HOLD');
+    assert.equal(actual.evidence_provenance,'isolated_synthetic_test_evidence');
+    assert.equal(actual.actual_business_handler_executed,false);
+    assert.equal(actual.bid_submitted,false);
+    assert.equal(actual.worker_job_enqueued,false);
+    assert.equal(JSON.stringify(actual).includes('DO_NOT_EMIT'),false);
+    checked++;
+    for(const [label,mutate] of invalidChanges){
+      const forged=structuredClone(actual);
+      mutate(forged);
+      assert.equal(validateOutput(forged),false,block.id+' accepted '+label);
+      rejected++;
+    }
+  }
+  assert.equal(checked,43);
+  assert.equal(requests,43);
+  assert.equal(rejected,43*(4+invalidChanges.length));
+  console.log('PROCUREFLOW_43_ACTUAL_ISOLATED_INSPECTION_ENVELOPES_SCHEMA_PASS',JSON.stringify({
+    executedReadOnlyNodeOperations:checked,
+    loopbackMockGET:requests,
+    forgedEnvelopeAndParameterCasesRejected:rejected,
+    actualBusinessHandlers:0,
+    realOfficialG2BEvidence:0,
+    actualBids:0
+  }));
+});
