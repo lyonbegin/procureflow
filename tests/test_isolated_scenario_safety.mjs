@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {makeSafeScenario,assertIsolatedN8nUrl} from '../.github/pan-e2e/scenario-safety.mjs';
+import {makeSafeScenario,assertIsolatedN8nUrl,verifyNativeScenarioEvidence} from '../.github/pan-e2e/scenario-safety.mjs';
 
 const fixture=id=>JSON.parse(readFileSync('n8n/workflows/'+id+'.json','utf8'));
 for(let i=1;i<=10;i++){
@@ -81,7 +81,7 @@ for(const [name,mutate] of integrityAttacks){
 
 test('official Google Chrome scenario driver must use the same fail-closed transformer',()=>{
   const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
-  assert.match(source,/import\s*\{makeSafeScenario(?:\s*,\s*assertIsolatedN8nUrl)?\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
+  assert.match(source,/import\s*\{makeSafeScenario\s*,\s*assertIsolatedN8nUrl\s*,\s*verifyNativeScenarioEvidence\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
   assert.match(source,/makeSafeScenario\(JSON\.parse\(await readFile\(/);
   assert.doesNotMatch(source,/function\s+makeSafe\s*\(/);
 });
@@ -111,4 +111,81 @@ test('Chrome scenario driver guards origin before browser launch and prevents AP
   assert.match(source,/method,timeout:25000,maxRedirects:0/);
   assert(source.indexOf('const base=assertIsolatedN8nUrl')<source.indexOf('await mkdir(out,'));
   assert(source.indexOf('const base=assertIsolatedN8nUrl')<source.indexOf('browser=await chromium.launch'));
+});
+
+
+// This fixture only tests the native evidence VERIFIER. It does not simulate
+// a real Chrome session or assert that actual G2B business handlers ran.
+const plan=JSON.parse(readFileSync('n8n/scenarios.json','utf8'));
+function syntheticNativeEvidence(id){
+  const scenario=plan.scenarios.find(s=>s.id===id);
+  const fixtureSafe=makeSafeScenario(fixture(id),id);
+  const state=structuredClone(plan.base_state);
+  const trace=scenario.steps.map(step=>{
+    const before={},after={};
+    for(const [key,value] of Object.entries(step.patch||{})){
+      before[key]=state[key]??null;
+      after[key]=value;
+    }
+    Object.assign(state,step.patch||{});
+    return {index:step.index,flow:step.flow,event:step.event,
+      recipients:step.recipients,input:before,output:step.patch||{},
+      after,simulation_only:true};
+  });
+  const payload={
+    scenario_id:id,case_id:'DEMO_ONLY',expected:scenario.expected,
+    verdict:scenario.expected,qa_local_only:true,passed:true,
+    workflow_status:'SIMULATED_PASS',simulation_only:true,
+    bid_submitted:false,not_a_real_bid:true,state,trace
+  };
+  const runData=Object.fromEntries(fixtureSafe.nodes.map(n=>[n.name,[{data:{main:[[{json:{}}]]}}]]));
+  return {payload,scenario,baseState:plan.base_state,
+    execution:{status:'success'},runData,fixture:fixtureSafe};
+}
+for(let i=1;i<=10;i++){
+  const id='S'+String(i).padStart(2,'0');
+  test(id+' verifier accepts full synthetic trace and exact reviewed node set',()=>{
+    const v=syntheticNativeEvidence(id);
+    const result=verifyNativeScenarioEvidence(v);
+    assert.equal(result.scenario,id);
+    assert.equal(result.traceSteps,v.scenario.steps.length);
+    assert.equal(result.executedNativeNodes,v.fixture.nodes.length);
+    assert.equal(result.status,'VERIFIED_ISOLATED_SYNTHETIC_EXECUTION_ONLY');
+  });
+}
+const nativeEvidenceAttacks=[
+  ['wrong event',v=>{v.payload.trace[0].event='ForgedEvent';}],
+  ['wrong flow',v=>{v.payload.trace[0].flow='PF15';}],
+  ['wrong recipients',v=>{v.payload.trace[0].recipients=['PF15'];}],
+  ['wrong step index',v=>{v.payload.trace[0].index=77;}],
+  ['tampered patch',v=>{v.payload.trace[1].output={qualified:false};}],
+  ['tampered before state',v=>{v.payload.trace[1].input={qualified:true};}],
+  ['tampered after state',v=>{v.payload.trace[1].after={qualified:false};}],
+  ['unreviewed trace field',v=>{v.payload.trace[0].bid_submitted=true;}],
+  ['missing trace row',v=>{v.payload.trace.pop();}],
+  ['extra trace row',v=>{v.payload.trace.push({...v.payload.trace[0]});}],
+  ['wrong final state',v=>{v.payload.state.qualified=false;}],
+  ['unexpected extra native node',v=>{v.runData['Injected Remote HTTP']=[{}];}],
+  ['missing executed native node',v=>{delete v.runData[v.fixture.nodes[0].name];}],
+  ['native execution failed',v=>{v.execution.status='error';}],
+  ['fake native success without local QA',v=>{v.payload.qa_local_only=false;}],
+  ['claimed actual bid submission',v=>{v.payload.bid_submitted=true;}],
+  ['wrong scenario identity',v=>{v.payload.scenario_id='S10';}],
+  ['wrong expected verdict',v=>{v.payload.verdict='READY_FOR_MANUAL_PARTICIPATION';}],
+  ['not marked simulated',v=>{v.payload.simulation_only=false;}],
+  ['missing no-real-bid marker',v=>{v.payload.not_a_real_bid=false;}],
+];
+for(const [name,attack] of nativeEvidenceAttacks){
+  test('native execution evidence fail closed: '+name,()=>{
+    const v=syntheticNativeEvidence('S02');
+    attack(v);
+    assert.throws(()=>verifyNativeScenarioEvidence(v),/Native scenario|Invalid native/);
+  });
+}
+test('actual Chrome driver must call native evidence verifier before PASS',()=>{
+  const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
+  assert.match(source,/const nativeProof=verifyNativeScenarioEvidence\(\{/);
+  assert(source.indexOf('verifyNativeScenarioEvidence({')<
+    source.indexOf("report.push(row);"));
+  assert.match(source,/nativeTraceVerified:true/);
 });
