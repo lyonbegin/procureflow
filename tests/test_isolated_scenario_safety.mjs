@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {makeSafeScenario} from '../.github/pan-e2e/scenario-safety.mjs';
+import {makeSafeScenario,assertIsolatedN8nUrl} from '../.github/pan-e2e/scenario-safety.mjs';
 
 const fixture=id=>JSON.parse(readFileSync('n8n/workflows/'+id+'.json','utf8'));
 for(let i=1;i<=10;i++){
@@ -84,4 +84,31 @@ test('official Google Chrome scenario driver must use the same fail-closed trans
   assert.match(source,/import\s*\{makeSafeScenario\}\s*from\s*['"]\.\/scenario-safety\.mjs['"]/);
   assert.match(source,/makeSafeScenario\(JSON\.parse\(await readFile\(/);
   assert.doesNotMatch(source,/function\s+makeSafe\s*\(/);
+});
+
+test('official Chrome S01-S10 target accepts only an isolated HTTP loopback origin',()=>{
+  for(const url of ['http://127.0.0.1:5678','http://localhost:5678','http://[::1]:5678']){
+    assert.equal(assertIsolatedN8nUrl(url),new URL(url).origin);
+  }
+  for(const url of [
+    'https://procureflow-n8n-editor-gateway-production.up.railway.app',
+    'http://procureflow-api-production.up.railway.app:5678',
+    'http://example.com:5678',
+    'https://127.0.0.1:5678',
+    'http://0.0.0.0:5678',
+    'http://127.0.0.1',
+    'http://127.0.0.1:5678/rest/workflows',
+    'http://127.0.0.1:5678?redirect=prod',
+    'http://user:password@127.0.0.1:5678',
+    'http://127.0.0.1:5678/#admin',
+    'not-a-url',
+  ])assert.throws(()=>assertIsolatedN8nUrl(url),/Isolated n8n URL/,url);
+});
+
+test('Chrome scenario driver guards origin before browser launch and prevents API redirects',()=>{
+  const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
+  assert.match(source,/const base=assertIsolatedN8nUrl\(process\.env\.N8N_E2E_URL/);
+  assert.match(source,/method,timeout:25000,maxRedirects:0/);
+  assert(source.indexOf('const base=assertIsolatedN8nUrl')<source.indexOf('await mkdir(out,'));
+  assert(source.indexOf('const base=assertIsolatedN8nUrl')<source.indexOf('browser=await chromium.launch'));
 });
