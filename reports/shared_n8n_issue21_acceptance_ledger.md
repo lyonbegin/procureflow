@@ -1,5 +1,15 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 월별 G2B totalCount 재개 호출 간 스냅샷 보존 (전체 완료 아님)
+
+- **원인:** 기존 `scan_month()`는 동일 함수 호출에서만 `totalCount` 변화 감지. 첫 500건을 `partial`로 저장하고 다음 호출에서 page 2를 읽으면, 공식 API 결과 총건수가 변경되어도 첫 호출의 원래 수치를 모르므로 일부 페이지가 빠진 상태를 `completed`로 잘못 판정할 수 있었다.
+- **격리 기능 브랜치 코드:** [스키마 `f39212c`](https://github.com/lyonbegin/procureflow/commit/f39212c0259863294dabe60dd5eeffa9ac816b2c) — 월별 window에 nullable `expected_total bigint`를 추가하는 **향후 적용용 소스 DDL**. [수집기 `e45dca8`](https://github.com/lyonbegin/procureflow/commit/e45dca8a78cdb431e7e02fb02a80e53b43814aca), [보완 `dafb130`](https://github.com/lyonbegin/procureflow/commit/dafb13073fb9e0d1f55e8af3088b86860629d732) — 첫 검증 페이지의 공식 `totalCount`를 상태와 함께 저장, 재개 호출에서 일치하지 않으면 **해당 페이지 INSERT 전에** `blocked_unverified_response_scope`로 차단. 저장된 `partial/completed`에 유효한 snapshot이 없으면 네트워크·DB 쓰기 없이 fail-closed. 읽기 전용 월별 진단도 snapshot 없는 완료 상태를 인증하지 않음.
+- **격리 회귀:** [`ed08711`](https://github.com/lyonbegin/procureflow/commit/ed08711eacce369c68002514a61b6f0efb2a68d0) 및 [후속 `0e2b9ca`](https://github.com/lyonbegin/procureflow/commit/0e2b9caa429ad1611f5a8617599c397804b2135f): 감소·증가 totalCount 3종, snapshot 누락·비정상 7종, 완료 row 불일치 5종, 월별 집계 음성/양성 1종. **FakeHTTP/FakeDB만 사용**. [CI 경로 갱신 `1312e05`](https://github.com/lyonbegin/procureflow/commit/1312e05a9e17ecd6bf63f8aeaab708af5b95d08b) — schema 파일 변경 시에도 회귀 CI 실행.
+- **같은 최종 코드 HEAD 실제 [G2B 104 API + Node Lab #41253074272 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41253074272)**, job `124690445784`: **274 passed, 3 warnings**. [오프라인 S01~S10 #41253074255 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41253074255). Docker/공식 Chrome/Pan/50종/43블록/native 시나리오/PF15/Main·Worker/기존 owner 검사는 각각 결과 확인 전 최종 PASS 판정 보류.
+- **운영 변경 없음:** DDL은 **기능 브랜치의 소스 변경일 뿐** 운영 DB에 실행하지 않았다. 기존 월별 snapshot이 없는 row는 사전 증빙·백업·승인 없이 임의 초기화하거나 완료로 승격하지 않는다. `totalCount` 일치만으로 **페이지 사이 실제 공고 집합 동일성까지 증명되는 것은 아니며**, 재개 호출 간 공고 ID 집합/스냅샷 일관성 및 동시 Worker fencing은 추가 검증 필요.
+- **전체 필수 미완료:** 35종 실행 어댑터, 43개 실제 업무 핸들러, 공식 10자리 세부품명 10년 개찰·낙찰 전수, 디버깅 80개 런타임 전수, 기존 owner/운영 승인. **Issue Open / PR Draft·미병합. 운영 main/Railway 운영 서비스·DB/자격증명/실제 투찰 변경 없음.**
+
+
 ## 2026-11-01 KST — 공식 월별 API 페이지 간 totalCount 변동·중복 차단 (전체 완료 아님)
 
 - **실제 기능 브랜치 패치:** [`84ddfcd`](https://github.com/lyonbegin/procureflow/commit/84ddfcd8dcc9a525670c42cc50a1797a2bf3ecfe) — `scan_month()`가 한 번의 월별 수집에서 1페이지의 `totalCount`와 다음 페이지의 값이 달라져도 결과를 합산하여 월 전체 완료로 오인할 수 있는 경로를 차단. 앞 페이지에서 이미 본 `(bidNtceNo,bidNtceOrd)`가 다음 페이지에 재등장할 경우에도 두 번째 페이지 INSERT 이전에 `blocked_unverified_response_scope`로 보류. 기존에 확인된 첫 페이지는 감사 가능한 `partial`로 보존. **이 검사는 동일 `scan_month` 호출의 연속 페이지에만 적용**되며 재개 호출 간 스냅샷 일치성은 별도 과제.
