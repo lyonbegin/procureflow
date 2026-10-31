@@ -133,7 +133,7 @@ def test_malformed_official_item_fails_before_month_completion():
     assert not inserted
 
 
-@pytest.mark.parametrize("amount", ["not-a-number", "-100", [], {}])
+@pytest.mark.parametrize("amount", ["not-a-number", "-100", "1.5", 1.5, True, [], {}])
 def test_malformed_or_negative_official_amount_blocks_month(amount):
     candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
                  "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
