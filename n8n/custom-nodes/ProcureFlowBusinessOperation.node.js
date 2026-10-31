@@ -88,20 +88,29 @@ function hasUnsafeDispatchClaim(value){
 }
 // Inspection envelopes may contain nested metadata and arrays from external
 // providers. Dispatch claims must be false at every depth, not only at the
-// selected block's immediate output_value. Bound traversal so an oversized
-// or cyclic in-memory response fails closed without exhausting the n8n worker.
+// selected block's immediate output_value. Bound BOTH object count and total
+// enumerable fields: a provider can otherwise send one array of 100,000
+// primitive values and evade an object-only limit. Never allocate an unbounded
+// Object.values() array while inspecting untrusted evidence. Cycles fail safely.
 function hasUnsafeNestedDispatchClaim(root){
   const pending=[root],seen=new WeakSet();
-  let inspected=0;
+  let inspectedObjects=0,inspectedFields=0;
+  const MAX_INSPECTED=10000;
   while(pending.length){
     const value=pending.pop();
     if(!value||typeof value!=='object')continue;
     if(seen.has(value))continue;
     seen.add(value);
-    if(++inspected>10000)return true;
+    if(++inspectedObjects>MAX_INSPECTED)return true;
     if(hasUnsafeDispatchClaim(value))return true;
-    for(const child of Object.values(value))
+    // The response is JSON, but use own-property checks to avoid walking
+    // inherited fields if an in-memory test/helper supplies a custom object.
+    for(const key in value){
+      if(!Object.hasOwn(value,key))continue;
+      if(++inspectedFields>MAX_INSPECTED)return true;
+      const child=value[key];
       if(child&&typeof child==='object')pending.push(child);
+    }
   }
   return false;
 }
