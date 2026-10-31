@@ -148,12 +148,6 @@ def scan_month(first, pages_max=30):
     # Legacy partial/completed rows with missing snapshots are not certified.
     raw_snapshot=row.get("expected_total")
     snapshot=_audit_nonnegative_integer(raw_snapshot)
-    if inspected>0 and snapshot is None:
-        return {"status":"blocked_unverified_snapshot","first_day":str(first),
-                "read_only":True,"reason":"missing_persisted_total_count"}
-    if snapshot is not None and snapshot<inspected:
-        return {"status":"blocked_unverified_snapshot","first_day":str(first),
-                "read_only":True,"reason":"snapshot_smaller_than_checked"}
     if row["status"]=="completed":
         # A zero-result month is page 1; a nonempty final page advances
         # exactly once. Corrupted completed rows must not be certified.
@@ -171,9 +165,9 @@ def scan_month(first, pages_max=30):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "checked":inspected,"matched":matched,"next_page":page,
                 "reason":"partial_cursor_mismatch","read_only":True}
-    if inspected>0 and snapshot<=inspected:
+    if inspected>0 and (snapshot is None or snapshot<=inspected):
         return {"status":"blocked_unverified_snapshot","first_day":str(first),
-                "read_only":True,"reason":"partial_snapshot_not_ahead_of_cursor"}
+                "read_only":True,"reason":"partial_snapshot_missing_or_not_ahead_of_cursor"}
     # Boolean/fractional/string page limits must not silently become a
     # positive request count (int(True)==1, int(1.5)==1).
     if type(pages_max) is not int or pages_max<1:
