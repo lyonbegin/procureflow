@@ -25,8 +25,14 @@ def _parse(response):
     if str(head.get("resultCode","")) not in ("00","0"):
         raise ValueError("g2b_api_result_"+str(head.get("resultCode"))+":"+str(head.get("resultMsg",""))[:75])
     body=envelope.get("body") or {}
-    items=body.get("items") or []
-    if isinstance(items,dict):items=items.get("item") or []
+    # An absent/null item list is normal for a zero-result month. Explicit
+    # scalar values (including falsey 0/False/"") are malformed responses;
+    # the old 'or []' coercion could falsely certify a zero-result month.
+    items=body.get("items",[])
+    if items is None:items=[]
+    if isinstance(items,dict):
+        items=items.get("item",[])
+        if items is None:items=[]
     if isinstance(items,dict):items=[items]
     if not isinstance(items,list):raise ValueError("g2b_api_items_not_list")
     if any(not isinstance(item,dict) for item in items):
