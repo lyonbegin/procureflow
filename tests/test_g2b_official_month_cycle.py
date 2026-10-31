@@ -492,8 +492,8 @@ def test_malformed_persisted_cursor_never_coerces_into_coverage_or_calls_http(cu
 
 
 @pytest.mark.parametrize("cursor_fields,expected", [
-    ({"checked": 0, "matched": 0, "page_cursor": 1}, "already_completed"),
-    ({"checked": 500, "matched": 30, "page_cursor": 2}, "already_completed"),
+    ({"checked": 0, "matched": 0, "page_cursor": 1, "expected_total": 0}, "already_completed"),
+    ({"checked": 500, "matched": 30, "page_cursor": 2, "expected_total": 500}, "already_completed"),
     ({"checked": 500, "matched": 30, "page_cursor": 1}, "blocked_invalid_page_cursor"),
     ({"checked": 0, "matched": 0, "page_cursor": 2}, "blocked_invalid_page_cursor"),
     ({"checked": 0, "matched": 1, "page_cursor": 1}, "blocked_invalid_page_cursor"),
