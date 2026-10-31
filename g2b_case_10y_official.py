@@ -119,14 +119,13 @@ def scan_month(first, pages_max=30):
     inspected=_audit_nonnegative_integer(row["checked"])
     matched=_audit_nonnegative_integer(row["matched"])
     page=_audit_nonnegative_integer(row["page_cursor"])
-    if (inspected is None or matched is None or page is None or page<1 or
-            matched>inspected):
+    if (inspected is None or matched is None or page is None or page<1):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "read_only":True,"reason":"invalid_persisted_cursor_values"}
     if row["status"]=="completed":
         # A zero-result month is page 1; a nonempty final page advances
         # exactly once. Corrupted completed rows must not be certified.
-        if page!=(inspected+499)//500+1:
+        if matched>inspected or page!=(inspected+499)//500+1:
             return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                     "read_only":True,"reason":"completed_cursor_mismatch"}
         return {"status":"already_completed","first_day":str(first)}
