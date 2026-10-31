@@ -384,9 +384,19 @@ try{
   });
   await page.screenshot({path:path.join(OUT,'03-reopened.png'),fullPage:true});
   const withEdges=(await api('GET','/rest/workflows/'+id)).data;
-  assert(withEdges.connections?.[added.name]?.main?.[0]?.some(e=>e.node==='Accepted Sink'),'Success edge not persisted');
-  assert(withEdges.connections?.[added.name]?.main?.[1]?.some(e=>e.node==='Hold Sink'),'Hold edge not persisted');
-  await record('real-chrome-custom-dual-edge-reopen','PASS',{nodeId:added.id});
+  // Inspect the full server-restored connection matrix. A matching target
+  // alone can conceal a swapped output, duplicate edge, or wrong input index.
+  const persistedOutputs=(withEdges.connections?.[added.name]?.main||[])
+    .map(port=>(port||[]).map(e=>({node:e.node,type:e.type,index:e.index})));
+  const expectedOutputs=[
+    [{node:'Accepted Sink',type:'main',index:0}],
+    [{node:'Hold Sink',type:'main',index:0}]
+  ];
+  assert(JSON.stringify(persistedOutputs)===JSON.stringify(expectedOutputs),
+    'Native custom success/HOLD port routing changed after Chrome reopen');
+  await record('real-chrome-custom-dual-edge-reopen','PASS',{
+    nodeId:added.id,output0:persistedOutputs[0],output1:persistedOutputs[1]
+  });
 
   await nodeElement.hover();
   await nodeElement.getByTestId('delete-node-button').click({timeout:15000});

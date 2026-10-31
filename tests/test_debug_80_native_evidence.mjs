@@ -33,7 +33,9 @@ function fixture(){
       editMethod:'clicked-edit-here',plusVisible:true},
     {name:'real-chrome-custom-output-0-connected',result:'PASS',outputIndex:0,target:'Accepted Sink'},
     {name:'real-chrome-custom-output-1-connected',result:'PASS',outputIndex:1,target:'Hold Sink'},
-    {name:'real-chrome-custom-dual-edge-reopen',result:'PASS',nodeId:'native-node-001'},
+    {name:'real-chrome-custom-dual-edge-reopen',result:'PASS',nodeId:'native-node-001',
+      output0:[{node:'Accepted Sink',type:'main',index:0}],
+      output1:[{node:'Hold Sink',type:'main',index:0}]},
     {name:'real-chrome-custom-node-delete-and-server-save',result:'PASS',id:'native-node-001',
       nodeAbsent:true,danglingEdges:false},
     {name:'real-chrome-native-business-operation-synthetic-hold-execution',
@@ -121,6 +123,16 @@ const attacks=[
     rows.find(x=>x.name==='real-chrome-custom-node-drag-server-coordinate-save').after=[0,9]],
   ['output handles cannot be swapped',rows=>
     rows.find(x=>x.name==='real-chrome-custom-output-0-connected').target='Hold Sink'],
+  ['restored output-0 cannot be swapped',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-dual-edge-reopen').output0[0].node='Hold Sink'],
+  ['restored output-1 cannot disappear',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-dual-edge-reopen').output1=[]],
+  ['restored output cannot change destination index',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-dual-edge-reopen').output0[0].index=1],
+  ['restored output cannot contain hidden extra edge',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-dual-edge-reopen').output1.push({node:'Other Sink',type:'main',index:0})],
+  ['restored output cannot change n8n connection type',rows=>
+    rows.find(x=>x.name==='real-chrome-custom-dual-edge-reopen').output0[0].type='ai_tool'],
   ['execution IDs must be distinct and numeric',rows=>
     rows.find(x=>x.name.includes('fail-closed-debugging')).executionId='2'],
   ['fake Chrome execution ID is rejected',rows=>

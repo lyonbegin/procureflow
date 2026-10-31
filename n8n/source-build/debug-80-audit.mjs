@@ -103,6 +103,14 @@ if(chromeVerdictPath){
   if(edge0.outputIndex!==0||edge0.target!=='Accepted Sink'||
      edge1.outputIndex!==1||edge1.target!=='Hold Sink')
     throw Error('Native Chrome two-output handle mapping mismatch');
+  // Bind real Chrome handle gestures to exact server-restored n8n edges.
+  // A PASS with the same nodeId does not prove port/index preservation.
+  const expectedRestoredEdges=[
+    [{node:'Accepted Sink',type:'main',index:0}],
+    [{node:'Hold Sink',type:'main',index:0}]
+  ];
+  if(JSON.stringify([dual.output0,dual.output1])!==JSON.stringify(expectedRestoredEdges))
+    throw Error('Native Chrome persisted dual-output connection contract mismatch');
   // Deletion must be persisted by the server AND leave no dangling edges.
   // PASS alone is insufficient; require the deletion postconditions recorded
   // by the actual n8n /rest/workflows reload after Chrome clicked Delete.
