@@ -98,6 +98,28 @@ def test_official_total_count_required_even_when_results_empty():
         _parse({"response": {"header": {"resultCode": "00"}, "body": {"items": []}}})
 
 
+@pytest.mark.parametrize("invalid_total", [
+    True, False, 1.5, 0.0, -1.0, [], {}, None,
+    "1.5", "1e0", "-1", "", "NaN",
+])
+def test_official_total_count_never_coerces_fractional_boolean_or_noncount(invalid_total):
+    # A malformed totalCount must not be silently coerced to 0/1 and
+    # mark a month completed, even when the API returns no items.
+    result, statuses, inserted = run_month(response([], invalid_total))
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert not inserted
+
+
+@pytest.mark.parametrize("valid_total", [0, 1, "0", "1", " 1 "])
+def test_official_total_count_accepts_only_integer_count_representations(valid_total):
+    items, total = _parse(response([], valid_total))
+    assert items == []
+    assert total == int(valid_total)
+    assert type(total) is int
+
+
 def test_empty_page_cannot_finish_month_if_server_says_there_are_results():
     result, statuses, inserted = run_month(response([], 1200))
     assert result["status"] == "blocked_incomplete_api_page"
