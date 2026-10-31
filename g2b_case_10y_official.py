@@ -218,8 +218,7 @@ def scan_month(first, pages_max=30):
             _write_month(row["first_day"],row["last_day"],
                          "blocked_unverified_response_scope",
                          matched,inspected,page,
-                         "official_total_count_changed_between_pages",
-                         expected_total=expected_total)
+                         "official_total_count_changed_between_pages",expected_total)
             return {"status":"blocked_unverified_response_scope",
                     "first_day":str(first),"page":page,
                     "reason":"official_total_count_changed_between_pages"}
@@ -348,7 +347,7 @@ def scan_month(first, pages_max=30):
         complete=verdict=="completed"
         _write_month(row["first_day"],row["last_day"],
                      "completed" if complete else "partial",
-                     matched,inspected,page,expected_total=expected_total)
+                     matched,inspected,page,"",expected_total)
         if complete:
             return {"status":"completed","first_day":str(first),"checked":inspected,
                     "matched":matched,"total_records":total}
