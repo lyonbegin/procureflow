@@ -166,12 +166,16 @@ def scan_month(first, pages_max=30):
             # leave a misleading cursor state. Never silently coerce a
             # negative amount into a valid historical notice.
             raw_amount=item.get("asignBdgtAmt")
-            if isinstance(raw_amount,(list,dict,bool)):
-                invalid+=1
-                continue
-            try:
-                amount=int(raw_amount) if raw_amount is not None and raw_amount!="" else 0
-            except (ValueError,TypeError,OverflowError):
+            # int(1.5) silently truncates official monetary evidence. Accept
+            # only non-negative integer JSON numbers or decimal digit strings;
+            # missing/empty amounts remain unknown (NULL), not fabricated 0.
+            if raw_amount is None or raw_amount=="":
+                amount=0
+            elif type(raw_amount) is int:
+                amount=raw_amount
+            elif isinstance(raw_amount,str) and re.fullmatch(r"[0-9]+",raw_amount.strip()):
+                amount=int(raw_amount.strip())
+            else:
                 invalid+=1
                 continue
             if amount<0:
