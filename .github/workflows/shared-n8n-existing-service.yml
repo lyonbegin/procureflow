@@ -78,7 +78,7 @@ jobs:
             '    set -eu; \\',
             '    if [ -s /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \\',
             '    pnpm install --frozen-lockfile --trust-lockfile \\',
-          ].join('\\n');
+          ].join('\n');
           const ciDockerfile = original.replace(needle, injection);
           assert.equal(ciDockerfile.replace(injection, needle), original, 'only BuildKit secret mount may differ');
           assert(!ciDockerfile.includes('ARG GITHUB_TOKEN') && !ciDockerfile.includes('ENV GITHUB_TOKEN'));
