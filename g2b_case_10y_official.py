@@ -248,6 +248,15 @@ def scan_month(first, pages_max=30):
             "checked":inspected,"matched":matched}
 
 
+def _audit_nonnegative_integer(value):
+    """Reject bool/float/None instead of silently fabricating cursor coverage."""
+    if type(value) is int and value>=0:
+        return value
+    if isinstance(value,str) and re.fullmatch(r"[0-9]+",value.strip()):
+        return int(value.strip())
+    return None
+
+
 def summarize_month_cursor(rows):
     """Pure, read-only and credential-free audit of the 121 discovery windows.
 
@@ -264,6 +273,7 @@ def summarize_month_cursor(rows):
     seen=set()
     months=[]
     invalid=0
+    invalid_cursors=0
     for row in rows:
         start=row.get("first_day")
         stop=row.get("last_day")
@@ -272,16 +282,34 @@ def summarize_month_cursor(rows):
             continue
         seen.add(start)
         stat=str(row.get("status") or "unsearched")
-        checked=max(0,int(row.get("checked") or 0))
-        matched=max(0,int(row.get("matched") or 0))
-        page=max(1,int(row.get("page_cursor") or 1))
+        raw_checked=_audit_nonnegative_integer(row.get("checked"))
+        raw_matched=_audit_nonnegative_integer(row.get("matched"))
+        raw_page=_audit_nonnegative_integer(row.get("page_cursor"))
+        # Keep the read-only diagnostic available even for corrupted DB rows.
+        # Never treat a coerced/negative/bool/fractional count as completed.
+        cursor_valid=(raw_checked is not None and raw_matched is not None and
+                      raw_page is not None and raw_page>=1 and
+                      raw_matched<=raw_checked)
+        checked=raw_checked if raw_checked is not None else 0
+        matched=raw_matched if raw_matched is not None else 0
+        page=raw_page if raw_page is not None and raw_page>=1 else 1
+        if stat=="completed":
+            # scan_month advances the page cursor after saving its last page.
+            # A 0-row month ends on page 1; 1..500 on page 2, etc.
+            cursor_valid=cursor_valid and page==(checked+499)//500+1
+        elif stat=="partial":
+            # A partial month can resume ONLY after a full persisted page.
+            cursor_valid=(cursor_valid and checked%500==0 and
+                          page==checked//500+1)
+        if not cursor_valid:
+            invalid_cursors+=1
         months.append({"first_day":start.isoformat(),
                        "last_day":stop.isoformat(),
                        "status":stat,"checked":checked,"matched":matched,
-                       "next_page":page})
+                       "next_page":page,"cursor_valid":cursor_valid})
     months.sort(key=lambda r:r["first_day"])
-    complete=sum(r["status"]=="completed" for r in months)
-    candidates=[x for x in months if x["status"]!="completed"]
+    complete=sum(r["status"]=="completed" and r["cursor_valid"] for r in months)
+    candidates=[x for x in months if x["status"]!="completed" or not x["cursor_valid"]]
     candidates.sort(key=lambda r:(r["status"]!="partial",r["first_day"]))
     registry_ok=len(seen)==len(expected)==121 and invalid==0
     return {"bid_no":CASE_BID,"configured_parent8":CAT8,
@@ -291,6 +319,7 @@ def summarize_month_cursor(rows):
             "required_months":len(expected),
             "registered_months":len(seen),
             "invalid_or_duplicate_rows":invalid,
+            "invalid_cursor_rows":invalid_cursors,
             "discovery_months_completed":complete,
             "discovery_months_remaining":len(expected)-complete,
             "next_month":candidates[0] if candidates else None,
