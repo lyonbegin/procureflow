@@ -124,6 +124,44 @@ def test_invalid_identifier_does_not_disappear_from_completion_check():
     assert not inserted
 
 
+def test_malformed_official_item_fails_before_month_completion():
+    # API can return a non-object item even when totalCount looks complete.
+    result, statuses, inserted = run_month(response(["unexpected string"], 1))
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert not inserted
+
+
+@pytest.mark.parametrize("amount", ["not-a-number", "-100", [], {}])
+def test_malformed_or_negative_official_amount_blocks_month(amount):
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+                 "asignBdgtAmt": amount}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("cursor_fields", [
+    {"page_cursor": 2},  # first page skipped
+    {"checked": 501, "page_cursor": 2},  # incomplete prior page
+    {"checked": 500, "matched": 501, "page_cursor": 2},  # impossible match count
+    {"checked": -1},  # negative count
+])
+def test_corrupt_month_cursor_fails_closed_before_http(cursor_fields):
+    # A false page cursor must never certify coverage by starting at page 2.
+    # run_month uses the global MONTH fixture as its isolated DB row.
+    with patch.dict(MONTH, cursor_fields):
+        result, statuses, inserted = run_month(response([], 0))
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["read_only"] is True
+    assert statuses[0][2] == "blocked_invalid_page_cursor"
+    assert not inserted
+
+
 def test_verified_month_stores_only_parent8_candidate_not_award():
     good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
