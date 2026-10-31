@@ -922,3 +922,98 @@ test('primitive-only provenance arrays are bounded before n8n accepts an inspect
     mockedGets,externalHTTP:0,workerDispatch:0,actualBids:0
   }));
 });
+
+
+test('nested upstream bid/Worker claims reject entire batch BEFORE the first read-only GET',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const keys=[
+    'bid_submitted','worker_job_enqueued','job_enqueued',
+    'automated_bid_submission','automatic_bid_submission','actual_job_executed',
+    'bidSubmitted','workerJobEnqueued','jobEnqueued',
+    'automatedBidSubmission','automaticBidSubmission','actualJobExecuted'
+  ];
+  let mockedGets=0,rejected=0;
+  const mock=async()=>{mockedGets++;return blocked;};
+  for(const key of keys){
+    for(const value of [true,'true']){
+      const upstream={
+        bid_no:'R26BK01787028',
+        audit:{records:[{details:{[key]:value}}]}
+      };
+      await assert.rejects(
+        ()=>instance.execute.call(ctx(getParam,mock,upstream)),
+        /upstream read-only preflight blocked/,
+        'nested '+key+'='+String(value)+' must fail before GET'
+      );
+      rejected++;
+    }
+  }
+  const laterBad={
+    ...ctx(getParam,mock),
+    getInputData:()=>[
+      {json:{bid_no:'R26BK01787028'}},
+      {json:{bid_no:'R26BK01787028',metadata:[{workerJobEnqueued:true}]}}
+    ]
+  };
+  await assert.rejects(
+    ()=>instance.execute.call(laterBad),
+    /upstream read-only preflight blocked/,
+    'a later item cannot allow the first item to initiate HTTP'
+  );
+  assert.equal(mockedGets,0,'no request before complete batch preflight');
+  assert.equal(rejected,24);
+  const safe={bid_no:'R26BK01787028',audit:{records:[{
+    bid_submitted:false,workerJobEnqueued:false,actualJobExecuted:false
+  }]}};
+  const result=await instance.execute.call(ctx(getParam,mock,safe));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1].length,1);
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,1,'only explicitly false safe control performs mock GET');
+  console.log('PROCUREFLOW_UPSTREAM_NESTED_DISPATCH_PREFLIGHT_PASS',JSON.stringify({
+    rejectedClaims:rejected,rejectedLaterBatchItem:1,mockedGET:mockedGets,
+    externalHTTP:0,workerDispatch:0,actualBids:0
+  }));
+});
+
+test('oversized primitive-only upstream metadata fails closed before any HTTP request',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockedGets=0;
+  const mock=async()=>{mockedGets++;return blocked;};
+  const oversized=[
+    {metadata:{events:Array.from({length:10050},(_,i)=>i)}},
+    {metadata:Object.fromEntries(Array.from({length:10050},(_,i)=>['field_'+i,i]))}
+  ];
+  for(const extra of oversized){
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,mock,{
+        bid_no:'R26BK01787028',...extra
+      })),
+      /upstream read-only preflight blocked/,
+      'oversized primitive-only upstream payload cannot reach GET'
+    );
+  }
+  const laterBad={
+    ...ctx(getParam,mock),
+    getInputData:()=>[
+      {json:{bid_no:'R26BK01787028'}},
+      {json:{bid_no:'R26BK01787028',metadata:{events:Array.from({length:10050},(_,i)=>i)}}}
+    ]
+  };
+  await assert.rejects(
+    ()=>instance.execute.call(laterBad),
+    /upstream read-only preflight blocked/
+  );
+  assert.equal(mockedGets,0,'all oversized input variants blocked before GET');
+  const result=await instance.execute.call(ctx(getParam,mock,{
+    bid_no:'R26BK01787028',metadata:{events:[1,2,3]}
+  }));
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,1);
+  console.log('PROCUREFLOW_UPSTREAM_PRIMITIVE_FIELD_LIMIT_PASS',JSON.stringify({
+    oversizedRejected:3,mockedGET:mockedGets,externalHTTP:0,
+    workerDispatch:0,actualBids:0
+  }));
+});
