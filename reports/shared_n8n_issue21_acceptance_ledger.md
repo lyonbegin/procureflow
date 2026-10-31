@@ -1,5 +1,13 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 공식 월별 API 페이지 간 totalCount 변동·중복 차단 (전체 완료 아님)
+
+- **실제 기능 브랜치 패치:** [`84ddfcd`](https://github.com/lyonbegin/procureflow/commit/84ddfcd8dcc9a525670c42cc50a1797a2bf3ecfe) — `scan_month()`가 한 번의 월별 수집에서 1페이지의 `totalCount`와 다음 페이지의 값이 달라져도 결과를 합산하여 월 전체 완료로 오인할 수 있는 경로를 차단. 앞 페이지에서 이미 본 `(bidNtceNo,bidNtceOrd)`가 다음 페이지에 재등장할 경우에도 두 번째 페이지 INSERT 이전에 `blocked_unverified_response_scope`로 보류. 기존에 확인된 첫 페이지는 감사 가능한 `partial`로 보존. **이 검사는 동일 `scan_month` 호출의 연속 페이지에만 적용**되며 재개 호출 간 스냅샷 일치성은 별도 과제.
+- **격리 회귀:** [`bab22d0`](https://github.com/lyonbegin/procureflow/commit/bab22d0b45999ec64e4158ecf847ea2f44147c83) — 공식 페이지 1은 500건, 페이지 2는 1건인 합성 데이터로 **7개** 양성/음성 시험: `totalCount` 감소·증가 3종, 두 번째 페이지의 중복 공고(동일/금액 상충/날짜 상충) 3종, 안정적 총건수와 고유 공고의 정상 완료 1종. `FakeHTTP/FakeDB`만 사용, 실 G2B API·운영 DB·Worker·투찰 접근 0건.
+- **동일 HEAD [G2B 104 API + Node Lab #41237495880 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41237495880):** 실제 GitHub Actions job `124644232906` 로그 **242 passed, 3 warnings**. [오프라인 S01~S10 #41237495808 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41237495808), [단일 편집기 #41237495802 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41237495802), [50종/43블록 #41237495943 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41237495943).
+- [기존 운영 owner/readiness #41237495838 FAIL](https://github.com/lyonbegin/procureflow/actions/runs/41237495838): 읽기 전용 검증만 수행, 운영 owner/DB/자격증명 변경 없음. 동일 SHA의 [Pan/Chrome #41237495804](https://github.com/lyonbegin/procureflow/actions/runs/41237495804), [후보 Docker/Chrome #41237495794](https://github.com/lyonbegin/procureflow/actions/runs/41237495794), [native S01~S10 #41237495806](https://github.com/lyonbegin/procureflow/actions/runs/41237495806), [PF15 #41237495833](https://github.com/lyonbegin/procureflow/actions/runs/41237495833), [Main/Worker 격리 #41237495837](https://github.com/lyonbegin/procureflow/actions/runs/41237495837)은 이 기록 시점 최종 PASS 선판정하지 않음.
+- **미완료:** 35종 실행 매핑, 43개 실업무 핸들러, 정확한 10자리 세부품명 기준 공식 10년 개찰·낙찰 실데이터, 80개 디버깅 런타임 전수, 재개 호출 간 페이지 스냅샷 무결성, 기존 n8n owner/DB 복구·운영 승인. **Issue Open / PR Draft·미병합. 운영 main/Railway 운영 서비스·DB/자격증명/실제 Worker dispatch·투찰 변경 없음. 전체 완료 선언 금지.**
+
 ## 2026-11-01 KST — 공식 월별 발견 페이지의 중복 공고번호·차수 차단 (전체 완료 아님)
 
 - **코드 수정:** [1fcb4d8](https://github.com/lyonbegin/procureflow/commit/1fcb4d844485498f9e28f8f73d1c3adc8da96074) — `scan_month()`가 한 공식 API 페이지에 같은 `(bidNtceNo,bidNtceOrd)`가 2회 등장해도 `ON CONFLICT`로 덮어쓰고 `totalCount`에 포함된 두 행을 정상 월별 발견 완료로 오인할 수 있던 경로 차단. 페이지 내부 공고 식별자 중복은 `blocked_unverified_response_scope`로 처리하고, 그 페이지의 **history INSERT를 시작하기 전에** 전체를 보류한다. 서로 다른 차수는 별도 공식 식별자로 계속 허용한다.
