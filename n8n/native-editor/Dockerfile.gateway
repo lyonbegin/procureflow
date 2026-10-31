@@ -1,0 +1,14 @@
+# Exact PF00-PF15 native n8n JSON comes from the already tested compiler.
+FROM node:22-alpine AS topology
+WORKDIR /work
+COPY n8n/operational_manifest.json /work/procureflow-operational-manifest.json
+COPY n8n/operational/ /work/procureflow-operational-workflows/
+COPY n8n/source-build/compile-native-topology.mjs /work/compile-native-topology.mjs
+RUN PF_SOURCE=/work PF_OUTPUT=/compiled node /work/compile-native-topology.mjs \
+    && test "$(find /compiled/operational -maxdepth 1 -name 'PF*.json' | wc -l)" -eq 16
+FROM caddy:2.10-alpine
+COPY n8n/native-editor/Caddyfile /etc/caddy/Caddyfile
+COPY n8n/native-editor/portal.html /srv/site/index.html
+COPY --from=topology /compiled/operational/ /srv/data/operational/
+COPY n8n/workflows/ /srv/data/scenarios/
+EXPOSE 3000
