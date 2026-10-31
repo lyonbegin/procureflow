@@ -4,6 +4,7 @@ on:
     paths:
       - "g2b_feature_api.py"
       - "g2b_full_runner.py"
+      - "g2b_case_10y.py"
       - "g2b_case_10y_official.py"
       - "tests/test_g2b_official_month_cycle.py"
       - "g2b_node_lab.py"
