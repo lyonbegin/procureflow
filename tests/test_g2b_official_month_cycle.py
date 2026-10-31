@@ -426,3 +426,80 @@ def test_native_progress_endpoint_only_reports_db_cursor_without_collector_calls
     assert body["read_only"] and not body["job_enqueued"]
     assert body["ten_year_exact_opening_and_award_complete"] is False
     read.assert_called_once()
+
+
+@pytest.mark.parametrize("inspected,total,entries,page_size", [
+    (False, 0, 0, 500), (0, True, 0, 500),
+    (0, 0, False, 500), (0, 0, 0, True),
+    (0, 0, 0, 0), (0, 0, 0, -1),
+])
+def test_page_verdict_rejects_boolean_or_invalid_pagination(inspected,total,entries,page_size):
+    assert _page_verdict(inspected,total,entries,page_size)=="inconsistent"
+
+
+@pytest.mark.parametrize("bad_field,bad_value", [
+    ("checked", -1), ("checked", 1.5), ("checked", True),
+    ("checked", "1.5"), ("checked", None),
+    ("matched", -1), ("matched", 1.5), ("matched", True),
+    ("matched", "not-a-count"), ("matched", None),
+    ("page_cursor", 0), ("page_cursor", -1),
+    ("page_cursor", 1.5), ("page_cursor", True),
+    ("page_cursor", None), ("page_cursor", "not-a-page"),
+    ("page_cursor", 7),  # impossible for zero checked rows
+    ("matched", 1),  # greater than checked=0
+])
+def test_corrupted_completed_month_never_certifies_eight_digit_coverage(bad_field,bad_value):
+    rows=_all_registered_months()
+    rows[0][bad_field]=bad_value
+    result=summarize_month_cursor(rows)
+    assert result["registry_complete"] is True
+    assert result["invalid_cursor_rows"]==1
+    assert result["discovery_months_completed"]==120
+    assert result["discovery_months_remaining"]==1
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["ten_year_exact_opening_and_award_complete"] is False
+    assert result["next_month"]["first_day"]==rows[0]["first_day"].isoformat()
+    assert result["next_month"]["cursor_valid"] is False
+    assert result["read_only"] is True
+    assert result["job_enqueued"] is False
+    assert result["bid_submitted"] is False
+
+
+@pytest.mark.parametrize("checked,matched,page,expected_valid", [
+    (0, 0, 1, True),       # official zero-result month
+    (1, 1, 2, True),       # final partial page advances cursor
+    (499, 100, 2, True),
+    (500, 300, 2, True),   # exactly one full page
+    (501, 301, 3, True),
+    (501, 502, 3, False), # more matches than inspected
+    (501, 301, 2, False), # final page not advanced
+    (500, 300, 3, False), # skipped page
+])
+def test_completed_month_cursor_arithmetic_is_fail_closed(checked,matched,page,expected_valid):
+    rows=_all_registered_months()
+    rows[3].update(checked=checked,matched=matched,page_cursor=page)
+    result=summarize_month_cursor(rows)
+    assert result["months"][3]["cursor_valid"] is expected_valid
+    assert result["invalid_cursor_rows"]==(0 if expected_valid else 1)
+    assert result["discovery_months_completed"]==(121 if expected_valid else 120)
+    assert result["eight_digit_notice_discovery_complete"] is expected_valid
+
+
+@pytest.mark.parametrize("checked,matched,page,expected_valid", [
+    (0,0,1,True),
+    (500,20,2,True),
+    (1000,500,3,True),
+    (0,0,7,False),
+    (499,10,2,False),
+    (500,501,2,False),
+    (500,20,3,False),
+])
+def test_partial_month_cursor_does_not_hide_missing_pages(checked,matched,page,expected_valid):
+    rows=_all_registered_months()
+    rows[1].update(status="partial",checked=checked,matched=matched,page_cursor=page)
+    result=summarize_month_cursor(rows)
+    assert result["months"][1]["cursor_valid"] is expected_valid
+    assert result["invalid_cursor_rows"]==(0 if expected_valid else 1)
+    assert result["discovery_months_completed"]==120
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["next_month"]["first_day"]==rows[1]["first_day"].isoformat()
