@@ -308,3 +308,15 @@
 - **기존 owner 장애:** [직전 동일 기능 SHA의 운영 읽기 전용 CI #41212303293](https://github.com/lyonbegin/procureflow/actions/runs/41212303293) FAIL, `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`. 운영 owner/DB 변경 없이 남겨둠.
 - **남은 필수 수용 기준:** 35종 미지원 공유 노드 실행 매핑, 43개 실제 G2B 업무 핸들러·payload, 정확한 10년 공식 개찰·낙찰 전수·Worker fencing, 80개 디버깅 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. **Issue Open, PR Draft·미병합, 전체 완료 통보 금지.**
 
+
+
+## 2026-11-01 KST — 공식 n8n 읽기 전용 증빙 응답의 다중 식별자 모순 차단 (전체 완료 아님)
+
+- **변경 범위:** `feature/shared-n8n-pan-integration`의 `n8n/custom-nodes/ProcureFlowBusinessOperation.node.js` 및 `tests/test_procureflow_business_operation.mjs`만 수정. 운영 `main`, Railway 서비스/DB, 관리자·자격증명, G2B 실제 조회, Worker dispatch, 투찰 **변경 없음**.
+- **실제 발견한 결함:** 원본 `validateProvenance()`는 응답 최상위 `case_id`와 `flow_id` 및 선택된 `block.id`를 검사하지만, 응답에 추가로 실린 `bid_no`, `tenderNo`, 선택 블록의 `caseId`, `flowId`, `operationId` 등이 **서로 모순되어도** 통과할 수 있었다. 같은 응답이 다른 발주/업무 소유자를 주장하는 것을 엄격하게 차단해야 한다.
+- **소스 패치:** [`02b5a0c`](https://github.com/lyonbegin/procureflow/commit/02b5a0c84a0b079cb0253b9c8e379dde393634e9) — 최상위 및 선택 블록의 6종 발주번호 별칭, 선택 블록의 2종 PF 플로우·2종 업무 ID 별칭이 존재할 경우 **모두 공식 선택값과 일치**해야 한다. 누락된 선택적 필드는 기존 API 호환성을 유지한다. 모순이면 성공/HOLD 판정 이전에 오류로 차단한다.
+- **격리 회귀:** [`89b101b`](https://github.com/lyonbegin/procureflow/commit/89b101b76f0ff423d57836b8f93eb780a6c65d75) — 서로 모순되는 **15개 응답 별칭** 음성, 모든 별칭이 일치하는 양성 1개. 테스트는 **메모리 HTTP stub만 사용**, 실제 G2B 호출 0, Worker dispatch 0, 투찰 0.
+- **실제 GitHub Actions:** [공식 단일 편집기·읽기 전용 노드 회귀 #41247707108](https://github.com/lyonbegin/procureflow/actions/runs/41247707108) **SUCCESS**, job 로그 `PROCUREFLOW_RESPONSE_IDENTITY_ALIAS_FAIL_CLOSED_PASS`, **Node 39/39 PASS**, 15개 모순 차단·일치 응답 HOLD 확인. [오프라인 S01~S10 #41247707105](https://github.com/lyonbegin/procureflow/actions/runs/41247707105) **SUCCESS**.
+- **동일 SHA의 나머지 Docker/공식 Chrome/Pan/43블록/104 API/native S01~S10/PF15/Main-Worker 검증:** 해당 시점 일부 진행/대기 중. 결과를 확인하기 전 PASS라고 보고하지 않는다.
+- **기존 owner/readiness:** [읽기 전용 CI #41247707093](https://github.com/lyonbegin/procureflow/actions/runs/41247707093) **FAIL**, 이전부터 존재한 `EDITOR_BLOCKED_UNCLAIMED_OWNER` 장애. 운영 owner/DB를 수정하지 않는다.
+- **필수 미완료:** 35종 실행 어댑터, 43개 실제 업무 핸들러·payload, 정확한 10년 개찰·낙찰 공식 전수, 80개 디버깅 런타임 전수, 운영 owner/DB/키 호환성 및 명시적 승인. **Issue Open / PR Draft·미병합 / 전체 완료 통보 금지**.
