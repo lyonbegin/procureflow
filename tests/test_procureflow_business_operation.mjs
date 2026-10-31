@@ -264,8 +264,23 @@ test('untrusted upstream approval and bid flags cannot bypass inspection-only HO
     automated_bid_submission:true,actual_job_executed:true,
     job_enqueued:true,worker_job_enqueued:true,bid_submitted:true,
     evidence_verified:true,inspection_status:'VERIFIED'};
+  // The adapter now rejects any explicit forged dispatch claim BEFORE GET,
+  // rather than merely stripping it from downstream output after a request.
+  let mockedGets=0;
+  const mock=async()=>{mockedGets++;return blocked;};
+  await assert.rejects(
+    ()=>new ProcureFlowBusinessOperation().execute.call(ctx(getParam,mock,injected)),
+    /upstream read-only preflight blocked/
+  );
+  assert.equal(mockedGets,0,'forged upstream dispatch cannot trigger inspection HTTP');
+  // An untrusted but non-dispatching upstream decision is still sanitized to HOLD.
+  const safeInjected={...injected,
+    automatic_bid_submission:false,automated_bid_submission:false,
+    actual_job_executed:false,job_enqueued:false,
+    worker_job_enqueued:false,bid_submitted:false};
   const res=await new ProcureFlowBusinessOperation().execute.call(
-    ctx(getParam,async()=>blocked,injected));
+    ctx(getParam,mock,safeInjected));
+  assert.equal(mockedGets,1,'only the explicit-false control may reach mock GET');
   assert.equal(res[0].length,0);
   assert.equal(res[1].length,1);
   const actual=res[1][0].json;
@@ -591,7 +606,7 @@ test('all 43 manifest operations fail closed with isolated evidence and exact GE
       assert.equal(options.url,'http://127.0.0.1:58491/api/n8n/operational/flows/'+flowId+'/inspect');
       assert.equal(options.qs.bid_no,'R26BK01787028');
       return fixture;
-    },{final_decision:'SUBMIT',bid_submitted:true,worker_job_enqueued:true}));
+    },{final_decision:'SUBMIT',bid_submitted:false,worker_job_enqueued:false}));
     assert.equal(response[0].length,0,block.id);
     assert.equal(response[1].length,1,block.id);
     const result=response[1][0].json;
