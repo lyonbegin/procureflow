@@ -185,17 +185,43 @@ def scan_month(first, pages_max=30):
                 continue
             if cls is not True:continue
             no=str(item.get("bidNtceNo") or "").strip()
-            ord_=str(item.get("bidNtceOrd") or "000").zfill(3)
+            # A missing official notice round defaults to 000. Explicit
+            # boolean, float, object or list values must never be coerced
+            # into a valid notice identity (False previously became "000").
+            raw_ord=item.get("bidNtceOrd")
+            if raw_ord is None or raw_ord=="":
+                ord_="000"
+            elif type(raw_ord) is int or isinstance(raw_ord,str):
+                ord_=str(raw_ord).strip().zfill(3)
+            else:
+                invalid+=1
+                continue
             if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no) or not re.fullmatch(r"\d{3}",ord_):
                 invalid+=1
                 continue
-            pub=str(item.get("bidNtceDt") or "").strip()
-            stamp=re.match(r"(20\d{2})[-./]?(\d{2})[-./]?(\d{2})",pub)
+            raw_pub=item.get("bidNtceDt")
+            if not isinstance(raw_pub,str):
+                invalid+=1
+                continue
+            pub=raw_pub.strip()
+            # Match the ENTIRE official date/timestamp, not just a valid
+            # YYYYMMDD prefix. A forged suffix or invalid clock previously
+            # certified an otherwise unverified month's notice coverage.
+            # Support compact and consistently delimited official dates,
+            # optionally followed by HHMM[SS] or HH:MM[:SS].
+            stamp=re.fullmatch(
+                r"(20\d{2})([-./]?)(\d{2})\2(\d{2})(?:[ T]?(\d{2}):?(\d{2})(?::?(\d{2}))?)?",
+                pub)
             if not stamp:
                 invalid+=1
                 continue
             try:
-                day=date(int(stamp[1]),int(stamp[2]),int(stamp[3]))
+                day=date(int(stamp[1]),int(stamp[3]),int(stamp[4]))
+                if stamp[5] is not None and (
+                    int(stamp[5])>23 or int(stamp[6])>59 or
+                    (stamp[7] is not None and int(stamp[7])>59)):
+                    invalid+=1
+                    continue
             except ValueError:
                 invalid+=1
                 continue
