@@ -524,12 +524,81 @@ def test_valid_resumed_full_page_cursor_can_finish_next_official_page():
             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
             "asignBdgtAmt": "120000"}
     with patch.dict(MONTH, {"status": "partial", "checked": 500,
-                            "matched": 200, "page_cursor": 2}):
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": 501}):
         result, statuses, inserted = run_month(response([good], 501))
     assert result["status"] == "completed"
     assert result["checked"] == 501 and result["matched"] == 201
     assert len(inserted) == 1 and inserted[0][7] == 120000
     assert statuses[0][2] == "completed"
+
+
+@pytest.mark.parametrize("changed_total", [500, 502, 700])
+def test_resumed_month_never_accepts_changed_official_total_count(changed_total):
+    # Page 1 was persisted in an earlier scan_month invocation with 501
+    # official results. A later API snapshot must not certify page 2.
+    item = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+            "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    with patch.dict(MONTH, {"status": "partial", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": 501}):
+        result, writes, inserted = run_month(response([item], changed_total))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["reason"] == "official_total_count_changed_between_pages"
+    assert writes[0][2] == "blocked_unverified_response_scope"
+    assert writes[0][4:6] == (500, 2)
+    assert inserted == []  # Never insert the changed second page.
+    assert result.get("total_records") is None
+
+
+@pytest.mark.parametrize("snapshot", [None, -1, 0, 500, 1.5, True, "501.5"])
+def test_resumed_month_requires_valid_persisted_snapshot_before_network(snapshot):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": "partial", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": snapshot}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_unverified_snapshot"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert not db.inserted
+
+
+@pytest.mark.parametrize("snapshot", [None, 499, 501, False, 1.5])
+def test_completed_month_requires_exact_persisted_snapshot(snapshot):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": "completed", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": snapshot}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_unverified_snapshot"
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+
+
+def test_month_progress_does_not_certify_completed_without_snapshot():
+    rows = _all_registered_months()
+    rows[0]["expected_total"] = None
+    result = summarize_month_cursor(rows)
+    assert result["discovery_months_completed"] == 120
+    assert result["invalid_cursor_rows"] == 1
+    assert result["eight_digit_notice_discovery_complete"] is False
+    rows[0]["expected_total"] = rows[0]["checked"]
+    good = summarize_month_cursor(rows)
+    assert good["discovery_months_completed"] == 121
 
 
 def test_verified_month_stores_only_parent8_candidate_not_award():
