@@ -71,6 +71,7 @@ try{
     const id='S'+String(i).padStart(2,'0');
     const item=plan.scenarios.find(x=>x.id===id);
     assert(item && item.expected,'missing expected test state '+id);
+    let isolatedExecutionId=null;
     try{
       const fixture=makeSafeScenario(JSON.parse(await readFile('n8n/workflows/'+id+'.json','utf8')),id);
       const saved=(await api('POST','/rest/workflows',fixture)).data;
@@ -84,6 +85,7 @@ try{
       const start=(await (await executionResponse).json()).data;
       const executionId=String(start?.executionId||start?.id||'');
       assert(executionId,id+': missing native execution ID');
+      isolatedExecutionId=executionId;
       const result=await eventually(id+' native result',async()=>{
         const {exec,runData}=await savedExecution(executionId);
         const node=runData['전체 사건 기록 검증됨']?.at(-1);
@@ -109,8 +111,30 @@ try{
       report.push(row);
       console.log('CHROME_SCENARIO_PASS',JSON.stringify(row));
     }catch(e) {
-      report.push({scenario:id,verdict:'FAIL',error:e?.message||String(e)});
-      console.error('CHROME_SCENARIO_FAIL',id,e);
+      // Preserve only isolated n8n execution status and failed-node names/error
+      // types in the artifact. Never print full workflow input, credentials,
+      // HTTP responses, or the raw n8n execution payload.
+      let nativeFailure=null;
+      if(isolatedExecutionId){
+        try{
+          const {exec,runData}=await savedExecution(isolatedExecutionId);
+          const failedNodes=Object.entries(runData).flatMap(([node,runs])=>
+            (runs||[]).filter(run=>run?.error).map(run=>({
+              node,
+              errorType:String(run.error?.name||'unknown').slice(0,100),
+              errorCode:String(run.error?.code||'none').slice(0,100)
+            })));
+          nativeFailure={executionId:isolatedExecutionId,
+            status:String(exec.status||'unknown'),
+            lastNodeExecuted:String(exec.data?.resultData?.lastNodeExecuted||'unknown').slice(0,180),
+            failedNodes,executedNodeCount:Object.keys(runData).length};
+        }catch(diagnosticError){
+          nativeFailure={executionId:isolatedExecutionId,
+            diagnosticUnavailable:String(diagnosticError?.name||'unknown')};
+        }
+      }
+      report.push({scenario:id,verdict:'FAIL',error:e?.message||String(e),nativeFailure});
+      console.error('CHROME_SCENARIO_FAIL',id,e?.message||String(e),JSON.stringify(nativeFailure));
       await page.screenshot({path:path.join(out,id+'-failure.png'),fullPage:true}).catch(()=>{});
     }finally {
       await writeFile(path.join(out,'results.json'),JSON.stringify(report,null,2)+'\n');
