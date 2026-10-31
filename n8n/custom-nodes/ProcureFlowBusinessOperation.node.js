@@ -208,6 +208,14 @@ class ProcureFlowBusinessOperation {
       const upstream=entry?.json;
       if(!upstream||typeof upstream!=='object'||Array.isArray(upstream))
         throw Error('Business Operation input JSON object required');
+      // Apply the SAME bounded, fail-closed dispatch-claim inspection to
+      // untrusted upstream items BEFORE the first read-only HTTP GET. A
+      // nested "workerJobEnqueued" or "bidSubmitted" assertion must never
+      // be silently ignored simply because the adapter strips it from its
+      // downstream output. Also reject oversized primitive-only metadata
+      // instead of allowing a huge upstream item to trigger any request.
+      if(hasUnsafeNestedDispatchClaim(upstream))
+        throw Error('Business Operation upstream read-only preflight blocked');
       const operationId=this.getNodeParameter('operationId',i);
       const bidNo=this.getNodeParameter('bidNo',i);
       const evidenceHandling=this.getNodeParameter('evidenceHandling',i);
