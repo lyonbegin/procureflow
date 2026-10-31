@@ -186,6 +186,27 @@ for(let i=1;i<=10;i++){
   });
 }
 const nativeEvidenceAttacks=[
+  ['nested Worker claim in trigger output',v=>{
+    const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+    v.runData[trigger][0].data.main[0][0].json.audit={nested:[{worker_job_enqueued:true}]};
+  }],
+  ['nested real bid in QA output',v=>{
+    const qa=v.fixture.nodes.find(n=>n.name.includes('QA'))||
+      v.fixture.nodes.find(n=>n.name.includes('검증'));
+    assert(qa,'Canonical fixture QA/verification node required');
+    v.runData[qa.name][0].data.main[0][0].json.metadata={events:[{bid_submitted:'false'}]};
+  }],
+  ['nested actual job claim in final payload',v=>{
+    v.payload.audit={events:[{actual_job_executed:1}]};
+  }],
+  ['nested automated bid claim in intermediate output',v=>{
+    const node=v.fixture.nodes.find(n=>n.name.startsWith('01 · ')).name;
+    v.runData[node][0].data.main[0][0].json.audit={proof:{automatic_bid_submission:true}};
+  }],
+  ['nested dispatch claim with undefined value',v=>{
+    const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+    v.runData[trigger][0].data.main[0][0].json.worker_job_enqueued=undefined;
+  }],
   ['wrong event',v=>{v.payload.trace[0].event='ForgedEvent';}],
   ['wrong flow',v=>{v.payload.trace[0].flow='PF15';}],
   ['wrong recipients',v=>{v.payload.trace[0].recipients=['PF15'];}],
@@ -226,6 +247,15 @@ for(const [name,attack] of nativeEvidenceAttacks){
     assert.throws(()=>verifyNativeScenarioEvidence(v),/Native scenario|Invalid native|Native n8n/);
   });
 }
+test('native synthetic verifier permits explicitly false nested dispatch flags',()=>{
+  const v=syntheticNativeEvidence('S02');
+  const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+  v.runData[trigger][0].data.main[0][0].json.audit={
+    nested:[{bid_submitted:false,worker_job_enqueued:false,actual_job_executed:false}]
+  };
+  assert.equal(verifyNativeScenarioEvidence(v).status,'VERIFIED_ISOLATED_SYNTHETIC_EXECUTION_ONLY');
+});
+
 test('actual Chrome driver must call native evidence verifier before PASS',()=>{
   const source=readFileSync('.github/pan-e2e/scenarios.mjs','utf8');
   assert.match(source,/const nativeProof=verifyNativeScenarioEvidence\(\{/);
