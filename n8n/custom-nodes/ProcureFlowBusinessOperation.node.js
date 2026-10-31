@@ -118,6 +118,16 @@ function hasUnsafeNestedDispatchClaim(root){
   }
   return false;
 }
+// A provider may return more than one spelling of the selected case ID.
+// Every supplied alias must agree with the authoritative n8n node selection.
+// Checking only case_id allows a contradictory bid_no/tenderNo to be hidden
+// inside an otherwise VERIFIED inspection response.
+const CASE_ALIASES=Object.freeze([
+  'bid_no','case_id','bidNo','tender_no','caseId','tenderNo'
+]);
+function hasConflictingCaseAliases(value,bidNo){
+  return CASE_ALIASES.some(key=>Object.hasOwn(value,key)&&value[key]!==bidNo);
+}
 function validateProvenance(body,flowId,bidNo,operationId){
   // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
   // runtime. It must declare itself synthetic and can never become VERIFIED.
@@ -140,6 +150,16 @@ function validateProvenance(body,flowId,bidNo,operationId){
   const expected=byId.get(operationId);
   if(matches.length!==1||!expected)throw Error('Business Operation unique block contract mismatch');
   const block=matches[0];
+  // An upstream provider cannot claim a different selected tender, owning
+  // PF flow or operation through secondary fields while the primary envelope
+  // passes validation. Missing optional aliases remain backward-compatible.
+  if(hasConflictingCaseAliases(body,bidNo)||
+     hasConflictingCaseAliases(block,bidNo)||
+     (Object.hasOwn(block,'flow_id')&&block.flow_id!==flowId)||
+     (Object.hasOwn(block,'flowId')&&block.flowId!==flowId)||
+     (Object.hasOwn(block,'operation_id')&&block.operation_id!==operationId)||
+     (Object.hasOwn(block,'operationId')&&block.operationId!==operationId))
+    throw Error('Business Operation response identity aliases mismatch');
   // Reject forged dispatch claims throughout the ENTIRE inspection envelope:
   // not only blocks and output_value, but also top-level metadata, audit
   // records and arbitrary nested arrays. No provider-controlled subtree can
