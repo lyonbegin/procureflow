@@ -164,9 +164,12 @@ function syntheticNativeEvidence(id){
   delete policy.not_a_real_bid;
   policy.missing=[];
   const qa={...policy,qa_local_only:true};
-  // In this synthetic unit fixture, the final payload must include all
-  // fields emitted by the reviewed policy node.
-  payload.missing=[];
+  // Reconstruct the native final Code output in actual spread/insertion order.
+  // JSON.stringify-based equality must not fail on a synthetic fixture whose
+  // key order differs from n8n's real {...qa, marker1, marker2} output.
+  const nativeFinal={...qa,workflow_status:'SIMULATED_PASS',not_a_real_bid:true};
+  for(const key of Object.keys(payload))delete payload[key];
+  Object.assign(payload,nativeFinal);
   runData['검증 전 · 최종 안전상태 계산'][0].data.main[0][0].json=policy;
   runData['FastAPI 내부 QA · 결과·전체 입력 출력 검사'][0].data.main[0][0].json=qa;
   // Model native intermediate node outputs separately from the final payload.
