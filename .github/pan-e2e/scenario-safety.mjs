@@ -189,6 +189,27 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
   }
   assert(same(nativeOutput.get('전체 사건 기록 검증됨'),payload),
     'Native scenario final payload differs from saved n8n runData');
+  // Check the *whole native chain*, not just the final output and PF step
+  // trace. The local QA node must have consumed the actual policy output;
+  // the final Code node may only append its two simulation-only markers.
+  const initNodes=fixture.nodes.filter(n=>n.name.startsWith('00 · '));
+  assert(initNodes.length===1,'Native scenario initial state node missing');
+  const initial=nativeOutput.get(initNodes[0].name);
+  assert(same(initial,{
+    scenario_id:scenario.id,case_id:'DEMO_ONLY',
+    title:scenario.title,expected:scenario.expected,
+    state:baseState,trace:[],simulation_only:true,bid_submitted:false
+  }),'Native scenario initial state differs from reviewed fixture');
+  const policy=nativeOutput.get('검증 전 · 최종 안전상태 계산');
+  const qa=nativeOutput.get('FastAPI 내부 QA · 결과·전체 입력 출력 검사');
+  assert(policy&&qa&&Array.isArray(policy.missing)&&
+    policy.verdict===scenario.expected&&policy.passed===true&&
+    policy.simulation_only===true&&policy.bid_submitted===false,
+    'Native scenario policy node did not emit a safe reviewed verdict');
+  assert(same({...policy,qa_local_only:true},qa),
+    'Native scenario local QA output differs from policy node output');
+  assert(same({...qa,workflow_status:'SIMULATED_PASS',not_a_real_bid:true},payload),
+    'Native scenario final node did not preserve the local QA output');
   const state=structuredClone(baseState);
   for(let i=0;i<scenario.steps.length;i++){
     const step=scenario.steps[i];
