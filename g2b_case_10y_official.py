@@ -153,6 +153,11 @@ def scan_month(first, pages_max=30):
         "inqryBgnDt":row["first_day"].strftime("%Y%m%d")+"0000",
         "inqryEndDt":row["last_day"].strftime("%Y%m%d")+"2359",
         "prdctClsfcNo":CAT8,"numOfRows":500}
+    # A live official API can change while a month is being paginated.
+    # Never certify coverage if its totalCount drifts or a notice identity
+    # reappears on a later page within the same scan invocation.
+    expected_total=None
+    seen_notice_keys=set()
     for _ in range(pages_max):
         params["pageNo"]=page
         url=API+"?"+urlencode(params)
@@ -168,6 +173,17 @@ def scan_month(first, pages_max=30):
             reason="official_api_request_or_parse_failed:"+type(exc).__name__
             _write_month(row["first_day"],row["last_day"],"error",matched,inspected,page,reason)
             return {"status":"error","first_day":str(first),"reason":reason}
+        if expected_total is not None and total!=expected_total:
+            # Previous pages remain auditable as partial; the changed page
+            # is neither inserted nor counted toward a completed month.
+            _write_month(row["first_day"],row["last_day"],
+                         "blocked_unverified_response_scope",
+                         matched,inspected,page,
+                         "official_total_count_changed_between_pages")
+            return {"status":"blocked_unverified_response_scope",
+                    "first_day":str(first),"page":page,
+                    "reason":"official_total_count_changed_between_pages"}
+        expected_total=total
         verdict=_page_verdict(inspected,total,len(entries))
         if verdict in ("inconsistent","incomplete_page"):
             _write_month(row["first_day"],row["last_day"],"blocked_incomplete_api_page",
@@ -178,11 +194,8 @@ def scan_month(first, pages_max=30):
         unknown=0
         invalid=0
         confirmed=[]
-        # Duplicate official notice identities in one API page make the
-        # reported totalCount ambiguous: ON CONFLICT would silently collapse
-        # two counted rows into one historical notice. Never certify that
-        # page as complete or persist a partial set of its records.
-        seen_notice_keys=set()
+        # Duplicate identities on this page OR earlier pages in the same
+        # scan make totalCount ambiguous. Never write the duplicate page.
         for item in entries:
             cls=_category_from(item)
             if cls is None:
