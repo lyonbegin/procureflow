@@ -18,7 +18,7 @@ API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInf
 def _service_key():
     return os.getenv("G2B_API_KEY") or os.getenv("DATA_GO_KR_SERVICE_KEY") or ""
 
-def _parse(response):
+def _parse(response, *, expected_page=None, expected_rows=None):
     if not isinstance(response,dict):raise ValueError("g2b_api_not_json_object")
     envelope=response.get("response") or {}
     head=envelope.get("header") or {}
@@ -51,6 +51,24 @@ def _parse(response):
         raise ValueError("g2b_api_total_count_not_nonnegative_integer")
     if total<0:
         raise ValueError("g2b_api_negative_total_count")
+    # Some official endpoints echo the pagination request in the response.
+    # A stale proxy response for page 1 or a silently reduced page size
+    # must not certify the requested page as fully inspected. Missing echo
+    # fields remain supported for older official API variants.
+    for field,expected in (("pageNo",expected_page),("numOfRows",expected_rows)):
+        if field not in body:
+            continue
+        raw=body[field]
+        if type(raw) is int:
+            actual=raw
+        elif isinstance(raw,str) and re.fullmatch(r"[0-9]+",raw.strip()):
+            actual=int(raw.strip())
+        else:
+            raise ValueError("g2b_api_"+field+"_not_positive_integer")
+        if actual<1:
+            raise ValueError("g2b_api_"+field+"_not_positive_integer")
+        if expected is not None and actual!=expected:
+            raise ValueError("g2b_api_"+field+"_request_mismatch")
     return items,total
 
 
@@ -166,7 +184,7 @@ def scan_month(first, pages_max=30):
                               "User-Agent":"ProcureFlow-G2B-Category/1.0"})
             with urlopen(req,timeout=22) as rsp:
                 data=json.loads(rsp.read(15000000))
-            entries,total=_parse(data)
+            entries,total=_parse(data,expected_page=page,expected_rows=500)
         except Exception as exc:
             # urllib exceptions may include the serviceKey URL. Neither DB
             # audit nor REST output may persist an exception's raw message.
