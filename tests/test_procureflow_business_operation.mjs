@@ -814,3 +814,37 @@ test('top-level nested provenance metadata cannot forge bid or Worker dispatch',
     actualExternalHTTP:0,actualWorkerDispatch:0,actualBids:0
   }));
 });
+
+test('primitive-only provenance arrays are bounded before n8n accepts an inspection envelope',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockedGets=0;
+  const oversized=[
+    {metadata:{events:Array.from({length:10050},(_,i)=>i)}},
+    {audit:Object.fromEntries(Array.from({length:10050},(_,i)=>['event_'+i,i]))}
+  ];
+  for(const extra of oversized){
+    const response={...structuredClone(blocked),...extra};
+    // A single large primitive-only array/object contains very few nested
+    // objects, so an object-count-only scanner used to incorrectly accept it.
+    assert.throws(
+      ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
+      /nested dispatch claim blocked/
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return response;})),
+      /nested dispatch claim blocked/
+    );
+  }
+  const small={...structuredClone(blocked),audit:{events:[1,2,3,4]}};
+  assert.equal(validateProvenance(small,'PF01','R26BK01787028','N01').id,'N01');
+  const held=await instance.execute.call(ctx(getParam,async()=>{mockedGets++;return small;}));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1].length,1);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,3,'all responses are in-memory HTTP stubs');
+  console.log('PROCUREFLOW_PRIMITIVE_ONLY_EVIDENCE_FIELD_LIMIT_PASS',JSON.stringify({
+    oversizedEnvelopesRejected:oversized.length,smallEnvelopeHeld:true,
+    mockedGets,externalHTTP:0,workerDispatch:0,actualBids:0
+  }));
+});
