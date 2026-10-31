@@ -74,7 +74,7 @@ jobs:
           const needle = 'RUN pnpm install --frozen-lockfile --trust-lockfile \\';
           assert.equal(original.split(needle).length, 2, 'expected exactly one upstream pnpm install layer');
           const injection = [
-            'RUN --mount=type=secret,id=github_token',
+            'RUN --mount=type=secret,id=github_token \\',
             '    set -eu; \\',
             '    if [ -s /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \\',
             '    pnpm install --frozen-lockfile --trust-lockfile \\',
