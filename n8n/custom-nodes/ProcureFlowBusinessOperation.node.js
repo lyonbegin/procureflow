@@ -213,8 +213,14 @@ class ProcureFlowBusinessOperation {
       if(!block)throw Error('Unregistered Business Operation ID');
       // An absent bid_no is valid for manual triggers. An explicitly
       // present falsey or foreign identifier must fail closed.
-      if(bidNo!=='R26BK01787028'||
-         (Object.hasOwn(upstream,'bid_no')&&upstream.bid_no!==bidNo))
+      // Every recognized upstream case alias must agree with the selected
+      // official tender. A workflow can carry bid_no from one case while an
+      // earlier step carries a foreign case_id/bidNo/tender_no. Ignoring the
+      // second identifier would silently mix cases before the first GET.
+      // Missing aliases remain valid for manual-trigger inputs.
+      const caseKeys=['bid_no','case_id','bidNo','tender_no'];
+      if(bidNo!=='R26BK01787028'||caseKeys.some(key=>
+        Object.hasOwn(upstream,key)&&upstream[key]!==bidNo))
         throw Error('Unsupported tender: official single-case gate');
       return {operationId,bidNo,evidenceHandling,block};
     });
