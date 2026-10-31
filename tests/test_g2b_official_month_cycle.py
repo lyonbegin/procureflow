@@ -162,6 +162,20 @@ def test_corrupt_month_cursor_fails_closed_before_http(cursor_fields):
     assert not inserted
 
 
+def test_valid_resumed_full_page_cursor_can_finish_next_official_page():
+    # A correctly persisted first 500-row page may resume at page 2.
+    good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+            "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+            "asignBdgtAmt": "120000"}
+    with patch.dict(MONTH, {"status": "partial", "checked": 500,
+                            "matched": 200, "page_cursor": 2}):
+        result, statuses, inserted = run_month(response([good], 501))
+    assert result["status"] == "completed"
+    assert result["checked"] == 501 and result["matched"] == 201
+    assert len(inserted) == 1 and inserted[0][7] == 120000
+    assert statuses[0][2] == "completed"
+
+
 def test_verified_month_stores_only_parent8_candidate_not_award():
     good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
