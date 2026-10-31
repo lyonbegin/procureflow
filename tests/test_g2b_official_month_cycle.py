@@ -326,11 +326,9 @@ def test_corrupt_month_cursor_fails_closed_before_http(cursor_fields):
         result, statuses, inserted = run_month(response([], 0))
     assert result["status"] == "blocked_invalid_page_cursor"
     assert result["read_only"] is True
-    if cursor_fields == {"checked": -1}:
-        # Malformed persisted values are not written back into audit rows.
-        assert statuses == []
-    else:
-        assert statuses[0][2] == "blocked_invalid_page_cursor"
+    # All malformed cursor values, including integer-but-inconsistent ones,
+    # are read-only failures. Preserve the DB row for independent inspection.
+    assert statuses == []
     assert not inserted
 
 
@@ -636,3 +634,48 @@ def test_partial_month_cursor_does_not_hide_missing_pages(checked,matched,page,e
     assert result["discovery_months_completed"]==120
     assert result["eight_digit_notice_discovery_complete"] is False
     assert result["next_month"]["first_day"]==rows[1]["first_day"].isoformat()
+
+
+@pytest.mark.parametrize("cursor_fields", [
+    {"page_cursor": 2}, {"checked": 501, "page_cursor": 2},
+    {"checked": 500, "matched": 501, "page_cursor": 2},
+])
+@pytest.mark.parametrize("key_value", [None, "SENSITIVE_API_KEY"])
+def test_inconsistent_partial_cursor_blocks_before_credentials_or_any_write(
+        cursor_fields, key_value):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": "partial", **cursor_fields}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        key.return_value = key_value
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["reason"] == "partial_cursor_mismatch"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
+
+
+@pytest.mark.parametrize("pages_max", [
+    True, False, 0, -1, 1.5, 1.0, "1", None, [], {},
+])
+def test_invalid_page_limit_blocks_before_credentials_http_or_db(pages_max):
+    db = FakeMonthDB()
+    with patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=pages_max)
+    assert result["status"] == "blocked_invalid_page_limit"
+    assert result["reason"] == "pages_max_must_be_positive_integer"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
