@@ -142,6 +142,27 @@ def test_official_null_or_empty_items_remain_valid_zero_result_response(empty_it
     assert items == [] and total == 0
 
 
+def test_official_zero_result_month_persists_page_one_and_passes_read_only_audit():
+    # A legitimate zero-result API response is completed with checked=0.
+    # The saved cursor must remain page 1, matching the read-only 121-month
+    # coverage audit. A page-2 cursor here falsely invalidates a real month.
+    result, statuses, inserted = run_month(response([], 0))
+    assert result["status"] == "completed"
+    assert result["checked"] == 0 and result["matched"] == 0
+    assert not inserted
+    assert len(statuses) == 1
+    assert statuses[0][2:6] == ("completed", 0, 0, 1)
+    rows = _all_registered_months()
+    rows[0].update(status=statuses[0][2], matched=statuses[0][3],
+                   checked=statuses[0][4], page_cursor=statuses[0][5])
+    audit = summarize_month_cursor(rows)
+    assert audit["invalid_cursor_rows"] == 0
+    assert audit["discovery_months_completed"] == 121
+    assert audit["eight_digit_notice_discovery_complete"] is True
+    assert audit["ten_year_exact_opening_and_award_complete"] is False
+    assert not audit["bid_submitted"]
+
+
 def test_empty_page_cannot_finish_month_if_server_says_there_are_results():
     result, statuses, inserted = run_month(response([], 1200))
     assert result["status"] == "blocked_incomplete_api_page"
