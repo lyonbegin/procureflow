@@ -170,7 +170,8 @@ function syntheticNativeEvidence(id){
   }
   runData['전체 사건 기록 검증됨'][0].data.main[0][0].json=structuredClone(payload);
   return {payload,scenario,baseState:plan.base_state,
-    execution:{status:'success',id:'native-test-1'},expectedExecutionId:'native-test-1',
+    execution:{status:'success',id:'native-test-1',workflowId:'isolated-workflow-1'},
+    expectedExecutionId:'native-test-1',expectedWorkflowId:'isolated-workflow-1',
     runData,fixture:fixtureSafe};
 }
 for(let i=1;i<=10;i++){
@@ -206,6 +207,8 @@ const nativeEvidenceAttacks=[
   ['not marked simulated',v=>{v.payload.simulation_only=false;}],
   ['missing no-real-bid marker',v=>{v.payload.not_a_real_bid=false;}],
   ['native execution ID mismatch',v=>{v.execution.id='another-run';}],
+  ['native workflow ID mismatch',v=>{v.execution.workflowId='other-workflow';}],
+  ['native workflow ID missing',v=>{delete v.execution.workflowId;}],
   ['native execution ID absent',v=>{delete v.execution.id;}],
   ['native node key without execution',v=>{v.runData[v.fixture.nodes[0].name]=[];}],
   ['native node failed execution',v=>{v.runData[v.fixture.nodes[0].name][0].error={message:'failed'};}],
@@ -229,6 +232,7 @@ test('actual Chrome driver must call native evidence verifier before PASS',()=>{
   assert(source.indexOf('verifyNativeScenarioEvidence({')<
     source.indexOf("report.push(row);"));
   assert.match(source,/nativeTraceVerified:true/);
+  assert.match(source,/expectedWorkflowId:saved\.id/);
 });
 
 // The other two official Chrome drivers create owners and workflows. Their
