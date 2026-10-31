@@ -237,7 +237,13 @@ def scan_month(first, pages_max=30):
                      source_url=excluded.source_url,evidence=excluded.evidence,
                      collected_at=now()
                 """,bid)
-        inspected+=len(entries);matched+=len(confirmed);page+=1
+        inspected+=len(entries);matched+=len(confirmed)
+        # A genuine zero-result month completes on page 1. Advancing its
+        # cursor to 2 would contradict summarize_month_cursor()'s persisted
+        # zero-count invariant and falsely mark the month corrupt on reload.
+        # Nonempty pages advance to the next page, including a final short page.
+        if entries:
+            page+=1
         complete=verdict=="completed"
         _write_month(row["first_day"],row["last_day"],
                      "completed" if complete else "partial",
