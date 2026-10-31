@@ -225,6 +225,36 @@ def test_consistent_parent_and_detail_classification_can_finish_parent8_discover
     assert len(inserted) == 1
 
 
+
+@pytest.mark.parametrize("second_override", [
+    {},  # exact duplicate, same identity and data
+    {"asignBdgtAmt": "200"},  # same identity, contradictory amount
+    {"bidNtceDt": "2024-03-08"},  # same identity, contradictory official date
+])
+def test_duplicate_official_notice_identity_blocks_page_before_any_insert(second_override):
+    first = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+             "asignBdgtAmt": "100"}
+    second = {**first, **second_override}
+    result, statuses, inserted = run_month(response([first, second], 2))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+    assert result.get("total_records") is None
+
+
+def test_distinct_official_notice_rounds_do_not_trigger_duplicate_guard():
+    first = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    second = {**first, "bidNtceOrd": "001"}
+    result, statuses, inserted = run_month(response([first, second], 2))
+    assert result["status"] == "completed"
+    assert result["checked"] == 2 and result["matched"] == 2
+    assert statuses[0][2] == "completed"
+    assert len(inserted) == 2
+    assert {row[2] for row in inserted} == {"000", "001"}
+
 def test_other_consistent_parent8_is_skipped_without_fabricating_a_match():
     candidate = {"prdctClsfcNo": "99999999", "dtilPrdctClsfcNo": "9999999901"}
     result, statuses, inserted = run_month(response([candidate], 1))
