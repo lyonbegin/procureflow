@@ -100,7 +100,7 @@ test('mixed upstream tender aliases fail closed before any read-only GET',async(
   let requests=0;
   const http=async()=>{requests++;return blocked;};
   const run=json=>instance.execute.call(ctx(getParam,http,json));
-  for(const alias of ['case_id','bidNo','tender_no']){
+  for(const alias of ['case_id','bidNo','tender_no','caseId','tenderNo']){
     for(const value of ['OTHER_TENDER','',null,0,false]){
       await assert.rejects(
         ()=>run({bid_no:bid,[alias]:value}),
@@ -111,7 +111,7 @@ test('mixed upstream tender aliases fail closed before any read-only GET',async(
     }
   }
   // A later invalid item must also block the valid first item before HTTP.
-  for(const alias of ['case_id','bidNo','tender_no']){
+  for(const alias of ['case_id','bidNo','tender_no','caseId','tenderNo']){
     await assert.rejects(()=>instance.execute.call({
       getInputData:()=>[{json:{bid_no:bid}},{json:{bid_no:bid,[alias]:'OTHER_TENDER'}}],
       getNodeParameter:getParam,
@@ -119,13 +119,51 @@ test('mixed upstream tender aliases fail closed before any read-only GET',async(
     }),/Unsupported tender/);
     assert.equal(requests,0,'batch preflight must reject before first GET');
   }
-  const valid=await run({bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid});
+  const valid=await run({bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid,caseId:bid,tenderNo:bid});
   assert.equal(valid[0].length,0);
   assert.equal(valid[1][0].json.inspection_status,'HOLD');
   assert.equal(requests,1,'consistent aliases still permit isolated read-only inspection');
   console.log('PROCUREFLOW_UPSTREAM_CASE_ALIAS_PREFLIGHT_PASS',JSON.stringify({
-    rejectedAliasConflicts:18,isolatedMockGET:requests,externalHTTP:0,
+    rejectedAliasConflicts:30,isolatedMockGET:requests,externalHTTP:0,
     workerDispatch:0,actualBids:0
+  }));
+});
+
+test('camelCase dispatch claims in unrelated provenance metadata fail closed',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const fields=[
+    'bidSubmitted','workerJobEnqueued','jobEnqueued',
+    'automatedBidSubmission','automaticBidSubmission','actualJobExecuted'
+  ];
+  let mockedGets=0;
+  for(const field of fields){
+    for(const value of [true,'true',1,null]){
+      const forged={...structuredClone(blocked),metadata:{audit:[{[field]:value}]}};
+      assert.throws(
+        ()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+        /nested dispatch claim blocked/,
+        field+'='+String(value)
+      );
+      await assert.rejects(
+        ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return forged;})),
+        /nested dispatch claim blocked/,
+        field+'='+String(value)
+      );
+    }
+  }
+  const safe={...structuredClone(blocked),metadata:{audit:[{
+    bidSubmitted:false,workerJobEnqueued:false,jobEnqueued:false,
+    automatedBidSubmission:false,automaticBidSubmission:false,actualJobExecuted:false
+  }]}};
+  const result=await instance.execute.call(ctx(getParam,async()=>{mockedGets++;return safe;}));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1].length,1);
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,25);
+  console.log('PROCUREFLOW_CAMELCASE_DISPATCH_CLAIMS_BLOCKED',JSON.stringify({
+    rejectedNestedClaims:24,mockedReadOnlyGET:mockedGets,
+    externalHTTP:0,workerDispatch:0,actualBids:0
   }));
 });
 
