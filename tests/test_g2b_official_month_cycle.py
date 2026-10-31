@@ -168,6 +168,51 @@ def test_invalid_identifier_does_not_disappear_from_completion_check():
     assert not inserted
 
 
+
+@pytest.mark.parametrize("extra_fields", [
+    {"dtilPrdctClsfcNo": "9999999901"},  # matching parent first, conflicting detail later
+    {"prdlstClsfcNo": "99999999"},       # contradictory second parent8
+    {"dtilPrdctClsfcNo": "8111159901",
+     "dtilPrdlstClsfcNo": "8111159902"}, # two incompatible exact 10-digit details
+    {"dtilPrdctClsfcNo": "malformed"},   # malformed secondary official field
+    {"prdctClsfcCd": False},            # falsey scalar must not be ignored
+    {"prdctClsfcCd": 81111599.0},       # floats are not official category codes
+])
+def test_conflicting_official_category_fields_block_month_before_insert(extra_fields):
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+                 **extra_fields}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["undetermined_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("extra_fields", [
+    {"dtilPrdctClsfcNo": "8111159901"},
+    {"prdlstClsfcNo": "81111599", "dtilPrdlstClsfcNo": "8111159901"},
+])
+def test_consistent_parent_and_detail_classification_can_finish_parent8_discovery(extra_fields):
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+                 **extra_fields}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "completed"
+    assert result["checked"] == 1 and result["matched"] == 1
+    assert statuses[0][2] == "completed"
+    assert len(inserted) == 1
+
+
+def test_other_consistent_parent8_is_skipped_without_fabricating_a_match():
+    candidate = {"prdctClsfcNo": "99999999", "dtilPrdctClsfcNo": "9999999901"}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "completed"
+    assert result["checked"] == 1 and result["matched"] == 0
+    assert statuses[0][2] == "completed"
+    assert not inserted
+
+
 def test_malformed_official_item_fails_before_month_completion():
     # API can return a non-object item even when totalCount looks complete.
     result, statuses, inserted = run_month(response(["unexpected string"], 1))
