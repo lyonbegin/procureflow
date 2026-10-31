@@ -29,6 +29,8 @@ def _parse(response):
     if isinstance(items,dict):items=items.get("item") or []
     if isinstance(items,dict):items=[items]
     if not isinstance(items,list):raise ValueError("g2b_api_items_not_list")
+    if any(not isinstance(item,dict) for item in items):
+        raise ValueError("g2b_api_items_not_objects")
     if "totalCount" not in body:
         raise ValueError("g2b_api_total_count_missing")
     total=int(body["totalCount"])
@@ -91,6 +93,18 @@ def scan_month(first, pages_max=30):
     inspected=int(row["checked"])
     matched=int(row["matched"])
     page=int(row["page_cursor"])
+    # A partial month advances only after a FULL 500-row page has been
+    # persisted. A mismatched page_cursor/checked pair can silently skip
+    # official pages and falsely certify a ten-year discovery window.
+    # Fail closed before issuing any API request; never guess a new cursor.
+    if (inspected<0 or matched<0 or matched>inspected or
+            inspected%500!=0 or page!=inspected//500+1):
+        _write_month(row["first_day"],row["last_day"],
+                     "blocked_invalid_page_cursor",matched,inspected,page,
+                     "checked_page_cursor_or_matched_inconsistent")
+        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                "checked":inspected,"matched":matched,"next_page":page,
+                "read_only":True}
     pages_max=max(1,min(30,int(pages_max)))
     params={"serviceKey":key,"type":"json","inqryDiv":"1",
         "inqryBgnDt":row["first_day"].strftime("%Y%m%d")+"0000",
@@ -147,10 +161,22 @@ def scan_month(first, pages_max=30):
             if not row["first_day"]<=day<=row["last_day"]:
                 invalid+=1
                 continue
+            # A malformed official amount must be treated as an unverified
+            # page, not raise outside the HTTP/parse exception handler and
+            # leave a misleading cursor state. Never silently coerce a
+            # negative amount into a valid historical notice.
+            try:
+                amount=int(item.get("asignBdgtAmt") or 0)
+            except (ValueError,TypeError,OverflowError):
+                invalid+=1
+                continue
+            if amount<0:
+                invalid+=1
+                continue
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 str(item.get("bidNtceNm") or "")[:350],
                 str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
-                int(item.get("asignBdgtAmt") or 0) or None,
+                amount or None,
                 "https://www.g2b.go.kr/","official_openapi_explicit_code"))
         if unknown or invalid:
             reason=("undetermined_category_rows="+str(unknown)+
