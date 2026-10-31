@@ -37,9 +37,14 @@ export function assertIsolatedN8nUrl(input){
   let parsed;
   try{parsed=new URL(input)}catch{throw Error('Isolated n8n URL must be a valid loopback HTTP origin');}
   assert(parsed.protocol==='http:','Isolated n8n URL must use local HTTP');
-  assert(['localhost','127.0.0.1','[::1]'].includes(parsed.hostname),
-    'Isolated n8n URL must target loopback only');
-  assert(Boolean(parsed.port),'Isolated n8n URL requires an explicit test port');
+  // localhost can be remapped in /etc/hosts or DNS. All three Chrome
+  // drivers CREATE n8n owners and workflows, so use numeric loopback only.
+  assert(['127.0.0.1','[::1]'].includes(parsed.hostname),
+    'Isolated n8n URL must target numeric loopback only');
+  // These are the two fixed disposable Docker test listeners. A random
+  // loopback port may point at an unrelated local service or owner database.
+  assert(['5678','5681'].includes(parsed.port),
+    'Isolated n8n URL must use an approved disposable test port');
   assert(parsed.pathname==='/'&&!parsed.search&&!parsed.hash&&!parsed.username&&!parsed.password,
     'Isolated n8n URL must be an origin without path, credentials or query');
   return parsed.origin;
