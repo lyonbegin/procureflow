@@ -93,6 +93,42 @@ test('explicit falsey or malformed upstream tender identifiers are blocked befor
   assert.equal(requests,2);
 });
 
+test('mixed upstream tender aliases fail closed before any read-only GET',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const bid='R26BK01787028';
+  let requests=0;
+  const http=async()=>{requests++;return blocked;};
+  const run=json=>instance.execute.call(ctx(getParam,http,json));
+  for(const alias of ['case_id','bidNo','tender_no']){
+    for(const value of ['OTHER_TENDER','',null,0,false]){
+      await assert.rejects(
+        ()=>run({bid_no:bid,[alias]:value}),
+        /Unsupported tender: official single-case gate/,
+        'conflicting '+alias+'='+String(value)+' must reject before HTTP'
+      );
+      assert.equal(requests,0,'no GET for a conflicting upstream alias');
+    }
+  }
+  // A later invalid item must also block the valid first item before HTTP.
+  for(const alias of ['case_id','bidNo','tender_no']){
+    await assert.rejects(()=>instance.execute.call({
+      getInputData:()=>[{json:{bid_no:bid}},{json:{bid_no:bid,[alias]:'OTHER_TENDER'}}],
+      getNodeParameter:getParam,
+      helpers:{httpRequest:http}
+    }),/Unsupported tender/);
+    assert.equal(requests,0,'batch preflight must reject before first GET');
+  }
+  const valid=await run({bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid});
+  assert.equal(valid[0].length,0);
+  assert.equal(valid[1][0].json.inspection_status,'HOLD');
+  assert.equal(requests,1,'consistent aliases still permit isolated read-only inspection');
+  console.log('PROCUREFLOW_UPSTREAM_CASE_ALIAS_PREFLIGHT_PASS',JSON.stringify({
+    rejectedAliasConflicts:18,isolatedMockGET:requests,externalHTTP:0,
+    workerDispatch:0,actualBids:0
+  }));
+});
+
 test('multi-item batch preflight rejects later invalid inputs before ANY HTTP request',async()=>{
   configure();
   const instance=new ProcureFlowBusinessOperation();
