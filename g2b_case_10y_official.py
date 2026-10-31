@@ -33,7 +33,16 @@ def _parse(response):
         raise ValueError("g2b_api_items_not_objects")
     if "totalCount" not in body:
         raise ValueError("g2b_api_total_count_missing")
-    total=int(body["totalCount"])
+    # The official page total is a *count*, not a monetary amount or a
+    # floating-point estimate. int(1.5) and int(True) silently fabricate
+    # coverage and can turn a truncated page into a false completed month.
+    raw_total=body["totalCount"]
+    if type(raw_total) is int:
+        total=raw_total
+    elif isinstance(raw_total,str) and re.fullmatch(r"[0-9]+",raw_total.strip()):
+        total=int(raw_total.strip())
+    else:
+        raise ValueError("g2b_api_total_count_not_nonnegative_integer")
     if total<0:
         raise ValueError("g2b_api_negative_total_count")
     return items,total
