@@ -80,7 +80,11 @@ function safeApiBase(){
 // Do not silently whitelist away a forged worker/bid action in provenance.
 const DISPATCH_CLAIM_KEYS=Object.freeze([
   'bid_submitted','worker_job_enqueued','job_enqueued',
-  'automated_bid_submission','automatic_bid_submission','actual_job_executed'
+  'automated_bid_submission','automatic_bid_submission','actual_job_executed',
+  // Provider/JS adapters may serialize the same unsafe claims in camelCase.
+  // A different spelling must never bypass the read-only evidence boundary.
+  'bidSubmitted','workerJobEnqueued','jobEnqueued',
+  'automatedBidSubmission','automaticBidSubmission','actualJobExecuted'
 ]);
 function hasUnsafeDispatchClaim(value){
   return value!==null&&typeof value==='object'&&!Array.isArray(value)&&
@@ -218,7 +222,7 @@ class ProcureFlowBusinessOperation {
       // earlier step carries a foreign case_id/bidNo/tender_no. Ignoring the
       // second identifier would silently mix cases before the first GET.
       // Missing aliases remain valid for manual-trigger inputs.
-      const caseKeys=['bid_no','case_id','bidNo','tender_no'];
+      const caseKeys=['bid_no','case_id','bidNo','tender_no','caseId','tenderNo'];
       if(bidNo!=='R26BK01787028'||caseKeys.some(key=>
         Object.hasOwn(upstream,key)&&upstream[key]!==bidNo))
         throw Error('Unsupported tender: official single-case gate');
