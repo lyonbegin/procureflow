@@ -255,6 +255,64 @@ def test_malformed_or_negative_official_amount_blocks_month(amount):
     assert not inserted
 
 
+
+@pytest.mark.parametrize("invalid_round", [
+    False, True, 0.0, 1.5, [], {}, -1, "1.0", "1000", "not-a-round",
+])
+def test_official_notice_round_cannot_be_fabricated_by_falsey_coercion(invalid_round):
+    # Previously False became "000" through "value or '000'". A corrupted
+    # official notice round must never certify a completed discovery month.
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": invalid_round, "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("valid_round", [None, "", "0", "000", 0, 1, "001"])
+def test_official_notice_round_accepts_documented_missing_or_integer_forms(valid_round):
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": valid_round, "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][2] == ("001" if valid_round in (1, "001") else "000")
+
+
+@pytest.mark.parametrize("invalid_date", [
+    "2024-03-07TRAILING", "20240307junk", "202403071230evil",
+    "2024-03/07", "2024-03-07 25:61", "2024-03-07T12:60:00",
+    "2024-03-07T12:30:60", "2024-03-07T12:30Z", "2024030712",
+    "2024-02-30", True, False, 20240307, [], {},
+])
+def test_official_notice_date_requires_full_valid_timestamp(invalid_date):
+    # Prefix-only re.match previously accepted junk after YYYY-MM-DD and
+    # impossible clock values, leading to a false completed month.
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": "000", "bidNtceDt": invalid_date}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("valid_date", [
+    "2024-03-07", "20240307", "202403071230", "20240307123059",
+    "2024-03-07 12:30", "2024-03-07T12:30:59",
+    "2024.03.07", "2024/03/07",
+])
+def test_official_notice_date_accepts_bounded_supported_formats(valid_date):
+    candidate = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                 "bidNtceOrd": "000", "bidNtceDt": valid_date}
+    result, statuses, inserted = run_month(response([candidate], 1))
+    assert result["status"] == "completed"
+    assert result["checked"] == 1 and result["matched"] == 1
+    assert statuses[0][2] == "completed"
+    assert len(inserted) == 1
+
 @pytest.mark.parametrize("cursor_fields", [
     {"page_cursor": 2},  # first page skipped
     {"checked": 501, "page_cursor": 2},  # incomplete prior page
