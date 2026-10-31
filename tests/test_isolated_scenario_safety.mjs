@@ -151,6 +151,24 @@ function syntheticNativeEvidence(id){
     bid_submitted:false,not_a_real_bid:true,state,trace
   };
   const runData=Object.fromEntries(fixtureSafe.nodes.map(n=>[n.name,[{data:{main:[[{json:{}}]]}}]]));
+  // The real native Code chain starts with the reviewed base state, then
+  // produces a policy verdict, a local QA envelope, and a final marker.
+  runData['00 · 가상 발주·테스트 상태'][0].data.main[0][0].json={
+    scenario_id:id,case_id:'DEMO_ONLY',title:scenario.title,
+    expected:scenario.expected,state:structuredClone(plan.base_state),
+    trace:[],simulation_only:true,bid_submitted:false
+  };
+  const policy=structuredClone(payload);
+  delete policy.qa_local_only;
+  delete policy.workflow_status;
+  delete policy.not_a_real_bid;
+  policy.missing=[];
+  const qa={...policy,qa_local_only:true};
+  // In this synthetic unit fixture, the final payload must include all
+  // fields emitted by the reviewed policy node.
+  payload.missing=[];
+  runData['검증 전 · 최종 안전상태 계산'][0].data.main[0][0].json=policy;
+  runData['FastAPI 내부 QA · 결과·전체 입력 출력 검사'][0].data.main[0][0].json=qa;
   // Model native intermediate node outputs separately from the final payload.
   // A verifier which only checks runData keys must reject missing/forged stages.
   const replayState=structuredClone(plan.base_state);
@@ -186,6 +204,30 @@ for(let i=1;i<=10;i++){
   });
 }
 const nativeEvidenceAttacks=[
+  ['initial state silently changed',v=>{
+    v.runData['00 · 가상 발주·테스트 상태'][0].data.main[0][0].json.state.qualified=true;
+  }],
+  ['initial case title forged',v=>{
+    v.runData['00 · 가상 발주·테스트 상태'][0].data.main[0][0].json.title='Forged case';
+  }],
+  ['policy output verdict forged',v=>{
+    v.runData['검증 전 · 최종 안전상태 계산'][0].data.main[0][0].json.verdict='FORGED';
+  }],
+  ['policy output missing not array',v=>{
+    v.runData['검증 전 · 최종 안전상태 계산'][0].data.main[0][0].json.missing='forged';
+  }],
+  ['QA output mismatched state',v=>{
+    v.runData['FastAPI 내부 QA · 결과·전체 입력 출력 검사'][0].data.main[0][0].json.state={qualified:true};
+  }],
+  ['QA output missing local marker',v=>{
+    delete v.runData['FastAPI 내부 QA · 결과·전체 입력 출력 검사'][0].data.main[0][0].json.qa_local_only;
+  }],
+  ['QA output forges final workflow status',v=>{
+    v.runData['FastAPI 내부 QA · 결과·전체 입력 출력 검사'][0].data.main[0][0].json.workflow_status='SIMULATED_PASS';
+  }],
+  ['policy output smuggles unexpected QA marker',v=>{
+    v.runData['검증 전 · 최종 안전상태 계산'][0].data.main[0][0].json.qa_local_only=true;
+  }],
   ['nested Worker claim in trigger output',v=>{
     const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
     v.runData[trigger][0].data.main[0][0].json.audit={nested:[{worker_job_enqueued:true}]};
