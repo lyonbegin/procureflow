@@ -1032,3 +1032,59 @@ test('oversized primitive-only upstream metadata fails closed before any HTTP re
     workerDispatch:0,actualBids:0
   }));
 });
+
+test('conflicting response tender/flow/operation aliases cannot pass read-only evidence inspection',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const bid='R26BK01787028';
+  const variants=[
+    ...['bid_no','bidNo','tender_no','caseId','tenderNo'].map(key=>({
+      label:'envelope '+key,
+      forge:body=>{body[key]='FOREIGN_TENDER';}
+    })),
+    ...['bid_no','case_id','bidNo','tender_no','caseId','tenderNo'].map(key=>({
+      label:'selected block '+key,
+      forge:body=>{body.blocks[0][key]='FOREIGN_TENDER';}
+    })),
+    ...['flow_id','flowId'].map(key=>({
+      label:'selected block '+key,
+      forge:body=>{body.blocks[0][key]='PF02';}
+    })),
+    ...['operation_id','operationId'].map(key=>({
+      label:'selected block '+key,
+      forge:body=>{body.blocks[0][key]='N02';}
+    }))
+  ];
+  let mockGETs=0;
+  for(const {label,forge} of variants){
+    const response=structuredClone(blocked);
+    forge(response);
+    assert.throws(
+      ()=>validateProvenance(response,'PF01',bid,'N01'),
+      /response identity aliases mismatch/,
+      label+' must reject before any success/HOLD result'
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockGETs++;return response;})),
+      /response identity aliases mismatch/,
+      label+' cannot be accepted by native n8n execution'
+    );
+  }
+  assert.equal(mockGETs,variants.length,'in-memory fixture only');
+  const consistent=structuredClone(blocked);
+  Object.assign(consistent,{bid_no:bid,bidNo:bid,tender_no:bid,caseId:bid,tenderNo:bid});
+  Object.assign(consistent.blocks[0],{
+    bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid,caseId:bid,tenderNo:bid,
+    flow_id:'PF01',flowId:'PF01',operation_id:'N01',operationId:'N01'
+  });
+  assert.equal(validateProvenance(consistent,'PF01',bid,'N01').id,'N01');
+  const held=await instance.execute.call(ctx(getParam,async()=>{mockGETs++;return consistent;}));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1].length,1);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockGETs,variants.length+1);
+  console.log('PROCUREFLOW_RESPONSE_IDENTITY_ALIAS_FAIL_CLOSED_PASS',JSON.stringify({
+    rejectedContradictoryAliases:variants.length,consistentResponseHeld:true,
+    isolatedMockGETs:mockGETs,realG2BRequests:0,workerDispatch:0,actualBids:0
+  }));
+});
