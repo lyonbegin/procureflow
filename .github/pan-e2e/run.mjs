@@ -42,7 +42,7 @@ async function poll(label, fn, timeout=16000) {
   const start=Date.now();
   let lastError;
   while(Date.now()-start<timeout) {
-    try {const v=await fn();if(v) return v;}catch(e){lastError=e;}
+    try {const v=await fn();if(v) return v;}catch(e){if(e?.terminalExecution) throw e;lastError=e;}
     await sleep(500);
   }
   throw Error(label + ' timed out' + (lastError ? ': ' + lastError.message : ''));
@@ -341,9 +341,25 @@ try {
     const d=(await api('GET','/rest/executions/'+executionId)).data;
     const payload=typeof d?.data==='string' ? parseFlatted(d.data) : d?.data;
     const data=payload?.resultData?.runData??d?.resultData?.runData;
-    const code=data?.Code?.[0];
+    // n8n can persist Code node output before the execution transitions
+    // from "running" to "success". A payload alone is NOT proof of success.
+    // Terminal failure must stop the Chrome test immediately, not time out.
+    if(['error','canceled','crashed'].includes(d?.status)) {
+      const error=Error('Native execution ended with '+d.status+' (id '+executionId+')');
+      error.terminalExecution=true;
+      throw error;
+    }
+    if(d?.status!=='success'||!data?.['Manual Trigger']?.length) return null;
+    const code=data.Code?.[0];
     const result=code?.data?.main?.[0]?.[0]?.json;
-    return result?.pan_test===true&&result?.answer===43 ? {id:executionId,status:d.status,codeOutput:result,nodeNames:Object.keys(data)}:null;
+    if(code?.error) {
+      const error=Error('Native Code node failed after reported success (id '+executionId+')');
+      error.terminalExecution=true;
+      throw error;
+    }
+    return result?.pan_test===true&&result?.answer===43
+      ? {id:executionId,status:d.status,codeOutput:result,nodeNames:Object.keys(data)}
+      : null;
   },60000);
   await rec('real-n8n-editor-execution-and-node-output','PASS',execution);
   await page.screenshot({path:path.join(OUT,'07-executed.png'),fullPage:true});
