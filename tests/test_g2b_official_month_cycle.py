@@ -244,6 +244,75 @@ def test_duplicate_official_notice_identity_blocks_page_before_any_insert(second
     assert result.get("total_records") is None
 
 
+
+def run_two_official_pages(second_item, second_total=501):
+    """Two official pages, entirely in FakeHTTP/FakeDB, no real G2B/DB."""
+    first_page = [
+        {"prdctClsfcNo": "81111599",
+         "bidNtceNo": f"R24BK{i:08d}",
+         "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+        for i in range(500)
+    ]
+    db = FakeMonthDB()
+    statuses = []
+    payloads = [FakeHTTP(response(first_page, 501)),
+                FakeHTTP(response([second_item], second_total))]
+    with patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key", return_value="SENSITIVE_API_KEY"), \
+         patch("g2b_case_10y_official.urlopen", side_effect=payloads) as http, \
+         patch("g2b_case_10y_official._write_month",
+               side_effect=lambda *a: statuses.append(a)):
+        result = scan_month("2024-03-01", pages_max=2)
+    assert http.call_count == 2
+    return result, statuses, db.inserted
+
+
+@pytest.mark.parametrize("changed_total", [500, 502, 1000])
+def test_official_total_count_drift_across_pages_never_completes_month(changed_total):
+    # A growing/shrinking live result set cannot be certified by mixing
+    # page 1 of snapshot A with page 2 of snapshot B.
+    last = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK00000500",
+            "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_two_official_pages(last, changed_total)
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["reason"] == "official_total_count_changed_between_pages"
+    assert result["page"] == 2
+    assert len(inserted) == 500  # only first verified page was stored
+    assert [row[2] for row in statuses] == [
+        "partial", "blocked_unverified_response_scope"]
+    assert statuses[-1][3:6] == (500, 500, 2)
+    assert result.get("total_records") is None
+
+
+@pytest.mark.parametrize("second_override", [
+    {}, {"asignBdgtAmt": "9999"}, {"bidNtceDt": "2024-03-08"},
+])
+def test_duplicate_notice_on_later_page_is_blocked_before_second_page_insert(second_override):
+    first = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK00000000",
+             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_two_official_pages(
+        {**first, **second_override})
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert result["page"] == 2
+    assert len(inserted) == 500  # no ON CONFLICT rewrite of first page
+    assert [row[2] for row in statuses] == [
+        "partial", "blocked_unverified_response_scope"]
+    assert result.get("total_records") is None
+
+
+def test_distinct_notice_on_second_page_completes_stable_501_result_month():
+    last = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK00000500",
+            "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_two_official_pages(last)
+    assert result["status"] == "completed"
+    assert result["checked"] == 501 and result["matched"] == 501
+    assert len(inserted) == 501
+    assert len({(r[1], r[2]) for r in inserted}) == 501
+    assert [row[2] for row in statuses] == ["partial", "completed"]
+
+
 def test_distinct_official_notice_rounds_do_not_trigger_duplicate_guard():
     first = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
              "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
