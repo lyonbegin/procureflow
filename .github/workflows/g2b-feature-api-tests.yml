@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - "g2b_feature_api.py"
+      - "g2b_full_runner.py"
+      - "g2b_case_10y_official.py"
+      - "tests/test_g2b_official_month_cycle.py"
       - "g2b_node_lab.py"
       - "g2b_feature_data.py"
       - "g2b_documents.py"
@@ -31,6 +34,6 @@ jobs:
       - name: Install original business dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
       - name: Compile without deleted DAG modules
-        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py n8n_scenarios.py n8n_landing.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py
+        run: python -m py_compile main.py worker.py g2b_feature_api.py g2b_feature_data.py g2b_node_lab.py n8n_scenarios.py n8n_landing.py g2b_documents.py g2b_feature_registry.py g2b_case_engine.py g2b_full_runner.py g2b_case_10y_official.py
       - name: Verify 104 contracts, upload isolation and n8n QA
-        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py tests/test_n8n_scenarios.py tests/test_n8n_only_migration.py
+        run: python -m pytest -q tests/test_g2b_feature_api.py tests/test_g2b_node_lab.py tests/test_n8n_scenarios.py tests/test_n8n_only_migration.py tests/test_g2b_official_month_cycle.py

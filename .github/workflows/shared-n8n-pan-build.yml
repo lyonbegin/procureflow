@@ -1,0 +1,87 @@
+name: Shared n8n Pan patch source build (isolated)
+on:
+  pull_request:
+    paths:
+      - 'n8n/source-build/Dockerfile.shared-pan-test'
+      - '.github/pan-e2e/**'
+      - '.github/workflows/shared-n8n-pan-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-n8n-pan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated upstream n8n with pinned Pan patch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
+            -f n8n/source-build/Dockerfile.shared-pan-test \
+            -t procureflow-n8n-pan-test:${{ github.sha }} . \
+            2>&1 | tee shared-pan-build.log
+          grep -F 'PAN_PATCH_PATCHED:' shared-pan-build.log
+      - name: Inspect image version (no operating credentials)
+        run: |
+          docker run --rm --entrypoint n8n procureflow-n8n-pan-test:${{ github.sha }} --version | tee n8n-version.txt
+          grep -Fx '2.44.6' n8n-version.txt
+      - name: Start disposable official n8n with isolated SQLite
+        run: |
+          docker run -d --rm --name pf-pan-smoke \
+            --publish 127.0.0.1:5678:5678 \
+            --env DB_TYPE=sqlite \
+            --env N8N_LISTEN_ADDRESS=0.0.0.0 \
+            --env N8N_HOST=127.0.0.1 \
+            --env N8N_PROTOCOL=http \
+            --env N8N_SECURE_COOKIE=false \
+            --env N8N_DIAGNOSTICS_ENABLED=false \
+            --env N8N_PERSONALIZATION_ENABLED=false \
+            --env N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            --env N8N_TEMPLATES_ENABLED=false \
+            --env N8N_ENCRYPTION_KEY=isolated-pan-e2e-not-an-operating-key-2026 \
+            --env N8N_RUNNERS_ENABLED=false \
+            procureflow-n8n-pan-test:${{ github.sha }}
+          for i in $(seq 1 150); do
+            if curl -fsS http://127.0.0.1:5678/healthz/readiness; then
+              echo "ISOLATED_N8N_READY"
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx pf-pan-smoke; then
+              docker logs pf-pan-smoke || true
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs pf-pan-smoke || true
+          exit 1
+      - name: Install real-browser test driver
+        run: |
+          google-chrome --version
+          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2 flatted@3.3.3
+      - name: Real Chrome gestures, save/reload, and safe n8n execution
+        timeout-minutes: 12
+        run: node .github/pan-e2e/run.mjs
+      - name: Real Chrome S01-S10 safe isolated scenario execution
+        if: always()
+        timeout-minutes: 20
+        run: |
+          docker ps --format '{{.Names}}' | grep -qx pf-pan-smoke
+          node .github/pan-e2e/scenarios.mjs
+      - name: Save isolated runtime logs
+        if: always()
+        run: docker logs pf-pan-smoke > isolated-n8n.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shared-n8n-pan-source-build-logs
+          path: |
+            shared-pan-build.log
+            n8n-version.txt
+            isolated-n8n.log
+            shared-pan-e2e-artifacts/

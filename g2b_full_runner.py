@@ -35,17 +35,73 @@ def official_selected_notice():
     except Exception as exc:
         return {"status":"error","reason":type(exc).__name__+":"+str(exc)[:180]}
 
-def historical_month_batch():
-    """Past ten-year exact 8111159901 BID/OPENING/AWARD results; no notice listing."""
+def historical_month_batch(candidate_limit=4, opening_limit=2, month_pages_max=2):
+    """Bounded official ten-year discovery -> exact-code original -> actual results.
+
+    Every invocation checks at most ONE registered month (and at most
+    month_pages_max pages), then verifies a bounded number of candidate
+    originals and official opening/final-award records. This is an ORIGINAL
+    G2B Worker action, not a new DAG runner.
+
+    Even 121 completed months only proves category-8 notice discovery:
+    the category-10 opening/bidder/final-award completeness gate is separate.
+    """
+    from g2b_case_10y import ensure_schema as ensure_history_schema, SUB10
+    from g2b_feature_api import notice_context
     from g2b_exact_outcome_history import run_batch
-    result=run_batch(limit=4,opening_limit=2)
+    ctx=notice_context(CASE_BID)
+    if (not ctx.get("original_notice_verified") or
+            SUB10 not in (ctx.get("official_detail10") or [])):
+        return {"status":"blocked",
+                "reason":"selected_notice_official_detail10_not_verified",
+                "official_discovery_started":False,
+                "ten_year_outcome_coverage_complete":False,
+                "bid_submitted":False}
+    ensure_history_schema()
+    with session() as db:
+        # Resume partial pages first. After successful pages advance to the
+        # next oldest incomplete month; skip no windows silently.
+        next_window=db.execute("""SELECT first_day,last_day,status,page_cursor
+           FROM procureflow.g2b_case_10yr_windows
+           WHERE case_bid_no=%s AND status<>'completed'
+           ORDER BY CASE WHEN status='partial' THEN 0 ELSE 1 END,
+                    first_day ASC LIMIT 1""",(CASE_BID,)).fetchone()
+        window_count=db.execute("""SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE status='completed') AS completed
+           FROM procureflow.g2b_case_10yr_windows
+           WHERE case_bid_no=%s""",(CASE_BID,)).fetchone()
+    total=int(window_count["total"] or 0)
+    completed=int(window_count["completed"] or 0)
+    if total!=121:
+        return {"status":"blocked","reason":"official_month_registry_incomplete",
+                "registered_months":total,"required_months":121,
+                "ten_year_outcome_coverage_complete":False,"bid_submitted":False}
+    limit_pages=max(1,min(2,int(month_pages_max)))
+    month=(scan_month(next_window["first_day"],pages_max=limit_pages)
+           if next_window else
+           {"status":"no_pending_windows","scope":"8digit_notice_discovery_only"})
+    if month.get("status") not in ("completed","partial","already_completed","no_pending_windows"):
+        return {"status":"blocked","reason":"official_month_scan_not_verified",
+                "official_month":month,"registered_months":total,
+                "discovery_months_completed_before_run":completed,
+                "ten_year_outcome_coverage_complete":False,"bid_submitted":False}
+    # The exact 10-digit check occurs ONLY against original official notice
+    # files and winner evidence, never a shared 8-digit notice title.
+    result=run_batch(limit=max(1,min(4,int(candidate_limit))),
+                     opening_limit=max(1,min(2,int(opening_limit))))
     return {"status":"partial_exact_results",
-            "detail_product_code":"8111159901",
+            "detail_product_code":SUB10,
+            "registered_months":total,
+            "discovery_months_completed_before_run":completed,
+            "official_month":month,
+            "discovery_scope":"eight_digit_candidate_notices_only",
             "verified_detail_bids":result["verified_exact_code"],
             "bidder_rows_saved":result["opening_bidder_rows_saved"],
             "confirmed_final_awards":result["final_awards_verified"],
             "verified_candidates_checked":result["candidate_checked"],
-            "outcome":result,"official_full_ten_year_complete":False}
+            "outcome":result,"official_full_ten_year_complete":False,
+            "ten_year_outcome_coverage_complete":False,
+            "bid_submitted":False}
 
 
 def discover_new_bids():

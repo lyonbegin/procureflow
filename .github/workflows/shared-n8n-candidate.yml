@@ -1,0 +1,265 @@
+name: Shared official n8n + ProcureFlow full workflow candidate (isolated)
+on:
+  pull_request:
+    paths:
+      - 'n8n/source-build/Dockerfile.shared-studio-candidate'
+      - 'n8n/source-build/bootstrap-workflows.sh'
+      - 'n8n/source-build/bootstrap-shared-studio.sh'
+      - 'n8n/source-build/augment-business-operations.mjs'
+      - 'n8n/source-build/debug-80-audit.mjs'
+      - 'tests/test_debug_80_native_evidence.mjs'
+      - 'n8n/source-build/compile-native-topology.mjs'
+      - 'n8n/custom-nodes/**'
+      - '.github/pan-e2e/candidate-business.mjs'
+      - '.github/pan-e2e/mock-business-evidence.cjs'
+      - '.github/workflows/shared-n8n-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-studio-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify candidate preserves isolated release boundary
+        run: |
+          grep -F 'SHARED_N8N_STUDIO_COMMIT=999062f1676bdffafa852a36e6c986ef5ce7589f' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'N8N_SOURCE_SHA=b58d9e89d60e9a3485bb511c5091d8be0d9511e4' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'procureflow-n8n-bootstrap' n8n/source-build/Dockerfile.shared-studio-candidate
+          grep -F 'apply-pan-patch.mjs' n8n/source-build/Dockerfile.shared-studio-candidate
+      - name: Validate fail-closed Chrome evidence verifier before expensive Docker build
+        run: node --test tests/test_debug_80_native_evidence.mjs
+      - name: Build full official n8n 2.44.6 with pinned shared studio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
+            -f n8n/source-build/Dockerfile.shared-studio-candidate \
+            -t pf-shared-studio-candidate:${{ github.sha }} . 2>&1 | tee candidate-build.log
+          grep -F 'PAN_PATCH_PATCHED:' candidate-build.log
+      - name: Pin official n8n executable version
+        run: |
+          docker run --rm --entrypoint n8n pf-shared-studio-candidate:${{ github.sha }} --version | tee candidate-version.log
+          grep -Fx '2.44.6' candidate-version.log
+      - name: Start isolated candidate and import 26 PF/S workflows
+        run: |
+          docker run -d --rm --name pf-shared-candidate \
+            --publish 127.0.0.1:5681:5678 \
+            --env DB_TYPE=sqlite \
+            --env N8N_LISTEN_ADDRESS=0.0.0.0 \
+            --env N8N_SECURE_COOKIE=false \
+            --env N8N_ENCRYPTION_KEY=procureflow-isolated-candidate-test-only-key-2026 \
+            --env N8N_DIAGNOSTICS_ENABLED=false \
+            --env N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            --env N8N_PERSONALIZATION_ENABLED=false \
+            --env N8N_TEMPLATES_ENABLED=false \
+            --env N8N_RUNNERS_ENABLED=false \
+            --env PROCUREFLOW_BUSINESS_READONLY_ENABLED=1 \
+            --env PROCUREFLOW_OPERATION_TEST_MODE=1 \
+            --env PROCUREFLOW_APPROVED_TEST_FIXTURE_PORT=5855 \
+            --env PROCUREFLOW_OPERATION_API_BASE=http://127.0.0.1:5855/ \
+            pf-shared-studio-candidate:${{ github.sha }}
+          for i in $(seq 1 180); do
+            if curl --fail --silent http://127.0.0.1:5681/healthz/readiness; then
+              echo "SHARED_STUDIO_CANDIDATE_READY"
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx pf-shared-candidate; then
+              docker logs pf-shared-candidate || true
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs pf-shared-candidate || true
+          exit 1
+      - name: Inspect actual isolated SQLite workflow imports via native n8n CLI
+        run: |
+          docker exec --user node pf-shared-candidate n8n export:workflow --all --output=/tmp/pf-candidate-workflows.json
+          docker cp pf-shared-candidate:/tmp/pf-candidate-workflows.json ./candidate-workflows.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const raw=JSON.parse(fs.readFileSync('candidate-workflows.json'));
+          const workflows=Array.isArray(raw)?raw:raw.data;
+          if(!Array.isArray(workflows))throw Error('Unexpected n8n export shape');
+          const ids=workflows.map(x=>x.id);
+          const required=['PFORCH2026MAINWF',
+             ...Array.from({length:15},(_,i)=>'PFOP2026PF'+String(i+1).padStart(2,'0')+'WF'),
+             ...Array.from({length:10},(_,i)=>'PFDEMO2026S'+String(i+1).padStart(2,'0')+'WF')];
+          for(const id of required)if(!ids.includes(id))throw Error('Missing imported official n8n workflow '+id);
+          if(new Set(ids).size!==ids.length)throw Error('Duplicate native n8n IDs');
+          if(required.length!==26)throw Error('Incorrect expected count');
+          const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json'));
+          const expectedOperations=new Set(manifest.blocks.map(b=>b.id));
+          const foundOperations=[];
+          for(const w of workflows.filter(x=>/^PFOP2026PF(?:0[1-9]|1[0-5])WF$/.test(x.id))){
+            const custom=w.nodes.filter(n=>n.type==='CUSTOM.procureFlowBusinessOperation');
+            for(const n of custom){
+              foundOperations.push(n.parameters.operationId);
+              const good=w.connections?.[n.name]?.main;
+              if(!Array.isArray(good)||good.length!==2||
+                !good[0]?.length||!good[1]?.length)
+                throw Error('Missing native Business Operation success/HOLD branches '+n.name);
+              if(n.parameters.evidenceHandling!=='hold'||n.parameters.bidNo!=='R26BK01787028')
+                throw Error('Unsafe native operation defaults '+n.name);
+            }
+          }
+          if(foundOperations.length!==43||
+            new Set(foundOperations).size!==43||
+            ![...expectedOperations].every(id=>foundOperations.includes(id)))
+             throw Error('Native 43-operation graph mismatch: '+foundOperations.join(','));
+          console.log('OFFICIAL_NATIVE_PF_IMPORT_PASS',JSON.stringify({workflows:ids.length,required:required.length,businessOperations:foundOperations.length,safety:'hold_or_readonly'}));
+          NODE
+      - name: Inspect exact custom-node copy and n8n extension loader configuration
+        run: |
+          docker exec pf-shared-candidate printenv N8N_CUSTOM_EXTENSIONS
+          docker exec pf-shared-candidate ls -al /home/node/procureflow-custom-nodes/
+          docker exec --user node pf-shared-candidate node -e 'const s=require("/home/node/procureflow-custom-nodes/ProcureFlowBusinessOperation.node.js");const n=new s.ProcureFlowBusinessOperation();console.log("CUSTOM_NODE_LOCAL_OK",n.description.name,n.description.properties[0].options.length)'
+
+      - name: Verify Business Operation native n8n node registration and 43 UI choices
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const base='http://127.0.0.1:5681';
+          let cookie='';
+          async function request(method,path,data){
+            const res=await fetch(base+path,{method,headers:{
+              ...(cookie?{Cookie:cookie}:{}),
+              ...(data!==undefined?{'Content-Type':'application/json'}:{})
+            },...(data!==undefined?{body:JSON.stringify(data)}:{})});
+            const raw=res.headers.getSetCookie?.()||[res.headers.get('set-cookie')||''];
+            for(const v of raw){
+              const m=v.match(/n8n-auth=[^;]+/);
+              if(m)cookie=m[0];
+            }
+            const body=await res.json().catch(()=>({}));
+            if(!res.ok)throw Error(method+' '+path+' HTTP '+res.status()+' '+JSON.stringify(body).slice(0,350));
+            return body;
+          }
+          (async()=>{
+            const settings=await request('GET','/rest/settings');
+            if(settings.data?.userManagement?.showSetupOnFirstLoad){
+              await request('POST','/rest/owner/setup',
+                {email:'candidate@example.invalid',firstName:'Candidate',lastName:'Test',password:'CandidatePass123!'});
+            }
+            await request('POST','/rest/login',
+              {emailOrLdapLoginId:'candidate@example.invalid',password:'CandidatePass123!'});
+            const result=await request('POST','/rest/node-types',
+              {nodeInfos:[{name:'CUSTOM.procureFlowBusinessOperation',version:1}]});
+            console.log('CUSTOM_NODE_API_PAYLOAD',JSON.stringify(result).slice(0,5000));
+            const list=Array.isArray(result.data)?result.data:Array.isArray(result)?result:
+              Array.isArray(result.data?.data)?result.data.data:[];
+            if(!list.some(n=>['CUSTOM.procureFlowBusinessOperation','procureFlowBusinessOperation'].includes(n?.name))){
+              console.error('CUSTOM_NODE_REGISTRY_DIAGNOSTIC',JSON.stringify({rows:list.length,names:list.map(x=>x?.name||null)}));
+            }
+            const node=list.find(n=>['CUSTOM.procureFlowBusinessOperation','procureFlowBusinessOperation'].includes(n?.name));
+            assert(node,'Official n8n did not register ProcureFlow Business Operation custom node');
+            const opts=node.properties?.find(x=>x.name==='operationId')?.options||[];
+            assert.equal(opts.length,43,'Missing native 43-operation options');
+            assert.deepEqual(node.outputNames,['success','hold_or_error']);
+            console.log('OFFICIAL_N8N_BUSINESS_OPERATION_REGISTERED',JSON.stringify({
+              type:node.name,operations:opts.length,ports:node.outputNames
+            }));
+          })().catch(e=>{console.error(e);process.exitCode=1;});
+          NODE
+      - name: Start strictly local synthetic HOLD evidence fixture (no real G2B)
+        run: |
+          docker cp .github/pan-e2e/mock-business-evidence.cjs pf-shared-candidate:/tmp/mock-business-evidence.cjs
+          docker exec -d --user node pf-shared-candidate node /tmp/mock-business-evidence.cjs
+          for i in $(seq 1 30); do
+            if docker exec pf-shared-candidate node -e "fetch('http://127.0.0.1:5855/api/n8n/operational/flows/PF01/inspect?bid_no=R26BK01787028').then(r=>r.json()).then(x=>{if(x.source_provenance!=='isolated_synthetic_test_evidence'||x.simulation_only!==true)process.exit(1)}).catch(()=>process.exit(1))"; then
+              echo ISOLATED_SYNTHETIC_HOLD_FIXTURE_PASS
+              break
+            fi
+            if [ "$i" -eq 30 ]; then exit 1; fi
+            sleep 1
+          done
+      - name: Install real Google Chrome test driver
+        run: |
+          google-chrome --version
+          npm install --prefix .github/pan-e2e --no-save --ignore-scripts playwright@1.58.2 flatted@3.3.3
+      - name: Real Chrome custom Business Operation palette, configuration, save/reopen/delete
+        timeout-minutes: 12
+        env:
+          N8N_E2E_URL: http://127.0.0.1:5681
+          N8N_E2E_ARTIFACTS: candidate-business-chrome-artifacts
+        run: node .github/pan-e2e/candidate-business.mjs
+      - name: Independently verify local synthetic HTTP traffic from real native executions
+        run: |
+          set -euo pipefail
+          # Read the isolated loopback fixture INSIDE the disposable Docker container.
+          # The response is counters only; no operating API or production database is accessed.
+          docker exec pf-shared-candidate node -e '
+            fetch("http://127.0.0.1:5855/__fixture_stats").then(async r=>{
+              if(!r.ok)throw Error("fixture stats HTTP "+r.status);
+              process.stdout.write(JSON.stringify(await r.json())+"\n");
+            }).catch(e=>{console.error(e);process.exitCode=1})
+          ' > candidate-fixture-traffic.json
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const manifest=JSON.parse(fs.readFileSync('n8n/operational_manifest.json','utf8'));
+          const stats=JSON.parse(fs.readFileSync('candidate-fixture-traffic.json','utf8'));
+          assert.equal(stats.schemaVersion,'procureflow.fixture-traffic.v1');
+          assert.equal(stats.rejectedRequests,0,'Unexpected method/path/bid was sent to isolated fixture');
+          assert.equal(manifest.blocks.length,43);
+          const n01Owner=manifest.flows.find(f=>f.owned_blocks.includes('N01'))?.id;
+          assert(n01Owner,'Missing N01 owner');
+          // 43-operation native Chrome run = one GET per manifest block.
+          // Additional N01 requests = single HOLD run + fail-closed error run.
+          // The startup fixture readiness probe = one additional PF01 GET.
+          const expected=Object.fromEntries(manifest.flows.map(flow=>[
+            flow.id,flow.owned_blocks.length+
+              (flow.id===n01Owner?2:0)+(flow.id==='PF01'?1:0)
+          ]).filter(([,count])=>count>0)); // PF15 owns no blocks; no HTTP GET expected
+          assert.equal(stats.validReads,46,'Expected 43 + 2 real n8n runs + 1 fixture probe');
+          assert.deepEqual(
+            Object.fromEntries(Object.entries(stats.byFlow).sort()),
+            Object.fromEntries(Object.entries(expected).sort()),
+            'Actual local fixture HTTP reads do not match 43 manifest operations and Chrome runs'
+          );
+          console.log('ISOLATED_NATIVE_43_BLOCK_HTTP_TRAFFIC_PASS',JSON.stringify({
+            validReads:stats.validReads,rejectedRequests:stats.rejectedRequests,
+            checkedFlows:Object.keys(stats.byFlow).length,
+            claim:'local synthetic fixture only; no production API observation'
+          }));
+          NODE
+      - name: Verify seven narrow native debugging subchecks against real Chrome evidence (80 requirements remain open)
+        run: |
+          node n8n/source-build/debug-80-audit.mjs \
+            reports/workflow_81_160_implementation_20261025.md \
+            candidate-business-chrome-artifacts/debug-80-native-runtime.json \
+            candidate-business-chrome-artifacts/verdicts.json
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const r=require('./candidate-business-chrome-artifacts/debug-80-native-runtime.json');
+          assert.equal(r.total,80);
+          assert.equal(r.runtimeVerified,0);
+          assert.equal(r.nativeRuntimeSubchecksObserved,7);
+          assert.deepEqual(r.nativeRuntimeSubcheckEvidence.map(x=>x.id),
+            [127,128,135,144,146,147,150]);
+          assert(r.nativeRuntimeSubcheckEvidence.every(x=>
+            x.requirementFullyAccepted===false));
+          console.log('REAL_CHROME_DEBUG_80_SUBCHECKS_PASS',JSON.stringify({
+            observed:r.nativeRuntimeSubchecksObserved,fullyAccepted:r.runtimeVerified,
+            actualBusinessHandlers:0,actualBidSubmissions:0
+          }));
+          NODE
+      - name: Save no-credential candidate evidence
+        if: always()
+        run: docker logs pf-shared-candidate > candidate-runtime.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-shared-n8n-pf-candidate
+          path: |
+            candidate-build.log
+            candidate-version.log
+            candidate-fixture-traffic.json
+            candidate-runtime.log
+            candidate-workflows.json
+            candidate-business-chrome-artifacts/

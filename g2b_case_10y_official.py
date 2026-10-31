@@ -8,6 +8,7 @@ import json
 import os
 import re
 from datetime import date
+import calendar
 from urllib.parse import urlencode
 from urllib.request import urlopen,Request
 from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,ensure_schema
@@ -24,12 +25,50 @@ def _parse(response):
     if str(head.get("resultCode","")) not in ("00","0"):
         raise ValueError("g2b_api_result_"+str(head.get("resultCode"))+":"+str(head.get("resultMsg",""))[:75])
     body=envelope.get("body") or {}
-    items=body.get("items") or []
-    if isinstance(items,dict):items=items.get("item") or []
+    # An absent/null item list is normal for a zero-result month. Explicit
+    # scalar values (including falsey 0/False/"") are malformed responses;
+    # the old 'or []' coercion could falsely certify a zero-result month.
+    items=body.get("items",[])
+    if items is None:items=[]
+    if isinstance(items,dict):
+        items=items.get("item",[])
+        if items is None:items=[]
     if isinstance(items,dict):items=[items]
     if not isinstance(items,list):raise ValueError("g2b_api_items_not_list")
-    total=int(body.get("totalCount") or 0)
+    if any(not isinstance(item,dict) for item in items):
+        raise ValueError("g2b_api_items_not_objects")
+    if "totalCount" not in body:
+        raise ValueError("g2b_api_total_count_missing")
+    # The official page total is a *count*, not a monetary amount or a
+    # floating-point estimate. int(1.5) and int(True) silently fabricate
+    # coverage and can turn a truncated page into a false completed month.
+    raw_total=body["totalCount"]
+    if type(raw_total) is int:
+        total=raw_total
+    elif isinstance(raw_total,str) and re.fullmatch(r"[0-9]+",raw_total.strip()):
+        total=int(raw_total.strip())
+    else:
+        raise ValueError("g2b_api_total_count_not_nonnegative_integer")
+    if total<0:
+        raise ValueError("g2b_api_negative_total_count")
     return items,total
+
+
+def _page_verdict(inspected:int,total:int,entries:int,page_size:int=500)->str:
+    """Fail closed on early/empty/truncated pages; no false 'completed' months.
+
+    This validates an official 8-digit discovery window ONLY. It does not
+    certify 10-digit eligibility or opening/final-award evidence.
+    """
+    if (not isinstance(inspected,int) or not isinstance(total,int) or
+            not isinstance(entries,int) or inspected<0 or total<0 or
+            entries<0 or entries>page_size or inspected+entries>total):
+        return "inconsistent"
+    if inspected+entries==total:
+        return "completed"
+    if entries<page_size:
+        return "incomplete_page"
+    return "partial"
 
 def _category_from(item):
     """Accept only a *dedicated official field*, not digits in bid title."""
@@ -69,6 +108,18 @@ def scan_month(first, pages_max=30):
     inspected=int(row["checked"])
     matched=int(row["matched"])
     page=int(row["page_cursor"])
+    # A partial month advances only after a FULL 500-row page has been
+    # persisted. A mismatched page_cursor/checked pair can silently skip
+    # official pages and falsely certify a ten-year discovery window.
+    # Fail closed before issuing any API request; never guess a new cursor.
+    if (inspected<0 or matched<0 or matched>inspected or
+            inspected%500!=0 or page!=inspected//500+1):
+        _write_month(row["first_day"],row["last_day"],
+                     "blocked_invalid_page_cursor",matched,inspected,page,
+                     "checked_page_cursor_or_matched_inconsistent")
+        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                "checked":inspected,"matched":matched,"next_page":page,
+                "read_only":True}
     pages_max=max(1,min(30,int(pages_max)))
     params={"serviceKey":key,"type":"json","inqryDiv":"1",
         "inqryBgnDt":row["first_day"].strftime("%Y%m%d")+"0000",
@@ -84,11 +135,20 @@ def scan_month(first, pages_max=30):
                 data=json.loads(rsp.read(15000000))
             entries,total=_parse(data)
         except Exception as exc:
-            _write_month(row["first_day"],row["last_day"],"error",matched,inspected,page,
-                         type(exc).__name__+":"+str(exc)[:180])
-            return {"status":"error","first_day":str(first),
-                    "reason":type(exc).__name__+":"+str(exc)[:180]}
+            # urllib exceptions may include the serviceKey URL. Neither DB
+            # audit nor REST output may persist an exception's raw message.
+            reason="official_api_request_or_parse_failed:"+type(exc).__name__
+            _write_month(row["first_day"],row["last_day"],"error",matched,inspected,page,reason)
+            return {"status":"error","first_day":str(first),"reason":reason}
+        verdict=_page_verdict(inspected,total,len(entries))
+        if verdict in ("inconsistent","incomplete_page"):
+            _write_month(row["first_day"],row["last_day"],"blocked_incomplete_api_page",
+                         matched,inspected,page,"page_count_inconsistent_or_truncated")
+            return {"status":"blocked_incomplete_api_page","first_day":str(first),
+                    "page":page,"checked":inspected,"returned":len(entries),
+                    "official_total_count":total,"reason":verdict}
         unknown=0
+        invalid=0
         confirmed=[]
         for item in entries:
             cls=_category_from(item)
@@ -98,23 +158,57 @@ def scan_month(first, pages_max=30):
             if cls is not True:continue
             no=str(item.get("bidNtceNo") or "").strip()
             ord_=str(item.get("bidNtceOrd") or "000").zfill(3)
-            if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no):continue
+            if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no) or not re.fullmatch(r"\d{3}",ord_):
+                invalid+=1
+                continue
             pub=str(item.get("bidNtceDt") or "").strip()
             stamp=re.match(r"(20\d{2})[-./]?(\d{2})[-./]?(\d{2})",pub)
-            if not stamp:continue
-            day=date(int(stamp[1]),int(stamp[2]),int(stamp[3]))
-            if not BEGIN<=day<=END:continue
+            if not stamp:
+                invalid+=1
+                continue
+            try:
+                day=date(int(stamp[1]),int(stamp[2]),int(stamp[3]))
+            except ValueError:
+                invalid+=1
+                continue
+            # A response for April must NEVER make March's month appear fully
+            # checked even if its date lies somewhere in the ten-year range.
+            if not row["first_day"]<=day<=row["last_day"]:
+                invalid+=1
+                continue
+            # A malformed official amount must be treated as an unverified
+            # page, not raise outside the HTTP/parse exception handler and
+            # leave a misleading cursor state. Never silently coerce a
+            # negative amount into a valid historical notice.
+            raw_amount=item.get("asignBdgtAmt")
+            # int(1.5) silently truncates official monetary evidence. Accept
+            # only non-negative integer JSON numbers or decimal digit strings;
+            # missing/empty amounts remain unknown (NULL), not fabricated 0.
+            if raw_amount is None or raw_amount=="":
+                amount=0
+            elif type(raw_amount) is int:
+                amount=raw_amount
+            elif isinstance(raw_amount,str) and re.fullmatch(r"[0-9]+",raw_amount.strip()):
+                amount=int(raw_amount.strip())
+            else:
+                invalid+=1
+                continue
+            if amount<0:
+                invalid+=1
+                continue
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 str(item.get("bidNtceNm") or "")[:350],
                 str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
-                int(item.get("asignBdgtAmt") or 0) or None,
+                amount or None,
                 "https://www.g2b.go.kr/","official_openapi_explicit_code"))
-        if unknown:
-            _write_month(row["first_day"],row["last_day"],"blocked_unverified_response_category",
-                         matched,inspected,page,"response_has_"+str(unknown)+"_rows_without_classification")
-            return {"status":"blocked_unverified_response_category",
-                    "undetermined_rows":unknown,"page":page,
-                    "note":"Do not count matching without official classification value"}
+        if unknown or invalid:
+            reason=("undetermined_category_rows="+str(unknown)+
+                    ";invalid_notice_or_month_rows="+str(invalid))
+            _write_month(row["first_day"],row["last_day"],"blocked_unverified_response_scope",
+                         matched,inspected,page,reason)
+            return {"status":"blocked_unverified_response_scope",
+                    "undetermined_rows":unknown,"invalid_scope_rows":invalid,
+                    "page":page,"note":"No full month coverage without valid official category, notice and date"}
         with session() as con:
             for bid in confirmed:
                 con.execute("""INSERT INTO procureflow.g2b_case_10yr_history(
@@ -128,7 +222,7 @@ def scan_month(first, pages_max=30):
                      collected_at=now()
                 """,bid)
         inspected+=len(entries);matched+=len(confirmed);page+=1
-        complete=(page-1)*500>=total or not entries
+        complete=verdict=="completed"
         _write_month(row["first_day"],row["last_day"],
                      "completed" if complete else "partial",
                      matched,inspected,page)
@@ -137,3 +231,65 @@ def scan_month(first, pages_max=30):
                     "matched":matched,"total_records":total}
     return {"status":"partial","first_day":str(first),"next_page":page,
             "checked":inspected,"matched":matched}
+
+
+def summarize_month_cursor(rows):
+    """Pure, read-only and credential-free audit of the 121 discovery windows.
+
+    A completed MONTH is a parent8 notice search only; neither official
+    10-digit detail matching nor bidder-by-bidder opening/award completeness
+    can be inferred from these cursors.
+    """
+    expected={}
+    for year in range(BEGIN.year,END.year+1):
+        for month in range(1,13):
+            start=max(BEGIN,date(year,month,1))
+            stop=min(END,date(year,month,calendar.monthrange(year,month)[1]))
+            if start<=stop:expected[start]=stop
+    seen=set()
+    months=[]
+    invalid=0
+    for row in rows:
+        start=row.get("first_day")
+        stop=row.get("last_day")
+        if (start not in expected or start in seen or stop!=expected.get(start)):
+            invalid+=1
+            continue
+        seen.add(start)
+        stat=str(row.get("status") or "unsearched")
+        checked=max(0,int(row.get("checked") or 0))
+        matched=max(0,int(row.get("matched") or 0))
+        page=max(1,int(row.get("page_cursor") or 1))
+        months.append({"first_day":start.isoformat(),
+                       "last_day":stop.isoformat(),
+                       "status":stat,"checked":checked,"matched":matched,
+                       "next_page":page})
+    months.sort(key=lambda r:r["first_day"])
+    complete=sum(r["status"]=="completed" for r in months)
+    candidates=[x for x in months if x["status"]!="completed"]
+    candidates.sort(key=lambda r:(r["status"]!="partial",r["first_day"]))
+    registry_ok=len(seen)==len(expected)==121 and invalid==0
+    return {"bid_no":CASE_BID,"configured_parent8":CAT8,
+            "requested_10digit_from_selected_notice":"8111159901",
+            "period_start":BEGIN.isoformat(),"period_end":END.isoformat(),
+            "registry_complete":registry_ok,
+            "required_months":len(expected),
+            "registered_months":len(seen),
+            "invalid_or_duplicate_rows":invalid,
+            "discovery_months_completed":complete,
+            "discovery_months_remaining":len(expected)-complete,
+            "next_month":candidates[0] if candidates else None,
+            "eight_digit_notice_discovery_complete":registry_ok and complete==len(expected),
+            "ten_year_exact_opening_and_award_complete":False,
+            "read_only":True,"job_enqueued":False,"bid_submitted":False,
+            "months":months,
+            "caution":"A completed 8-digit discovery window is not verified 10-digit bidding, bidder amounts, rankings or final awards."}
+
+
+def official_month_progress():
+    """Read only saved monthly cursors; NEVER call the G2B API or mutate jobs."""
+    with session() as con:
+        rows=con.execute("""SELECT first_day,last_day,status,checked,matched,page_cursor
+          FROM procureflow.g2b_case_10yr_windows
+          WHERE case_bid_no=%s ORDER BY first_day""",(CASE_BID,)).fetchall()
+    return summarize_month_cursor([dict(row) for row in rows])

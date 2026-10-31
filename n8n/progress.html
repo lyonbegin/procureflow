@@ -48,6 +48,14 @@ a{color:#156f84} .foot{font-size:12px;color:#627d8d;line-height:1.7}
   <p id="coverage-note" class="foot"></p>
   <p id="missing-evidence" class="warn">공식 근거를 검사하고 있습니다.</p>
 </section>
+<section class="panel" id="history-panel" hidden>
+  <h2>10년 공식 공고 월별 수집 (8자리 후보 검색)</h2>
+  <p class="foot"><b>중요:</b> 121개월 공고 후보 검색 완료는 해당 세부종목의 실제 투찰·낙찰 전수검증과 다릅니다.</p>
+  <p id="history-count" class="foot">조회 중</p>
+  <div class="progress" aria-hidden="true"><div id="history-fill" style="width:0"></div></div>
+  <p id="history-next" class="foot"></p>
+  <p id="history-disclaimer" class="warn">10자리 세부종목의 실제 개찰·낙찰 결과는 별도 공식 검증이 필요합니다.</p>
+</section>
 <section class="panel"><h2>실제 Worker 진행 이력 (최신 20건)</h2>
 <div style="overflow-x:auto"><table class="job-table"><thead><tr><th>Job ID</th><th>기능</th><th>Worker 상태</th><th>시작</th><th>완료</th></tr></thead>
 <tbody id="jobs"><tr><td colspan="5">대기 중</td></tr></tbody></table></div></section>
@@ -113,18 +121,43 @@ function render(progress,inspection){
    box.append(card);
  }
 }
+function renderHistory(history,id){
+ const panel=byId('history-panel');
+ const enabled=id==='PF05'||id==='PF06';
+ panel.hidden=!enabled;
+ if(!enabled)return;
+ if(!history||history.read_only!==true||history.bid_submitted!==false)
+   throw Error('월별 검색 이력의 공식 출처·안전 계약 불일치');
+ const total=Number(history.required_months||121);
+ const complete=Number(history.discovery_months_completed||0);
+ const pct=total>0?Math.floor(100*complete/total):0;
+ byId('history-count').textContent='월별 공식 8자리 공고 검색 완료 '+complete+' / '+total+
+   '개월 · 등록 '+history.registered_months+'개월'+
+   (history.registry_complete?'':' · 기간창 등록 미완료');
+ byId('history-fill').style.width=pct+'%';
+ const next=history.next_month;
+ byId('history-next').textContent=next?
+   ('다음 작업: '+next.first_day+' ~ '+next.last_day+' · '+next.status+
+    ' · 다음 페이지 '+next.next_page):
+   (history.eight_digit_notice_discovery_complete?'8자리 후보 월별 검색 완료':'다음 월별 검색 구간 미등록');
+ byId('history-disclaimer').textContent=
+   '10자리 실제 개찰·투찰금액·순위·확정낙찰 전수 검증: '+
+   (history.ten_year_exact_opening_and_award_complete?'공식 검증 완료':'미완료 (월별 후보 검색과 별개)');
+}
 async function refresh(){
  const requested=++sequence;
  const id=current;
  try{
-  const [progress,inspection]=await Promise.all([
+  const [progress,inspection,history]=await Promise.all([
     json(API+encodeURIComponent(id)+'/progress'),
-    json(API+encodeURIComponent(id)+'/inspect')
+    json(API+encodeURIComponent(id)+'/inspect'),
+    id==='PF05'||id==='PF06'?json('/api/n8n/operational/history/month-progress'):Promise.resolve(null)
   ]);
   if(requested!==sequence||id!==current)return;
   if(progress.flow_id!==id||inspection.flow_id!==id||progress.read_only!==true||progress.bid_submitted!==false)
      throw Error('실제 G2B 업무 응답 식별 또는 안전 상태 불일치');
   render(progress,inspection);
+  renderHistory(history,id);
  }catch(err){
   if(requested!==sequence)return;
   byId('refresh-stamp').textContent='갱신 실패: '+err.message;
