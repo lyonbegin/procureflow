@@ -268,7 +268,11 @@ def test_corrupt_month_cursor_fails_closed_before_http(cursor_fields):
         result, statuses, inserted = run_month(response([], 0))
     assert result["status"] == "blocked_invalid_page_cursor"
     assert result["read_only"] is True
-    assert statuses[0][2] == "blocked_invalid_page_cursor"
+    if cursor_fields == {"checked": -1}:
+        # Malformed persisted values are not written back into audit rows.
+        assert statuses == []
+    else:
+        assert statuses[0][2] == "blocked_invalid_page_cursor"
     assert not inserted
 
 
