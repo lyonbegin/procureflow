@@ -28,6 +28,32 @@ const ALLOWED_TYPES=new Set([
 const SIDE_EFFECTFUL_CODE=/\b(?:fetch|import|require|eval|Function|WebSocket|XMLHttpRequest)\s*\(|\b(?:globalThis|process)\s*(?:\.|\[)|\$(?:http|request|helpers)\b/;
 const assert=(condition,message)=>{if(!condition)throw Error(message);};
 
+// A native synthetic execution must not smuggle claims of real bids, Worker
+// dispatch, or real G2B job completion through nested JSON output. This
+// protects *all* executed node outputs, including trigger/QA nodes that are
+// not checked against a PF step's exact state/trace schema below.
+const FORBIDDEN_NATIVE_DISPATCH_KEYS=new Set([
+  'bid_submitted','worker_job_enqueued','job_enqueued',
+  'automated_bid_submission','automatic_bid_submission','actual_job_executed'
+]);
+function hasUnsafeNativeDispatchClaim(root){
+  const pending=[root],seen=new WeakSet();
+  let inspected=0;
+  while(pending.length){
+    const item=pending.pop();
+    if(!item||typeof item!=='object')continue;
+    if(seen.has(item))continue;
+    seen.add(item);
+    // Never let a huge or cyclic synthetic response exhaust the verifier.
+    if(++inspected>10000)return true;
+    for(const [key,value] of Object.entries(item)){
+      if(FORBIDDEN_NATIVE_DISPATCH_KEYS.has(key)&&value!==false)return true;
+      if(value&&typeof value==='object')pending.push(value);
+    }
+  }
+  return false;
+}
+
 /**
  * Fail closed before launching Chrome, creating an owner or importing workflows.
  * Playwright's request context is not protected by page.route(), so a mistaken
@@ -126,6 +152,8 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
       String(execution.workflowId)===expectedWorkflowId,
       'Native scenario workflow ID does not match the Chrome-saved workflow');
   }
+  assert(!hasUnsafeNativeDispatchClaim(payload),
+    'Native scenario output contains unsafe bid or Worker dispatch claim');
   assert(payload?.scenario_id===scenario.id&&payload.case_id==='DEMO_ONLY',
     'Native scenario/case identity mismatch');
   assert(payload.expected===scenario.expected&&payload.verdict===scenario.expected,
@@ -155,6 +183,8 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
     assert(Array.isArray(items)&&items.length===1&&
       items[0]?.json&&typeof items[0].json==='object'&&!Array.isArray(items[0].json),
       'Native scenario missing node JSON output: '+name);
+    assert(!hasUnsafeNativeDispatchClaim(items[0].json),
+      'Native scenario node output contains unsafe bid or Worker dispatch claim: '+name);
     nativeOutput.set(name,items[0].json);
   }
   assert(same(nativeOutput.get('전체 사건 기록 검증됨'),payload),
