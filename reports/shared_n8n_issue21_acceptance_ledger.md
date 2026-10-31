@@ -2,6 +2,17 @@
 
 > 범위: `feature/shared-n8n-pan-integration`만 해당. **전체 필수 수용검사는 미완료**이며 이 문서는 배포 승인서가 아닙니다. 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 투찰을 변경하지 않습니다.
 
+
+## 2026-10-31 KST — 공식 월별 G2B 응답의 totalCount/items 엄격 검증 (전체 완료 아님)
+
+- [응답 totalCount 타입 강제 `5e7d7c2`](https://github.com/lyonbegin/procureflow/commit/5e7d7c22024f9d8992d52ae3e5e0e56561268353): 공식 응답의 `totalCount`가 float/bool/list/object/소수·지수 문자열이면 `int(...)` 묵시적 변환을 금지하고 오류로 차단. `int(1.5)==1` 또는 `int(True)==1`로 **월 완료 오판** 가능했던 경로를 제거. 정상 정수/숫자 문자열만 허용.
+- [totalCount 격리 음성·양성 테스트 `dbf1981`](https://github.com/lyonbegin/procureflow/commit/dbf1981e015b09ef9b3d98aa616b933d3bc4a204): 잘못된 값 13개, 정상 값 5개를 FakeHTTP/FakeDB로 검사.
+- [명시적 scalar items 거부 `5d6cc04`](https://github.com/lyonbegin/procureflow/commit/5d6cc0497221f75a5e0fab4bbaf1f834e7307575): 공식 `items=0/False/""` 또는 `items.item=0/False/""`가 `or []` 때문에 빈 목록으로 바뀌어 **가짜 0건 완료**가 되던 경로 차단. 원본에 목록이 없거나 null인 정상 0건은 허용.
+- [items 격리 음성·양성 테스트 `5932c90`](https://github.com/lyonbegin/procureflow/commit/5932c904e00d20b8c69a933ce23265d5ef671b12): 잘못된 envelope 8개, 정상 0건 envelope 5개. 공식 API·운영 DB·실제 Worker/투찰 접근 없이 테스트.
+- [**새 HEAD G2B 104 API + Node Lab CI #41193445900**](https://github.com/lyonbegin/procureflow/actions/runs/41193445900): 실행 큐 진입 확인, **아직 최종 결과 미확정**. 같은 SHA의 [공식 Chrome Pan #41193445885](https://github.com/lyonbegin/procureflow/actions/runs/41193445885), [후보 Docker/Chrome #41193445910](https://github.com/lyonbegin/procureflow/actions/runs/41193445910), [50종/43블록 #41193445895](https://github.com/lyonbegin/procureflow/actions/runs/41193445895), [native S01~S10 #41193446030](https://github.com/lyonbegin/procureflow/actions/runs/41193446030)도 실행 대기/판정 전. 이전 SHA의 PASS를 최신 SHA의 PASS로 혼동하지 않음.
+
+**미완료:** 35종 실행 매핑, 43개 실제 업무 핸들러, 정확한 10년 공식 개찰·낙찰 실데이터, 80개 디버깅 런타임 전수, 운영 owner/DB/키 호환성·승인. Issue OPEN, PR Draft·미병합, 운영 main/Railway DB/credentials/실제 투찰 미변경.
+
 ## 실측 증빙 (2026-10-28 UTC)
 
 | 검증 항목 | 실행 증빙 | 판정 |
