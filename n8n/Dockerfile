@@ -75,7 +75,25 @@ COPY --chown=node:node n8n/workflows /home/node/procureflow-demo-workflows
 
 # Preserve the existing n8n main start and Railway worker start-command
 # override (n8n worker --concurrency=3), owner, PostgreSQL and Redis settings.
+# Original Issue #21 candidate's 26-flow/43-gate graph is compiled OFFLINE.
+# Include graph files in the existing Main/Worker image; NEVER import them
+# into PostgreSQL or create/publish workflows automatically on server startup.
+# The actual release requires a DB-backed workflow diff, backup and owner check.
+COPY --chown=node:node n8n/operational_manifest.json /home/node/procureflow-operational-manifest.json
+COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /home/node/procureflow-native-tools/compile-native-topology.mjs
+COPY --chown=node:node n8n/source-build/test-native-topology.mjs /home/node/procureflow-native-tools/test-native-topology.mjs
+COPY --chown=node:node n8n/source-build/augment-business-operations.mjs /home/node/procureflow-native-tools/augment-business-operations.mjs
+COPY --chown=node:node n8n/source-build/verify-packaged-graph.mjs /home/node/procureflow-native-tools/verify-packaged-graph.mjs
 USER node
+RUN PF_SOURCE=/home/node PF_OUTPUT=/home/node/compiled-native \
+       node /home/node/procureflow-native-tools/compile-native-topology.mjs \
+    && PF_SOURCE=/home/node PF_OUTPUT=/home/node/compiled-native \
+       node /home/node/procureflow-native-tools/test-native-topology.mjs \
+    && PF_SOURCE=/home/node PF_OUTPUT=/home/node/compiled-native \
+       node /home/node/procureflow-native-tools/augment-business-operations.mjs \
+    && PF_SOURCE=/home/node PF_OUTPUT=/home/node/compiled-native \
+       node /home/node/procureflow-native-tools/verify-packaged-graph.mjs
+# No DB import, publishing, owner creation, authentication bypass or second n8n.
 EXPOSE 5678
 ENTRYPOINT ["tini", "--"]
 CMD ["n8n", "start"]
