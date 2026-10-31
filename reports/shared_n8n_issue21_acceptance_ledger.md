@@ -1,5 +1,14 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 공식 월별 발견 페이지의 중복 공고번호·차수 차단 (전체 완료 아님)
+
+- **코드 수정:** [1fcb4d8](https://github.com/lyonbegin/procureflow/commit/1fcb4d844485498f9e28f8f73d1c3adc8da96074) — `scan_month()`가 한 공식 API 페이지에 같은 `(bidNtceNo,bidNtceOrd)`가 2회 등장해도 `ON CONFLICT`로 덮어쓰고 `totalCount`에 포함된 두 행을 정상 월별 발견 완료로 오인할 수 있던 경로 차단. 페이지 내부 공고 식별자 중복은 `blocked_unverified_response_scope`로 처리하고, 그 페이지의 **history INSERT를 시작하기 전에** 전체를 보류한다. 서로 다른 차수는 별도 공식 식별자로 계속 허용한다.
+- **격리 회귀:** [d1c099e](https://github.com/lyonbegin/procureflow/commit/d1c099e3c5e95a109c6ce8cb1aa8f2185205fdf0) — 완전 동일 중복, 금액이 다른 중복, 날짜가 다른 중복 3종을 `FakeHTTP/FakeDB`로 검사하고, 서로 다른 차수의 정상 2건은 수용. 실 G2B API·운영 DB·투찰 호출 없음.
+- **동일 코드 SHA G2B 104 API + Node Lab [#41230410719 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41230410719):** 실제 pytest job `124623263625` **235 passed, 3 warnings**. [공식 단일 편집기 #41230410675 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41230410675), [50종/43블록 #41230410680 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41230410680).
+- **기존 운영 owner/readiness [#41230410811 FAIL](https://github.com/lyonbegin/procureflow/actions/runs/41230410811)** (읽기 전용 진단): `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. [마스킹된 verdict 아티팩트](https://github.com/lyonbegin/procureflow/actions/runs/41230410811/artifacts/13053895319). 기존 계정·DB 변경 없음.
+- 같은 SHA의 [Pan 공식 Chrome #41230410709](https://github.com/lyonbegin/procureflow/actions/runs/41230410709), [후보 Docker/Chrome #41230410807](https://github.com/lyonbegin/procureflow/actions/runs/41230410807), [native S01~S10 #41230410691](https://github.com/lyonbegin/procureflow/actions/runs/41230410691), [오프라인 S01~S10 #41230410871](https://github.com/lyonbegin/procureflow/actions/runs/41230410871), [PF15 #41230410778](https://github.com/lyonbegin/procureflow/actions/runs/41230410778), [Main/Worker 격리 #41230410679](https://github.com/lyonbegin/procureflow/actions/runs/41230410679)는 기록 시점 **최종 완료 확인 전**으로 PASS 선판정 금지.
+- **범위 한계:** 이 검사는 **단일 공식 API 페이지 내부의 중복**에 대한 방어다. 페이지 간·월 간 중복과 실제 공식 10자리 세부품명 개찰/낙찰 전수는 별도 검증 필요. 35종 실행 어댑터, 43개 실제 업무 핸들러, 디버깅 80개 전수, 운영 owner 복구·운영 승인 미완료. **Issue Open, PR Draft·미병합 유지. 운영 main/Railway 운영 서비스·DB/자격증명/Worker dispatch/실제 투찰 변경 없음.**
+
 ## 2026-11-01 KST — 손상된 부분 월 커서·페이지 수 요청의 무변경 차단 (전체 완료 아님)
 
 - [코드 패치 `8c7bd96`](https://github.com/lyonbegin/procureflow/commit/8c7bd960c921c4928f4d774a7704aa035136647f): `scan_month()`의 **부분 월** 저장값이 `checked/matched/page_cursor` 수학에 맞지 않을 때 `_service_key()` 호출과 `_write_month()` 수행 **전에** `blocked_invalid_page_cursor`를 반환하도록 변경. 손상된 원본 DB 행을 덮어쓰지 않고 읽기 전용으로 보존. `pages_max=True/False/float/string/None/0/음수`를 `int()`로 묵시 변환하거나 1로 보정하여 공식 API 요청을 시작하던 경로도 `blocked_invalid_page_limit`로 차단.
