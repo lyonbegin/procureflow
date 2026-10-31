@@ -178,6 +178,11 @@ def scan_month(first, pages_max=30):
         unknown=0
         invalid=0
         confirmed=[]
+        # Duplicate official notice identities in one API page make the
+        # reported totalCount ambiguous: ON CONFLICT would silently collapse
+        # two counted rows into one historical notice. Never certify that
+        # page as complete or persist a partial set of its records.
+        seen_notice_keys=set()
         for item in entries:
             cls=_category_from(item)
             if cls is None:
@@ -250,6 +255,11 @@ def scan_month(first, pages_max=30):
             if amount<0:
                 invalid+=1
                 continue
+            notice_key=(no,ord_)
+            if notice_key in seen_notice_keys:
+                invalid+=1
+                continue
+            seen_notice_keys.add(notice_key)
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 str(item.get("bidNtceNm") or "")[:350],
                 str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
