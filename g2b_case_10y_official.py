@@ -397,16 +397,20 @@ def summarize_month_cursor(rows):
         matched=raw_matched if raw_matched is not None else 0
         page=raw_page if raw_page is not None and raw_page>=1 else 1
         if stat=="completed":
-            # scan_month advances the page cursor after saving its last page.
-            # A 0-row month ends on page 1; 1..500 on page 2, etc.
-            cursor_valid=cursor_valid and page==(checked+499)//500+1
-            if snapshot_present:
-                cursor_valid=cursor_valid and raw_snapshot==checked
+            # Every completed row MUST carry the exact official totalCount
+            # snapshot. An absent key is not proof of a zero-result month.
+            # scan_month already blocks missing snapshots on resume; the
+            # read-only summary must enforce the same invariant.
+            cursor_valid=(cursor_valid and raw_snapshot==checked and
+                          page==(checked+499)//500+1)
         elif stat=="partial":
-            # A partial month can resume ONLY after a full persisted page.
+            # A resumed nonempty partial row requires a persisted official
+            # totalCount snapshot strictly ahead of its inspected cursor.
+            # Missing keys must not be treated as valid merely because the
+            # API/DB row predates the snapshot migration.
             cursor_valid=(cursor_valid and checked%500==0 and
                           page==checked//500+1)
-            if snapshot_present and checked>0:
+            if checked>0:
                 cursor_valid=(cursor_valid and raw_snapshot is not None
                               and raw_snapshot>checked)
         if not cursor_valid:
