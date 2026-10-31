@@ -252,6 +252,23 @@ const nativeEvidenceAttacks=[
     const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
     v.runData[trigger][0].data.main[0][0].json.worker_job_enqueued=undefined;
   }],
+  // All six camelCase provider aliases must be rejected in ANY native node,
+  // not only the final synthetic payload's snake_case bid_submitted flag.
+  ...['bidSubmitted','workerJobEnqueued','jobEnqueued',
+      'automatedBidSubmission','automaticBidSubmission','actualJobExecuted']
+    .map(key=>['camelCase nested dispatch claim '+key,v=>{
+      const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+      v.runData[trigger][0].data.main[0][0].json.metadata={events:[{[key]:true}]};
+    }]),
+  ['oversized primitive-only array in trigger evidence',v=>{
+    const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+    v.runData[trigger][0].data.main[0][0].json.audit=Array.from({length:10050},(_,i)=>i);
+  }],
+  ['oversized primitive-only object in trigger evidence',v=>{
+    const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
+    v.runData[trigger][0].data.main[0][0].json.audit=Object.fromEntries(
+      Array.from({length:10050},(_,i)=>['field_'+i,i]));
+  }],
   ['wrong event',v=>{v.payload.trace[0].event='ForgedEvent';}],
   ['wrong flow',v=>{v.payload.trace[0].flow='PF15';}],
   ['wrong recipients',v=>{v.payload.trace[0].recipients=['PF15'];}],
@@ -296,7 +313,8 @@ test('native synthetic verifier permits explicitly false nested dispatch flags',
   const v=syntheticNativeEvidence('S02');
   const trigger=v.fixture.nodes.find(n=>n.type==='n8n-nodes-base.manualTrigger').name;
   v.runData[trigger][0].data.main[0][0].json.audit={
-    nested:[{bid_submitted:false,worker_job_enqueued:false,actual_job_executed:false}]
+    nested:[{bid_submitted:false,worker_job_enqueued:false,actual_job_executed:false,
+      bidSubmitted:false,workerJobEnqueued:false,actualJobExecuted:false}]
   };
   assert.equal(verifyNativeScenarioEvidence(v).status,'VERIFIED_ISOLATED_SYNTHETIC_EXECUTION_ONLY');
 });
