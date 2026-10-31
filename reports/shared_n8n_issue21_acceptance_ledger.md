@@ -1,5 +1,15 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 손상된 부분 월 커서·페이지 수 요청의 무변경 차단 (전체 완료 아님)
+
+- [코드 패치 `8c7bd96`](https://github.com/lyonbegin/procureflow/commit/8c7bd960c921c4928f4d774a7704aa035136647f): `scan_month()`의 **부분 월** 저장값이 `checked/matched/page_cursor` 수학에 맞지 않을 때 `_service_key()` 호출과 `_write_month()` 수행 **전에** `blocked_invalid_page_cursor`를 반환하도록 변경. 손상된 원본 DB 행을 덮어쓰지 않고 읽기 전용으로 보존. `pages_max=True/False/float/string/None/0/음수`를 `int()`로 묵시 변환하거나 1로 보정하여 공식 API 요청을 시작하던 경로도 `blocked_invalid_page_limit`로 차단.
+- [격리 회귀 `ad9e633`](https://github.com/lyonbegin/procureflow/commit/ad9e6330edec8d135b9fdcc9d3d72b004254b3db): 손상된 부분 월 3종 × API 키 유무 2종, 잘못된 페이지 수 10종에 대해 **HTTP 0건 / API 키 조회 0건 / DB 쓰기 0건**을 FakeDB/FakeHTTP로 검사. 기존 구형 DB-write 기대값도 무변경 정책으로 보정.
+- [**동일 HEAD G2B 104 API + Node Lab #41226204956 SUCCESS**](https://github.com/lyonbegin/procureflow/actions/runs/41226204956): job `124610758521`, 실제 pytest 로그 **231 passed, 3 warnings**. [50종/43블록 계약 #41226204979](https://github.com/lyonbegin/procureflow/actions/runs/41226204979) 및 [오프라인 S01~S10 #41226205050](https://github.com/lyonbegin/procureflow/actions/runs/41226205050)도 **SUCCESS**.
+- [기존 운영 owner/readiness #41226205216 **FAIL**](https://github.com/lyonbegin/procureflow/actions/runs/41226205216): `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 기존 운영 계정/DB는 변경하지 않음.
+- 동일 SHA의 [공식 Pan/Chrome #41226205134](https://github.com/lyonbegin/procureflow/actions/runs/41226205134), [공식 후보 Docker/Chrome #41226205048](https://github.com/lyonbegin/procureflow/actions/runs/41226205048), [native S01~S10 #41226204898](https://github.com/lyonbegin/procureflow/actions/runs/41226204898), [PF15 #41226204927](https://github.com/lyonbegin/procureflow/actions/runs/41226204927), [Main/Worker 격리 #41226205039](https://github.com/lyonbegin/procureflow/actions/runs/41226205039), [단일 편집기 #41226205147](https://github.com/lyonbegin/procureflow/actions/runs/41226205147)은 이 기록 시점 **진행 중**, 최종 결과 확인 전 PASS 판정하지 않음.
+
+**남은 필수 수용:** 35종 실행 어댑터, 43개 실업무 핸들러·엄격 업무 스키마/Worker, 정확한 10자리 세부품명 기준 공식 10년 실제 개찰·낙찰 전수, 디버깅 80개 런타임 전수, 기존 n8n owner 복구 및 운영 전환 승인. **Issue Open / PR Draft·미병합 유지**. 운영 `main`/Railway 운영 서비스·DB/자격증명/실제 Worker dispatch·투찰 **변경 없음**.
+
 > 범위: `feature/shared-n8n-pan-integration`만 해당. **전체 필수 수용검사는 미완료**이며 이 문서는 배포 승인서가 아닙니다. 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 투찰을 변경하지 않습니다.
 
 
