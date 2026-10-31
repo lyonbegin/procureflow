@@ -601,6 +601,36 @@ def test_month_progress_does_not_certify_completed_without_snapshot():
     assert good["discovery_months_completed"] == 121
 
 
+@pytest.mark.parametrize("row_status,checked,matched,page,snapshot", [
+    ("completed",0,0,1,"absent"),
+    ("completed",0,0,1,None),
+    ("completed",500,20,2,"absent"),
+    ("completed",500,20,2,None),
+    ("partial",500,20,2,"absent"),
+    ("partial",500,20,2,None),
+    ("partial",500,20,2,500),
+])
+def test_read_only_month_progress_requires_persisted_snapshot_for_coverage(
+        row_status,checked,matched,page,snapshot):
+    rows=_all_registered_months()
+    rows[0].update(status=row_status,checked=checked,matched=matched,
+                   page_cursor=page)
+    if snapshot=="absent":
+        rows[0].pop("expected_total")
+    else:
+        rows[0]["expected_total"]=snapshot
+    result=summarize_month_cursor(rows)
+    assert result["registry_complete"] is True
+    assert result["invalid_cursor_rows"]==1
+    assert result["discovery_months_completed"]==120
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["months"][0]["cursor_valid"] is False
+    assert result["next_month"]["first_day"]==rows[0]["first_day"].isoformat()
+    assert result["read_only"] is True
+    assert result["job_enqueued"] is False
+    assert result["bid_submitted"] is False
+
+
 def test_verified_month_stores_only_parent8_candidate_not_award():
     good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
@@ -717,7 +747,7 @@ def _all_registered_months():
             if first<=last:
                 rows.append({"first_day":first,"last_day":last,
                              "status":"completed","checked":0,
-                             "matched":0,"page_cursor":1,
+                             "matched":0,"page_cursor":1,"expected_total":0,
                              "last_error":"serviceKey=SENSITIVE_API_KEY"})
     return rows
 
@@ -813,7 +843,8 @@ def test_corrupted_completed_month_never_certifies_eight_digit_coverage(bad_fiel
 ])
 def test_completed_month_cursor_arithmetic_is_fail_closed(checked,matched,page,expected_valid):
     rows=_all_registered_months()
-    rows[3].update(checked=checked,matched=matched,page_cursor=page)
+    rows[3].update(checked=checked,matched=matched,page_cursor=page,
+                   expected_total=checked)
     result=summarize_month_cursor(rows)
     assert result["months"][3]["cursor_valid"] is expected_valid
     assert result["invalid_cursor_rows"]==(0 if expected_valid else 1)
@@ -832,7 +863,8 @@ def test_completed_month_cursor_arithmetic_is_fail_closed(checked,matched,page,e
 ])
 def test_partial_month_cursor_does_not_hide_missing_pages(checked,matched,page,expected_valid):
     rows=_all_registered_months()
-    rows[1].update(status="partial",checked=checked,matched=matched,page_cursor=page)
+    rows[1].update(status="partial",checked=checked,matched=matched,page_cursor=page,
+                   expected_total=(checked+500 if checked else None))
     result=summarize_month_cursor(rows)
     assert result["months"][1]["cursor_valid"] is expected_valid
     assert result["invalid_cursor_rows"]==(0 if expected_valid else 1)
