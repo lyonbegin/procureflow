@@ -272,6 +272,56 @@ def test_corrupt_month_cursor_fails_closed_before_http(cursor_fields):
     assert not inserted
 
 
+@pytest.mark.parametrize("cursor_fields", [
+    {"checked": True}, {"checked": 1.5}, {"checked": "1.5"},
+    {"checked": None}, {"matched": False}, {"matched": 0.5},
+    {"matched": None}, {"page_cursor": True}, {"page_cursor": 1.5},
+    {"page_cursor": "1.5"}, {"page_cursor": None}, {"page_cursor": 0},
+])
+def test_malformed_persisted_cursor_never_coerces_into_coverage_or_calls_http(cursor_fields):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, cursor_fields), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key", return_value="SENSITIVE_API_KEY"), \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["read_only"] is True
+    assert result["reason"] == "invalid_persisted_cursor_values"
+    http.assert_not_called()
+    write.assert_not_called()
+    assert not db.inserted
+
+
+@pytest.mark.parametrize("cursor_fields,expected", [
+    ({"checked": 0, "matched": 0, "page_cursor": 1}, "already_completed"),
+    ({"checked": 500, "matched": 30, "page_cursor": 2}, "already_completed"),
+    ({"checked": 500, "matched": 30, "page_cursor": 1}, "blocked_invalid_page_cursor"),
+    ({"checked": 0, "matched": 0, "page_cursor": 2}, "blocked_invalid_page_cursor"),
+    ({"checked": 0, "matched": 1, "page_cursor": 1}, "blocked_invalid_page_cursor"),
+    ({"checked": True, "matched": 0, "page_cursor": 1}, "blocked_invalid_page_cursor"),
+    ({"checked": 1.5, "matched": 0, "page_cursor": 2}, "blocked_invalid_page_cursor"),
+])
+def test_completed_month_shortcut_requires_valid_auditable_cursor(cursor_fields,expected):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": "completed", **cursor_fields}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == expected
+    if expected == "blocked_invalid_page_cursor":
+        assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert not db.inserted
+
+
 def test_valid_resumed_full_page_cursor_can_finish_next_official_page():
     # A correctly persisted first 500-row page may resume at page 2.
     good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
