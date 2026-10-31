@@ -269,3 +269,15 @@
 - [기존 운영 owner/readiness #41203718655](https://github.com/lyonbegin/procureflow/actions/runs/41203718655) **FAIL (읽기 전용 기존 장애)**. 운영 DB/owner 변경 없음.
 - **필수 미완료:** 35종 실행 어댑터, 43개 실업무 핸들러/정식 payload, 공식 10년 개찰·낙찰 실데이터 전수, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·승인. **Issue Open, PR Draft·미병합, 최종 완료 통보 금지.**
 
+
+
+## 2026-11-01 KST — 공식 월별 수집 커서 위조/손상 차단 및 격리 회귀 (전체 완료 아님)
+
+- **변경 범위:** `feature/shared-n8n-pan-integration`의 `g2b_case_10y_official.py` 및 `tests/test_g2b_official_month_cycle.py`만 수정. 운영 `main`, Railway 서비스·운영 DB·자격증명·실제 G2B 호출·Worker dispatch·투찰 **변경 없음**.
+- **발견한 문제:** `scan_month()`가 DB에 저장된 `checked/matched/page_cursor`를 `int()`로 강제 변환하여 `True`, `1.5` 등 손상된 값을 정상 커서로 오인할 수 있었고, `status=completed`이면 커서 일관성을 검증하지 않고 `already_completed`를 반환했다. 이로 인해 121개월의 8자리 공고 발견 완료 상태를 잘못 신뢰할 수 있었다.
+- **수정 커밋:** [`e284a68`](https://github.com/lyonbegin/procureflow/commit/e284a689d301099b468937d27b6955117ef79c8e), [`a31a1a5`](https://github.com/lyonbegin/procureflow/commit/a31a1a502ce2b81a264f316151c63e2eda9708a3), [최종 테스트 `d2e155e`](https://github.com/lyonbegin/procureflow/commit/d2e155e345d0ba6357827bea701ece79c4f61af6). `_audit_nonnegative_integer`를 사용해 DB 커서 원본 타입을 먼저 검증하고, 손상된 값은 **HTTP 호출 및 DB 기록 없이 read-only 차단**. 완료된 월은 `page==(checked+499)//500+1` 및 `matched<=checked`을 검증한 경우만 `already_completed` 반환. 정상 수치지만 일관성 없는 미완료 월의 기존 격리 상태 기록은 유지.
+- **실제 실패 분석/재검증:** [중간 SHA CI #41219439368](https://github.com/lyonbegin/procureflow/actions/runs/41219439368)에서 기존 `checked=-1` 테스트가 예전 `_write_month` 호출을 기대해 **1 failed / 174 passed**. 새 정책은 손상된 DB 값을 다시 쓰지 않는 것이므로 기대값을 수정하고 19개 손상·완료 커서 음성/양성 사례를 추가. [최종 코드 SHA `d2e155e` G2B 104 API/Node Lab CI #41219473523](https://github.com/lyonbegin/procureflow/actions/runs/41219473523) **SUCCESS, 175 passed / 3 warnings**.
+- [같은 SHA 오프라인 S01~S10 #41219473585](https://github.com/lyonbegin/procureflow/actions/runs/41219473585) **SUCCESS**. [50종/43블록 #41219473545](https://github.com/lyonbegin/procureflow/actions/runs/41219473545), [공식 Pan/Chrome #41219473538](https://github.com/lyonbegin/procureflow/actions/runs/41219473538), [공식 후보 Docker/Chrome #41219473554](https://github.com/lyonbegin/procureflow/actions/runs/41219473554), [native S01~S10 #41219473562](https://github.com/lyonbegin/procureflow/actions/runs/41219473562), [Main/Worker 격리 이미지 #41219473558](https://github.com/lyonbegin/procureflow/actions/runs/41219473558), [PF15 #41219473517](https://github.com/lyonbegin/procureflow/actions/runs/41219473517)은 이 기록 시점 일부 진행/대기 중이므로 **최종 PASS 선판정 금지**.
+- **기존 owner 장애:** [직전 동일 기능 SHA의 운영 읽기 전용 CI #41212303293](https://github.com/lyonbegin/procureflow/actions/runs/41212303293) FAIL, `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`. 운영 owner/DB 변경 없이 남겨둠.
+- **남은 필수 수용 기준:** 35종 미지원 공유 노드 실행 매핑, 43개 실제 G2B 업무 핸들러·payload, 정확한 10년 공식 개찰·낙찰 전수·Worker fencing, 80개 디버깅 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. **Issue Open, PR Draft·미병합, 전체 완료 통보 금지.**
+
