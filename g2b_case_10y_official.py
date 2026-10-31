@@ -165,8 +165,12 @@ def scan_month(first, pages_max=30):
             # page, not raise outside the HTTP/parse exception handler and
             # leave a misleading cursor state. Never silently coerce a
             # negative amount into a valid historical notice.
+            raw_amount=item.get("asignBdgtAmt")
+            if isinstance(raw_amount,(list,dict,bool)):
+                invalid+=1
+                continue
             try:
-                amount=int(item.get("asignBdgtAmt") or 0)
+                amount=int(raw_amount) if raw_amount is not None and raw_amount!="" else 0
             except (ValueError,TypeError,OverflowError):
                 invalid+=1
                 continue
