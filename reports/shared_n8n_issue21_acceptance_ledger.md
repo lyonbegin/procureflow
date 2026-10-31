@@ -330,3 +330,15 @@
 - **동일 SHA의 나머지 Docker/공식 Chrome/Pan/43블록/104 API/native S01~S10/PF15/Main-Worker 검증:** 해당 시점 일부 진행/대기 중. 결과를 확인하기 전 PASS라고 보고하지 않는다.
 - **기존 owner/readiness:** [읽기 전용 CI #41247707093](https://github.com/lyonbegin/procureflow/actions/runs/41247707093) **FAIL**, 이전부터 존재한 `EDITOR_BLOCKED_UNCLAIMED_OWNER` 장애. 운영 owner/DB를 수정하지 않는다.
 - **필수 미완료:** 35종 실행 어댑터, 43개 실제 업무 핸들러·payload, 정확한 10년 개찰·낙찰 공식 전수, 80개 디버깅 런타임 전수, 운영 owner/DB/키 호환성 및 명시적 승인. **Issue Open / PR Draft·미병합 / 전체 완료 통보 금지**.
+
+
+## 2026-11-01 KST — 공식 8자리 월별 수집 완료 집계의 누락 totalCount 스냅샷 차단 (**전체 완료 아님**)
+
+- **원인:** `scan_month()`의 완료/재개 경로는 이미 공식 API `expected_total` 스냅샷을 필수로 검증하지만, **읽기 전용** `summarize_month_cursor()`는 `expected_total` **필드 자체가 없으면** 검사 없이 `cursor_valid=true`를 허용했다. 이전 스키마의 완료 월 121개를 공식 API 총건수 확인 없이 `eight_digit_notice_discovery_complete=true`로 인증할 수 있는 불일치였다. `partial`의 `checked>0`도 스냅샷 필드가 없으면 같은 허점이 있었다.
+- **브랜치 전용 패치:** [집계기 fail-closed `af9dac1`](https://github.com/lyonbegin/procureflow/commit/af9dac1b98f5005dcb47b045d883f2c13801ad16) · [7개 누락/null 스냅샷 격리 회귀 `eecfa73`](https://github.com/lyonbegin/procureflow/commit/eecfa7395c4dc806cddddec0ad01503f4d3745ee) · [불필요한 분기 제거 `ee7d961`](https://github.com/lyonbegin/procureflow/commit/ee7d961441c2ef8678cbe7da4e07de6960dbd585).
+- **변경 효과:** 완료 월은 `expected_total == checked`가 **실제 저장돼 있어야만** 검증 통과. 500건 이상 수집한 부분 월은 `expected_total > checked`를 요구. 누락/NULL/불일치 시 `invalid_cursor_rows`에 집계하고 전체 8자리 공고 발견 완료를 차단. 기존 121개월 시험 fixture는 공식 0건 스냅샷을 명시해 올바른 양성 검증을 유지.
+- **실제 격리 CI:** [G2B 104 API + Node Lab #41254301221](https://github.com/lyonbegin/procureflow/actions/runs/41254301221) **SUCCESS**, [실제 job 로그](https://github.com/lyonbegin/procureflow/actions/runs/41254301221/job/124694088078) **281 passed / 3 warnings**. [S01~S10 오프라인 #41254301236](https://github.com/lyonbegin/procureflow/actions/runs/41254301236) SUCCESS; [50종/43블록 #41254301262](https://github.com/lyonbegin/procureflow/actions/runs/41254301262) SUCCESS.
+- [기존 공식 n8n owner/readiness #41254301232](https://github.com/lyonbegin/procureflow/actions/runs/41254301232) **FAIL**: 읽기 전용 실측 `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 기존 owner/DB/인증키는 변경하지 않음.
+- 동일 최신 SHA의 공식 Docker/Chrome/Pan/native 시나리오/Main-Worker/PF15 CI는 **별도 완료 확인 전까지 PASS로 보고하지 않음**.
+- **남은 필수 수용검사:** 35종 미지원 실행 매핑, 43개 실제 업무 핸들러·정식 payload, 정확한 10년 공식 개찰·낙찰 전수 및 Worker fencing, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. 이번 수정은 **8자리 공고 발견 집계의 거짓 완료 방지**이며 10자리 실제 개찰·낙찰 완전성 증명이 아니다.
+- **불변:** 운영 `main`, Railway 운영 서비스/DB, 자격증명, 실제 G2B 호출/Worker dispatch/투찰 변경 없음. Issue #21 Open, PR #22 Draft·미병합. 전체 완료 통보 금지.
