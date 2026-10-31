@@ -113,17 +113,30 @@ def scan_month(first, pages_max=30):
                  checked,matched FROM procureflow.g2b_case_10yr_windows
                  WHERE case_bid_no=%s AND first_day=%s""",(CASE_BID,first)).fetchone()
     if not row:raise ValueError("month not in chosen ten-year horizon")
-    if row["status"]=="completed":return {"status":"already_completed","first_day":str(first)}
+    # Validate persisted cursor types BEFORE coercion, network access or a
+    # completed-month shortcut. int(True), int(1.5), and int("2") can mask
+    # corrupted coverage evidence; a completed row is not automatically proof.
+    inspected=_audit_nonnegative_integer(row["checked"])
+    matched=_audit_nonnegative_integer(row["matched"])
+    page=_audit_nonnegative_integer(row["page_cursor"])
+    if (inspected is None or matched is None or page is None or page<1 or
+            matched>inspected):
+        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                "read_only":True,"reason":"invalid_persisted_cursor_values"}
+    if row["status"]=="completed":
+        # A zero-result month is page 1; a nonempty final page advances
+        # exactly once. Corrupted completed rows must not be certified.
+        if page!=(inspected+499)//500+1:
+            return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                    "read_only":True,"reason":"completed_cursor_mismatch"}
+        return {"status":"already_completed","first_day":str(first)}
     key=_service_key()
     if not key:
         _write_month(row["first_day"],row["last_day"],"blocked_missing_official_api_key",
-                     row["matched"],row["checked"],row["page_cursor"])
+                     matched,inspected,page)
         return {"status":"blocked_missing_official_api_key","first_day":str(first),
                 "operation":"getBidPblancListInfoServcPPSSrch",
                 "instructions":"Set existing Railway worker's G2B_API_KEY or DATA_GO_KR_SERVICE_KEY"}
-    inspected=int(row["checked"])
-    matched=int(row["matched"])
-    page=int(row["page_cursor"])
     # A partial month advances only after a FULL 500-row page has been
     # persisted. A mismatched page_cursor/checked pair can silently skip
     # official pages and falsely certify a ten-year discovery window.
