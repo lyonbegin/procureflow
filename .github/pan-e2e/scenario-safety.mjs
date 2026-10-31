@@ -107,7 +107,7 @@ export function makeSafeScenario(original,id){
  * The caller must pass the actual /rest/executions/{id} result and runData.
  * Offline tests exercise only this verifier's failure modes.
  */
-export function verifyNativeScenarioEvidence({payload,scenario,baseState,execution,runData,fixture,expectedExecutionId}) {
+export function verifyNativeScenarioEvidence({payload,scenario,baseState,execution,runData,fixture,expectedExecutionId,expectedWorkflowId}) {
   const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
   assert(scenario&&/^S(?:0[1-9]|10)$/.test(scenario.id),'Invalid native scenario plan');
   assert(execution?.status==='success','Native n8n execution did not succeed');
@@ -117,6 +117,14 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
     assert(typeof expectedExecutionId==='string'&&expectedExecutionId.length>0&&
       String(execution.id)===expectedExecutionId,
       'Native scenario execution ID does not match the Chrome run');
+  }
+  // The GET /rest/executions/:id payload must belong to the exact workflow
+  // the Chrome driver just saved. Matching run IDs and a plausible trace
+  // alone must not accept an execution from another isolated workflow.
+  if(expectedWorkflowId!==undefined){
+    assert(typeof expectedWorkflowId==='string'&&expectedWorkflowId.length>0&&
+      String(execution.workflowId)===expectedWorkflowId,
+      'Native scenario workflow ID does not match the Chrome-saved workflow');
   }
   assert(payload?.scenario_id===scenario.id&&payload.case_id==='DEMO_ONLY',
     'Native scenario/case identity mismatch');
