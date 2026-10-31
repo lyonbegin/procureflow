@@ -129,6 +129,19 @@ def scan_month(first, pages_max=30):
             return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                     "read_only":True,"reason":"completed_cursor_mismatch"}
         return {"status":"already_completed","first_day":str(first)}
+    # Validate the persisted partial cursor BEFORE credential lookup or any
+    # DB mutation. A malformed row must remain untouched for independent
+    # forensic review, including when the API key is absent.
+    if (matched>inspected or inspected%500!=0 or page!=inspected//500+1):
+        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                "checked":inspected,"matched":matched,"next_page":page,
+                "reason":"partial_cursor_mismatch","read_only":True}
+    # Boolean/fractional/string page limits must not silently become a
+    # positive request count (int(True)==1, int(1.5)==1).
+    if type(pages_max) is not int or pages_max<1:
+        return {"status":"blocked_invalid_page_limit","first_day":str(first),
+                "reason":"pages_max_must_be_positive_integer","read_only":True}
+    pages_max=min(30,pages_max)
     key=_service_key()
     if not key:
         _write_month(row["first_day"],row["last_day"],"blocked_missing_official_api_key",
@@ -136,19 +149,6 @@ def scan_month(first, pages_max=30):
         return {"status":"blocked_missing_official_api_key","first_day":str(first),
                 "operation":"getBidPblancListInfoServcPPSSrch",
                 "instructions":"Set existing Railway worker's G2B_API_KEY or DATA_GO_KR_SERVICE_KEY"}
-    # A partial month advances only after a FULL 500-row page has been
-    # persisted. A mismatched page_cursor/checked pair can silently skip
-    # official pages and falsely certify a ten-year discovery window.
-    # Fail closed before issuing any API request; never guess a new cursor.
-    if (inspected<0 or matched<0 or matched>inspected or
-            inspected%500!=0 or page!=inspected//500+1):
-        _write_month(row["first_day"],row["last_day"],
-                     "blocked_invalid_page_cursor",matched,inspected,page,
-                     "checked_page_cursor_or_matched_inconsistent")
-        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
-                "checked":inspected,"matched":matched,"next_page":page,
-                "read_only":True}
-    pages_max=max(1,min(30,int(pages_max)))
     params={"serviceKey":key,"type":"json","inqryDiv":"1",
         "inqryBgnDt":row["first_day"].strftime("%Y%m%d")+"0000",
         "inqryEndDt":row["last_day"].strftime("%Y%m%d")+"2359",
