@@ -87,7 +87,10 @@ test('official Google Chrome scenario driver must use the same fail-closed trans
 });
 
 test('official Chrome S01-S10 target accepts only an isolated HTTP loopback origin',()=>{
-  for(const url of ['http://127.0.0.1:5678','http://localhost:5678','http://[::1]:5678']){
+  for(const url of [
+    'http://127.0.0.1:5678','http://[::1]:5678',
+    'http://127.0.0.1:5681','http://[::1]:5681'
+  ]){
     assert.equal(assertIsolatedN8nUrl(url),new URL(url).origin);
   }
   for(const url of [
@@ -96,6 +99,15 @@ test('official Chrome S01-S10 target accepts only an isolated HTTP loopback orig
     'http://example.com:5678',
     'https://127.0.0.1:5678',
     'http://0.0.0.0:5678',
+    // Hostname remapping and arbitrary local service ports must not be able
+    // to receive owner/setup and workflow POSTs from official Chrome tests.
+    'http://localhost:5678',
+    'http://localhost.localdomain:5678',
+    'http://127.0.0.2:5678',
+    'http://127.0.0.1:5432',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5679',
+    'http://[::1]:5432',
     'http://127.0.0.1',
     'http://127.0.0.1:5678/rest/workflows',
     'http://127.0.0.1:5678?redirect=prod',
