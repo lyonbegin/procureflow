@@ -71,14 +71,29 @@ def _page_verdict(inspected:int,total:int,entries:int,page_size:int=500)->str:
     return "partial"
 
 def _category_from(item):
-    """Accept only a *dedicated official field*, not digits in bid title."""
-    for k in ("prdctClsfcNo","prdlstClsfcNo","prdlstClsfcNo",
+    """Validate *all* supplied official classification fields, not just the first.
+
+    A valid parent8 followed by a conflicting detail/parent field must not
+    silently certify the page. Conflicting official fields require review;
+    this is still only 8-digit notice discovery, not exact-10 evidence.
+    """
+    codes=[]
+    for k in ("prdctClsfcNo","prdlstClsfcNo",
               "dtilPrdctClsfcNo","dtilPrdlstClsfcNo","prdctClsfcCd"):
-        value=str(item.get(k) or "").strip()
-        if re.fullmatch(r"\d{8}(\d{2})?",value):
-            if value[:8]==CAT8:return True
-            return False
-    return None
+        raw=item.get(k)
+        if raw is None or raw=="":
+            continue
+        value=str(raw).strip()
+        if not re.fullmatch(r"\d{8}(\d{2})?",value):
+            return None
+        codes.append(value)
+    if not codes:
+        return None
+    parents={code[:8] for code in codes}
+    details={code for code in codes if len(code)==10}
+    if len(parents)!=1 or len(details)>1:
+        return None
+    return next(iter(parents))==CAT8
 
 def _write_month(first,last,status,matched=0,checked=0,page=1,err=""):
     with session() as con:
