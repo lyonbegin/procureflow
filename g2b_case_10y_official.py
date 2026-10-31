@@ -60,9 +60,10 @@ def _page_verdict(inspected:int,total:int,entries:int,page_size:int=500)->str:
     This validates an official 8-digit discovery window ONLY. It does not
     certify 10-digit eligibility or opening/final-award evidence.
     """
-    if (not isinstance(inspected,int) or not isinstance(total,int) or
-            not isinstance(entries,int) or inspected<0 or total<0 or
-            entries<0 or entries>page_size or inspected+entries>total):
+    if (type(inspected) is not int or type(total) is not int or
+            type(entries) is not int or type(page_size) is not int or
+            inspected<0 or total<0 or entries<0 or page_size<=0 or
+            entries>page_size or inspected+entries>total):
         return "inconsistent"
     if inspected+entries==total:
         return "completed"
