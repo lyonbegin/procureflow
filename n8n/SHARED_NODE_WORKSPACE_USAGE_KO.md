@@ -1,10 +1,19 @@
 # ProcureFlow — 공통 n8n Studio 노드 입력·이력·재실행 모듈 사용 지침
 
+## 노드 실행 버튼 UX (공통 v3)
+
+- **노드 위 `▶ 실행`: 모달을 열지 않고 저장된 최신 INPUT으로 허용된 어댑터를 실행합니다. 캔버스가 보이는 상태로 노드가 실행 중/성공/실패 색상과 상태를 표시합니다.** 실행 기록은 서버 SQLite에 남습니다.
+- **노드 위 `⚙ 설정·이력`: 사용자가 이 버튼을 명시적으로 눌렀을 때만 노드 작업 공간 모달을 엽니다.** 이때 저장된 실제 실행 OUTPUT과 수정 이력을 조회합니다.
+- 모달의 `저장 후 ▶ 다시 실행`은 입력 편집 상황에서 명시적으로 실행 요청하는 별도 동작입니다. 새 모달을 열지 않습니다.
+- 이 정책은 공통 UI 동작이며 ProcureFlow 등 실제 어댑터 미연결 노드의 ▶ 실행은 비활성화됩니다.
+- 실제 Chromium 검증: https://github.com/lyonbegin/shared-n8n-studio/actions/runs/41229102100 (25/25 통과, Strategy/Library 모두 ▶ 클릭 후 모달 0개 확인).
+
+
 > 갱신: 2026-11-01  
 > 소비 프로젝트: `lyonbegin/procureflow` `main`  
 > 공통 코드: https://github.com/lyonbegin/shared-n8n-studio  
-> **기준 검증 커밋(독립 VueFlow Studio)**: `4ad935022085fece81b6761e9d065438050eb12d`  
-> 공통 모듈 브라우저 테스트: https://github.com/lyonbegin/shared-n8n-studio/actions/runs/41228535491 (23/23, 주식 N01 적용 검증)  
+> **기준 검증 커밋(독립 VueFlow Studio)**: `ae6653a8c4daae5d767c4d9c98b662ffc597a797`  
+> 공통 모듈 브라우저 테스트: https://github.com/lyonbegin/shared-n8n-studio/actions/runs/41229102100 (25/25, 주식 N01 적용 검증)  
 > 공통 원본 설명: https://github.com/lyonbegin/shared-n8n-studio/blob/feature/wf01-canvas-20261029/docs/SHARED_NODE_WORKSPACE_KO.md
 
 ## 1. 현재 적용 상태를 먼저 구분
@@ -40,7 +49,7 @@ ProcureFlow의 **현재 실제 업무용 편집기는 공식 n8n 2.44.6**이고 
 
 ## 3. 재사용 순서 — 운영 엔진과 분리된 테스트에서만
 
-1. 테스트용 브랜치/별도 서비스를 구성하고, 공통 Git 커밋 `4ad935022085fece81b6761e9d065438050eb12d`을 고정해 소스 전체를 참조합니다. 최신 `main`을 무조건 사용하지 않습니다.
+1. 테스트용 브랜치/별도 서비스를 구성하고, 공통 Git 커밋 `ae6653a8c4daae5d767c4d9c98b662ffc597a797`을 고정해 소스 전체를 참조합니다. 최신 `main`을 무조건 사용하지 않습니다.
 2. 독립 VueFlow Studio 기반 테스트 서비스를 선택한다면 `SharedNodeWorkspace.vue`, `node_workspace_store.py`, `studio_server.py`, `App.vue`, `style.css` 버전을 **동일 커밋으로** 맞춥니다. 호환되는 `investment-adapter.js` 대신 ProcureFlow의 PF/S 목록 어댑터를 별도 개발합니다.
 3. 실제 PF 운영 파일을 자동 활성화하지 않습니다. 테스트 전용 합성 `PF01_SANDBOX` 노드만 등록하고 공식 15개 운영 PF의 `active:false` 및 증빙·투찰 차단 규칙을 보존합니다.
 4. 공통 서버가 현재 파일명/노드 ID를 찾도록 `operations|scenarios` 경로·워크플로 매핑을 검증합니다. 원본 n8n JSON node id/name/type/parameters/connection을 훼손하지 않습니다.
@@ -104,7 +113,7 @@ PUT 예제:
 
 ## 7. 회귀/도입 판정
 
-공통 모듈 자체의 참조 CI: https://github.com/lyonbegin/shared-n8n-studio/actions/runs/41228535491 (23/23 Chromium 통과). **주식 자동화 N01에 대한 증거**이며 ProcureFlow 실제 실행 증거는 아닙니다.
+공통 모듈 자체의 참조 CI: https://github.com/lyonbegin/shared-n8n-studio/actions/runs/41229102100 (25/25 Chromium 통과). **주식 자동화 N01에 대한 증거**이며 ProcureFlow 실제 실행 증거는 아닙니다.
 
 ProcureFlow 도입 완료를 주장하려면 최소한 다음을 통과해야 합니다:
 - PF/S 워크플로 선택, 원본 노드 유형/연결선 보존
