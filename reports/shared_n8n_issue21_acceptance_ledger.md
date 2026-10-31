@@ -3,6 +3,17 @@
 > 범위: `feature/shared-n8n-pan-integration`만 해당. **전체 필수 수용검사는 미완료**이며 이 문서는 배포 승인서가 아닙니다. 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 투찰을 변경하지 않습니다.
 
 
+## 2026-10-31 KST — 121개 월별 공식 공고 진행률 커서 무결성 강화 (**전체 완료 아님**)
+
+- [읽기 전용 진행률 검증 패치 `16d2e8c`](https://github.com/lyonbegin/procureflow/commit/16d2e8c2a55c9cacb3637f205bbd7716615b2e5d): `summarize_month_cursor()`가 완료 상태의 음수·불리언·소수·잘못된 문자열 `checked/matched/page_cursor`를 `int()`로 묵시 변환하거나 0으로 덮어 **121/121 완료로 잘못 표시**할 수 있던 경로 차단. 완료 월은 페이지 수와 커서의 일치성(0건→page 1, 1~500건→page 2 등), `matched<=checked` 검증을 통과해야 완료 건수에 산입. 부분 월은 500건 단위의 저장된 전체 페이지·다음 커서 일치성을 검사. 응답에 `cursor_valid`, `invalid_cursor_rows` 진단 추가.
+- [공식 페이지 판정 타입 패치 `342ec62`](https://github.com/lyonbegin/procureflow/commit/342ec6225c94cbbca9e02196f1dc0aaac7d277e4): `_page_verdict()`가 `True`/ `False`를 정수로 인정하거나 0·음수 페이지 크기를 허용하지 않도록 fail-closed 처리.
+- [39개 격리 양성·음성 pytest 케이스 `340d6cf`](https://github.com/lyonbegin/procureflow/commit/340d6cf265d0a6b803afd113992631f7cae1b2bb): 공식 페이지 bool/크기 6, 완료 월 손상 18, 정상·손상 완료 커서 8, 부분 커서 7. **FakeDB·읽기 전용 순수 함수만 사용**; 운영 DB·공식 API·실제 투찰 호출 없음.
+- [**G2B 104 API + Node Lab CI #41207212596 SUCCESS**](https://github.com/lyonbegin/procureflow/actions/runs/41207212596): job `124554638608` 실제 로그 **155 passed, 3 warnings**. [오프라인 S01~S10 #41207212589 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41207212589), [단일 공식 편집기 #41207212642 SUCCESS](https://github.com/lyonbegin/procureflow/actions/runs/41207212642).
+- [기존 운영 owner/readiness #41207212607 FAIL](https://github.com/lyonbegin/procureflow/actions/runs/41207212607): **읽기 전용 실측** `gatewayHealthStatus=200`, `settingsStatus=200`, `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `ready=false`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 운영 관리자 생성·DB 변경 없이 원래 장애를 보존.
+- 같은 HEAD `340d6cf`의 [공식 Pan/Chrome #41207212658](https://github.com/lyonbegin/procureflow/actions/runs/41207212658), [공식 후보 Docker/Chrome #41207212616](https://github.com/lyonbegin/procureflow/actions/runs/41207212616), [native S01~S10 #41207212643](https://github.com/lyonbegin/procureflow/actions/runs/41207212643), [50종/43블록 #41207212665](https://github.com/lyonbegin/procureflow/actions/runs/41207212665), [Main/Worker 격리 이미지 #41207212622](https://github.com/lyonbegin/procureflow/actions/runs/41207212622), [PF15 #41207212599](https://github.com/lyonbegin/procureflow/actions/runs/41207212599)은 이 기록 시점 **일부 실행 중/대기**. 이전 SHA의 PASS를 최신 SHA의 PASS로 대체하지 않음.
+
+**미완료:** 35종 실행 매핑, 43개 실제 업무 핸들러 및 엄격 payload, 정확한 10년 개찰·투찰·낙찰 공식 실데이터 전수, 별도 디버깅 80개 런타임, 기존 owner/DB/키 호환성·운영 승인. **Issue OPEN / PR Draft·미병합**. 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 Worker dispatch/투찰 미변경.
+
 ## 2026-10-31 KST — 공식 월별 G2B 응답의 totalCount/items 엄격 검증 (전체 완료 아님)
 
 - [응답 totalCount 타입 강제 `5e7d7c2`](https://github.com/lyonbegin/procureflow/commit/5e7d7c22024f9d8992d52ae3e5e0e56561268353): 공식 응답의 `totalCount`가 float/bool/list/object/소수·지수 문자열이면 `int(...)` 묵시적 변환을 금지하고 오류로 차단. `int(1.5)==1` 또는 `int(True)==1`로 **월 완료 오판** 가능했던 경로를 제거. 정상 정수/숫자 문자열만 허용.
