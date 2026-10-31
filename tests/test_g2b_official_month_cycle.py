@@ -142,6 +142,43 @@ def test_official_null_or_empty_items_remain_valid_zero_result_response(empty_it
     assert items == [] and total == 0
 
 
+@pytest.mark.parametrize("echo_field,echo_value", [
+    ("pageNo", 2), ("pageNo", 0), ("pageNo", True),
+    ("pageNo", 1.5), ("pageNo", "1.0"), ("pageNo", []),
+    ("numOfRows", 100), ("numOfRows", 0), ("numOfRows", False),
+    ("numOfRows", 500.0), ("numOfRows", "500.0"), ("numOfRows", {}),
+])
+def test_official_page_echo_mismatch_never_certifies_month(echo_field, echo_value):
+    # A cached page-2 response or server-imposed 100-row page size must not
+    # be treated as the requested page 1 with 500 rows, even if totalCount=0.
+    payload = response([], 0)
+    payload["response"]["body"][echo_field] = echo_value
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert not inserted
+
+
+@pytest.mark.parametrize("page_no,rows", [
+    (1, 500), ("1", "500"), (" 1 ", " 500 "),
+])
+def test_official_matching_page_echo_is_accepted(page_no, rows):
+    payload = response([], 0)
+    payload["response"]["body"].update(pageNo=page_no, numOfRows=rows)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "completed"
+    assert result["checked"] == 0
+    assert statuses[0][2] == "completed"
+    assert not inserted
+
+
+def test_official_page_echo_missing_remains_compatible_with_legacy_response():
+    payload = response([], 0)
+    items, total = _parse(payload, expected_page=1, expected_rows=500)
+    assert items == [] and total == 0
+
+
 def test_official_zero_result_month_persists_page_one_and_passes_read_only_audit():
     # A legitimate zero-result API response is completed with checked=0.
     # The saved cursor must remain page 1, matching the read-only 121-month
