@@ -34,19 +34,28 @@ const assert=(condition,message)=>{if(!condition)throw Error(message);};
 // not checked against a PF step's exact state/trace schema below.
 const FORBIDDEN_NATIVE_DISPATCH_KEYS=new Set([
   'bid_submitted','worker_job_enqueued','job_enqueued',
-  'automated_bid_submission','automatic_bid_submission','actual_job_executed'
+  'automated_bid_submission','automatic_bid_submission','actual_job_executed',
+  // Match the official custom node's read-only provenance guard: JS/provider
+  // payloads can express the same unsafe action using camelCase keys.
+  'bidSubmitted','workerJobEnqueued','jobEnqueued',
+  'automatedBidSubmission','automaticBidSubmission','actualJobExecuted'
 ]);
 function hasUnsafeNativeDispatchClaim(root){
   const pending=[root],seen=new WeakSet();
-  let inspected=0;
+  let inspectedObjects=0,inspectedFields=0;
+  const MAX_INSPECTED=10000;
   while(pending.length){
     const item=pending.pop();
     if(!item||typeof item!=='object')continue;
     if(seen.has(item))continue;
     seen.add(item);
-    // Never let a huge or cyclic synthetic response exhaust the verifier.
-    if(++inspected>10000)return true;
-    for(const [key,value] of Object.entries(item)){
+    // Bound both objects and primitive-only fields. Object.entries() could
+    // allocate an unbounded array from one oversized provider payload.
+    if(++inspectedObjects>MAX_INSPECTED)return true;
+    for(const key in item){
+      if(!Object.hasOwn(item,key))continue;
+      if(++inspectedFields>MAX_INSPECTED)return true;
+      const value=item[key];
       if(FORBIDDEN_NATIVE_DISPATCH_KEYS.has(key)&&value!==false)return true;
       if(value&&typeof value==='object')pending.push(value);
     }
