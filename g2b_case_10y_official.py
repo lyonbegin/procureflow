@@ -114,13 +114,15 @@ def _category_from(item):
         return None
     return next(iter(parents))==CAT8
 
-def _write_month(first,last,status,matched=0,checked=0,page=1,err=""):
+def _write_month(first,last,status,matched=0,checked=0,page=1,err="",expected_total=None):
     with session() as con:
         con.execute("""UPDATE procureflow.g2b_case_10yr_windows
              SET status=%s,source=%s,matched=%s,checked=%s,page_cursor=%s,
-               last_error=%s,updated_at=now()
+               last_error=%s,expected_total=COALESCE(%s,expected_total),
+               updated_at=now()
              WHERE case_bid_no=%s AND first_day=%s AND last_day=%s
-        """,(status,"official_bidpublicinfo",matched,checked,page,err[:300],CASE_BID,first,last))
+        """,(status,"official_bidpublicinfo",matched,checked,page,err[:300],
+             expected_total,CASE_BID,first,last))
 
 def scan_month(first, pages_max=30):
     """Progress a single pre-registered month; next call resumes last page."""
@@ -128,7 +130,7 @@ def scan_month(first, pages_max=30):
     if isinstance(first,str):first=date.fromisoformat(first)
     with session() as con:
         row=con.execute("""SELECT first_day,last_day,status,page_cursor,
-                 checked,matched FROM procureflow.g2b_case_10yr_windows
+                 checked,matched,expected_total FROM procureflow.g2b_case_10yr_windows
                  WHERE case_bid_no=%s AND first_day=%s""",(CASE_BID,first)).fetchone()
     if not row:raise ValueError("month not in chosen ten-year horizon")
     # Validate persisted cursor types BEFORE coercion, network access or a
@@ -140,12 +142,27 @@ def scan_month(first, pages_max=30):
     if (inspected is None or matched is None or page is None or page<1):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "read_only":True,"reason":"invalid_persisted_cursor_values"}
+    # A page cursor alone cannot prove that totalCount stayed stable across
+    # separate scan_month invocations. The first verified page persists the
+    # official snapshot; later calls must compare against the same count.
+    # Legacy partial/completed rows with missing snapshots are not certified.
+    raw_snapshot=row.get("expected_total")
+    snapshot=_audit_nonnegative_integer(raw_snapshot)
+    if inspected>0 and snapshot is None:
+        return {"status":"blocked_unverified_snapshot","first_day":str(first),
+                "read_only":True,"reason":"missing_persisted_total_count"}
+    if snapshot is not None and snapshot<inspected:
+        return {"status":"blocked_unverified_snapshot","first_day":str(first),
+                "read_only":True,"reason":"snapshot_smaller_than_checked"}
     if row["status"]=="completed":
         # A zero-result month is page 1; a nonempty final page advances
         # exactly once. Corrupted completed rows must not be certified.
         if matched>inspected or page!=(inspected+499)//500+1:
             return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                     "read_only":True,"reason":"completed_cursor_mismatch"}
+        if snapshot is None or snapshot!=inspected:
+            return {"status":"blocked_unverified_snapshot","first_day":str(first),
+                    "read_only":True,"reason":"completed_snapshot_mismatch"}
         return {"status":"already_completed","first_day":str(first)}
     # Validate the persisted partial cursor BEFORE credential lookup or any
     # DB mutation. A malformed row must remain untouched for independent
@@ -154,6 +171,9 @@ def scan_month(first, pages_max=30):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "checked":inspected,"matched":matched,"next_page":page,
                 "reason":"partial_cursor_mismatch","read_only":True}
+    if inspected>0 and snapshot<=inspected:
+        return {"status":"blocked_unverified_snapshot","first_day":str(first),
+                "read_only":True,"reason":"partial_snapshot_not_ahead_of_cursor"}
     # Boolean/fractional/string page limits must not silently become a
     # positive request count (int(True)==1, int(1.5)==1).
     if type(pages_max) is not int or pages_max<1:
@@ -174,7 +194,7 @@ def scan_month(first, pages_max=30):
     # A live official API can change while a month is being paginated.
     # Never certify coverage if its totalCount drifts or a notice identity
     # reappears on a later page within the same scan invocation.
-    expected_total=None
+    expected_total=snapshot
     seen_notice_keys=set()
     for _ in range(pages_max):
         params["pageNo"]=page
@@ -193,11 +213,13 @@ def scan_month(first, pages_max=30):
             return {"status":"error","first_day":str(first),"reason":reason}
         if expected_total is not None and total!=expected_total:
             # Previous pages remain auditable as partial; the changed page
-            # is neither inserted nor counted toward a completed month.
+            # is neither inserted nor counted toward a completed month,
+            # including when the earlier page came from a previous call.
             _write_month(row["first_day"],row["last_day"],
                          "blocked_unverified_response_scope",
                          matched,inspected,page,
-                         "official_total_count_changed_between_pages")
+                         "official_total_count_changed_between_pages",
+                         expected_total=expected_total)
             return {"status":"blocked_unverified_response_scope",
                     "first_day":str(first),"page":page,
                     "reason":"official_total_count_changed_between_pages"}
@@ -326,7 +348,7 @@ def scan_month(first, pages_max=30):
         complete=verdict=="completed"
         _write_month(row["first_day"],row["last_day"],
                      "completed" if complete else "partial",
-                     matched,inspected,page)
+                     matched,inspected,page,expected_total=expected_total)
         if complete:
             return {"status":"completed","first_day":str(first),"checked":inspected,
                     "matched":matched,"total_records":total}
@@ -371,6 +393,8 @@ def summarize_month_cursor(rows):
         raw_checked=_audit_nonnegative_integer(row.get("checked"))
         raw_matched=_audit_nonnegative_integer(row.get("matched"))
         raw_page=_audit_nonnegative_integer(row.get("page_cursor"))
+        snapshot_present="expected_total" in row
+        raw_snapshot=_audit_nonnegative_integer(row.get("expected_total"))
         # Keep the read-only diagnostic available even for corrupted DB rows.
         # Never treat a coerced/negative/bool/fractional count as completed.
         cursor_valid=(raw_checked is not None and raw_matched is not None and
@@ -383,10 +407,15 @@ def summarize_month_cursor(rows):
             # scan_month advances the page cursor after saving its last page.
             # A 0-row month ends on page 1; 1..500 on page 2, etc.
             cursor_valid=cursor_valid and page==(checked+499)//500+1
+            if snapshot_present:
+                cursor_valid=cursor_valid and raw_snapshot==checked
         elif stat=="partial":
             # A partial month can resume ONLY after a full persisted page.
             cursor_valid=(cursor_valid and checked%500==0 and
                           page==checked//500+1)
+            if snapshot_present and checked>0:
+                cursor_valid=(cursor_valid and raw_snapshot is not None
+                              and raw_snapshot>checked)
         if not cursor_valid:
             invalid_cursors+=1
         months.append({"first_day":start.isoformat(),
@@ -419,7 +448,7 @@ def summarize_month_cursor(rows):
 def official_month_progress():
     """Read only saved monthly cursors; NEVER call the G2B API or mutate jobs."""
     with session() as con:
-        rows=con.execute("""SELECT first_day,last_day,status,checked,matched,page_cursor
+        rows=con.execute("""SELECT first_day,last_day,status,checked,matched,page_cursor,expected_total
           FROM procureflow.g2b_case_10yr_windows
           WHERE case_bid_no=%s ORDER BY first_day""",(CASE_BID,)).fetchall()
     return summarize_month_cursor([dict(row) for row in rows])
