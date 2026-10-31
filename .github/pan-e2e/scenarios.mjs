@@ -31,7 +31,7 @@ async function api(method,endpoint,data) {
 async function eventually(label,cb,timeout=100000) {
   const started=Date.now();let latest;
   while(Date.now()-started<timeout){
-    try{const result=await cb();if(result)return result;}catch(e){latest=e.message;}
+    try{const result=await cb();if(result)return result;}catch(e){if(e?.terminalExecution)throw e;latest=e.message;}
     await new Promise(resolve=>setTimeout(resolve,650));
   }
   throw Error(label+' timeout: '+(latest||'no matching result'));
@@ -90,7 +90,15 @@ try{
         const {exec,runData}=await savedExecution(executionId);
         const node=runData['전체 사건 기록 검증됨']?.at(-1);
         const payload=node?.data?.main?.[0]?.[0]?.json;
-        if(!payload){if(exec.status==='error')throw Error(id+': execution failed');return null;}
+        // n8n may persist the last node's JSON BEFORE the execution status
+        // transitions from running to success. Do not turn that race into a
+        // false S09 failure or accept a partial/failed native execution.
+        if(['error','canceled','crashed'].includes(exec.status)){
+          const error=Error(id+': native execution terminal status '+exec.status);
+          error.terminalExecution=true;
+          throw error;
+        }
+        if(!payload||exec.status!=='success')return null;
         return {exec,runData,payload};
       },100000);
       assert(result.payload.qa_local_only===true,id+': not isolated');
