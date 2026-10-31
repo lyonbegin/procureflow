@@ -206,6 +206,14 @@ export function verifyNativeScenarioEvidence({payload,scenario,baseState,executi
     policy.verdict===scenario.expected&&policy.passed===true&&
     policy.simulation_only===true&&policy.bid_submitted===false,
     'Native scenario policy node did not emit a safe reviewed verdict');
+  // Spreading a known marker over an attacker-supplied identical marker can
+  // mask its premature presence. Enforce each marker's exact originating node.
+  assert(!Object.hasOwn(policy,'qa_local_only')&&
+    !Object.hasOwn(policy,'workflow_status')&&
+    !Object.hasOwn(policy,'not_a_real_bid')&&
+    !Object.hasOwn(qa,'workflow_status')&&
+    !Object.hasOwn(qa,'not_a_real_bid'),
+    'Native scenario simulation markers appeared before their reviewed node');
   assert(same({...policy,qa_local_only:true},qa),
     'Native scenario local QA output differs from policy node output');
   assert(same({...qa,workflow_status:'SIMULATED_PASS',not_a_real_bid:true},payload),
