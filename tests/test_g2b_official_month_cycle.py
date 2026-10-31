@@ -120,6 +120,28 @@ def test_official_total_count_accepts_only_integer_count_representations(valid_t
     assert type(total) is int
 
 
+@pytest.mark.parametrize("invalid_items", [
+    0, False, "", "not-an-array", 1.5,
+    {"item": 0}, {"item": False}, {"item": ""},
+])
+def test_official_scalar_items_cannot_forge_empty_completed_month(invalid_items):
+    payload = {"response": {"header": {"resultCode": "00"},
+               "body": {"totalCount": 0, "items": invalid_items}}}
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert not inserted
+
+
+@pytest.mark.parametrize("empty_items", [None, [], {}, {"item": None}, {"item": []}])
+def test_official_null_or_empty_items_remain_valid_zero_result_response(empty_items):
+    payload = {"response": {"header": {"resultCode": "00"},
+               "body": {"totalCount": 0, "items": empty_items}}}
+    items, total = _parse(payload)
+    assert items == [] and total == 0
+
+
 def test_empty_page_cannot_finish_month_if_server_says_there_are_results():
     result, statuses, inserted = run_month(response([], 1200))
     assert result["status"] == "blocked_incomplete_api_page"
