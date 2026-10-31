@@ -386,7 +386,6 @@ def summarize_month_cursor(rows):
         raw_checked=_audit_nonnegative_integer(row.get("checked"))
         raw_matched=_audit_nonnegative_integer(row.get("matched"))
         raw_page=_audit_nonnegative_integer(row.get("page_cursor"))
-        snapshot_present="expected_total" in row
         raw_snapshot=_audit_nonnegative_integer(row.get("expected_total"))
         # Keep the read-only diagnostic available even for corrupted DB rows.
         # Never treat a coerced/negative/bool/fractional count as completed.
