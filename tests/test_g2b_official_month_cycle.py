@@ -559,8 +559,8 @@ def test_resumed_month_requires_valid_persisted_snapshot_before_network(snapshot
                             "expected_total": snapshot}), \
          patch("g2b_case_10y_official.ensure_schema"), \
          patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
-         patch("g2b_case_10y_official._service_key") as key, \\
-         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
          patch("g2b_case_10y_official._write_month") as write:
         result = scan_month("2024-03-01", pages_max=1)
     assert result["status"] == "blocked_unverified_snapshot"
@@ -579,8 +579,8 @@ def test_completed_month_requires_exact_persisted_snapshot(snapshot):
                             "expected_total": snapshot}), \
          patch("g2b_case_10y_official.ensure_schema"), \
          patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
-         patch("g2b_case_10y_official._service_key") as key, \\
-         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
          patch("g2b_case_10y_official._write_month") as write:
         result = scan_month("2024-03-01", pages_max=1)
     assert result["status"] == "blocked_unverified_snapshot"
