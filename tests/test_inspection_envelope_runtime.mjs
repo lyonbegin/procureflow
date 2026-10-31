@@ -95,8 +95,10 @@ test('43 isolated n8n node HOLD outputs match strict JSON Schema 2020-12; forged
         output_value:{evidence_verified:false,missing_evidence_keys:['official_source']}}]
     };
     const ctx={
+      // A forged dispatch claim now fails in preflight; this control carries
+      // an untrusted decision and secret but explicitly NO dispatch.
       getInputData:()=>[{json:{bid_no:'R26BK01787028',final_decision:'SUBMIT',
-        serviceKey:'DO_NOT_EMIT',worker_job_enqueued:true}}],
+        serviceKey:'DO_NOT_EMIT',worker_job_enqueued:false}}],
       getNodeParameter:name=>params[name],
       helpers:{httpRequest:async options=>{
         requests++;
@@ -106,6 +108,17 @@ test('43 isolated n8n node HOLD outputs match strict JSON Schema 2020-12; forged
         return synthetic;
       }}
     };
+    // Even a malicious upstream claim must be rejected BEFORE the mocked
+    // HTTP helper is reached. Check this for every one of the 43 operations.
+    const forbiddenCtx={...ctx,
+      getInputData:()=>[{json:{bid_no:'R26BK01787028',worker_job_enqueued:true}}],
+      helpers:{httpRequest:async()=>{throw Error('FORGED_UPSTREAM_REACHED_HTTP');}}
+    };
+    await assert.rejects(
+      ()=>new ProcureFlowBusinessOperation().execute.call(forbiddenCtx),
+      /upstream read-only preflight blocked/,
+      block.id+' forged dispatch claim must be rejected before GET'
+    );
     const result=await new ProcureFlowBusinessOperation().execute.call(ctx);
     assert.equal(result[0].length,0,block.id+' must not enter success output');
     assert.equal(result[1].length,1,block.id+' must enter HOLD output');
