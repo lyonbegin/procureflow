@@ -368,7 +368,9 @@ def scan_month(first, pages_max=30):
             else:
                 invalid+=1
                 continue
-            if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no) or not re.fullmatch(r"\d{3}",ord_):
+            # Official notice IDs/rounds must be ASCII. Unicode decimal
+            # digits match Python \\d but are not canonical G2B identifiers.
+            if not re.fullmatch(r"R[0-9]{2}BK[0-9]{8}|[0-9]{11}",no) or not re.fullmatch(r"[0-9]{3}",ord_):
                 invalid+=1
                 continue
             notice_key=(no,ord_)
@@ -391,7 +393,7 @@ def scan_month(first, pages_max=30):
             # Support compact and consistently delimited official dates,
             # optionally followed by HHMM[SS] or HH:MM[:SS].
             stamp=re.fullmatch(
-                r"(20\d{2})([-./]?)(\d{2})\2(\d{2})(?:[ T]?(\d{2}):?(\d{2})(?::?(\d{2}))?)?",
+                r"(20[0-9]{2})([-./]?)([0-9]{2})\2([0-9]{2})(?:[ T]?([0-9]{2}):?([0-9]{2})(?::?([0-9]{2}))?)?",
                 pub)
             if not stamp:
                 invalid+=1
