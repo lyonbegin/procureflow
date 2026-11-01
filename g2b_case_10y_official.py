@@ -197,9 +197,9 @@ def _official_notice_text_is_valid(value):
 
     Python's JSON parser accepts escaped lone UTF-16 surrogates (\\uD800),
     which are not valid Unicode scalar values and can fail at PostgreSQL UTF-8
-    insertion. Embedded NUL and non-whitespace C0 controls are likewise not
-    valid evidence text. Keep missing/null and normal Korean, spaces, CR/LF
-    and tabs compatible with the official API.
+    insertion. Embedded NUL, non-whitespace C0 controls, DEL and C1 controls
+    can carry invisible/terminal control data into evidence records. Keep
+    missing/null and normal Korean, spaces, CR/LF and tabs compatible.
     """
     if value is None:
         return True
@@ -208,7 +208,8 @@ def _official_notice_text_is_valid(value):
     return not any(
         0xD800<=ord(ch)<=0xDFFF or
         ord(ch)==0 or
-        (ord(ch)<32 and ch not in "\t\r\n")
+        (ord(ch)<32 and ch not in "\t\r\n") or
+        (0x7F<=ord(ch)<=0x9F)
         for ch in value
     )
 
