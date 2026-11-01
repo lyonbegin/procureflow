@@ -192,6 +192,27 @@ def _category_from(item):
         return None
     return next(iter(parents))==CAT8
 
+def _official_notice_text_is_valid(value):
+    """Reject malformed Unicode/control characters in official text evidence.
+
+    Python's JSON parser accepts escaped lone UTF-16 surrogates (\\uD800),
+    which are not valid Unicode scalar values and can fail at PostgreSQL UTF-8
+    insertion. Embedded NUL and non-whitespace C0 controls are likewise not
+    valid evidence text. Keep missing/null and normal Korean, spaces, CR/LF
+    and tabs compatible with the official API.
+    """
+    if value is None:
+        return True
+    if not isinstance(value,str):
+        return False
+    return not any(
+        0xD800<=ord(ch)<=0xDFFF or
+        ord(ch)==0 or
+        (ord(ch)<32 and ch not in "\\t\\r\\n")
+        for ch in value
+    )
+
+
 def _write_month(first,last,status,matched=0,checked=0,page=1,err="",expected_total=None):
     with session() as con:
         con.execute("""UPDATE procureflow.g2b_case_10yr_windows
@@ -471,7 +492,7 @@ def scan_month(first, pages_max=30):
             raw_title=item.get("bidNtceNm")
             raw_agency=item.get("dminsttNm")
             raw_alt_agency=item.get("ntceInsttNm")
-            if any(v is not None and not isinstance(v,str) for v in
+            if any(not _official_notice_text_is_valid(v) for v in
                    (raw_title,raw_agency,raw_alt_agency)):
                 invalid+=1
                 continue
