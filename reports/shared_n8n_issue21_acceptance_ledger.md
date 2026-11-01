@@ -1,5 +1,18 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 공식 월별 API의 비대상 분류 날짜 검증 강화 (전체 완료 아님)
+
+- **발견한 결함:** 기존 `scan_month()`는 `totalCount`에 포함되는 비대상 8자리 분류 공고의 식별자는 검증했지만, `bidNtceDt` 날짜를 검사하기 전에 해당 행을 건너뛰었다. 따라서 다른 달 공고 또는 날짜가 없는 비대상 행이 `checked==totalCount`를 만족하면 월별 공고 발견을 허위 완료할 수 있었다.
+- **기능 브랜치 수정:** [코드 `2ab22b5`](https://github.com/lyonbegin/procureflow/commit/2ab22b5b161919a29098737b2aa6e7a530a8d765) — **모든 공식 응답 행**의 공고번호·차수·발행일/시각·조회 월 범위를 확인한 뒤에만 분류 필터를 적용한다. 비대상 행은 검증된 `checked`에만 포함하고 실제 이력 테이블에 INSERT하지 않는다. 날짜 누락·잘못된 시각·다른 달은 해당 페이지 INSERT/완료 이전에 `blocked_unverified_response_scope`.
+- **격리 회귀:** [신규 14건 `e1bf035`](https://github.com/lyonbegin/procureflow/commit/e1bf035518f7a292037d7aa21a53e79d4c3d7a05) — 비대상 공고의 누락·무효·월 외 날짜 11건 차단, 정상 날짜 3건은 `checked=1,matched=0` 확인. [기존 중복 테스트 fixture 보완 `52f1f12`](https://github.com/lyonbegin/procureflow/commit/52f1f129e51701b9290e104fb98841c49df2ced7).
+- **실패 원인과 수정:** 첫 CI [#41265794015](https://github.com/lyonbegin/procureflow/actions/runs/41265794015)는 기존 비대상 중복 테스트에서 날짜가 빠져 `invalid_scope_rows=2`(무날짜 + 중복)인데 기존 기대값 1을 유지하여 **1 FAIL / 339 PASS**. 중복을 독립적으로 검사하도록 기존 fixture에 정상 날짜를 명시한 뒤 재검증.
+- **수정 후 동일 코드 SHA `52f1f12` 실제 CI:** [G2B 104 API + Node Lab #41265847113](https://github.com/lyonbegin/procureflow/actions/runs/41265847113) **SUCCESS**, job [#124728368697](https://github.com/lyonbegin/procureflow/actions/runs/41265847113/job/124728368697) **340 passed / 3 warnings**. [오프라인 S01~S10 #41265847086](https://github.com/lyonbegin/procureflow/actions/runs/41265847086), [50종/43블록 #41265847103](https://github.com/lyonbegin/procureflow/actions/runs/41265847103), [단일 공식 편집기 계약 #41265847106](https://github.com/lyonbegin/procureflow/actions/runs/41265847106) **SUCCESS**.
+- **기존 운영 owner/readiness [#41265847105](https://github.com/lyonbegin/procureflow/actions/runs/41265847105) FAIL:** 읽기 전용 응답 `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 운영 DB/계정 변경 없이 차단 유지.
+- 같은 SHA의 [공식 후보 Docker/Chrome #41265847118](https://github.com/lyonbegin/procureflow/actions/runs/41265847118), [Pan 빌드 #41265847095](https://github.com/lyonbegin/procureflow/actions/runs/41265847095), [native S01~S10 #41265847127](https://github.com/lyonbegin/procureflow/actions/runs/41265847127), [PF15 #41265847121](https://github.com/lyonbegin/procureflow/actions/runs/41265847121), [Main/Worker 이미지 #41265847084](https://github.com/lyonbegin/procureflow/actions/runs/41265847084)은 **개별 최종 확인 전 PASS 판정 금지**.
+- **남은 필수 수용검사:** 35종 미지원 실행 어댑터, 43개 실업무 핸들러·엄격 payload, 정확한 10자리 세부종목 기준 10년 개찰·투찰·낙찰 공식 전수, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. 이번 340개는 **FakeHTTP/FakeDB 기반 회귀**, 실제 G2B/Worker/투찰 실행이 아니다.
+- **불변:** 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 G2B 호출·Worker dispatch·투찰 **변경 없음**. Issue #21 Open / PR #22 Draft·미병합. 전체 완료 통보 금지.
+
+
 ## 2026-11-01 KST — 8자리 공식 공고 발견의 비대상 분류 중복/무식별 응답 차단 (**전체 완료 아님**)
 
 - **실제 결함:** 월별 `totalCount`는 대상 분류 외의 공식 API 행도 포함하지만 `scan_month()`는 기존에 대상 8자리 분류 행에 대해서만 `(bidNtceNo,bidNtceOrd)` 중복/식별자 유효성을 검사했다. 비대상 분류의 중복 행·식별자 누락이 포함된 페이지도 `checked==totalCount`가 되어 허위 `completed`로 인증될 수 있었다.
