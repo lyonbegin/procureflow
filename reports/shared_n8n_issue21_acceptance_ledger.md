@@ -1,5 +1,15 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 8자리 공식 공고 발견의 비대상 분류 중복/무식별 응답 차단 (**전체 완료 아님**)
+
+- **실제 결함:** 월별 `totalCount`는 대상 분류 외의 공식 API 행도 포함하지만 `scan_month()`는 기존에 대상 8자리 분류 행에 대해서만 `(bidNtceNo,bidNtceOrd)` 중복/식별자 유효성을 검사했다. 비대상 분류의 중복 행·식별자 누락이 포함된 페이지도 `checked==totalCount`가 되어 허위 `completed`로 인증될 수 있었다.
+- **격리 기능 브랜치 코드:** [`382e048`](https://github.com/lyonbegin/procureflow/commit/382e048437a1c1ad9bafee5cbb93d761f3059fe6) — **모든 공식 API 행**에 대해 분류 대상 여부로 건너뛰기 전에 공고번호·차수의 유효성 및 호출 내 전체 페이지 간 중복을 검사한다. 비대상 행은 여전히 업무 history 테이블에 저장하지 않으며, 중복/무식별 행 발견 시 해당 페이지 INSERT 전에 `blocked_unverified_response_scope`로 차단한다.
+- **격리 회귀:** [`dce1461`](https://github.com/lyonbegin/procureflow/commit/dce14610c4bba03d10c8b89bc5a634ab4baa7d1a), [`9dc309e`](https://github.com/lyonbegin/procureflow/commit/9dc309e61e804237eb2b1955603a7f8b824beb37). 비대상 분류 무식별자 6종, 대상/비대상 동일 공고 2종, 호출 내 서로 다른 페이지의 비대상 중복, 비대상끼리 중복, 서로 다른 정상 비대상 행의 `checked=2,matched=1` 보존 등 **11개 새 테스트**. FakeHTTP/FakeDB만 사용하며 실제 G2B API·운영 DB·Worker·투찰 접근 0건.
+- **최종 코드 SHA `9dc309e` 실제 검증:** [G2B 104 API + Node Lab #41262558681](https://github.com/lyonbegin/procureflow/actions/runs/41262558681) **SUCCESS**, [job #124718617987](https://github.com/lyonbegin/procureflow/actions/runs/41262558681/job/124718617987) **326 passed / 3 warnings**. [S01~S10 오프라인 #41262558743](https://github.com/lyonbegin/procureflow/actions/runs/41262558743) **SUCCESS**. [50종/43블록 계약 #41262558685](https://github.com/lyonbegin/procureflow/actions/runs/41262558685) **SUCCESS**. 공식 Docker/Chrome/Pan/native 시나리오의 **같은 SHA 최종 결과는 별도 완료 확인 전까지 선판정하지 않음**.
+- **기존 운영 owner/readiness:** [#41262558656](https://github.com/lyonbegin/procureflow/actions/runs/41262558656) **FAIL**, 기존 owner 미설정 문제를 운영 DB/계정 변경 없이 읽기 전용으로 확인.
+- **한계:** 이 방어는 한 번의 `scan_month()` 호출 내 API 행/페이지 중복을 다룬다. **서로 다른 재개 호출 간** 비대상 분류 행 집합 동일성, 같은 `totalCount`에서 페이지 구성 변경, Worker 동시성은 여전히 별도 증빙이 필요하다. 공식 **10자리** 세부품명별 10년 개찰·낙찰 실제 원본 완전성을 인증하지 않는다.
+- **전체 미완료:** 35종 실행 어댑터, 43개 실업무 핸들러·엄격 payload, 공식 10년 실데이터·Worker fencing, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성 및 승인. **Issue Open / PR Draft·미병합. 운영 main·Railway 운영 서비스/DB·자격증명·실제 투찰 변경 없음.**
+
 ## 2026-11-01 KST — 월별 G2B totalCount 재개 호출 간 스냅샷 보존 (전체 완료 아님)
 
 - **원인:** 기존 `scan_month()`는 동일 함수 호출에서만 `totalCount` 변화 감지. 첫 500건을 `partial`로 저장하고 다음 호출에서 page 2를 읽으면, 공식 API 결과 총건수가 변경되어도 첫 호출의 원래 수치를 모르므로 일부 페이지가 빠진 상태를 `completed`로 잘못 판정할 수 있었다.
