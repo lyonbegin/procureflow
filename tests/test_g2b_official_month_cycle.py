@@ -916,3 +916,76 @@ def test_invalid_page_limit_blocks_before_credentials_http_or_db(pages_max):
     http.assert_not_called()
     write.assert_not_called()
     assert db.inserted == []
+
+
+@pytest.mark.parametrize("corrupt_status", [
+    "COMPLETE", "verified", "ready_for_bid", "hold_verified",
+    "unsearched ", "partial ", "", None, True, 1,
+])
+def test_unknown_month_state_blocks_before_credentials_http_or_any_write(corrupt_status):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": corrupt_status}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_invalid_month_state"
+    assert result["reason"] == "unknown_persisted_month_status"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
+
+
+@pytest.mark.parametrize("dirty_fields", [
+    {"checked": 1}, {"checked": 500, "page_cursor": 2},
+    {"matched": 1}, {"page_cursor": 2}, {"expected_total": 0},
+    {"expected_total": 100}, {"checked": True}, {"page_cursor": 1.0},
+])
+def test_unsearched_month_must_be_clean_before_any_external_access(dirty_fields):
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {"status": "unsearched", **dirty_fields}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_invalid_month_state"
+    assert result["reason"] == "unsearched_month_has_progress"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
+
+
+@pytest.mark.parametrize("state", [
+    "verified", "ready_for_bid", "COMPLETE", "", None, True,
+])
+def test_readonly_month_audit_rejects_unknown_state_as_coverage_evidence(state):
+    rows = _all_registered_months()
+    rows[0]["status"] = state
+    result = summarize_month_cursor(rows)
+    assert result["invalid_cursor_rows"] == 1
+    assert result["discovery_months_completed"] == 120
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["ten_year_exact_opening_and_award_complete"] is False
+
+
+@pytest.mark.parametrize("dirty_fields", [
+    {"checked": 1}, {"matched": 1}, {"page_cursor": 2},
+    {"expected_total": 0}, {"expected_total": 42},
+])
+def test_readonly_unsearched_month_requires_zero_cursor_without_snapshot(dirty_fields):
+    rows = _all_registered_months()
+    rows[0].update(status="unsearched", checked=0, matched=0,
+                   page_cursor=1, expected_total=None)
+    rows[0].update(dirty_fields)
+    result = summarize_month_cursor(rows)
+    assert result["invalid_cursor_rows"] == 1
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["months"][0]["cursor_valid"] is False
