@@ -155,6 +155,45 @@ def test_unknown_nonempty_official_items_wrapper_cannot_certify_month(invalid_wr
     assert not inserted
 
 
+
+@pytest.mark.parametrize("unexpected", [
+    {"error": "upstream unavailable"},
+    {"fault": {"code": "G2B_TIMEOUT"}},
+    {"resultCode": "99"},
+    {"unexpected": []},
+    {"message": "invalid service key"},
+])
+@pytest.mark.parametrize("total_count", [0, 1])
+def test_official_items_with_item_and_extra_fields_never_certify_month(
+        unexpected, total_count):
+    # The known 'item' field must not mask an additional error/unknown
+    # wrapper. These fixtures are isolated: no real G2B or Railway access.
+    payload = {"response": {"header": {"resultCode": "00"},
+               "body": {"totalCount": total_count,
+                        "items": {"item": [], **unexpected}}}}
+    with pytest.raises(ValueError, match="items_wrapper_extra_fields"):
+        _parse(payload)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert inserted == []
+
+
+@pytest.mark.parametrize("items", [
+    {"item": []}, {"item": None}, {"item": [
+        {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+         "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    ]}
+])
+def test_known_official_items_wrapper_still_parses_without_extra_fields(items):
+    rows, count = _parse({"response": {
+        "header": {"resultCode": "00"},
+        "body": {"totalCount": 1 if isinstance(items["item"], list) and items["item"] else 0,
+                 "items": items}}})
+    assert len(rows) == count
+
+
 @pytest.mark.parametrize("empty_items", [None, [], {}, {"item": None}, {"item": []}])
 def test_official_null_or_empty_items_remain_valid_zero_result_response(empty_items):
     payload = {"response": {"header": {"resultCode": "00"},
