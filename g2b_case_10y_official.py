@@ -245,7 +245,11 @@ def scan_month(first, pages_max=30):
         if snapshot is None or snapshot!=inspected:
             return {"status":"blocked_unverified_snapshot","first_day":str(first),
                     "read_only":True,"reason":"completed_snapshot_mismatch"}
-        if inspected>0 and _persisted_official_notice_keys(row,matched) is None:
+        # Even a completed zero-result month must have ZERO persisted
+        # target-category official history rows. Otherwise a stale/orphaned
+        # history INSERT can contradict a 0/0 cursor and be silently certified
+        # by the completed-month shortcut. A failed read is not evidence.
+        if _persisted_official_notice_keys(row,matched) is None:
             return {"status":"blocked_unverified_persisted_history",
                     "first_day":str(first),"read_only":True,
                     "reason":"completed_history_count_or_identity_mismatch"}
