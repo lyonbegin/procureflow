@@ -1033,6 +1033,51 @@ test('oversized primitive-only upstream metadata fails closed before any HTTP re
   }));
 });
 
+test('cyclic and shared-reference payloads fail closed before GET or evidence acceptance',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockedGets=0;
+  const mock=async()=>{mockedGets++;return blocked;};
+  const cyclic={bid_no:'R26BK01787028',audit:{}};
+  cyclic.audit.self=cyclic.audit;
+  const shared={bid_submitted:false};
+  const aliased={bid_no:'R26BK01787028',audit:{first:shared,second:shared}};
+  for(const upstream of [cyclic,aliased]){
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,mock,upstream)),
+      /upstream read-only preflight blocked/,
+      'a non-JSON reference graph must be rejected before HTTP'
+    );
+  }
+  const laterCyclic={...ctx(getParam,mock),getInputData:()=>[
+    {json:{bid_no:'R26BK01787028'}},
+    {json:cyclic}
+  ]};
+  await assert.rejects(
+    ()=>instance.execute.call(laterCyclic),
+    /upstream read-only preflight blocked/
+  );
+  assert.equal(mockedGets,0,'no read-only request before whole-batch validation');
+  const response=structuredClone(blocked);
+  response.audit={};
+  response.audit.self=response.audit;
+  assert.throws(
+    ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
+    /nested dispatch claim blocked/,
+    'a cyclic in-memory HTTP helper response cannot certify evidence'
+  );
+  const result=await instance.execute.call(ctx(getParam,mock,{
+    bid_no:'R26BK01787028',audit:{first:{bid_submitted:false},second:{job_enqueued:false}}
+  }));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1].length,1);
+  assert.equal(mockedGets,1,'normal JSON-shaped HOLD still works');
+  console.log('PROCUREFLOW_NON_JSON_REFERENCE_GRAPH_FAIL_CLOSED_PASS',JSON.stringify({
+    rejectedUpstreamGraphs:3,rejectedResponseGraphs:1,mockedGET:mockedGets,
+    externalHTTP:0,workerDispatch:0,actualBids:0
+  }));
+});
+
 test('conflicting response tender/flow/operation aliases cannot pass read-only evidence inspection',async()=>{
   configure();
   const instance=new ProcureFlowBusinessOperation();
