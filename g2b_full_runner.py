@@ -14,6 +14,11 @@ from g2b_documents import list_documents,acquire_one
 from g2b_case_engine import dashboard,refresh_existing_evidence,readiness_check
 from g2b_bid_package import proposal_contents
 
+# Provider/urllib exceptions can embed serviceKey URLs, bearer tokens or
+# credentials. Only the exception class is safe to persist or return in
+# official notice, document and phase-execution error diagnostics.
+# Detailed exception text must not be copied into DB JSON, audit events or API.
+
 def official_selected_notice():
     if not api_key():
         return {"status":"blocked_missing_official_api_key",
@@ -33,7 +38,7 @@ def official_selected_notice():
                 "found":len(saved),"items_returned":len(rows),"total":total,
                 "validated":saved,"bid_no":CASE_BID}
     except Exception as exc:
-        return {"status":"error","reason":type(exc).__name__+":"+str(exc)[:180]}
+        return {"status":"error","reason":type(exc).__name__}
 
 def historical_month_batch(candidate_limit=4, opening_limit=2, month_pages_max=2):
     """Bounded official ten-year discovery -> exact-code original -> actual results.
@@ -127,7 +132,7 @@ def documents_batch():
             visited.append(acquire_one(CASE_BID,"000",item["file_id"]))
         except Exception as exc:
             visited.append({"file_id":item["file_id"],"status":"error",
-                  "reason":type(exc).__name__+":"+str(exc)[:100]})
+                  "reason":type(exc).__name__})
     from g2b_original_reparse import run as reparse_original_documents
     parse_results=reparse_original_documents()
     updated=list_documents(CASE_BID)
@@ -181,7 +186,7 @@ def execute(phase="all"):
             if state not in ("verified","partial","blocked","error"):
                 state="blocked" if state.startswith("blocked") else "partial"
         except Exception as exc:
-            result={"status":"error","reason":type(exc).__name__+":"+str(exc)[:150]}
+            result={"status":"error","reason":type(exc).__name__}
             state="error"
         with session() as c:
             c.execute("""UPDATE procureflow.g2b_case_runs
