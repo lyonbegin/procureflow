@@ -37,12 +37,12 @@ def _parse(response, *, expected_page=None, expected_rows=None):
     ))
     if any(marker in response for marker in failure_markers):
         raise ValueError("g2b_api_root_error_marker")
-    envelope=response.get("response") or {}
+    envelope=response.get("response")
     if not isinstance(envelope,dict):
         raise ValueError("g2b_api_envelope_not_object")
     if any(marker in envelope for marker in failure_markers):
         raise ValueError("g2b_api_envelope_error_marker")
-    head=envelope.get("header") or {}
+    head=envelope.get("header")
     if not isinstance(head,dict):
         raise ValueError("g2b_api_header_not_object")
     # resultCode belongs in the documented header and is validated below.
@@ -50,7 +50,7 @@ def _parse(response, *, expected_page=None, expected_rows=None):
         raise ValueError("g2b_api_header_error_marker")
     if str(head.get("resultCode","")) not in ("00","0"):
         raise ValueError("g2b_api_result_"+str(head.get("resultCode"))+":"+str(head.get("resultMsg",""))[:75])
-    body=envelope.get("body") or {}
+    body=envelope.get("body")
     # A nominally successful header cannot override an explicit error/fault
     # in the body. In particular, totalCount=0 with an empty item list plus
     # a provider error must never certify an entire month as searched.
