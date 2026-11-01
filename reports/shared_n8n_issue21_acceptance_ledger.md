@@ -428,3 +428,15 @@
 - **운영 owner/readiness [#41289328801](https://github.com/lyonbegin/procureflow/actions/runs/41289328801) FAIL:** 읽기 전용 확인 `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 관리자·DB·키는 변경하지 않았다.
 - **같은 SHA의 공식 Docker/실제 Chrome 후보 [#41289328743](https://github.com/lyonbegin/procureflow/actions/runs/41289328743), Pan [#41289328843](https://github.com/lyonbegin/procureflow/actions/runs/41289328843), native S01~S10 [#41289328964](https://github.com/lyonbegin/procureflow/actions/runs/41289328964), Main/Worker 격리 [#41289328763](https://github.com/lyonbegin/procureflow/actions/runs/41289328763), PF15 [#41289328948](https://github.com/lyonbegin/procureflow/actions/runs/41289328948)**은 기록 시점 일부 진행 중이므로 최종 PASS를 선판정하지 않는다.
 - **미완료:** 35종 미지원 실행 매핑, 43개 실제 업무 핸들러·엄격 payload, 공식 10자리 세부품명 기준 10년 개찰·낙찰 전수, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. **Issue #21 Open, PR #22 Draft·미병합 유지.**
+
+
+## 2026-11-02 KST — 공식 G2B JSON 비표준 NaN/Infinity 거부 (전체 수용검사 미완료)
+
+- **발견한 결함:** Python 표준 `json.loads()`는 기본 설정에서 공식 JSON 문법에 없는 `NaN`, `Infinity`, `-Infinity` 토큰을 숫자처럼 받아들인다. `g2b_case_10y_official.scan_month()`가 응답의 사용하지 않는 메타데이터에 이 토큰이 있어도 페이지를 정상으로 간주하여 8자리 월별 발견 완료로 인증할 수 있었다.
+- **기능 브랜치 코드 패치:** [`f3a9ba3`](https://github.com/lyonbegin/procureflow/commit/f3a9ba3f6d936f0b7b073e9bb3dcd9798bb3f238) — 공식 응답 `json.loads(..., parse_constant=_reject_nonfinite_json_constant)`로 비표준 숫자 토큰을 JSON 파싱 시점에 전부 차단. 잘못된 응답은 `error` 상태로 남기고 공식 history INSERT/월 `completed`를 실행하지 않음.
+- **격리 회귀:** [`4c99af8`](https://github.com/lyonbegin/procureflow/commit/4c99af8d05f75e1d7b3660f2cd4f11c8a9d8585c) — 3개 비표준 상수 × 4개 위치(최상위, header, body, notice 메타데이터) **12개 음성** + 정상 JSON 숫자 메타데이터 **1개 양성**. FakeHTTP/FakeDB만 사용; 실제 G2B/Worker/투찰 호출 0.
+- **같은 HEAD `4c99af8`의 실제 CI:** [G2B 104 API/Node Lab #41325832397](https://github.com/lyonbegin/procureflow/actions/runs/41325832397) **SUCCESS**, [pytest job #124905444809](https://github.com/lyonbegin/procureflow/actions/runs/41325832397/job/124905444809) **535 passed / 3 warnings**. [S01~S10 오프라인 #41325832288](https://github.com/lyonbegin/procureflow/actions/runs/41325832288), [50종/43블록 #41325832331](https://github.com/lyonbegin/procureflow/actions/runs/41325832331), [단일 편집기 #41325832333](https://github.com/lyonbegin/procureflow/actions/runs/41325832333) **SUCCESS**.
+- **기존 운영 owner/readiness:** [읽기 전용 #41325832289](https://github.com/lyonbegin/procureflow/actions/runs/41325832289) **FAIL** — `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 운영 owner·DB·키를 변경하지 않음.
+- **나머지 같은 SHA의 공식 격리 Docker/실제 Chrome #41325832315, Pan #41325832319, native S01~S10 #41325832285, PF15 #41325832279, Main/Worker #41325832271:** 이 기록 작성 시점에는 진행 중. 완료 확인 전 PASS 선판정 금지.
+- **남은 필수 수용:** 35종 미지원 노드 실행 매핑, 43개 실제 업무 핸들러/정식 payload, 정확한 10자리 세부품명 기준 공식 10년 개찰·낙찰 전수, Worker fencing, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·승인. **Issue Open / PR Draft·미병합 / 전체 완료 통보 금지.**
+- **불변:** 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 G2B API 호출·Worker dispatch·투찰 변경 없음.
