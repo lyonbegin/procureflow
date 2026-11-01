@@ -401,6 +401,30 @@ def test_duplicate_notice_from_other_category_never_certifies_month(second_categ
     assert not inserted
 
 
+def test_duplicate_out_of_scope_notice_across_pages_blocks_second_page():
+    # Even when page 2 has a non-target category, a repeated identity means
+    # the 501-row totalCount did not represent 501 distinct official notices.
+    duplicate = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK00000000",
+                 "bidNtceOrd": "000"}
+    result, statuses, inserted = run_two_official_pages(duplicate)
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert result["page"] == 2
+    assert len(inserted) == 500
+    assert [row[2] for row in statuses] == [
+        "partial", "blocked_unverified_response_scope"]
+
+
+def test_duplicate_two_out_of_scope_rows_does_not_fake_zero_matched_coverage():
+    outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345678",
+               "bidNtceOrd": "000"}
+    result, statuses, inserted = run_month(response([outside, dict(outside)], 2))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
 def test_distinct_out_of_scope_notice_is_counted_but_not_persisted():
     matching = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
                 "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
