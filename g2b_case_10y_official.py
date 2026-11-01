@@ -146,13 +146,6 @@ def scan_month(first, pages_max=30):
     if row["status"] not in MONTH_STATES:
         return {"status":"blocked_invalid_month_state","first_day":str(first),
                 "read_only":True,"reason":"unknown_persisted_month_status"}
-    if row["status"]=="unsearched" and (
-            _audit_nonnegative_integer(row["checked"])!=0 or
-            _audit_nonnegative_integer(row["matched"])!=0 or
-            _audit_nonnegative_integer(row["page_cursor"])!=1 or
-            row.get("expected_total") is not None):
-        return {"status":"blocked_invalid_month_state","first_day":str(first),
-                "read_only":True,"reason":"unsearched_month_has_progress"}
     # Validate persisted cursor types BEFORE coercion, network access or a
     # completed-month shortcut. int(True), int(1.5), and int("2") can mask
     # corrupted coverage evidence; a completed row is not automatically proof.
@@ -162,6 +155,11 @@ def scan_month(first, pages_max=30):
     if (inspected is None or matched is None or page is None or page<1):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "read_only":True,"reason":"invalid_persisted_cursor_values"}
+    if row["status"]=="unsearched" and (
+            inspected!=0 or matched!=0 or page!=1 or
+            row.get("expected_total") is not None):
+        return {"status":"blocked_invalid_page_cursor","first_day":str(first),
+                "read_only":True,"reason":"unsearched_month_has_progress"}
     # A page cursor alone cannot prove that totalCount stayed stable across
     # separate scan_month invocations. The first verified page persists the
     # official snapshot; later calls must compare against the same count.
