@@ -1,5 +1,17 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 공식 G2B `items.item`와 오류 필드 혼합 응답 차단 (**전체 완료 아님**)
+
+- **실제 결함:** 공식 API의 `body.items`가 `{"item":[],"error":"upstream unavailable"}` 또는 `{"item":[],"resultCode":"99"}`처럼 정상 `item` 키와 **알 수 없는 오류/메타데이터 키를 동시에 포함**하면, 기존 파서는 `item=[]`만 취하고 `totalCount=0` 월을 `completed`로 허위 인증할 수 있었다. 기존에는 `item` 자체가 없는 오류 래퍼만 차단했다.
+- **기능 브랜치만 수정:** [fail-closed 파서 `f2eb786`](https://github.com/lyonbegin/procureflow/commit/f2eb7867974ccb0827472adfba7784e8a71934d9) — `body.items`의 알려진 `item` 이외 필드가 있으면 `g2b_api_items_wrapper_extra_fields`로 오류 처리. 기존 공식 빈 래퍼 `None`, `[]`, `{}`, `{"item":[]}`, `{"item":null}`는 유지.
+- **신규 격리 회귀:** [테스트 `e478743`](https://github.com/lyonbegin/procureflow/commit/e4787439a12a3b9d288f713402a1c349db164400) — 오류/미확인 필드 5종 × `totalCount` 0/1 **10건 fail-closed**, 정상 래퍼 **3건 호환성**. FakeHTTP/FakeDB만 사용. 잘못된 응답은 `scan_month` 오류, 월별 history INSERT 0건, 자격증명/원문 오류 로그 유출 없음.
+- **실제 동일 소스 SHA CI:** [G2B 104 API + Node Lab #41276392160](https://github.com/lyonbegin/procureflow/actions/runs/41276392160) **SUCCESS**, [job #124759321822](https://github.com/lyonbegin/procureflow/actions/runs/41276392160/job/124759321822) **361 passed / 3 warnings**. [S01~S10 오프라인 #41276392189](https://github.com/lyonbegin/procureflow/actions/runs/41276392189), [50종/43블록 #41276392158](https://github.com/lyonbegin/procureflow/actions/runs/41276392158), [단일 공식 편집기 계약 #41276392144](https://github.com/lyonbegin/procureflow/actions/runs/41276392144) **SUCCESS**.
+- **기존 운영 owner/readiness #41276392143:** **FAIL**, 읽기 전용 실측 `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 운영 계정·DB는 변경하지 않음.
+- **장시간 격리 Docker/공식 Chrome/Pan/native 시나리오:** [공식 후보 #41276392201](https://github.com/lyonbegin/procureflow/actions/runs/41276392201), [Pan #41276392173](https://github.com/lyonbegin/procureflow/actions/runs/41276392173), [native #41276392142](https://github.com/lyonbegin/procureflow/actions/runs/41276392142), [PF15 #41276392186](https://github.com/lyonbegin/procureflow/actions/runs/41276392186), [Main/Worker 이미지 #41276392137](https://github.com/lyonbegin/procureflow/actions/runs/41276392137)는 **최종 확인 전 성공 판정 금지**.
+- **남은 필수 수용검사:** 35종 미지원 실행 매핑, 43개 실업무 핸들러·엄격 JSON Schema, 정확한 10자리 세부품명 10년 실제 개찰/투찰/낙찰 원본 완전성, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 배포 승인. 이번 테스트는 **격리 파서 회귀**이지 실제 공식 10년 전수 인증이 아니다.
+- **불변:** 운영 `main`/Railway 서비스·DB/자격증명/실제 G2B API 호출·Worker dispatch·투찰 변경 없음. Issue #21 Open / PR #22 Draft·미병합.
+
+
 ## 2026-11-01 KST — 공식 월별 API의 비대상 분류 날짜 검증 강화 (전체 완료 아님)
 
 - **발견한 결함:** 기존 `scan_month()`는 `totalCount`에 포함되는 비대상 8자리 분류 공고의 식별자는 검증했지만, `bidNtceDt` 날짜를 검사하기 전에 해당 행을 건너뛰었다. 따라서 다른 달 공고 또는 날짜가 없는 비대상 행이 `checked==totalCount`를 만족하면 월별 공고 발견을 허위 완료할 수 있었다.
