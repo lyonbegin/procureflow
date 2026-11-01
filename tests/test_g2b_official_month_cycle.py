@@ -363,7 +363,8 @@ def test_distinct_official_notice_rounds_do_not_trigger_duplicate_guard():
 
 def test_other_consistent_parent8_is_skipped_without_fabricating_a_match():
     candidate = {"prdctClsfcNo": "99999999", "dtilPrdctClsfcNo": "9999999901",
-                 "bidNtceNo": "R24BK12345678", "bidNtceOrd": "000"}
+                 "bidNtceNo": "R24BK12345678", "bidNtceOrd": "000",
+                 "bidNtceDt": "2024-03-07"}
     result, statuses, inserted = run_month(response([candidate], 1))
     assert result["status"] == "completed"
     assert result["checked"] == 1 and result["matched"] == 0
@@ -429,12 +430,42 @@ def test_distinct_out_of_scope_notice_is_counted_but_not_persisted():
     matching = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
                 "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
     outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345679",
-               "bidNtceOrd": "000"}
+               "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
     result, statuses, inserted = run_month(response([matching, outside], 2))
     assert result["status"] == "completed"
     assert result["checked"] == 2 and result["matched"] == 1
     assert statuses[0][2] == "completed"
     assert len(inserted) == 1
+
+
+@pytest.mark.parametrize("invalid_date", [
+    None, "", "2024-02-29", "2024-04-01", "2024-03-07BAD",
+    "2024-03-07 24:00", "2024-03-07 12:60",
+    True, 20240307, [], {},
+])
+def test_out_of_scope_notice_with_unverified_month_date_cannot_certify_total_count(invalid_date):
+    # A valid non-target classification still contributes to official
+    # totalCount. A wrong/missing month timestamp is not verified coverage.
+    outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345679",
+               "bidNtceOrd": "000", "bidNtceDt": invalid_date}
+    result, statuses, inserted = run_month(response([outside], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("valid_date", [
+    "2024-03-07", "20240307", "2024/03/07 12:30:59",
+])
+def test_out_of_scope_notice_with_verified_month_date_counts_without_insert(valid_date):
+    outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345679",
+               "bidNtceOrd": "000", "bidNtceDt": valid_date}
+    result, statuses, inserted = run_month(response([outside], 1))
+    assert result["status"] == "completed"
+    assert result["checked"] == 1 and result["matched"] == 0
+    assert statuses[0][2] == "completed"
+    assert not inserted
 
 
 def test_malformed_official_item_fails_before_month_completion():
