@@ -173,6 +173,34 @@ def _write_month(first,last,status,matched=0,checked=0,page=1,err="",expected_to
         """,(status,"official_bidpublicinfo",matched,checked,page,err[:300],
              expected_total,CASE_BID,first,last))
 
+
+def _persisted_official_notice_keys(row, matched):
+    """Read-only resume guard for already stored target-category notice IDs.
+
+    A stable totalCount alone cannot detect page-1 records repeated on page 2
+    when scan_month is called separately for each page. Require the persisted
+    official target rows to agree with the matched cursor before resuming.
+    Non-target IDs are not stored, so this is a *partial* dedupe guard, not
+    a proof of the complete official result set.
+    """
+    try:
+        with session() as con:
+            records=con.execute("""SELECT hist_notice_no,hist_notice_ord
+                FROM procureflow.g2b_case_10yr_history
+                WHERE case_bid_no=%s AND published_on BETWEEN %s AND %s
+                  AND classification8=%s AND evidence=%s""",
+                (CASE_BID,row["first_day"],row["last_day"],CAT8,
+                 "official_openapi_explicit_code")).fetchall()
+        keys={(r["hist_notice_no"],r["hist_notice_ord"]) for r in records}
+        if len(records)!=matched or len(keys)!=matched:
+            return None
+        return keys
+    except Exception:
+        # No raw SQL/connection exception (possibly containing credentials)
+        # may escape to the public month-progress or execution log.
+        return None
+
+
 def scan_month(first, pages_max=30):
     """Progress a single pre-registered month; next call resumes last page."""
     ensure_schema()
@@ -217,6 +245,10 @@ def scan_month(first, pages_max=30):
         if snapshot is None or snapshot!=inspected:
             return {"status":"blocked_unverified_snapshot","first_day":str(first),
                     "read_only":True,"reason":"completed_snapshot_mismatch"}
+        if inspected>0 and _persisted_official_notice_keys(row,matched) is None:
+            return {"status":"blocked_unverified_persisted_history",
+                    "first_day":str(first),"read_only":True,
+                    "reason":"completed_history_count_or_identity_mismatch"}
         return {"status":"already_completed","first_day":str(first)}
     # Validate the persisted partial cursor BEFORE credential lookup or any
     # DB mutation. A malformed row must remain untouched for independent
@@ -228,6 +260,13 @@ def scan_month(first, pages_max=30):
     if inspected>0 and (snapshot is None or snapshot<=inspected):
         return {"status":"blocked_unverified_snapshot","first_day":str(first),
                 "read_only":True,"reason":"partial_snapshot_missing_or_not_ahead_of_cursor"}
+    prior_notice_keys=set()
+    if inspected>0:
+        prior_notice_keys=_persisted_official_notice_keys(row,matched)
+        if prior_notice_keys is None:
+            return {"status":"blocked_unverified_persisted_history",
+                    "first_day":str(first),"read_only":True,
+                    "reason":"partial_history_count_or_identity_mismatch"}
     # Boolean/fractional/string page limits must not silently become a
     # positive request count (int(True)==1, int(1.5)==1).
     if type(pages_max) is not int or pages_max<1:
@@ -249,7 +288,8 @@ def scan_month(first, pages_max=30):
     # Never certify coverage if its totalCount drifts or a notice identity
     # reappears on a later page within the same scan invocation.
     expected_total=snapshot
-    seen_notice_keys=set()
+    # Includes already persisted target IDs from earlier scan_month calls.
+    seen_notice_keys=set(prior_notice_keys)
     for _ in range(pages_max):
         params["pageNo"]=page
         url=API+"?"+urlencode(params)
