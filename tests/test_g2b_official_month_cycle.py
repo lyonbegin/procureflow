@@ -362,12 +362,55 @@ def test_distinct_official_notice_rounds_do_not_trigger_duplicate_guard():
     assert {row[2] for row in inserted} == {"000", "001"}
 
 def test_other_consistent_parent8_is_skipped_without_fabricating_a_match():
-    candidate = {"prdctClsfcNo": "99999999", "dtilPrdctClsfcNo": "9999999901"}
+    candidate = {"prdctClsfcNo": "99999999", "dtilPrdctClsfcNo": "9999999901",
+                 "bidNtceNo": "R24BK12345678", "bidNtceOrd": "000"}
     result, statuses, inserted = run_month(response([candidate], 1))
     assert result["status"] == "completed"
     assert result["checked"] == 1 and result["matched"] == 0
     assert statuses[0][2] == "completed"
     assert not inserted
+
+
+@pytest.mark.parametrize("corrupt_id", [
+    None, "", "not-an-official-notice", False, [], {},
+])
+def test_out_of_scope_page_row_without_verifiable_notice_identity_cannot_certify_month(corrupt_id):
+    # totalCount includes *all* rows, including other categories. An
+    # unidentifiable row may be a repeated/shifted page result.
+    outside = {"prdctClsfcNo": "99999999", "bidNtceNo": corrupt_id,
+               "bidNtceOrd": "000"}
+    result, statuses, inserted = run_month(response([outside], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+@pytest.mark.parametrize("second_category", ["99999999", "81111599"])
+def test_duplicate_notice_from_other_category_never_certifies_month(second_category):
+    # A matching row and an out-of-scope row cannot share one official
+    # (notice number, round) within the same totalCount result set.
+    first = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+             "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    second = {"prdctClsfcNo": second_category, "bidNtceNo": "R24BK12345678",
+              "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    result, statuses, inserted = run_month(response([first, second], 2))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses[0][2] == "blocked_unverified_response_scope"
+    assert not inserted
+
+
+def test_distinct_out_of_scope_notice_is_counted_but_not_persisted():
+    matching = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+                "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
+    outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345679",
+               "bidNtceOrd": "000"}
+    result, statuses, inserted = run_month(response([matching, outside], 2))
+    assert result["status"] == "completed"
+    assert result["checked"] == 2 and result["matched"] == 1
+    assert statuses[0][2] == "completed"
+    assert len(inserted) == 1
 
 
 def test_malformed_official_item_fails_before_month_completion():
