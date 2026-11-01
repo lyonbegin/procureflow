@@ -180,6 +180,51 @@ def test_official_items_with_item_and_extra_fields_never_certify_month(
     assert inserted == []
 
 
+@pytest.mark.parametrize("marker", [
+    "error", "errors", "fault", "errorCode", "errorMessage",
+    "errorMsg", "error_message", "resultCode",
+])
+@pytest.mark.parametrize("marker_value", [
+    "upstream unavailable", {"message": "failed"}, None,
+])
+@pytest.mark.parametrize("total_count", [0, 1])
+def test_official_body_error_marker_cannot_certify_month(
+        marker, marker_value, total_count):
+    # The header may say success while the body reports an upstream failure.
+    # Never promote an empty page (especially totalCount=0) to completed.
+    payload = response([], total_count)
+    payload["response"]["body"][marker] = marker_value
+    with pytest.raises(ValueError, match="g2b_api_body_error_marker"):
+        _parse(payload)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert inserted == []
+
+
+@pytest.mark.parametrize("body_value", [[], False, 1, "failed"])
+def test_official_nonobject_body_never_certifies_zero_result_month(body_value):
+    payload = response([], 0)
+    payload["response"]["body"] = body_value
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert inserted == []
+
+
+def test_official_body_standard_pagination_fields_still_accepted():
+    payload = response([], 0)
+    payload["response"]["body"].update(pageNo=1, numOfRows=500)
+    items, total = _parse(payload, expected_page=1, expected_rows=500)
+    assert items == [] and total == 0
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "completed"
+    assert statuses[0][2] == "completed"
+    assert inserted == []
+
+
 @pytest.mark.parametrize("items", [
     {"item": []}, {"item": None}, {"item": [
         {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
