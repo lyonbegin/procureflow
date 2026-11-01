@@ -87,7 +87,7 @@ def fake_month_session(db):
     yield db
 
 
-def run_month(payload, prior_keys=None):
+def run_month(payload, prior_keys=None, first="2024-03-01"):
     db = FakeMonthDB(prior_keys=prior_keys)
     status = []
     with patch("g2b_case_10y_official.ensure_schema"), \
@@ -95,8 +95,52 @@ def run_month(payload, prior_keys=None):
          patch("g2b_case_10y_official._service_key", return_value="SENSITIVE_API_KEY"), \
          patch("g2b_case_10y_official.urlopen", return_value=FakeHTTP(payload)), \
          patch("g2b_case_10y_official._write_month", side_effect=lambda *a: status.append(a)):
-        result = scan_month("2024-03-01", pages_max=1)
+        result = scan_month(first, pages_max=1)
     return result, status, db.inserted
+
+
+
+@pytest.mark.parametrize("first_day,last_day,request_first", [
+    # A forged end date must never let March scan April or silently omit
+    # March 31 while claiming the March window was completed.
+    (date(2024, 3, 1), date(2024, 4, 1), "2024-03-01"),
+    (date(2024, 3, 1), date(2024, 3, 30), "2024-03-01"),
+    # A forged first day must not bypass the registered month boundaries.
+    (date(2024, 3, 2), date(2024, 3, 31), "2024-03-01"),
+    # A forged window cannot extend beyond the selected ten-year horizon.
+    (date(2024, 3, 1), date(2027, 3, 31), "2024-03-01"),
+    (date(2024, 3, 1), None, "2024-03-01"),
+    # The caller may not start from the middle of an otherwise valid month.
+    (date(2024, 3, 1), date(2024, 3, 31), "2024-03-02"),
+    # No forged outside-horizon month may become completed.
+    (date(2015, 10, 1), date(2015, 10, 31), "2015-10-01"),
+])
+def test_tampered_month_boundaries_block_before_official_http_or_db_mutation(
+        first_day, last_day, request_first):
+    # FakeHTTP/FakeDB only. If the window check were missing, the mock zero
+    # result would mark the wrong window completed; this must stay read-only.
+    with patch.dict(MONTH, {"first_day": first_day, "last_day": last_day}):
+        result, statuses, inserted = run_month(response([], 0), first=request_first)
+    assert result["status"] == "blocked_invalid_month_window"
+    assert result["reason"] == "persisted_month_boundary_mismatch"
+    assert result["read_only"] is True
+    assert statuses == []
+    assert inserted == []
+
+
+@pytest.mark.parametrize("first_day,last_day", [
+    (date(2016, 10, 24), date(2016, 10, 31)),
+    (date(2024, 3, 1), date(2024, 3, 31)),
+    (date(2026, 10, 1), date(2026, 10, 24)),
+])
+def test_valid_partial_horizon_and_full_month_boundaries_remain_compatible(
+        first_day, last_day):
+    with patch.dict(MONTH, {"first_day": first_day, "last_day": last_day}):
+        result, statuses, inserted = run_month(
+            response([], 0), first=first_day.isoformat())
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert inserted == []
 
 
 @pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
