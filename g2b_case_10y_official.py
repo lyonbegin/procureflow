@@ -25,6 +25,22 @@ MONTH_STATES=frozenset({
 def _service_key():
     return os.getenv("G2B_API_KEY") or os.getenv("DATA_GO_KR_SERVICE_KEY") or ""
 
+def _reject_duplicate_json_keys(pairs):
+    """Fail closed when an official JSON object repeats a key.
+
+    json.loads normally keeps the LAST occurrence. A duplicated totalCount,
+    items, resultCode or notice ID can hide a conflicting upstream value and
+    falsely certify a zero-result month or a specific notice. Check every
+    object level before parsing page counts or writing any official history.
+    """
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("g2b_api_duplicate_json_key")
+        result[key] = value
+    return result
+
+
 def _parse(response, *, expected_page=None, expected_rows=None):
     if not isinstance(response,dict):raise ValueError("g2b_api_not_json_object")
     # A successful nested header is insufficient when the provider or an
@@ -304,7 +320,7 @@ def scan_month(first, pages_max=30):
             req=Request(url,headers={"Accept":"application/json",
                               "User-Agent":"ProcureFlow-G2B-Category/1.0"})
             with urlopen(req,timeout=22) as rsp:
-                data=json.loads(rsp.read(15000000))
+                data=json.loads(rsp.read(15000000), object_pairs_hook=_reject_duplicate_json_keys)
             entries,total=_parse(data,expected_page=page,expected_rows=500)
         except Exception as exc:
             # urllib exceptions may include the serviceKey URL. Neither DB
