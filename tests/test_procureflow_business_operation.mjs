@@ -1123,13 +1123,18 @@ test('selected output and feature identity aliases cannot contradict the officia
   for(const {label,forge} of variants){
     const response=structuredClone(blocked);
     forge(response);
+    // flow_id is a REQUIRED envelope field and is already rejected by the
+    // outer contract before the optional-alias guard is reached.
+    const expected=label==='envelope flow_id'
+      ? /official evidence response contract mismatch/
+      : /response identity aliases mismatch/;
     assert.throws(
       ()=>validateProvenance(response,flow,bid,operation),
-      /response identity aliases mismatch/,label
+      expected,label
     );
     await assert.rejects(
       ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return response;})),
-      /response identity aliases mismatch/,
+      expected,
       label+' must never yield a successful or HOLD verdict'
     );
   }
