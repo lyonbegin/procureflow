@@ -989,3 +989,14 @@ def test_readonly_unsearched_month_requires_zero_cursor_without_snapshot(dirty_f
     assert result["invalid_cursor_rows"] == 1
     assert result["eight_digit_notice_discovery_complete"] is False
     assert result["months"][0]["cursor_valid"] is False
+
+
+@pytest.mark.parametrize("invalid_state", [None, "", False, 0, "UNSEARCHED"])
+def test_readonly_audit_never_coerces_invalid_state_to_clean_unsearched(invalid_state):
+    rows = _all_registered_months()
+    rows[0].update(status=invalid_state, checked=0, matched=0,
+                   page_cursor=1, expected_total=None)
+    result = summarize_month_cursor(rows)
+    assert result["invalid_cursor_rows"] == 1
+    assert result["months"][0]["cursor_valid"] is False
+    assert result["eight_digit_notice_discovery_complete"] is False
