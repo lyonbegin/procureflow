@@ -1088,3 +1088,71 @@ test('conflicting response tender/flow/operation aliases cannot pass read-only e
     isolatedMockGETs:mockGETs,realG2BRequests:0,workerDispatch:0,actualBids:0
   }));
 });
+
+
+test('selected output and feature identity aliases cannot contradict the official tender/flow/block',async()=>{
+  configure();
+  const bid='R26BK01787028',flow='PF01',operation='N01';
+  const instance=new ProcureFlowBusinessOperation();
+  const caseKeys=['bid_no','case_id','bidNo','tender_no','caseId','tenderNo'];
+  const flowKeys=['flow_id','flowId'];
+  const operationKeys=['operation_id','operationId'];
+  const variants=[
+    ...[...flowKeys,...operationKeys].map(key=>({
+      label:'envelope '+key,
+      forge:body=>{body[key]=flowKeys.includes(key)?'PF02':'N02';}
+    })),
+    ...caseKeys.map(key=>({
+      label:'selected output_value '+key,
+      forge:body=>{body.blocks[0].output_value[key]='FOREIGN_TENDER';}
+    })),
+    ...[...flowKeys,...operationKeys].map(key=>({
+      label:'selected output_value '+key,
+      forge:body=>{body.blocks[0].output_value[key]=flowKeys.includes(key)?'PF02':'N02';}
+    })),
+    ...caseKeys.map(key=>({
+      label:'selected feature '+key,
+      forge:body=>{body.blocks[0].features[0][key]='FOREIGN_TENDER';}
+    })),
+    ...[...flowKeys,...operationKeys].map(key=>({
+      label:'selected feature '+key,
+      forge:body=>{body.blocks[0].features[0][key]=flowKeys.includes(key)?'PF02':'N02';}
+    }))
+  ];
+  let mockedGets=0;
+  for(const {label,forge} of variants){
+    const response=structuredClone(blocked);
+    forge(response);
+    assert.throws(
+      ()=>validateProvenance(response,flow,bid,operation),
+      /response identity aliases mismatch/,label
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return response;})),
+      /response identity aliases mismatch/,
+      label+' must never yield a successful or HOLD verdict'
+    );
+  }
+  assert.equal(variants.length,24);
+  assert.equal(mockedGets,24,'all GETs are in-memory test stubs');
+  const consistent=structuredClone(blocked);
+  Object.assign(consistent,{flow_id:flow,flowId:flow,operation_id:operation,operationId:operation});
+  Object.assign(consistent.blocks[0].output_value,{
+    bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid,caseId:bid,tenderNo:bid,
+    flow_id:flow,flowId:flow,operation_id:operation,operationId:operation
+  });
+  Object.assign(consistent.blocks[0].features[0],{
+    bid_no:bid,case_id:bid,bidNo:bid,tender_no:bid,caseId:bid,tenderNo:bid,
+    flow_id:flow,flowId:flow,operation_id:operation,operationId:operation
+  });
+  assert.equal(validateProvenance(consistent,flow,bid,operation).id,operation);
+  const held=await instance.execute.call(ctx(getParam,async()=>{mockedGets++;return consistent;}));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1].length,1);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,25);
+  console.log('PROCUREFLOW_SELECTED_EVIDENCE_IDENTITY_FAIL_CLOSED_PASS',JSON.stringify({
+    rejectedContradictions:variants.length,consistentEvidenceHeld:true,
+    syntheticHTTPStubCalls:mockedGets,externalHTTP:0,workerDispatch:0,actualBids:0
+  }));
+});
