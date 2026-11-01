@@ -41,11 +41,6 @@ class FakeMonthDB:
         # When the fixture starts on page 2, synthesize the matched official
         # page-1 IDs that the persisted cursor claims already exist. Tests
         # may override these IDs to exercise duplicate and tampered history.
-        if prior_keys is None:
-            prior_keys = [
-                (f"R24BK{90000000+i:08d}", "000")
-                for i in range(MONTH["matched"])
-            ] if MONTH["checked"] else []
         self.prior_keys = prior_keys
 
     def execute(self, sql, params=()):
@@ -56,9 +51,15 @@ class FakeMonthDB:
                 CASE_BID, MONTH["first_day"], MONTH["last_day"],
                 "81111599", "official_openapi_explicit_code"
             )
+            keys = self.prior_keys
+            if keys is None:
+                keys = [
+                    (f"R24BK{90000000+i:08d}", "000")
+                    for i in range(MONTH["matched"])
+                ] if MONTH["checked"] else []
             return Rows([
                 {"hist_notice_no": no, "hist_notice_ord": ord_}
-                for no, ord_ in self.prior_keys
+                for no, ord_ in keys
             ])
         if "INSERT INTO procureflow.g2b_case_10yr_history" in sql:
             self.inserted.append(params)
