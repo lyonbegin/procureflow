@@ -80,3 +80,16 @@ def test_official_shared_n8n_is_only_editor_and_requires_verified_rollout(monkey
     res = client.get("/n8n/native-preview", follow_redirects=False)
     assert res.status_code == 307 and res.headers["location"] == "https://n8n.internal.example"
 
+
+
+def test_pf05_pf06_exact_detail10_scope_fails_closed_for_other_parent():
+    from n8n_operational import _selected_detail10_codes
+    assert _selected_detail10_codes(["8111159901"])
+    assert _selected_detail10_codes(["8111159901", "8111159902"])
+    for invalid in (
+        None, [], "8111159901", ["81111599"], ["81111599AB"],
+        ["8111229901"], ["9999999901"],
+        ["8111159901", "8111229901"],
+        [8111159901], [True], ["８１１１１５９９０１"],
+    ):
+        assert not _selected_detail10_codes(invalid), repr(invalid)
