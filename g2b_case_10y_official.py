@@ -402,7 +402,10 @@ def summarize_month_cursor(rows):
             invalid+=1
             continue
         seen.add(start)
-        stat=str(row.get("status") or "unsearched")
+        # Preserve invalid/NULL states as invalid: never coerce them into
+        # an apparently clean unsearched month in the read-only audit.
+        raw_stat=row.get("status")
+        stat=raw_stat if isinstance(raw_stat,str) else ""
         valid_state=stat in MONTH_STATES
         raw_checked=_audit_nonnegative_integer(row.get("checked"))
         raw_matched=_audit_nonnegative_integer(row.get("matched"))
