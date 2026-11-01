@@ -126,6 +126,11 @@ function hasUnsafeNestedDispatchClaim(root){
 // Every supplied alias must agree with the authoritative n8n node selection.
 // Checking only case_id allows a contradictory bid_no/tenderNo to be hidden
 // inside an otherwise VERIFIED inspection response.
+// Selected official 8-digit discovery category. This is a scope guard, NOT
+// proof that any candidate 10-digit detail is verified by the notice.
+// PF05/PF06 may not certify an unrelated official category merely because
+// its code has ten digits and a provider reports business_state=VERIFIED.
+const SELECTED_CATEGORY8='81111599';
 const CASE_ALIASES=Object.freeze([
   'bid_no','case_id','bidNo','tender_no','caseId','tenderNo'
 ]);
@@ -300,7 +305,8 @@ class ProcureFlowBusinessOperation {
          (!['PF05','PF06'].includes(block.flowId) ||
            (response.business_state==='VERIFIED'&&Array.isArray(response.official_detail10)&&
             response.official_detail10.length>0&&
-            response.official_detail10.every(code=>typeof code==='string'&&/^[0-9]{10}$/.test(code))))&&
+            response.official_detail10.every(code=>typeof code==='string'&&
+              /^[0-9]{10}$/.test(code)&&code.startsWith(SELECTED_CATEGORY8))))&&
          inspected.status==='verified'&&
          inspected.output_value?.evidence_verified===true&&
          inspected.output_value?.real_api_result_state==='verified'&&
