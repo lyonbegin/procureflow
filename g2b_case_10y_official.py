@@ -277,8 +277,10 @@ def scan_month(first, pages_max=30):
                 invalid+=1
                 continue
             seen_notice_keys.add(notice_key)
-            if cls is not True:
-                continue
+            # Every official row contributes to the month totalCount, even
+            # when it is outside the selected parent8. A stale/out-of-month
+            # non-target notice must not certify this month's completeness.
+            # Validate its publication date before filtering by category.
             raw_pub=item.get("bidNtceDt")
             if not isinstance(raw_pub,str):
                 invalid+=1
@@ -309,6 +311,10 @@ def scan_month(first, pages_max=30):
             # checked even if its date lies somewhere in the ten-year range.
             if not row["first_day"]<=day<=row["last_day"]:
                 invalid+=1
+                continue
+            if cls is not True:
+                # Valid other-category rows count as inspected, not matched.
+                # Their identity AND month timestamp were still verified.
                 continue
             # A malformed official amount must be treated as an unverified
             # page, not raise outside the HTTP/parse exception handler and
