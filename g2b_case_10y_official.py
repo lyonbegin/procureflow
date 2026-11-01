@@ -32,6 +32,18 @@ def _parse(response, *, expected_page=None, expected_rows=None):
     if str(head.get("resultCode","")) not in ("00","0"):
         raise ValueError("g2b_api_result_"+str(head.get("resultCode"))+":"+str(head.get("resultMsg",""))[:75])
     body=envelope.get("body") or {}
+    # A nominally successful header cannot override an explicit error/fault
+    # in the body. In particular, totalCount=0 with an empty item list plus
+    # a provider error must never certify an entire month as searched.
+    # Only the documented pagination/item fields are used for coverage;
+    # unknown harmless metadata is tolerated, but known failure markers are
+    # always fail-closed even when their value is an empty string or null.
+    if not isinstance(body,dict):
+        raise ValueError("g2b_api_body_not_object")
+    if any(key in body for key in (
+            "error","errors","fault","errorCode","errorMessage",
+            "errorMsg","error_message","resultCode")):
+        raise ValueError("g2b_api_body_error_marker")
     # An absent/null item list is normal for a zero-result month. Explicit
     # scalar values (including falsey 0/False/"") are malformed responses;
     # the old 'or []' coercion could falsely certify a zero-result month.
