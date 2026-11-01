@@ -464,9 +464,20 @@ def scan_month(first, pages_max=30):
             if amount<0:
                 invalid+=1
                 continue
+            # Official notice title/agency are text fields, not arbitrary
+            # JSON values. str(dict/list/bool) previously fabricated printable
+            # "evidence" and could mark a malformed notice page completed.
+            # Missing/null fields remain unknown/empty for API compatibility.
+            raw_title=item.get("bidNtceNm")
+            raw_agency=item.get("dminsttNm")
+            raw_alt_agency=item.get("ntceInsttNm")
+            if any(v is not None and not isinstance(v,str) for v in
+                   (raw_title,raw_agency,raw_alt_agency)):
+                invalid+=1
+                continue
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
-                str(item.get("bidNtceNm") or "")[:350],
-                str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
+                (raw_title or "")[:350],
+                (raw_agency or raw_alt_agency or "")[:250],
                 amount or None,
                 "https://www.g2b.go.kr/","official_openapi_explicit_code"))
         if unknown or invalid:
