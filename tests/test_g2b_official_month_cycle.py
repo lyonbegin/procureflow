@@ -99,6 +99,56 @@ def run_month(payload, prior_keys=None):
     return result, status, db.inserted
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("placement", [
+    "root_metadata", "header_metadata", "body_metadata", "notice_metadata",
+])
+def test_nonstandard_official_json_constants_never_certify_month(constant, placement):
+    """Reject non-JSON numeric literals at any depth before history INSERT.
+
+    CPython json.loads otherwise accepts NaN/Infinity even though the official
+    provider contract is JSON. All network and DB dependencies are fakes.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+    }
+    raw = response([notice], 1)
+    if placement == "root_metadata":
+        raw["extra"] = "__NONFINITE__"
+    elif placement == "header_metadata":
+        raw["response"]["header"]["extra"] = "__NONFINITE__"
+    elif placement == "body_metadata":
+        raw["response"]["body"]["extra"] = "__NONFINITE__"
+    else:
+        notice["extra"] = "__NONFINITE__"
+    payload = json.dumps(raw).replace('"__NONFINITE__"', constant).encode("utf-8")
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2] == "error"
+    assert inserted == []
+
+
+def test_standard_json_metadata_remains_compatible_with_month_coverage():
+    """Valid unused numeric metadata must not break existing official pages."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "extra": 0.5,
+    }
+    raw = response([notice], 1)
+    raw["response"]["body"]["extra"] = 1.25
+    result, statuses, inserted = run_month(raw)
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+
+
 @pytest.mark.parametrize("raw", [
     # Python json.loads normally uses the LAST repeated key. The second
     # occurrence could hide an error or replace an official totalCount=1
