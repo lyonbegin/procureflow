@@ -1,5 +1,14 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-02 KST — 공식 G2B JSON 중복 키에 의한 월별 전수 허위 인증 차단 (**전체 미완료**)
+
+- **실제 소스 결함:** Python `json.loads`는 같은 객체의 중복 JSON 키를 기본적으로 마지막 값으로 덮어쓴다. 예를 들어 공식 응답에 `"totalCount":1,"totalCount":0` 또는 `"resultCode":"99","resultCode":"00"`, `"item":[...],"item":[]`가 같이 있으면 뒤쪽 값만 보고 정상 빈 월로 오인할 수 있다. 공고번호 중복 키도 같은 방식으로 숨길 수 있다.
+- **기능 브랜치 수정:** [중복 키 거부 파서 `a2be09e`](https://github.com/lyonbegin/procureflow/commit/a2be09e0014dc08f392407b3ba083c138c044336) — 공식 API JSON 역직렬화에 `object_pairs_hook=_reject_duplicate_json_keys`를 적용. 중복이 발견되면 `g2b_api_duplicate_json_key`로 예외를 내고, 기존 `scan_month`의 일반화된 `ValueError` 오류 경로에서 완료/이력 INSERT를 차단한다. 외부 오류 원문·API 키는 노출하지 않는다.
+- **격리 회귀:** [`8039d96`](https://github.com/lyonbegin/procureflow/commit/8039d9657600215c1ea7c30eabcb0ad7267f6b59) — 공식 헤더, `totalCount`, `items.item`, 루트 `response`, 공고번호 `bidNtceNo` 중복 **5개 음성** + 정상 JSON **1개 양성**. FakeHTTP raw bytes + FakeDB만 사용하여 실제 G2B API/운영 DB/자격증명/Worker/투찰 요청 없음. 모든 중복 응답은 `status=error`, 공식 history INSERT 0건.
+- **실제 동일 HEAD CI:** [G2B 104 API/Node Lab #41321758535](https://github.com/lyonbegin/procureflow/actions/runs/41321758535) **SUCCESS**, [pytest job #124893288877](https://github.com/lyonbegin/procureflow/actions/runs/41321758535/job/124893288877) **522 passed / 3 warnings** (이전 516 + 신규 6). [오프라인 S01~S10 #41321758460](https://github.com/lyonbegin/procureflow/actions/runs/41321758460) **SUCCESS**, [50종/43블록 #41321758522](https://github.com/lyonbegin/procureflow/actions/runs/41321758522) **SUCCESS**, [단일 편집기 #41321758475](https://github.com/lyonbegin/procureflow/actions/runs/41321758475) **SUCCESS**.
+- **기존 운영 owner/readiness #41321758584 FAIL:** 읽기 전용 실측 `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 계정/DB 초기화·우회 금지. 공식 후보 Docker/Chrome/Pan/native/PF15/Main·Worker 장시간 CI는 개별 최종 확인 전까지 성공 판정하지 않는다.
+- **남은 필수:** 35종 실행 어댑터, 43개 실업무 핸들러/엄격 payload, 정확 10자리 기준 공식 10년 실제 개찰·낙찰 전수, Worker fencing, 디버깅 80개 런타임 전수, 기존 owner/DB/키 호환성·운영 승인. Issue Open / PR Draft·미병합. 운영 main/Railway 서비스·DB/자격증명/실제 투찰 변경 없음.
+
 ## 2026-11-01 KST — 공식 API 0건 완료 월의 잔존 이력 검증 강화 (**전체 완료 아님**)
 
 - **확인한 결함:** `scan_month()`의 `completed` 단축 경로가 `checked=0,matched=0`인 월에서는 실제 저장된 공식 이력 행을 확인하지 않았다. 따라서 이미 저장된 대상 분류 공고 이력이 남아 있거나 DB 읽기가 실패해도 0건 월을 `already_completed`로 인증할 수 있었다. 첫 공식 API 응답이 `totalCount=0`인 경우에도 이전 잔존 이력 확인 없이 `completed`로 기록할 수 있었다.
