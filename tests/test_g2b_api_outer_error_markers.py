@@ -99,7 +99,8 @@ def test_outer_error_marks_month_error_without_inserting_history(monkeypatch, le
     first = date(2026, 10, 1)
     row = {
         "first_day": first,
-        "last_day": date(2026, 10, 31),
+        # The selected ten-year horizon ends October 24, not October 31.
+        "last_day": date(2026, 10, 24),
         "status": "unsearched",
         "page_cursor": 1,
         "checked": 0,
