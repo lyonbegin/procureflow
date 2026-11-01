@@ -1524,3 +1524,49 @@ def test_missing_official_notice_text_remains_unknown_not_fabricated():
     assert len(inserted) == 1
     assert inserted[0][5] == ""
     assert inserted[0][6] == "Official alternate agency"
+
+
+@pytest.mark.parametrize("field", ["bidNtceNm", "dminsttNm", "ntceInsttNm"])
+@pytest.mark.parametrize("malformed", [
+    "\ud800", "\udfff", "title\x00hidden", "title\x01hidden", "title\x1fhidden",
+])
+def test_official_month_rejects_malformed_unicode_and_control_text(field, malformed):
+    """Invalid Unicode scalar values and embedded controls never certify a month.
+
+    JSON escape sequences can pass json.loads yet fail UTF-8 database encoding
+    or carry hidden control characters. All calls use FakeHTTP and FakeDB.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "정상 공고명",
+        "dminsttNm": "정상 기관",
+        "ntceInsttNm": "정상 대체기관",
+    }
+    notice[field] = malformed
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+
+
+def test_official_month_accepts_valid_korean_and_text_whitespace():
+    """Ordinary Korean/emoji and CR/LF/tab are valid official text evidence."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "정보시스템 구축\n2차 공고\t😀",
+        "dminsttNm": "서울특별시\r\n기관",
+        "ntceInsttNm": "정상 기관",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][5] == notice["bidNtceNm"]
+    assert inserted[0][6] == notice["dminsttNm"]
