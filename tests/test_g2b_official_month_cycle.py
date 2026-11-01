@@ -31,14 +31,35 @@ class Rows:
     def fetchone(self):
         return self.value
 
+    def fetchall(self):
+        return self.value
+
 
 class FakeMonthDB:
-    def __init__(self):
+    def __init__(self, prior_keys=None):
         self.inserted = []
+        # When the fixture starts on page 2, synthesize the matched official
+        # page-1 IDs that the persisted cursor claims already exist. Tests
+        # may override these IDs to exercise duplicate and tampered history.
+        if prior_keys is None:
+            prior_keys = [
+                (f"R24BK{90000000+i:08d}", "000")
+                for i in range(MONTH["matched"])
+            ] if MONTH["checked"] else []
+        self.prior_keys = prior_keys
 
     def execute(self, sql, params=()):
         if "SELECT first_day,last_day,status,page_cursor" in sql:
             return Rows(MONTH)
+        if "SELECT hist_notice_no,hist_notice_ord" in sql:
+            assert params == (
+                CASE_BID, MONTH["first_day"], MONTH["last_day"],
+                "81111599", "official_openapi_explicit_code"
+            )
+            return Rows([
+                {"hist_notice_no": no, "hist_notice_ord": ord_}
+                for no, ord_ in self.prior_keys
+            ])
         if "INSERT INTO procureflow.g2b_case_10yr_history" in sql:
             self.inserted.append(params)
             return Rows(None)
@@ -65,8 +86,8 @@ def fake_month_session(db):
     yield db
 
 
-def run_month(payload):
-    db = FakeMonthDB()
+def run_month(payload, prior_keys=None):
+    db = FakeMonthDB(prior_keys=prior_keys)
     status = []
     with patch("g2b_case_10y_official.ensure_schema"), \
          patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
@@ -734,6 +755,70 @@ def test_valid_resumed_full_page_cursor_can_finish_next_official_page():
     assert result["checked"] == 501 and result["matched"] == 201
     assert len(inserted) == 1 and inserted[0][7] == 120000
     assert statuses[0][2] == "completed"
+
+
+def test_resumed_month_blocks_duplicate_target_notice_from_earlier_invocation():
+    # Two separate scan_month invocations previously reset seen_notice_keys.
+    # A repeated target row on page 2 could increment checked/matched and
+    # falsely complete a 501-row month while ON CONFLICT overwrote page 1.
+    duplicate = ("R24BK12345678", "000")
+    prior = [duplicate] + [
+        (f"R24BK{90000000+i:08d}", "000") for i in range(199)
+    ]
+    item = {"prdctClsfcNo": "81111599", "bidNtceNo": duplicate[0],
+            "bidNtceOrd": duplicate[1], "bidNtceDt": "2024-03-07"}
+    with patch.dict(MONTH, {"status": "partial", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": 501}):
+        result, writes, inserted = run_month(
+            response([item], 501), prior_keys=prior)
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert writes[0][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+
+
+@pytest.mark.parametrize("bad_prior", [
+    [],  # 200 matches claimed but no official rows exist
+    [("R24BK12345678", "000")] * 200,  # repeated persisted identity
+])
+def test_resumed_month_rejects_inconsistent_persisted_history_before_http(bad_prior):
+    db = FakeMonthDB(prior_keys=bad_prior)
+    with patch.dict(MONTH, {"status": "partial", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": 501}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_unverified_persisted_history"
+    assert result["read_only"] is True
+    assert result["reason"] == "partial_history_count_or_identity_mismatch"
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
+
+
+def test_completed_month_refuses_history_mismatch_even_with_matching_cursor():
+    db = FakeMonthDB(prior_keys=[])
+    with patch.dict(MONTH, {"status": "completed", "checked": 500,
+                            "matched": 200, "page_cursor": 2,
+                            "expected_total": 500}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_unverified_persisted_history"
+    assert result["reason"] == "completed_history_count_or_identity_mismatch"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
 
 
 @pytest.mark.parametrize("changed_total", [500, 502, 700])
