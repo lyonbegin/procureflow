@@ -252,7 +252,11 @@ def scan_month(first, pages_max=30):
             if cls is None:
                 unknown+=1
                 continue
-            if cls is not True:continue
+            # Every official page row contributes to totalCount, even when
+            # its category is not our selected parent8. Check its notice
+            # identity BEFORE skipping it: otherwise a duplicate or a row
+            # with no identity in an out-of-scope category could silently
+            # replace another result while the month is marked completed.
             no=str(item.get("bidNtceNo") or "").strip()
             # A missing official notice round defaults to 000. Explicit
             # boolean, float, object or list values must never be coerced
@@ -267,6 +271,13 @@ def scan_month(first, pages_max=30):
                 continue
             if not re.fullmatch(r"R\d{2}BK\d{8}|\d{11}",no) or not re.fullmatch(r"\d{3}",ord_):
                 invalid+=1
+                continue
+            notice_key=(no,ord_)
+            if notice_key in seen_notice_keys:
+                invalid+=1
+                continue
+            seen_notice_keys.add(notice_key)
+            if cls is not True:
                 continue
             raw_pub=item.get("bidNtceDt")
             if not isinstance(raw_pub,str):
@@ -319,11 +330,6 @@ def scan_month(first, pages_max=30):
             if amount<0:
                 invalid+=1
                 continue
-            notice_key=(no,ord_)
-            if notice_key in seen_notice_keys:
-                invalid+=1
-                continue
-            seen_notice_keys.add(notice_key)
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 str(item.get("bidNtceNm") or "")[:350],
                 str(item.get("dminsttNm") or item.get("ntceInsttNm") or "")[:250],
