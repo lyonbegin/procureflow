@@ -93,3 +93,34 @@ def test_pf05_pf06_exact_detail10_scope_fails_closed_for_other_parent():
         [8111159901], [True], ["８１１１１５９９０１"],
     ):
         assert not _selected_detail10_codes(invalid), repr(invalid)
+
+
+def test_pf05_pf06_materialized_readonly_verdict_requires_selected_category():
+    from n8n_operational import _materialized, manifest
+    from g2b_case_10y import CASE_BID
+    from g2b_feature_registry import FEATURE_GATES
+
+    for flow_id in ("PF05", "PF06"):
+        flow = next(row for row in manifest()["flows"] if row["id"] == flow_id)
+        feature_ids = flow["business_features"]
+        gates = set().union(*(set(FEATURE_GATES[n]) for n in feature_ids))
+        gates.add("outcome_10years_complete")
+        snapshot = {
+            "verified_evidence_types": sorted(gates),
+            "feature_acceptance": [
+                {"number": n, "acceptance_state": "verified"} for n in feature_ids
+            ],
+        }
+        context = {
+            "bid_no": CASE_BID, "bid_ord": "000",
+            "original_notice_verified": True,
+            "official_detail10": ["8111229901"],
+        }
+        unrelated = _materialized(flow, context, snapshot)
+        assert unrelated["business_state"] == "BLOCKED_OR_PENDING", flow_id
+        assert unrelated["read_only"] is True
+        assert unrelated["automatic_bid_submission"] is False
+        context["official_detail10"] = ["8111159901"]
+        scoped = _materialized(flow, context, snapshot)
+        assert scoped["business_state"] == "VERIFIED", flow_id
+        assert scoped["actual_job_executed"] is False
