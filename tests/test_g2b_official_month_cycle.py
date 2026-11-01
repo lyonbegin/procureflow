@@ -1570,3 +1570,47 @@ def test_official_month_accepts_valid_korean_and_text_whitespace():
     assert len(inserted) == 1
     assert inserted[0][5] == notice["bidNtceNm"]
     assert inserted[0][6] == notice["dminsttNm"]
+
+
+@pytest.mark.parametrize("field", ["bidNtceNm", "dminsttNm", "ntceInsttNm"])
+@pytest.mark.parametrize("control", ["\u007f", "\u0080", "\u0085", "\u009f"])
+def test_official_month_rejects_del_and_c1_controls_before_history_insert(field, control):
+    """DEL/C1 controls can hide evidence content while looking like normal text.
+
+    Verify all three official notice/agency fields with FakeHTTP/FakeDB only.
+    The page must not be certified or insert any history row.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "정상 공고명",
+        "dminsttNm": "정상 기관",
+        "ntceInsttNm": "정상 대체기관",
+    }
+    notice[field] = "공식" + control + "증빙"
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+
+
+def test_official_month_still_accepts_normal_unicode_after_del_c1_guard():
+    """Ordinary Korean, emoji, tabs/newlines and non-ASCII letters remain valid."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "사업 구축\t2차\n공고 😀",
+        "dminsttNm": "서울기관\r\nÉcole",
+        "ntceInsttNm": "정상 대체기관",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][5] == notice["bidNtceNm"]
+    assert inserted[0][6] == notice["dminsttNm"]
