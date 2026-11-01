@@ -40,7 +40,7 @@ for(const flow of manifest.flows){
     // Preserve only validated, manifest-owned identifiers; all decisions and
     // dispatch flags are generated as fixed fail-closed values.
     const holdCode=[
-      'const v=$input.first()?.json??{};',
+      'return $input.all().map((entry,i)=>{const v=entry?.json??{};',
       'const allowed='+JSON.stringify(flow.owned_blocks)+';',
       "const operationId=allowed.includes(v.operation_id)?v.operation_id:null;",
       "const caseId=v.case_id==='R26BK01787028'?'R26BK01787028':null;",
@@ -53,7 +53,7 @@ for(const flow of manifest.flows){
       "automatic_bid_submission:false,automated_bid_submission:false,",
       "actual_job_executed:false,actual_business_handler_executed:false,",
       "job_enqueued:false,worker_job_enqueued:false,bid_submitted:false,output:null",
-      '}}];'
+      '} ,pairedItem:{item:i}};});'
     ].join('');
     const hold={
       id:idFor(id+'-hold'),
