@@ -418,7 +418,7 @@ def test_duplicate_out_of_scope_notice_across_pages_blocks_second_page():
 
 def test_duplicate_two_out_of_scope_rows_does_not_fake_zero_matched_coverage():
     outside = {"prdctClsfcNo": "99999999", "bidNtceNo": "R24BK12345678",
-               "bidNtceOrd": "000"}
+               "bidNtceOrd": "000", "bidNtceDt": "2024-03-07"}
     result, statuses, inserted = run_month(response([outside, dict(outside)], 2))
     assert result["status"] == "blocked_unverified_response_scope"
     assert result["invalid_scope_rows"] == 1
