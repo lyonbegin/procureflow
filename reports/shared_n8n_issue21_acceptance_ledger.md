@@ -377,3 +377,14 @@
 - 동일 최신 SHA의 공식 Docker/Chrome/Pan/native 시나리오/Main-Worker/PF15 CI는 **별도 완료 확인 전까지 PASS로 보고하지 않음**.
 - **남은 필수 수용검사:** 35종 미지원 실행 매핑, 43개 실제 업무 핸들러·정식 payload, 정확한 10년 공식 개찰·낙찰 전수 및 Worker fencing, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. 이번 수정은 **8자리 공고 발견 집계의 거짓 완료 방지**이며 10자리 실제 개찰·낙찰 완전성 증명이 아니다.
 - **불변:** 운영 `main`, Railway 운영 서비스/DB, 자격증명, 실제 G2B 호출/Worker dispatch/투찰 변경 없음. Issue #21 Open, PR #22 Draft·미병합. 전체 완료 통보 금지.
+
+
+## 2026-11-01 KST — n8n 증빙 객체 순환/공유 참조 fail-closed (전체 완료 아님)
+
+- **발견한 결함:** `hasUnsafeNestedDispatchClaim()`는 `WeakSet`에 이미 있는 객체를 `continue`로 건너뛰었다. JSON에서 표현할 수 없는 **순환 참조** 또는 서로 다른 경로가 같은 객체를 공유하는 비정상 메모리 그래프가 들어오면 증빙/업스트림 입력이 정상 JSON인지 검증하지 않은 채 계속 진행할 수 있었다.
+- **기능 브랜치 패치:** [`43ab12f`](https://github.com/lyonbegin/procureflow/commit/43ab12f9817f7a1a44fcae731253fd85d4b70da7) — 재방문 객체는 증빙 검사에서 **즉시 fail-closed**. 정상 JSON 트리 구조에는 영향이 없다. [`076a5f9`](https://github.com/lyonbegin/procureflow/commit/076a5f986342e785e46882d017f7402a89dd832e) — 순환 입력·공유 객체·후행 배치 아이템을 **HTTP 요청 전에** 차단하고, 순환 HTTP helper 응답이 증빙 인증으로 승격되지 않으며 정상 JSON HOLD는 유지됨을 검증.
+- **같은 코드 HEAD의 실제 GitHub Actions:** [공식 단일 편집기/Node 회귀 #41284342540](https://github.com/lyonbegin/procureflow/actions/runs/41284342540) **SUCCESS**, [Node job #124782486672](https://github.com/lyonbegin/procureflow/actions/runs/41284342540/job/124782486672) **41/41 PASS**. 로그 `PROCUREFLOW_NON_JSON_REFERENCE_GRAPH_FAIL_CLOSED_PASS`: 비정상 upstream 3건·비정상 response 1건 차단, 정상 합성 HOLD에만 메모리 HTTP stub 1건, 외부 HTTP/Worker/투찰 **0**.
+- [50종/43블록 계약 #41284342670](https://github.com/lyonbegin/procureflow/actions/runs/41284342670), [G2B 104 API Node Lab #41284342659](https://github.com/lyonbegin/procureflow/actions/runs/41284342659) (**361 passed/3 warnings**), [S01~S10 오프라인 #41284342677](https://github.com/lyonbegin/procureflow/actions/runs/41284342677) **SUCCESS**.
+- **기존 운영 owner/readiness [#41284342683](https://github.com/lyonbegin/procureflow/actions/runs/41284342683) FAIL:** 기존 `EDITOR_BLOCKED_UNCLAIMED_OWNER` 유지. 계정/DB/자격증명 변경 없이 읽기 전용으로만 진단.
+- 같은 코드 HEAD의 [격리 공식 Docker/Chrome #41284342634](https://github.com/lyonbegin/procureflow/actions/runs/41284342634), [Pan #41284342756](https://github.com/lyonbegin/procureflow/actions/runs/41284342756), [native S01~S10 #41284342607](https://github.com/lyonbegin/procureflow/actions/runs/41284342607), [PF15 #41284342621](https://github.com/lyonbegin/procureflow/actions/runs/41284342621), [Main/Worker 격리 #41284342650](https://github.com/lyonbegin/procureflow/actions/runs/41284342650)은 이 기록 시점 일부 진행 중으로 **PASS 선판정 금지**.
+- **남은 필수 수용:** 35종 미지원 노드 실행 매핑, 43개 실제 업무 핸들러/엄격 payload, 정확한 10자리 세부품명 기준 공식 10년 개찰·낙찰 전수, 별도 디버깅 80개 런타임 전수, 운영 owner/DB/키 호환성·명시적 승인. **Issue #21 Open / PR #22 Draft·미병합 유지**. 운영 `main`, Railway 운영 서비스·DB, 자격증명, 실제 G2B API 호출/Worker dispatch/투찰 변경 없음.
