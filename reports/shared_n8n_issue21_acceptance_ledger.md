@@ -1,5 +1,16 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 10년 월별 G2B 페이지 재호출 중복 식별자 차단 (전체 완료 아님)
+
+- **새로 확인한 결함:** 동일 월의 공식 API 조회를 `scan_month(..., pages_max=1)`로 두 번 나눠 실행하면 `seen_notice_keys`가 호출마다 초기화된다. 공식 `totalCount`가 501로 유지되어도 2페이지의 대상 세부 공고가 이전 1페이지와 동일하면 `ON CONFLICT`가 기존 기록을 갱신하고 `checked/matched`는 중복을 새 행으로 계산하여 월을 `completed`로 허위 인증할 수 있었다.
+- **기능 브랜치 수정:** [재개 시 기존 공식 공고 식별자 조회/검증 `753abbac`](https://github.com/lyonbegin/procureflow/commit/753abbacc4bc9ed9af5771b29317979c00b81d14). 이미 저장된 `official_openapi_explicit_code`의 대상 8자리 월별 `(hist_notice_no,hist_notice_ord)`를 **읽기 전용**으로 조회하고 `matched` 커서와 고유 ID 개수를 대조한다. 불일치·DB 읽기 실패는 `blocked_unverified_persisted_history`로 차단하며 네트워크/월 상태 변경을 하지 않는다. 정상 재개 시 과거 식별자를 `seen_notice_keys`에 포함해 두 번째 호출의 중복을 차단한다. 완료된 월을 재조회하는 shortcut에도 기록 개수 검사를 적용한다.
+- **격리 회귀:** [중복·손상 이력 시험 `e1dcebb`](https://github.com/lyonbegin/procureflow/commit/e1dcebbf02a21cb0df404de6f611bab1669a1acb), [기존 완료 상태 FakeDB 보정 `2fd02588`](https://github.com/lyonbegin/procureflow/commit/2fd02588043ead0ff77cb21bd8fde6b648647ae2). 대상 공고의 페이지 간 중복, 이전 기록 0건/중복 200건, 정상 501건 완료, 완료 상태의 기록 개수 불일치를 검증. **이전 페이지에서 대상 외 분류 공고의 ID는 DB에 보존하지 않으므로, 이 수정만으로 모든 분류의 교차 호출 중복 검출이 완료되었다고 주장하지 않는다.**
+- **코드 SHA `2fd02588043ead0ff77cb21bd8fde6b648647ae2` G2B CI:** [#41294790541](https://github.com/lyonbegin/procureflow/actions/runs/41294790541) **SUCCESS**, [pytest job #124813247506](https://github.com/lyonbegin/procureflow/actions/runs/41294790541/job/124813247506) **503 passed / 3 warnings**. FakeHTTP/FakeDB만 사용하며 실제 G2B API·운영 DB·Worker·투찰 요청 0건.
+- 같은 코드 SHA의 [오프라인 S01~S10 #41294790447](https://github.com/lyonbegin/procureflow/actions/runs/41294790447), [단일 공식 편집기 계약 #41294790432](https://github.com/lyonbegin/procureflow/actions/runs/41294790432), [50종/43블록 계약 #41294790590](https://github.com/lyonbegin/procureflow/actions/runs/41294790590) **SUCCESS**.
+- [기존 운영 owner/readiness #41294790431](https://github.com/lyonbegin/procureflow/actions/runs/41294790431) **FAIL (기존 차단)**: `ownerSetupRequired=true`, `/setup=403`, `/rest/workflows=401`, `EDITOR_BLOCKED_UNCLAIMED_OWNER`. 계정/DB/키는 수정하지 않았다.
+- [공식 후보 Docker + Chrome #41294790603](https://github.com/lyonbegin/procureflow/actions/runs/41294790603), [Pan 빌드 #41294790494](https://github.com/lyonbegin/procureflow/actions/runs/41294790494), [native S01~S10/PF #41294790455](https://github.com/lyonbegin/procureflow/actions/runs/41294790455), [PF15 #41294790610](https://github.com/lyonbegin/procureflow/actions/runs/41294790610), [Main/Worker 격리 #41294790439](https://github.com/lyonbegin/procureflow/actions/runs/41294790439)는 이 기록 작성 시 진행 중. **최종 상태 재확인 전 PASS 선판정 금지.**
+- **필수 미완료:** 35종 실제 실행 어댑터, 43개 실업무 핸들러/엄격 payload, 정확 10자리 기준 공식 10년 개찰·낙찰 전수 및 Worker fencing, 디버깅 80개 전수, 운영 owner/DB/키 호환성 및 승인. Issue Open/PR Draft 유지. 운영 main/Railway 서비스·DB/자격증명/실제 투찰 불변.
+
 ## 2026-11-01 KST — 공식 G2B `items.item`와 오류 필드 혼합 응답 차단 (**전체 완료 아님**)
 
 - **실제 결함:** 공식 API의 `body.items`가 `{"item":[],"error":"upstream unavailable"}` 또는 `{"item":[],"resultCode":"99"}`처럼 정상 `item` 키와 **알 수 없는 오류/메타데이터 키를 동시에 포함**하면, 기존 파서는 `item=[]`만 취하고 `totalCount=0` 월을 `completed`로 허위 인증할 수 있었다. 기존에는 `item` 자체가 없는 오류 래퍼만 차단했다.
