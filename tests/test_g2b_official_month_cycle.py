@@ -134,6 +134,27 @@ def test_official_scalar_items_cannot_forge_empty_completed_month(invalid_items)
     assert not inserted
 
 
+@pytest.mark.parametrize("invalid_wrapper", [
+    {"error": "upstream unavailable"},
+    {"unexpected": []},
+    {"result": {"item": []}},
+    {"count": 0},
+])
+@pytest.mark.parametrize("total_count", [0, 1])
+def test_unknown_nonempty_official_items_wrapper_cannot_certify_month(invalid_wrapper, total_count):
+    # A malformed response wrapper must not masquerade as an empty month.
+    # Keep unknown API response schemas outside the official evidence cursor.
+    payload = {"response": {"header": {"resultCode": "00"},
+               "body": {"totalCount": total_count, "items": invalid_wrapper}}}
+    with pytest.raises(ValueError, match="items_wrapper_missing_item"):
+        _parse(payload)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses[0][2] == "error"
+    assert not inserted
+
+
 @pytest.mark.parametrize("empty_items", [None, [], {}, {"item": None}, {"item": []}])
 def test_official_null_or_empty_items_remain_valid_zero_result_response(empty_items):
     payload = {"response": {"header": {"resultCode": "00"},
