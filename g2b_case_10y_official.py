@@ -38,6 +38,11 @@ def _parse(response, *, expected_page=None, expected_rows=None):
     items=body.get("items",[])
     if items is None:items=[]
     if isinstance(items,dict):
+        # A nonempty unknown items wrapper is not an empty official page.
+        # Otherwise {"error": "..."} + totalCount=0 could falsely
+        # certify a month without inspecting any actual notice rows.
+        if items and "item" not in items:
+            raise ValueError("g2b_api_items_wrapper_missing_item")
         items=items.get("item",[])
         if items is None:items=[]
     if isinstance(items,dict):items=[items]
