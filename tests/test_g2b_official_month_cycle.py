@@ -743,6 +743,58 @@ def test_completed_month_shortcut_requires_valid_auditable_cursor(cursor_fields,
     assert not db.inserted
 
 
+
+@pytest.mark.parametrize("prior_keys,expected", [
+    ([], "already_completed"),
+    ([("R24BK12345678", "000")], "blocked_unverified_persisted_history"),
+])
+def test_completed_zero_result_month_must_have_zero_persisted_official_rows(
+        prior_keys, expected):
+    # A 0/0 completed cursor must not certify an orphaned history row.
+    # Previously the shortcut skipped the history query for inspected == 0.
+    db = FakeMonthDB(prior_keys=prior_keys)
+    with patch.dict(MONTH, {"status": "completed", "checked": 0,
+                            "matched": 0, "page_cursor": 1,
+                            "expected_total": 0}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == expected
+    if expected == "blocked_unverified_persisted_history":
+        assert result["reason"] == "completed_history_count_or_identity_mismatch"
+        assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert not db.inserted
+
+
+def test_completed_zero_result_month_blocks_history_read_failure_without_http():
+    # A failed read cannot be interpreted as evidence of an empty month.
+    db = FakeMonthDB(prior_keys=[])
+    with patch.dict(MONTH, {"status": "completed", "checked": 0,
+                            "matched": 0, "page_cursor": 1,
+                            "expected_total": 0}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._persisted_official_notice_keys",
+               return_value=None) as history, \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_unverified_persisted_history"
+    assert result["read_only"] is True
+    history.assert_called_once()
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert not db.inserted
+
+
 def test_valid_resumed_full_page_cursor_can_finish_next_official_page():
     # A correctly persisted first 500-row page may resume at page 2.
     good = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
