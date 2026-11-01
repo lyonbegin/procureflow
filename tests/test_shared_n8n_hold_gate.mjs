@@ -61,7 +61,7 @@ test('all 43 candidate Business Operation HOLD paths sanitize forged upstream ap
         arbitrarySecret:'PRIVATE_ARBITRARY_123'
       };
       const result=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
-        $input:{first:()=>({json:hostile})}
+        $input:{all:()=>[{json:hostile}]}
       },{timeout:1000});
       assert.equal(result.length,1);
       const safe=result[0].json;
@@ -88,14 +88,44 @@ test('all 43 candidate Business Operation HOLD paths sanitize forged upstream ap
       // Valid, manifest-owned metadata may survive HOLD without inheriting
       // arbitrary upstream JSON or a forged execution/approval verdict.
       const allowedResult=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
-        $input:{first:()=>({json:{...hostile,case_id:'R26BK01787028',
-          operation_id:flow.owned_blocks[0]}})}
+        $input:{all:()=>[{json:{...hostile,case_id:'R26BK01787028',
+          operation_id:flow.owned_blocks[0]}}]}
       },{timeout:1000});
       assert.equal(allowedResult[0].json.case_id,'R26BK01787028');
       assert.equal(allowedResult[0].json.bid_no,'R26BK01787028');
       assert.equal(allowedResult[0].json.operation_id,flow.owned_blocks[0]);
       assert.equal(allowedResult[0].json.bid_submitted,false);
       assert.ok(!JSON.stringify(allowedResult).includes('PRIVATE_'));
+      // Regression: the native Code node runs once for all items. Previously
+      // $input.first() silently dropped every HOLD record after item 0.
+      const mixedInputs=[
+        {json:{...hostile,case_id:'R26BK01787028',operation_id:flow.owned_blocks[0]}},
+        {json:{...hostile,case_id:'OTHER_TENDER',operation_id:'FORGED',
+          secret:'PRIVATE_SECOND_ITEM_123'}},
+        {json:{...hostile,case_id:'R26BK01787028',
+          operation_id:flow.owned_blocks.at(-1)}}
+      ];
+      const mixed=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
+        $input:{all:()=>mixedInputs}
+      },{timeout:1000});
+      assert.equal(mixed.length,3,flow.id+' must preserve all three HOLD items');
+      for(let i=0;i<mixed.length;i++){
+        assert.equal(mixed[i].pairedItem.item,i,flow.id+' paired item index '+i);
+        assert.equal(mixed[i].json.final_decision,'HOLD');
+        assert.equal(mixed[i].json.inspection_status,'HOLD');
+        assert.equal(mixed[i].json.bid_submitted,false);
+        assert.equal(mixed[i].json.worker_job_enqueued,false);
+        assert.equal(mixed[i].json.actual_business_handler_executed,false);
+      }
+      assert.equal(mixed[0].json.operation_id,flow.owned_blocks[0]);
+      assert.equal(mixed[1].json.operation_id,null,'forged second item must be redacted');
+      assert.equal(mixed[1].json.case_id,null,'foreign second case must be redacted');
+      assert.equal(mixed[2].json.operation_id,flow.owned_blocks.at(-1));
+      assert.ok(!JSON.stringify(mixed).includes('PRIVATE_'));
+      const empty=vm.runInNewContext('(function(){'+hold.parameters.jsCode+'})()',{
+        $input:{all:()=>[]}
+      },{timeout:1000});
+      assert.equal(empty.length,0,flow.id+' must not invent a HOLD for an empty batch');
       for(const id of flow.owned_blocks){
         const name=id+' · Business Operation (공식 증빙 게이트)';
         const node=w.nodes.find(n=>n.name===name);
