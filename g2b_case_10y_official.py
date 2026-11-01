@@ -15,6 +15,13 @@ from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,ensure_schema
 from db import session
 
 API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
+# Persisted state is evidence. An unknown state must never be silently
+# treated as a resumable page, even when its numeric cursor looks plausible.
+MONTH_STATES=frozenset({
+    "unsearched", "partial", "completed", "error",
+    "blocked_missing_official_api_key", "blocked_unverified_response_scope",
+    "blocked_incomplete_api_page",
+})
 def _service_key():
     return os.getenv("G2B_API_KEY") or os.getenv("DATA_GO_KR_SERVICE_KEY") or ""
 
@@ -133,6 +140,19 @@ def scan_month(first, pages_max=30):
                  checked,matched,expected_total FROM procureflow.g2b_case_10yr_windows
                  WHERE case_bid_no=%s AND first_day=%s""",(CASE_BID,first)).fetchone()
     if not row:raise ValueError("month not in chosen ten-year horizon")
+    # Refuse unknown/tampered states before credential lookup, HTTP or
+    # cursor mutation. An untouched month must start at page 1 with zero
+    # inspected/matched rows, otherwise there is no trustworthy resume point.
+    if row["status"] not in MONTH_STATES:
+        return {"status":"blocked_invalid_month_state","first_day":str(first),
+                "read_only":True,"reason":"unknown_persisted_month_status"}
+    if row["status"]=="unsearched" and (
+            _audit_nonnegative_integer(row["checked"])!=0 or
+            _audit_nonnegative_integer(row["matched"])!=0 or
+            _audit_nonnegative_integer(row["page_cursor"])!=1 or
+            row.get("expected_total") is not None):
+        return {"status":"blocked_invalid_month_state","first_day":str(first),
+                "read_only":True,"reason":"unsearched_month_has_progress"}
     # Validate persisted cursor types BEFORE coercion, network access or a
     # completed-month shortcut. int(True), int(1.5), and int("2") can mask
     # corrupted coverage evidence; a completed row is not automatically proof.
@@ -383,13 +403,14 @@ def summarize_month_cursor(rows):
             continue
         seen.add(start)
         stat=str(row.get("status") or "unsearched")
+        valid_state=stat in MONTH_STATES
         raw_checked=_audit_nonnegative_integer(row.get("checked"))
         raw_matched=_audit_nonnegative_integer(row.get("matched"))
         raw_page=_audit_nonnegative_integer(row.get("page_cursor"))
         raw_snapshot=_audit_nonnegative_integer(row.get("expected_total"))
         # Keep the read-only diagnostic available even for corrupted DB rows.
         # Never treat a coerced/negative/bool/fractional count as completed.
-        cursor_valid=(raw_checked is not None and raw_matched is not None and
+        cursor_valid=(valid_state and raw_checked is not None and raw_matched is not None and
                       raw_page is not None and raw_page>=1 and
                       raw_matched<=raw_checked)
         checked=raw_checked if raw_checked is not None else 0
@@ -412,6 +433,10 @@ def summarize_month_cursor(rows):
             if checked>0:
                 cursor_valid=(cursor_valid and raw_snapshot is not None
                               and raw_snapshot>checked)
+        if stat=="unsearched":
+            # A new month has no trustworthy page snapshot or scanned rows.
+            cursor_valid=(cursor_valid and checked==0 and matched==0 and
+                          page==1 and raw_snapshot is None)
         if not cursor_valid:
             invalid_cursors+=1
         months.append({"first_day":start.isoformat(),
