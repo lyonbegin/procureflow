@@ -152,7 +152,10 @@ def _category_from(item):
         if raw is None or raw=="":
             continue
         value=str(raw).strip()
-        if not re.fullmatch(r"\d{8}(\d{2})?",value):
+        # G2B classification identifiers are ASCII decimal strings. Python's
+        # \\d also matches full-width/Arabic-Indic digits, which could make a
+        # non-official 10-digit suffix look like a valid selected category.
+        if not re.fullmatch(r"[0-9]{8}([0-9]{2})?",value):
             return None
         codes.append(value)
     if not codes:
