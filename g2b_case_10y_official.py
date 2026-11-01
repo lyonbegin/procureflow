@@ -27,8 +27,27 @@ def _service_key():
 
 def _parse(response, *, expected_page=None, expected_rows=None):
     if not isinstance(response,dict):raise ValueError("g2b_api_not_json_object")
+    # A successful nested header is insufficient when the provider or an
+    # intermediary also sends an explicit error at the response root,
+    # envelope, or header level. A zero-result page with such a marker must
+    # never become an auditable completed month.
+    failure_markers=frozenset((
+        "error","errors","fault","errorCode","errorMessage",
+        "errorMsg","error_message","resultCode",
+    ))
+    if any(marker in response for marker in failure_markers):
+        raise ValueError("g2b_api_root_error_marker")
     envelope=response.get("response") or {}
+    if not isinstance(envelope,dict):
+        raise ValueError("g2b_api_envelope_not_object")
+    if any(marker in envelope for marker in failure_markers):
+        raise ValueError("g2b_api_envelope_error_marker")
     head=envelope.get("header") or {}
+    if not isinstance(head,dict):
+        raise ValueError("g2b_api_header_not_object")
+    # resultCode belongs in the documented header and is validated below.
+    if any(marker in head for marker in failure_markers-{"resultCode"}):
+        raise ValueError("g2b_api_header_error_marker")
     if str(head.get("resultCode","")) not in ("00","0"):
         raise ValueError("g2b_api_result_"+str(head.get("resultCode"))+":"+str(head.get("resultMsg",""))[:75])
     body=envelope.get("body") or {}
