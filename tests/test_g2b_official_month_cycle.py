@@ -1478,3 +1478,49 @@ def test_official_month_ascii_notice_identity_remains_valid():
     assert result["status"] == "completed"
     assert len(inserted) == 1
     assert updates and updates[-1][2] == "completed"
+
+
+@pytest.mark.parametrize("field", ["bidNtceNm", "dminsttNm", "ntceInsttNm"])
+@pytest.mark.parametrize("invalid_value", [
+    {"forged": "official notice"}, ["official notice"], True, False, 0, 1.5,
+])
+def test_malformed_official_notice_text_never_certifies_month(field, invalid_value):
+    """An upstream JSON object/list/bool/number is not official text evidence.
+
+    Test uses only FakeHTTP and FakeDB; it must never persist a fabricated
+    title/agency or mark the monthly discovery cursor completed.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "Official notice",
+        "dminsttNm": "Official agency",
+        "ntceInsttNm": "Alternate official agency",
+    }
+    notice[field] = invalid_value
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+
+
+def test_missing_official_notice_text_remains_unknown_not_fabricated():
+    """Missing/null/empty text is unknown; valid strings remain compatible."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": None,
+        "dminsttNm": "",
+        "ntceInsttNm": "Official alternate agency",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][5] == ""
+    assert inserted[0][6] == "Official alternate agency"
