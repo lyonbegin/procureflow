@@ -1366,3 +1366,39 @@ def test_readonly_audit_never_coerces_invalid_state_to_clean_unsearched(invalid_
     assert result["invalid_cursor_rows"] == 1
     assert result["months"][0]["cursor_valid"] is False
     assert result["eight_digit_notice_discovery_complete"] is False
+
+@pytest.mark.parametrize("corrupt", [
+    {"dtilPrdctClsfcNo": "81111599０１", "prdctClsfcNo": ""},
+    {"bidNtceNo": "R24BK9000000０"},
+    {"bidNtceOrd": "00٠"},
+    {"bidNtceDt": "2024031２"},
+    {"bidNtceDt": "20240312 12:3٠"},
+])
+def test_official_month_rejects_unicode_digits_before_history_insert(corrupt):
+    """Unicode decimal digits cannot certify an official notice or date."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "asignBdgtAmt": "1000",
+    }
+    notice.update(corrupt)
+    result, updates, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert inserted == []
+    assert updates and updates[-1][2] == "blocked_unverified_response_scope"
+
+
+def test_official_month_ascii_notice_identity_remains_valid():
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "asignBdgtAmt": "1000",
+    }
+    result, updates, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert len(inserted) == 1
+    assert updates and updates[-1][2] == "completed"
