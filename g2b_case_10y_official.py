@@ -328,6 +328,16 @@ def scan_month(first, pages_max=30):
             return {"status":"blocked_incomplete_api_page","first_day":str(first),
                     "page":page,"checked":inspected,"returned":len(entries),
                     "official_total_count":total,"reason":verdict}
+        # A zero-result official page cannot certify a month if an older
+        # official target-category history row still exists in the database.
+        # The normal completed-month shortcut checks this on subsequent
+        # calls; check BEFORE the first completion write as well. A failed
+        # read is not evidence of zero rows and must not mutate the cursor.
+        if verdict=="completed" and total==0 and \
+                _persisted_official_notice_keys(row,0) is None:
+            return {"status":"blocked_unverified_persisted_history",
+                    "first_day":str(first),"read_only":True,
+                    "reason":"zero_result_month_has_unverified_history"}
         unknown=0
         invalid=0
         confirmed=[]
