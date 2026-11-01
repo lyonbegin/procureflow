@@ -557,7 +557,10 @@ test('PF05/PF06 VERIFIED requires real 10-digit official detail codes, not merel
         output_value:{evidence_verified:true,real_api_result_state:'verified',missing_evidence_keys:[]}
       }]
     });
-    for(const invalid of [[],['81111599'],['81111599AB'],[null],['8111159901','BAD_CODE'],[8111159901]]){
+    for(const invalid of [[],['81111599'],['81111599AB'],[null],
+      ['8111159901','BAD_CODE'],[8111159901],
+      // Ten valid digits alone do not prove the selected 8-digit category.
+      ['8111229901'],['9999999901'],['8111159901','8111229901']]){
       const result=await instance.execute.call(ctx(params,async()=>{requests++;return response(invalid);}));
       assert.equal(result[0].length,0,flowId+' must not verify '+JSON.stringify(invalid));
       assert.equal(result[1].length,1,flowId+' should return HOLD');
@@ -571,7 +574,7 @@ test('PF05/PF06 VERIFIED requires real 10-digit official detail codes, not merel
     assert.equal(valid[0][0].json.actual_business_handler_executed,false);
     assert.equal(valid[0][0].json.bid_submitted,false);
   }
-  assert.equal(requests,14,'two flows × six rejected shapes plus one valid fixture');
+  assert.equal(requests,20,'two flows × nine rejected shapes plus one valid fixture');
   configure();
 });
 
