@@ -23,14 +23,16 @@ def good_response():
     }
 
 
-@pytest.mark.parametrize("level", ("root", "envelope", "header"))
-@pytest.mark.parametrize("marker", ERROR_MARKERS)
+@pytest.mark.parametrize("level,marker", [
+    (level, marker)
+    for level in ("root", "envelope", "header")
+    for marker in ERROR_MARKERS
+    if not (level == "header" and marker == "resultCode")
+])
 @pytest.mark.parametrize("value", VALUES)
 def test_success_header_cannot_override_outer_provider_error(level, marker, value):
     # The documented header resultCode is required and must not be
     # interpreted as a header error. It is forbidden outside that header.
-    if level == "header" and marker == "resultCode":
-        return
     response = good_response()
     location = {
         "root": response,
