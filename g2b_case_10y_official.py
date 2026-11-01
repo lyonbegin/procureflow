@@ -51,7 +51,7 @@ def _reject_nonfinite_json_constant(value):
     raise ValueError("g2b_api_nonfinite_json_constant")
 
 
-def _parse(response, *, expected_page=None, expected_rows=None):
+def _parse(response, *, expected_page=None, expected_rows=None, expected_query=None):
     if not isinstance(response,dict):raise ValueError("g2b_api_not_json_object")
     # A successful nested header is insufficient when the provider or an
     # intermediary also sends an explicit error at the response root,
@@ -144,6 +144,19 @@ def _parse(response, *, expected_page=None, expected_rows=None):
             raise ValueError("g2b_api_"+field+"_not_positive_integer")
         if expected is not None and actual!=expected:
             raise ValueError("g2b_api_"+field+"_request_mismatch")
+    # When the official API echoes the requested classification/window,
+    # a cached response for a DIFFERENT month or parent category must never
+    # certify an empty-result month. Missing echo fields are tolerated for
+    # documented API variants that do not include them. Never pass the
+    # serviceKey or other credentials to this check.
+    if expected_query is not None:
+        for field in ("inqryBgnDt", "inqryEndDt", "prdctClsfcNo"):
+            if field not in body:
+                continue
+            actual=body[field]
+            if (type(actual) not in (str,int) or
+                    str(actual)!=expected_query[field]):
+                raise ValueError("g2b_api_"+field+"_request_mismatch")
     return items,total
 
 
@@ -367,7 +380,10 @@ def scan_month(first, pages_max=30):
             with urlopen(req,timeout=22) as rsp:
                 data=json.loads(rsp.read(15000000), object_pairs_hook=_reject_duplicate_json_keys,
                                 parse_constant=_reject_nonfinite_json_constant)
-            entries,total=_parse(data,expected_page=page,expected_rows=500)
+            entries,total=_parse(
+                data,expected_page=page,expected_rows=500,
+                expected_query={field:params[field] for field in
+                                ("inqryBgnDt","inqryEndDt","prdctClsfcNo")})
         except Exception as exc:
             # urllib exceptions may include the serviceKey URL. Neither DB
             # audit nor REST output may persist an exception's raw message.
