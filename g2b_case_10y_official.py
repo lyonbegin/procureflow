@@ -261,6 +261,19 @@ def scan_month(first, pages_max=30):
                  checked,matched,expected_total FROM procureflow.g2b_case_10yr_windows
                  WHERE case_bid_no=%s AND first_day=%s""",(CASE_BID,first)).fetchone()
     if not row:raise ValueError("month not in chosen ten-year horizon")
+    # The persisted window boundaries are themselves part of the official
+    # ten-year evidence contract. A tampered last_day could silently scan an
+    # adjacent month (or a wider interval) and mark the WRONG month complete,
+    # even when every page count and notice date matches the forged window.
+    # The first/last months are partial (BEGIN/END), all others are calendar
+    # months. Reject any changed boundary BEFORE credentials, HTTP or writes.
+    expected_first=max(BEGIN,date(first.year,first.month,1))
+    expected_last=min(END,date(first.year,first.month,
+                               calendar.monthrange(first.year,first.month)[1]))
+    if (expected_first>expected_last or first!=expected_first or
+            row["first_day"]!=expected_first or row["last_day"]!=expected_last):
+        return {"status":"blocked_invalid_month_window","first_day":str(first),
+                "read_only":True,"reason":"persisted_month_boundary_mismatch"}
     # Refuse unknown/tampered states before credential lookup, HTTP or
     # cursor mutation. An untouched month must start at page 1 with zero
     # inspected/matched rows, otherwise there is no trustworthy resume point.
