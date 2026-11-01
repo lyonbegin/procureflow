@@ -208,7 +208,7 @@ def _official_notice_text_is_valid(value):
     return not any(
         0xD800<=ord(ch)<=0xDFFF or
         ord(ch)==0 or
-        (ord(ch)<32 and ch not in "\\t\\r\\n")
+        (ord(ch)<32 and ch not in "\t\r\n")
         for ch in value
     )
 
