@@ -41,6 +41,16 @@ def _reject_duplicate_json_keys(pairs):
     return result
 
 
+def _reject_nonfinite_json_constant(value):
+    """Official G2B JSON must not contain NaN/Infinity at ANY object depth.
+
+    Python's json.loads accepts these non-standard literals by default.
+    Even if they occur in unused metadata, a malformed upstream response
+    must never become a certified completed discovery month.
+    """
+    raise ValueError("g2b_api_nonfinite_json_constant")
+
+
 def _parse(response, *, expected_page=None, expected_rows=None):
     if not isinstance(response,dict):raise ValueError("g2b_api_not_json_object")
     # A successful nested header is insufficient when the provider or an
@@ -320,7 +330,8 @@ def scan_month(first, pages_max=30):
             req=Request(url,headers={"Accept":"application/json",
                               "User-Agent":"ProcureFlow-G2B-Category/1.0"})
             with urlopen(req,timeout=22) as rsp:
-                data=json.loads(rsp.read(15000000), object_pairs_hook=_reject_duplicate_json_keys)
+                data=json.loads(rsp.read(15000000), object_pairs_hook=_reject_duplicate_json_keys,
+                                parse_constant=_reject_nonfinite_json_constant)
             entries,total=_parse(data,expected_page=page,expected_rows=500)
         except Exception as exc:
             # urllib exceptions may include the serviceKey URL. Neither DB
