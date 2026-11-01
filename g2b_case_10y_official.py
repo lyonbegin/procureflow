@@ -43,6 +43,12 @@ def _parse(response, *, expected_page=None, expected_rows=None):
         # certify a month without inspecting any actual notice rows.
         if items and "item" not in items:
             raise ValueError("g2b_api_items_wrapper_missing_item")
+        # A wrapper that contains 'item' PLUS an upstream error or an
+        # unrecognized field is not the documented official item envelope.
+        # In particular, {"item":[],"error":"upstream unavailable"} with
+        # totalCount=0 must never certify a zero-result month.
+        if any(key!="item" for key in items):
+            raise ValueError("g2b_api_items_wrapper_extra_fields")
         items=items.get("item",[])
         if items is None:items=[]
     if isinstance(items,dict):items=[items]
