@@ -1,5 +1,14 @@
 # Issue #21 / Draft PR #22 — 격리 검증 증빙 원장
 
+## 2026-11-01 KST — 공식 API 0건 완료 월의 잔존 이력 검증 강화 (**전체 완료 아님**)
+
+- **확인한 결함:** `scan_month()`의 `completed` 단축 경로가 `checked=0,matched=0`인 월에서는 실제 저장된 공식 이력 행을 확인하지 않았다. 따라서 이미 저장된 대상 분류 공고 이력이 남아 있거나 DB 읽기가 실패해도 0건 월을 `already_completed`로 인증할 수 있었다. 첫 공식 API 응답이 `totalCount=0`인 경우에도 이전 잔존 이력 확인 없이 `completed`로 기록할 수 있었다.
+- **기능 브랜치 코드:** [완료 월 0건 이력 재검사 `59133c7`](https://github.com/lyonbegin/procureflow/commit/59133c73352c4a554e8d49d0dc0fc7eb7d6f73cb), [최초 0건 완료 전 잔존 이력 차단 `b099d9d`](https://github.com/lyonbegin/procureflow/commit/b099d9d9bde019af4ed2c6f071937d45905c1b21). 0건이어도 공식 `official_openapi_explicit_code` 대상 이력 식별자 수가 0임을 **읽기 전용**으로 확인한다. 불일치/읽기 실패 시 `blocked_unverified_persisted_history`를 반환하고, 0건 완료·커서 변경을 허용하지 않는다.
+- **격리 회귀:** [완료 월 0건·잔존 이력·읽기 오류 `3e8b7e1`](https://github.com/lyonbegin/procureflow/commit/3e8b7e1e48aa1cd0603452623e055b2c82930810), [첫 0건 페이지에서 동일 결함 재현 `7dbaa16`](https://github.com/lyonbegin/procureflow/commit/7dbaa16abd7dd255d6cc6a50b579ae64028c091e). 정상 0건은 기존과 같이 통과, 잔존 공식 이력/DB 읽기 실패는 **HTTP 추가 호출·이력 INSERT·커서 변경 없이** 차단.
+- **같은 코드 SHA `7dbaa16abd7dd255d6cc6a50b579ae64028c091e`의 실제 G2B CI:** [#41300409869](https://github.com/lyonbegin/procureflow/actions/runs/41300409869) **SUCCESS**, [pytest job #124829976423](https://github.com/lyonbegin/procureflow/actions/runs/41300409869/job/124829976423) **508 passed / 3 warnings**. 실제 공식 G2B API/운영 DB/자격증명/투찰 요청 없이 FakeHTTP/FakeDB로 검증.
+- [오프라인 S01~S10 안전성 #41300410118](https://github.com/lyonbegin/procureflow/actions/runs/41300410118) **SUCCESS**. [기존 운영 owner/readiness #41300409892](https://github.com/lyonbegin/procureflow/actions/runs/41300409892) **FAIL (기존 미해결 차단)**. 다른 장시간 공식 Docker/Chrome/Pan/43블록/Native 검사는 **개별 최종 결과 확인 전 PASS로 간주하지 않음**.
+- **남은 필수 수용검사:** 35종 미지원 실행 어댑터, 43개 실제 업무 핸들러/엄격 payload, 정확한 10자리 기준 공식 10년 개찰·낙찰 전수 및 Worker fencing, 별도 디버깅 80개 전수, 기존 owner/DB/키 호환성·명시적 배포 승인. Issue #21 Open / PR #22 Draft·미병합 유지. 운영 `main`/Railway 서비스·DB/자격증명·실제 투찰 **변경 없음**.
+
 ## 2026-11-01 KST — 10년 월별 G2B 페이지 재호출 중복 식별자 차단 (전체 완료 아님)
 
 - **새로 확인한 결함:** 동일 월의 공식 API 조회를 `scan_month(..., pages_max=1)`로 두 번 나눠 실행하면 `seen_notice_keys`가 호출마다 초기화된다. 공식 `totalCount`가 501로 유지되어도 2페이지의 대상 세부 공고가 이전 1페이지와 동일하면 `ON CONFLICT`가 기존 기록을 갱신하고 `checked/matched`는 중복을 새 행으로 계산하여 월을 `completed`로 허위 인증할 수 있었다.
