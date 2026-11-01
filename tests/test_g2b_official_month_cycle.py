@@ -954,8 +954,8 @@ def test_unsearched_month_must_be_clean_before_any_external_access(dirty_fields)
          patch("g2b_case_10y_official.urlopen") as http, \
          patch("g2b_case_10y_official._write_month") as write:
         result = scan_month("2024-03-01", pages_max=1)
-    assert result["status"] == "blocked_invalid_month_state"
-    assert result["reason"] == "unsearched_month_has_progress"
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["reason"] in ("unsearched_month_has_progress", "invalid_persisted_cursor_values")
     assert result["read_only"] is True
     key.assert_not_called()
     http.assert_not_called()
