@@ -69,7 +69,7 @@ class FakeMonthDB:
 
 class FakeHTTP:
     def __init__(self, payload):
-        self.payload = json.dumps(payload).encode()
+        self.payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
 
     def __enter__(self):
         return self
@@ -97,6 +97,32 @@ def run_month(payload, prior_keys=None):
          patch("g2b_case_10y_official._write_month", side_effect=lambda *a: status.append(a)):
         result = scan_month("2024-03-01", pages_max=1)
     return result, status, db.inserted
+
+
+@pytest.mark.parametrize("raw", [
+    # Python json.loads normally uses the LAST repeated key. The second
+    # occurrence could hide an error or replace an official totalCount=1
+    # with 0 and falsely certify the month as empty/completed.
+    b'{"response":{"header":{"resultCode":"00"},"body":{"totalCount":1,"totalCount":0,"items":[]}}}',
+    b'{"response":{"header":{"resultCode":"99","resultCode":"00"},"body":{"totalCount":0,"items":[]}}}',
+    b'{"response":{"header":{"resultCode":"00"},"body":{"totalCount":0,"items":{"item":[{"bidNtceNo":"R24BK00000001"}],"item":[]}}}}',
+    b'{"response":{"header":{"resultCode":"00"},"body":{"totalCount":0,"items":[]}},"response":{"header":{"resultCode":"00"},"body":{"totalCount":0,"items":[]}}}',
+    b'{"response":{"header":{"resultCode":"00"},"body":{"totalCount":1,"items":{"item":[{"bidNtceNo":"R24BK00000001","bidNtceNo":"R24BK00000002"}]}}}}',
+])
+def test_duplicate_official_json_keys_never_certify_month(raw):
+    # FakeHTTP/FakeDB only. Even a syntactically valid outer JSON object
+    # must fail before any history INSERT or completed-month cursor write.
+    result, statuses, inserted = run_month(raw)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[0][2] == "error"
+    assert inserted == []
+
+
+def test_duplicate_key_parser_keeps_valid_unique_json_compatible():
+    from g2b_case_10y_official import _reject_duplicate_json_keys
+    raw = json.dumps(response([], 0)).encode()
+    assert _parse(json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)) == ([], 0)
 
 
 @pytest.mark.parametrize("inspected,total,returned,verdict", [
