@@ -103,7 +103,11 @@ function hasUnsafeNestedDispatchClaim(root){
   while(pending.length){
     const value=pending.pop();
     if(!value||typeof value!=='object')continue;
-    if(seen.has(value))continue;
+    // JSON has a tree structure: repeated object references (including
+    // cycles) can only arrive through an in-memory helper or tampered input.
+    // Skipping them would let a non-JSON evidence graph pass inspection.
+    // Fail closed before any HTTP request or VERIFIED verdict instead.
+    if(seen.has(value))return true;
     seen.add(value);
     if(++inspectedObjects>MAX_INSPECTED)return true;
     if(hasUnsafeDispatchClaim(value))return true;
