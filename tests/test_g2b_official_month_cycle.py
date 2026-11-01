@@ -306,6 +306,31 @@ def test_official_page_echo_missing_remains_compatible_with_legacy_response():
     assert items == [] and total == 0
 
 
+
+def test_first_zero_result_month_rejects_orphaned_official_history_before_completion():
+    # The first API call must not certify a 0-result month when persisted
+    # target-category rows contradict the official empty page.
+    result, statuses, inserted = run_month(
+        response([], 0), prior_keys=[("R24BK12345678", "000")])
+    assert result["status"] == "blocked_unverified_persisted_history"
+    assert result["reason"] == "zero_result_month_has_unverified_history"
+    assert result["read_only"] is True
+    assert statuses == []
+    assert inserted == []
+
+
+def test_first_zero_result_month_fails_closed_when_history_read_unavailable():
+    # An inaccessible history table is not proof that the table is empty.
+    with patch("g2b_case_10y_official._persisted_official_notice_keys",
+               return_value=None) as history:
+        result, statuses, inserted = run_month(response([], 0))
+    assert result["status"] == "blocked_unverified_persisted_history"
+    assert result["read_only"] is True
+    history.assert_called_once()
+    assert statuses == []
+    assert inserted == []
+
+
 def test_official_zero_result_month_persists_page_one_and_passes_read_only_audit():
     # A legitimate zero-result API response is completed with checked=0.
     # The saved cursor must remain page 1, matching the read-only 121-month
