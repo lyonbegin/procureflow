@@ -128,6 +128,16 @@ const CASE_ALIASES=Object.freeze([
 function hasConflictingCaseAliases(value,bidNo){
   return CASE_ALIASES.some(key=>Object.hasOwn(value,key)&&value[key]!==bidNo);
 }
+// Only identity metadata for the SELECTED operation may certify its evidence.
+// Optional aliases in output_value or a feature row must agree with the
+// selected n8n tender/flow/block, just like the outer response envelope.
+// Do not traverse historical bid records: those legitimately name other cases.
+function hasConflictingSelectedIdentity(value,flowId,bidNo,operationId){
+  if(!value||typeof value!=='object'||Array.isArray(value))return false;
+  return hasConflictingCaseAliases(value,bidNo)||
+    ['flow_id','flowId'].some(key=>Object.hasOwn(value,key)&&value[key]!==flowId)||
+    ['operation_id','operationId'].some(key=>Object.hasOwn(value,key)&&value[key]!==operationId);
+}
 function validateProvenance(body,flowId,bidNo,operationId){
   // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
   // runtime. It must declare itself synthetic and can never become VERIFIED.
@@ -153,12 +163,11 @@ function validateProvenance(body,flowId,bidNo,operationId){
   // An upstream provider cannot claim a different selected tender, owning
   // PF flow or operation through secondary fields while the primary envelope
   // passes validation. Missing optional aliases remain backward-compatible.
-  if(hasConflictingCaseAliases(body,bidNo)||
-     hasConflictingCaseAliases(block,bidNo)||
-     (Object.hasOwn(block,'flow_id')&&block.flow_id!==flowId)||
-     (Object.hasOwn(block,'flowId')&&block.flowId!==flowId)||
-     (Object.hasOwn(block,'operation_id')&&block.operation_id!==operationId)||
-     (Object.hasOwn(block,'operationId')&&block.operationId!==operationId))
+  if(hasConflictingSelectedIdentity(body,flowId,bidNo,operationId)||
+     hasConflictingSelectedIdentity(block,flowId,bidNo,operationId)||
+     hasConflictingSelectedIdentity(block.output_value,flowId,bidNo,operationId)||
+     (Array.isArray(block.features)&&block.features.some(feature=>
+       hasConflictingSelectedIdentity(feature,flowId,bidNo,operationId))))
     throw Error('Business Operation response identity aliases mismatch');
   // Reject forged dispatch claims throughout the ENTIRE inspection envelope:
   // not only blocks and output_value, but also top-level metadata, audit
