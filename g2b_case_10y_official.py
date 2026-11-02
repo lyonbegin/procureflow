@@ -304,7 +304,20 @@ def _persisted_official_notice_keys(row, matched):
                   AND classification8=%s AND evidence=%s""",
                 (CASE_BID,row["first_day"],row["last_day"],CAT8,
                  "official_openapi_explicit_code")).fetchall()
-        keys={(r["hist_notice_no"],r["hist_notice_ord"]) for r in records}
+        # Count equality is not enough: a tampered persisted notice ID or
+        # round must never become proof of already-verified official history.
+        # Preserve the exact canonical ASCII identity validated for new
+        # official page rows, including the legacy 11-digit notice format.
+        keys=set()
+        for record in records:
+            no=record["hist_notice_no"]
+            ord_=record["hist_notice_ord"]
+            if (type(no) is not str or
+                    re.fullmatch(r"R[0-9]{2}BK[0-9]{8}|[0-9]{11}",no) is None or
+                    type(ord_) is not str or
+                    re.fullmatch(r"[0-9]{3}",ord_) is None):
+                return None
+            keys.add((no,ord_))
         if len(records)!=matched or len(keys)!=matched:
             return None
         return keys
