@@ -167,6 +167,50 @@ test('camelCase dispatch claims in unrelated provenance metadata fail closed',as
   }));
 });
 
+test('alternate submission and Worker dispatch aliases fail closed in upstream and official evidence',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const aliases=[
+    'actual_bid_submitted','actualBidSubmitted',
+    'bid_submission_succeeded','bidSubmissionSucceeded',
+    'bid_executed','bidExecuted',
+    'worker_job_dispatched','workerJobDispatched',
+    'job_dispatched','jobDispatched'
+  ];
+  let mockReads=0;
+  for(const key of aliases){
+    const upstream={metadata:{audit:[{[key]:true}]}};
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockReads++;return blocked;},upstream)),
+      /upstream read-only preflight blocked/,
+      'No HTTP GET allowed for forged upstream '+key
+    );
+    const forged={...structuredClone(blocked),metadata:{audit:[{[key]:true}]}};
+    assert.throws(
+      ()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+      /nested dispatch claim blocked/,
+      'Forged official evidence '+key+' cannot be VERIFIED'
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockReads++;return forged;})),
+      /nested dispatch claim blocked/
+    );
+  }
+  assert.equal(mockReads,aliases.length,'upstream preflight made zero GETs');
+  const harmless=Object.fromEntries(aliases.map(key=>[key,false]));
+  const safe={...structuredClone(blocked),metadata:{audit:[harmless]}};
+  const result=await instance.execute.call(ctx(getParam,async()=>{mockReads++;return safe;},
+    {metadata:{audit:[harmless]}}));
+  assert.equal(result[0].length,0,'no verified success for missing official evidence');
+  assert.equal(result[1].length,1);
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockReads,aliases.length+1);
+  console.log('PROCUREFLOW_ALTERNATE_DISPATCH_CLAIMS_BLOCKED',JSON.stringify({
+    aliases:aliases.length,upstreamRequestsBlocked:aliases.length,
+    forgedEvidenceRejected:aliases.length,realBids:0,realWorkerDispatches:0
+  }));
+});
+
 test('multi-item batch preflight rejects later invalid inputs before ANY HTTP request',async()=>{
   configure();
   const instance=new ProcureFlowBusinessOperation();
