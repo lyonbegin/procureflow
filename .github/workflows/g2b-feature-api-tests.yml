@@ -10,6 +10,7 @@ on:
       - "tests/test_g2b_full_runner_error_redaction.py"
       - "tests/test_g2b_api_outer_error_markers.py"
       - "tests/test_g2b_api_query_echo_scope.py"
+      - "tests/test_g2b_official_redirect_safety.py"
       - "g2b_node_lab.py"
       - "g2b_feature_data.py"
       - "g2b_documents.py"
