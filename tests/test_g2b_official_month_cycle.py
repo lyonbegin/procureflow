@@ -1880,3 +1880,15 @@ def test_oversized_cursor_read_only_summary_never_certifies_completion(field):
     assert result["months"][0]["cursor_valid"] is False
     assert result["read_only"] is True
     assert result["bid_submitted"] is False
+
+
+@pytest.mark.parametrize("field", ["totalCount", "pageNo", "numOfRows"])
+@pytest.mark.parametrize("oversized", [10**38, 10**100])
+def test_official_oversized_integer_page_counts_are_rejected(field, oversized):
+    """A JSON numeric token must obey the same bound as a decimal string."""
+    payload = response([], 0)
+    payload["response"]["body"][field] = oversized
+    expected = ("g2b_api_total_count_not_nonnegative_integer" if field == "totalCount"
+                else "g2b_api_" + field + "_not_positive_integer")
+    with pytest.raises(ValueError, match=expected):
+        _parse(payload, expected_page=1, expected_rows=500)
