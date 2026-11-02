@@ -8,18 +8,20 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-async function runOwnerGate(ownerRequired){
+async function runOwnerGate(ownerRequired, options={}){
   const canary='SECRET_MUST_NEVER_APPEAR_IN_ARTIFACT';
   const server=createServer((req,res)=>{
     res.setHeader('content-type','application/json');
     if(req.method!=='GET'){res.writeHead(405);res.end();return;}
     switch(req.url){
       case '/healthz':res.writeHead(200);res.end(JSON.stringify({status:'ok',secret:canary}));break;
-      case '/rest/settings':res.writeHead(200);res.end(JSON.stringify({
+      case '/rest/settings':if(options.settingsDisconnect){req.socket.destroy();break;}
+        if(options.settingsInvalid){res.writeHead(200);res.end('not-json '+canary);break;}
+        res.writeHead(200);res.end(JSON.stringify({
         data:{userManagement:{showSetupOnFirstLoad:ownerRequired}},privateToken:canary
       }));break;
-      case '/setup':res.writeHead(403);res.end(JSON.stringify({secret:canary}));break;
-      case '/rest/workflows':res.writeHead(401);res.end(JSON.stringify({secret:canary}));break;
+      case '/setup':res.writeHead(options.setupOpen?200:403);res.end(JSON.stringify({secret:canary}));break;
+      case '/rest/workflows':res.writeHead(options.workflowsOpen?200:401);res.end(JSON.stringify({secret:canary}));break;
       default:res.writeHead(404);res.end();
     }
   });
@@ -42,11 +44,11 @@ async function runOwnerGate(ownerRequired){
     });
     const content=await readFile(artifact,'utf8');
     const verdict=JSON.parse(content);
-    assert.equal(verdict.ownerSetupRequired,ownerRequired);
+    assert.equal(verdict.ownerSetupRequired,options.settingsDisconnect||options.settingsInvalid?null:ownerRequired);
     assert.equal(verdict.gatewayHealthStatus,200);
-    assert.equal(verdict.settingsStatus,200);
-    assert.equal(verdict.publicOwnerSetupStatus,403);
-    assert.equal(verdict.unauthenticatedWorkflowApiStatus,401);
+    assert.equal(verdict.settingsStatus,options.settingsDisconnect?null:200);
+    assert.equal(verdict.publicOwnerSetupStatus,options.setupOpen?200:403);
+    assert.equal(verdict.unauthenticatedWorkflowApiStatus,options.workflowsOpen?200:401);
     assert.equal(verdict.createdOwner,false);
     assert.equal(verdict.changedDatabase,false);
     assert.equal(content.includes(canary),false);
@@ -70,4 +72,30 @@ test('already claimed owner passes without creating or changing anything',async(
   assert.equal(result.code,0,result.stderr);
   assert.equal(verdict.ready,true);
   assert.equal(verdict.blocker,null);
+});
+
+test('gateway settings connection failure writes redacted failure evidence, never false PASS',async()=>{
+  const {result,verdict}=await runOwnerGate(false,{settingsDisconnect:true});
+  assert.equal(result.code,1);
+  assert.equal(verdict.ready,false);
+  assert.equal(verdict.blocker,'GATEWAY_NOT_READY');
+  assert.match(result.stderr,/GATEWAY_NOT_READY/);
+});
+test('malformed settings JSON is not proof that the editor owner is claimed',async()=>{
+  const {result,verdict}=await runOwnerGate(false,{settingsInvalid:true});
+  assert.equal(result.code,1);
+  assert.equal(verdict.ready,false);
+  assert.equal(verdict.blocker,'OWNER_READINESS_UNKNOWN');
+});
+test('public owner setup must remain forbidden even when owner flag is false',async()=>{
+  const {result,verdict}=await runOwnerGate(false,{setupOpen:true});
+  assert.equal(result.code,1);
+  assert.equal(verdict.ready,false);
+  assert.equal(verdict.blocker,'PUBLIC_OWNER_SETUP_NOT_BLOCKED');
+});
+test('workflow API without authentication must fail closed',async()=>{
+  const {result,verdict}=await runOwnerGate(false,{workflowsOpen:true});
+  assert.equal(result.code,1);
+  assert.equal(verdict.ready,false);
+  assert.equal(verdict.blocker,'WORKFLOW_AUTH_NOT_ENFORCED');
 });
