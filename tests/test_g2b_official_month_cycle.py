@@ -2258,3 +2258,34 @@ def test_official_http_getcode_200_fallback_remains_compatible():
     assert statuses and statuses[-1][2] == "completed"
     assert inserted == []
     assert fake.read_calls == 1
+
+
+@pytest.mark.parametrize("amount", [10**38, 10**100, 10**38 + 1])
+def test_official_json_integer_amount_cannot_bypass_decimal_string_bound(amount):
+    """JSON integer tokens and decimal strings obey the same 38-digit cap.
+
+    FakeHTTP/FakeDB only: no official API, Railway DB, Worker, or bidding.
+    The rejected notice must never be inserted or certify month coverage.
+    """
+    notice = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+              "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+              "asignBdgtAmt": amount}
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+    assert str(amount) not in str(result) + str(statuses)
+
+
+@pytest.mark.parametrize("amount", [0, 1234567890123456789, 10**38 - 1])
+def test_official_json_integer_amount_within_decimal_bound_still_accepted(amount):
+    """Normal and maximum 38-digit JSON integers preserve compatibility."""
+    notice = {"prdctClsfcNo": "81111599", "bidNtceNo": "R24BK12345678",
+              "bidNtceOrd": "000", "bidNtceDt": "2024-03-07",
+              "asignBdgtAmt": amount}
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][7] == (amount or None)
