@@ -15,6 +15,7 @@ from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,ensure_schema
 from db import session
 
 API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
+MAX_OFFICIAL_RESPONSE_BYTES=15_000_000
 # urllib.request.urlopen follows 3xx redirects by default. Because this
 # official endpoint sends serviceKey in its query string, an upstream 302
 # could redirect a request to another host and expose that credential.
@@ -399,7 +400,14 @@ def scan_month(first, pages_max=30):
             req=Request(url,headers={"Accept":"application/json",
                               "User-Agent":"ProcureFlow-G2B-Category/1.0"})
             with urlopen(req,timeout=22) as rsp:
-                data=json.loads(rsp.read(15000000), object_pairs_hook=_reject_duplicate_json_keys,
+                # A bounded read MUST detect an oversized body. Reading only
+                # the first 15 MB can silently discard trailing response bytes:
+                # a valid JSON object followed by >15 MB of whitespace and a
+                # conflicting payload would otherwise certify a false month.
+                raw=rsp.read(MAX_OFFICIAL_RESPONSE_BYTES+1)
+                if len(raw)>MAX_OFFICIAL_RESPONSE_BYTES:
+                    raise ValueError("g2b_api_response_body_too_large")
+                data=json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys,
                                 parse_constant=_reject_nonfinite_json_constant)
             entries,total=_parse(
                 data,expected_page=page,expected_rows=500,
