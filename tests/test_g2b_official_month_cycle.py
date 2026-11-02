@@ -1831,3 +1831,52 @@ def test_official_regular_decimal_amount_remains_compatible(amount):
     assert result["status"] == "completed"
     assert statuses and statuses[-1][2] == "completed"
     assert len(inserted) == 1
+
+
+@pytest.mark.parametrize("field", ["totalCount", "pageNo", "numOfRows"])
+@pytest.mark.parametrize("oversized", ["9" * 39, "9" * 4301])
+def test_official_oversized_page_count_strings_rejected_before_int(oversized, field):
+    """Provider-controlled decimal counts must fail with our validation code.
+
+    Python 3.11+ raises ValueError for int() on 4,301 decimal digits.
+    Reject oversized values before that conversion; no official network/DB.
+    """
+    payload = response([], 0)
+    payload["response"]["body"][field] = oversized
+    expected = ("g2b_api_total_count_not_nonnegative_integer" if field == "totalCount"
+                else "g2b_api_" + field + "_not_positive_integer")
+    with pytest.raises(ValueError, match=expected):
+        _parse(payload, expected_page=1, expected_rows=500)
+
+
+def test_official_normal_page_count_strings_still_parse():
+    """Normal official string count and pagination echoes remain compatible."""
+    payload = response([], "0")
+    payload["response"]["body"].update(pageNo="1", numOfRows="500")
+    assert _parse(payload, expected_page=1, expected_rows=500) == ([], 0)
+
+
+@pytest.mark.parametrize("field", ["checked", "matched", "page_cursor", "expected_total"])
+def test_oversized_persisted_cursor_is_read_only_and_never_crashes(field):
+    """A corrupt persisted month cursor must block before credentials or writes."""
+    with patch.dict(MONTH, {field: "9" * 4301}):
+        result, statuses, inserted = run_month(response([], 0))
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["read_only"] is True
+    assert statuses == []
+    assert inserted == []
+
+
+@pytest.mark.parametrize("field", ["checked", "matched", "page_cursor", "expected_total"])
+def test_oversized_cursor_read_only_summary_never_certifies_completion(field):
+    """An untrusted DB row must not crash the 121-month diagnostic."""
+    row = {**MONTH, "status": "completed", "checked": 0, "matched": 0,
+           "page_cursor": 1, "expected_total": 0}
+    row[field] = "9" * 4301
+    result = summarize_month_cursor([row])
+    assert result["invalid_cursor_rows"] == 1
+    assert result["discovery_months_completed"] == 0
+    assert result["eight_digit_notice_discovery_complete"] is False
+    assert result["months"][0]["cursor_valid"] is False
+    assert result["read_only"] is True
+    assert result["bid_submitted"] is False
