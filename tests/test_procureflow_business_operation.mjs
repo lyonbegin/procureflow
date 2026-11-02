@@ -1427,3 +1427,34 @@ test('inherited bid/Worker claims and non-JSON prototypes fail closed before HTT
     productionApiRequests:0,workerDispatches:0,actualBids:0
   }));
 });
+
+test('throwing Proxy traps cannot leak credentials through native preflight errors',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockedGets=0;
+  const trap=new Proxy({note:'untrusted metadata'},{
+    ownKeys(){throw Error('serviceKey=SENSITIVE_API_KEY');}
+  });
+  const upstream={bid_no:'R26BK01787028',metadata:{nested:trap}};
+  let rejection;
+  try{
+    await instance.execute.call(ctx(getParam,async()=>{
+      mockedGets++;return blocked;
+    },upstream));
+  }catch(error){rejection=error;}
+  assert(rejection);
+  assert.match(rejection.message,/upstream read-only preflight blocked/);
+  assert.doesNotMatch(rejection.message,/SENSITIVE_API_KEY/);
+  assert.equal(mockedGets,0,'untrusted Proxy must not initiate HTTP');
+  const response=structuredClone(blocked);
+  response.metadata={nested:trap};
+  assert.throws(
+    ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
+    error=>/nested dispatch claim blocked/.test(error.message)&&
+      !error.message.includes('SENSITIVE_API_KEY')
+  );
+  console.log('PROCUREFLOW_PROXY_TRAP_FAIL_CLOSED_PASS',JSON.stringify({
+    rejectedUpstream:1,rejectedResponse:1,mockedGets,
+    leakedCredentials:false,workerDispatch:0,actualBids:0
+  }));
+});
