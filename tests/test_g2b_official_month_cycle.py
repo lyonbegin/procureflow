@@ -2081,3 +2081,89 @@ def test_official_http_empty_content_range_header_is_not_full_response():
     assert statuses and statuses[-1][2] == "error"
     assert inserted == []
     assert fake.read_calls == 0
+
+
+@pytest.mark.parametrize("bad_no,bad_ord", [
+    (None, "000"),
+    (12345678901, "000"),  # JSON/DB numeric is not a canonical text ID
+    ("", "000"),
+    ("R24BK1234567", "000"),
+    ("R24BK1234567０", "000"),  # Unicode lookalike
+    ("  R24BK12345678", "000"),
+    ("R24BK12345678 ", "000"),
+    ("1234567890١", "000"),  # non-ASCII legacy notice digit
+    ("R24BK12345678", None),
+    ("R24BK12345678", 0),
+    ("R24BK12345678", False),
+    ("R24BK12345678", "1"),
+    ("R24BK12345678", "00٠"),
+    ("R24BK12345678", "001 "),
+])
+def test_completed_month_rejects_malformed_persisted_notice_identity_before_http(
+        bad_no, bad_ord):
+    """A matching matched-count cannot legitimize forged persisted identities.
+
+    All DB/HTTP/credential access is mocked. The completed-month shortcut
+    must fail closed without calling an official endpoint or mutating a row.
+    """
+    db=FakeMonthDB(prior_keys=[(bad_no,bad_ord)])
+    with patch.dict(MONTH, {"status":"completed", "checked":1, "matched":1,
+                            "page_cursor":2, "expected_total":1}), \\
+         patch("g2b_case_10y_official.ensure_schema"), \\
+         patch("g2b_case_10y_official.session",lambda:fake_month_session(db)), \\
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result=scan_month("2024-03-01",pages_max=1)
+    assert result["status"]=="blocked_unverified_persisted_history"
+    assert result["reason"]=="completed_history_count_or_identity_mismatch"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted==[]
+
+
+def test_partial_month_rejects_one_corrupt_persisted_identity_before_http():
+    """Even 199 valid prior rows cannot mask one invalid row in a 200-match cursor."""
+    prior=[(f"R24BK{90000000+i:08d}","000") for i in range(199)]
+    prior.append(("R24BK12345678","00٠"))
+    db=FakeMonthDB(prior_keys=prior)
+    with patch.dict(MONTH, {"status":"partial", "checked":500, "matched":200,
+                            "page_cursor":2, "expected_total":501}), \\
+         patch("g2b_case_10y_official.ensure_schema"), \\
+         patch("g2b_case_10y_official.session",lambda:fake_month_session(db)), \\
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result=scan_month("2024-03-01",pages_max=1)
+    assert result["status"]=="blocked_unverified_persisted_history"
+    assert result["reason"]=="partial_history_count_or_identity_mismatch"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted==[]
+
+
+@pytest.mark.parametrize("valid_no,valid_ord", [
+    ("R24BK12345678","000"),
+    ("12345678901","001"),
+])
+def test_completed_month_accepts_canonical_persisted_notice_identity(
+        valid_no,valid_ord):
+    """Both modern and legacy canonical text IDs preserve read-only resume."""
+    db=FakeMonthDB(prior_keys=[(valid_no,valid_ord)])
+    with patch.dict(MONTH, {"status":"completed", "checked":1, "matched":1,
+                            "page_cursor":2, "expected_total":1}), \\
+         patch("g2b_case_10y_official.ensure_schema"), \\
+         patch("g2b_case_10y_official.session",lambda:fake_month_session(db)), \\
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result=scan_month("2024-03-01",pages_max=1)
+    assert result["status"]=="already_completed"
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted==[]
