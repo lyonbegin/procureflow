@@ -186,6 +186,54 @@ def test_nonstandard_official_json_constants_never_certify_month(constant, place
     assert inserted == []
 
 
+@pytest.mark.parametrize("exponent", ["1e309", "-1e309", "9.9e9999"])
+@pytest.mark.parametrize("placement", [
+    "root_metadata", "header_metadata", "body_metadata", "notice_metadata",
+])
+def test_official_json_exponent_overflow_never_certifies_month(exponent, placement):
+    """json.loads normally turns 1e309 into infinity without parse_constant.
+
+    Reject exponent overflow even in unused metadata. An otherwise valid
+    one-row page must write no official history or completed-month cursor.
+    All dependencies are FakeHTTP/FakeDB, not official G2B or Railway.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599", "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000", "bidNtceDt": "20240312",
+    }
+    payload = response([notice], 1)
+    if placement == "root_metadata":
+        payload["extra"] = "__OVERFLOW__"
+    elif placement == "header_metadata":
+        payload["response"]["header"]["extra"] = "__OVERFLOW__"
+    elif placement == "body_metadata":
+        payload["response"]["body"]["extra"] = "__OVERFLOW__"
+    else:
+        notice["extra"] = "__OVERFLOW__"
+    raw = json.dumps(payload).replace('"__OVERFLOW__"', exponent).encode()
+    result, statuses, inserted = run_month(raw)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+    assert "SENSITIVE_API_KEY" not in str(result) + str(statuses)
+
+
+def test_official_json_finite_exponent_metadata_remains_compatible():
+    notice = {
+        "prdctClsfcNo": "81111599", "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000", "bidNtceDt": "20240312",
+    }
+    payload = response([notice], 1)
+    payload["response"]["body"]["extra"] = "__FINITE__"
+    raw = json.dumps(payload).replace('"__FINITE__"', "1.25e2").encode()
+    result, statuses, inserted = run_month(raw)
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+
+
 def test_oversized_official_json_never_certifies_month_after_truncated_valid_prefix():
     """An old read(15 MB) discarded trailing bytes without detecting them.
 
