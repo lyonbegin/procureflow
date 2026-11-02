@@ -407,6 +407,21 @@ def scan_month(first, pages_max=30):
             req=Request(url,headers={"Accept":"application/json",
                               "User-Agent":"ProcureFlow-G2B-Category/1.0"})
             with urlopen(req,timeout=22) as rsp:
+                # A 206 Partial Content response may contain a syntactically
+                # valid JSON prefix. It cannot certify an entire official
+                # month, even if totalCount=0 or the JSON parses cleanly.
+                # urllib normally raises for 4xx/5xx, not for other 2xx.
+                http_status=getattr(rsp,"status",None)
+                if http_status is None and callable(getattr(rsp,"getcode",None)):
+                    http_status=rsp.getcode()
+                if http_status is not None and (
+                        type(http_status) is not int or http_status!=200):
+                    raise ValueError("g2b_api_unexpected_http_status")
+                # Content-Range also signals a sliced representation. Never
+                # accept it on a nominal 200 response from an intermediary.
+                response_headers=getattr(rsp,"headers",None)
+                if response_headers is not None and response_headers.get("Content-Range"):
+                    raise ValueError("g2b_api_partial_content_range")
                 # A bounded read MUST detect an oversized body. Reading only
                 # the first 15 MB can silently discard trailing response bytes:
                 # a valid JSON object followed by >15 MB of whitespace and a
