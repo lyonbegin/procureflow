@@ -2225,3 +2225,36 @@ def test_readonly_month_audit_rejects_integer_column_overflow(field):
     assert audit["eight_digit_notice_discovery_complete"] is False
     assert audit["read_only"] is True
     assert audit["bid_submitted"] is False
+
+
+@pytest.mark.parametrize("http_status", [None, True, False, "200", 0, 201])
+def test_official_http_missing_or_noninteger_status_never_certifies_month(http_status):
+    """An opaque HTTP response cannot prove a complete official 200 page.
+
+    All network and database calls are faked. No G2B service key, Railway DB,
+    production workflow, or bid endpoint is accessed by this regression.
+    """
+    fake = FakeHTTP(response([], 0), status=http_status)
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+    assert fake.read_calls == 0
+
+
+def test_official_http_getcode_200_fallback_remains_compatible():
+    """urllib-compatible responses with getcode()=200 still work."""
+    class GetcodeHTTP(FakeHTTP):
+        status = None
+
+        def getcode(self):
+            return 200
+
+    fake = GetcodeHTTP(response([], 0), status=None)
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert inserted == []
+    assert fake.read_calls == 1
