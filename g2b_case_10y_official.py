@@ -10,11 +10,32 @@ import re
 from datetime import date
 import calendar
 from urllib.parse import urlencode
-from urllib.request import urlopen,Request
+from urllib.request import Request,build_opener,HTTPRedirectHandler
 from g2b_case_10y import CASE_BID,CAT8,BEGIN,END,ensure_schema
 from db import session
 
 API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
+# urllib.request.urlopen follows 3xx redirects by default. Because this
+# official endpoint sends serviceKey in its query string, an upstream 302
+# could redirect a request to another host and expose that credential.
+# Never follow redirects for official evidence collection, including
+# redirects to a seemingly legitimate mirror or another HTTPS endpoint.
+class _NoOfficialRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OFFICIAL_OPENER = build_opener(_NoOfficialRedirect())
+
+
+def urlopen(req, timeout=22):
+    """Use the same injectable call site, but forbid any HTTP redirect.
+
+    The no-redirect opener raises HTTPError on 3xx. scan_month() catches it
+    and records only its exception CLASS, never the URL/serviceKey.
+    """
+    return _OFFICIAL_OPENER.open(req, timeout=timeout)
+
 # Persisted state is evidence. An unknown state must never be silently
 # treated as a resumable page, even when its numeric cursor looks plausible.
 MONTH_STATES=frozenset({
