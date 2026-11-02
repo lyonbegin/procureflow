@@ -451,8 +451,10 @@ def scan_month(first, pages_max=30):
                 http_status=getattr(rsp,"status",None)
                 if http_status is None and callable(getattr(rsp,"getcode",None)):
                     http_status=rsp.getcode()
-                if http_status is not None and (
-                        type(http_status) is not int or http_status!=200):
+                # Missing status is not evidence of a complete HTTP 200 page.
+                # Real urllib responses expose .status or .getcode(); reject
+                # opaque/custom transport responses before reading or writing.
+                if type(http_status) is not int or http_status!=200:
                     raise ValueError("g2b_api_unexpected_http_status")
                 # Content-Range also signals a sliced representation. Never
                 # accept it on a nominal 200 response from an intermediary.
