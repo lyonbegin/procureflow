@@ -1458,3 +1458,62 @@ test('throwing Proxy traps cannot leak credentials through native preflight erro
     leakedCredentials:false,workerDispatch:0,actualBids:0
   }));
 });
+
+test('root and selected-block getters/Proxy traps never leak evidence secrets',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  const secret='serviceKey=SENSITIVE_API_KEY';
+  let getterCalls=0,mockedGets=0;
+  const accessor=(object,key)=>Object.defineProperty(object,key,{
+    enumerable:true,configurable:true,
+    get(){getterCalls++;throw Error(secret);}
+  });
+  const rootSource=structuredClone(blocked);
+  accessor(rootSource,'source_provenance');
+  const rootBlocks=structuredClone(blocked);
+  accessor(rootBlocks,'blocks');
+  const selectedId=structuredClone(blocked);
+  accessor(selectedId.blocks[0],'id');
+  const selectedOutput=structuredClone(blocked);
+  accessor(selectedOutput.blocks[0].output_value,'evidence_verified');
+  const rootProxy=new Proxy(structuredClone(blocked),{
+    get(){getterCalls++;throw Error(secret);}
+  });
+  const selectedProxy=structuredClone(blocked);
+  selectedProxy.blocks[0]=new Proxy(selectedProxy.blocks[0],{
+    get(){getterCalls++;throw Error(secret);}
+  });
+  const variants=[rootSource,rootBlocks,selectedId,selectedOutput,
+    rootProxy,selectedProxy];
+  for(const [i,forged] of variants.entries()){
+    assert.throws(
+      ()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+      error=>error.message==='Business Operation nested dispatch claim blocked'&&
+        !error.message.includes(secret),
+      'reject root/selected block malformed evidence '+i
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return forged;})),
+      error=>error.message==='Business Operation nested dispatch claim blocked'&&
+        !error.message.includes(secret)
+    );
+  }
+  assert.equal(getterCalls,0,'no untrusted accessor or Proxy get trap is invoked');
+  assert.equal(mockedGets,variants.length,'all GETs were local in-memory stubs');
+  const upstreamProxy={metadata:{audit:new Proxy({note:'fake'}, {
+    get(){getterCalls++;throw Error(secret);}
+  })}};
+  await assert.rejects(
+    ()=>instance.execute.call(ctx(getParam,async()=>{mockedGets++;return blocked;},upstreamProxy)),
+    /upstream read-only preflight blocked/
+  );
+  assert.equal(mockedGets,variants.length,'upstream Proxy blocked before GET');
+  assert.equal(getterCalls,0);
+  const normal=await instance.execute.call(ctx(getParam,async()=>{mockedGets++;return blocked;}));
+  assert.equal(normal[0].length,0);
+  assert.equal(normal[1][0].json.inspection_status,'HOLD');
+  console.log('PROCUREFLOW_EARLY_EVIDENCE_ACCESSOR_PROXY_BLOCKED',JSON.stringify({
+    rejectedResponseShapes:variants.length,upstreamRejectedBeforeGET:1,
+    getterCalls,mockedReadOnlyGET:mockedGets,actualBids:0,workerDispatches:0
+  }));
+});
