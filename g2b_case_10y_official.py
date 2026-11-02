@@ -558,7 +558,14 @@ def scan_month(first, pages_max=30):
                 amount=0
             elif type(raw_amount) is int:
                 amount=raw_amount
-            elif isinstance(raw_amount,str) and re.fullmatch(r"[0-9]+",raw_amount.strip()):
+            elif isinstance(raw_amount,str) and re.fullmatch(r"[0-9]+",raw_amount.strip()) and len(raw_amount.strip())<=38:
+                # Python 3.11+ raises ValueError on extremely long decimal
+                # strings (default 4300 digits). That conversion happens
+                # after the HTTP parse exception handler; an unchecked
+                # provider value could escape scan_month without writing a
+                # fail-closed window status. A 38-digit bound is far beyond
+                # ordinary G2B budget amounts and avoids unbounded numeric
+                # evidence reaching PostgreSQL.
                 amount=int(raw_amount.strip())
             else:
                 invalid+=1
