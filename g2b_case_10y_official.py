@@ -16,6 +16,9 @@ from db import session
 
 API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
 MAX_OFFICIAL_RESPONSE_BYTES=15_000_000
+# expected_total/checked/matched/page_cursor persist in PostgreSQL BIGINT.
+# Never accept an official count that cannot be stored as a signed BIGINT.
+MAX_OFFICIAL_DB_BIGINT=2**63-1
 # urllib.request.urlopen follows 3xx redirects by default. Because this
 # official endpoint sends serviceKey in its query string, an upstream 302
 # could redirect a request to another host and expose that credential.
@@ -140,10 +143,11 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
     # floating-point estimate. int(1.5) and int(True) silently fabricate
     # coverage and can turn a truncated page into a false completed month.
     raw_total=body["totalCount"]
-    if type(raw_total) is int and raw_total<10**38:
+    if type(raw_total) is int and 0<=raw_total<=MAX_OFFICIAL_DB_BIGINT:
         total=raw_total
-    elif (isinstance(raw_total,str) and len(raw_total.strip())<=38
-          and re.fullmatch(r"[0-9]+",raw_total.strip())):
+    elif (isinstance(raw_total,str) and len(raw_total.strip())<=19
+          and re.fullmatch(r"[0-9]+",raw_total.strip())
+          and int(raw_total.strip())<=MAX_OFFICIAL_DB_BIGINT):
         # Never pass a provider-controlled 4,301+ digit decimal to int().
         # Such a conversion raises outside a predictable evidence-validation
         # error and cannot be a credible monthly notice count.
@@ -160,10 +164,11 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
         if field not in body:
             continue
         raw=body[field]
-        if type(raw) is int and raw<10**38:
+        if type(raw) is int and 0<=raw<=MAX_OFFICIAL_DB_BIGINT:
             actual=raw
-        elif (isinstance(raw,str) and len(raw.strip())<=38
-              and re.fullmatch(r"[0-9]+",raw.strip())):
+        elif (isinstance(raw,str) and len(raw.strip())<=19
+              and re.fullmatch(r"[0-9]+",raw.strip())
+              and int(raw.strip())<=MAX_OFFICIAL_DB_BIGINT):
             # Guard both pagination echoes before Python's decimal digit cap.
             actual=int(raw.strip())
         else:
@@ -638,10 +643,11 @@ def _audit_nonnegative_integer(value):
     # Persisted cursors are untrusted evidence. A corrupt 4,301+ digit
     # decimal must not crash the read-only 121-month summary or bypass the
     # explicit blocked_invalid_page_cursor path on resume.
-    if type(value) is int and 0<=value<10**38:
+    if type(value) is int and 0<=value<=MAX_OFFICIAL_DB_BIGINT:
         return value
-    if (isinstance(value,str) and len(value.strip())<=38
-            and re.fullmatch(r"[0-9]+",value.strip())):
+    if (isinstance(value,str) and len(value.strip())<=19
+            and re.fullmatch(r"[0-9]+",value.strip())
+            and int(value.strip())<=MAX_OFFICIAL_DB_BIGINT):
         return int(value.strip())
     return None
 
