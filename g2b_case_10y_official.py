@@ -5,6 +5,7 @@ Never scan unrelated cases. A month is 'completed' only after *all* API pages
 were read, response category codes explicitly matched and no errors occurred.
 """
 import json
+import math
 import os
 import re
 from datetime import date
@@ -67,13 +68,21 @@ def _reject_duplicate_json_keys(pairs):
 
 
 def _reject_nonfinite_json_constant(value):
-    """Official G2B JSON must not contain NaN/Infinity at ANY object depth.
-
-    Python's json.loads accepts these non-standard literals by default.
-    Even if they occur in unused metadata, a malformed upstream response
-    must never become a certified completed discovery month.
-    """
+    """Reject non-standard NaN/Infinity literals at every JSON depth."""
     raise ValueError("g2b_api_nonfinite_json_constant")
+
+
+def _reject_nonfinite_json_float(raw):
+    """Reject numeric exponent overflow even in unused official metadata.
+
+    json.loads('1e309') produces float('inf') without calling parse_constant.
+    A response containing this non-finite JSON number cannot certify a month.
+    Normal finite JSON floats remain accepted as metadata.
+    """
+    value=float(raw)
+    if not math.isfinite(value):
+        raise ValueError("g2b_api_nonfinite_json_float")
+    return value
 
 
 def _parse(response, *, expected_page=None, expected_rows=None, expected_query=None):
@@ -462,7 +471,8 @@ def scan_month(first, pages_max=30):
                 if content_length is not None and len(raw)!=content_length:
                     raise ValueError("g2b_api_incomplete_content_length")
                 data=json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys,
-                                parse_constant=_reject_nonfinite_json_constant)
+                                parse_constant=_reject_nonfinite_json_constant,
+                                parse_float=_reject_nonfinite_json_float)
             entries,total=_parse(
                 data,expected_page=page,expected_rows=500,
                 expected_query={field:params[field] for field in
