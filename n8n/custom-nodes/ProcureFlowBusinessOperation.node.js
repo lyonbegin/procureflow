@@ -95,7 +95,10 @@ const DISPATCH_CLAIM_KEYS=Object.freeze([
   'job_dispatched','jobDispatched'
 ]);
 function hasUnsafeDispatchClaim(value){
-  return value!==null&&typeof value==='object'&&!Array.isArray(value)&&
+  // JavaScript-produced n8n input can attach named properties to arrays.
+  // JSON responses cannot, but an upstream Code node can; inspect those
+  // own properties too instead of silently treating an array as harmless.
+  return value!==null&&typeof value==='object'&&
     DISPATCH_CLAIM_KEYS.some(key=>Object.hasOwn(value,key)&&value[key]!==false);
 }
 // Inspection envelopes may contain nested metadata and arrays from external
