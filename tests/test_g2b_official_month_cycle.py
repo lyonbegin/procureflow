@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 import pytest
 
-from g2b_case_10y_official import _parse, _page_verdict, scan_month, summarize_month_cursor
+from g2b_case_10y_official import (
+    MAX_OFFICIAL_RESPONSE_BYTES, _parse, _page_verdict, scan_month,
+    summarize_month_cursor,
+)
 from g2b_case_10y import CASE_BID
 from g2b_full_runner import historical_month_batch
 
@@ -78,8 +81,9 @@ class FakeHTTP:
         return False
 
     def read(self, limit):
-        assert limit <= 15_000_000
-        return self.payload
+        # Match HTTPResponse.read(n): never return more than n bytes.
+        assert limit <= MAX_OFFICIAL_RESPONSE_BYTES + 1
+        return self.payload[:limit]
 
 
 @contextmanager
@@ -174,6 +178,36 @@ def test_nonstandard_official_json_constants_never_certify_month(constant, place
     assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
     assert statuses and statuses[-1][2] == "error"
     assert inserted == []
+
+
+def test_oversized_official_json_never_certifies_month_after_truncated_valid_prefix():
+    """An old read(15 MB) discarded trailing bytes without detecting them.
+
+    A valid zero-result JSON response padded to exactly 15 MB is followed by
+    conflicting extra JSON. The old parser would see only valid JSON and
+    falsely complete the month; the bounded 15 MB + 1 read must reject it.
+    FakeHTTP/FakeDB only; no official API, credentials, Worker or bid calls.
+    """
+    valid=json.dumps(response([], 0)).encode("utf-8")
+    payload=(valid + b" " * (MAX_OFFICIAL_RESPONSE_BYTES-len(valid))
+             + b'{"response":{"header":{"resultCode":"99"}}}')
+    result, statuses, inserted=run_month(payload)
+    assert result["status"]=="error"
+    assert result["reason"]=="official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2]=="error"
+    assert inserted==[]
+    assert not any(row[2]=="completed" for row in statuses)
+
+
+def test_official_json_exact_response_size_limit_remains_compatible():
+    """A valid response at the declared cap remains readable, not truncated."""
+    valid=json.dumps(response([], 0)).encode("utf-8")
+    payload=valid+b" "*(MAX_OFFICIAL_RESPONSE_BYTES-len(valid))
+    assert len(payload)==MAX_OFFICIAL_RESPONSE_BYTES
+    result, statuses, inserted=run_month(payload)
+    assert result["status"]=="completed"
+    assert statuses and statuses[-1][2]=="completed"
+    assert inserted==[]
 
 
 def test_standard_json_metadata_remains_compatible_with_month_coverage():
