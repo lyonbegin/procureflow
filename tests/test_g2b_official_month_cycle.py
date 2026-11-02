@@ -1939,3 +1939,46 @@ def test_oversized_persisted_bigint_cursor_is_rejected_read_only(value):
     assert result["read_only"] is True
     assert statuses == []
     assert inserted == []
+
+
+@pytest.mark.parametrize("category", ["81111599", "99999999"])
+@pytest.mark.parametrize("invalid_no", [
+    12345678901, 12345678901.0, True, False, None,
+    ["12345678901"], {"bidNtceNo": "12345678901"},
+])
+def test_numeric_or_nonstring_official_notice_id_never_certifies_month(category, invalid_no):
+    """JSON numbers are not official text identifiers, even for 11-digit legacy IDs.
+
+    str(12345678901) previously forged a valid-looking notice number from an
+    upstream JSON numeric token. Both target and non-target rows contribute
+    to totalCount and must be verified before a completed cursor is written.
+    FakeHTTP/FakeDB only; no G2B, Railway, Worker or bidding operations.
+    """
+    notice = {
+        "prdctClsfcNo": category,
+        "bidNtceNo": invalid_no,
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+
+
+@pytest.mark.parametrize("notice_id", ["12345678901", "R24BK12345678"])
+def test_valid_official_string_notice_id_still_completes_month(notice_id):
+    """Both canonical official string formats remain backward-compatible."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": notice_id,
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert result["matched"] == 1
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][1] == notice_id
