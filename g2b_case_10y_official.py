@@ -17,9 +17,11 @@ from db import session
 
 API="https://apis.data.go.kr/1230000/ad/BidPublicInfoService/getBidPblancListInfoServcPPSSrch"
 MAX_OFFICIAL_RESPONSE_BYTES=15_000_000
-# expected_total/checked/matched/page_cursor persist in PostgreSQL BIGINT.
-# Never accept an official count that cannot be stored as a signed BIGINT.
+# expected_total persists as PostgreSQL BIGINT, but checked/matched/page_cursor
+# are INTEGER in the existing production schema. A verified totalCount must
+# fit the narrower column or a later cursor update could overflow.
 MAX_OFFICIAL_DB_BIGINT=2**63-1
+MAX_OFFICIAL_DB_INT=2**31-1
 # urllib.request.urlopen follows 3xx redirects by default. Because this
 # official endpoint sends serviceKey in its query string, an upstream 302
 # could redirect a request to another host and expose that credential.
@@ -152,11 +154,11 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
     # floating-point estimate. int(1.5) and int(True) silently fabricate
     # coverage and can turn a truncated page into a false completed month.
     raw_total=body["totalCount"]
-    if type(raw_total) is int and 0<=raw_total<=MAX_OFFICIAL_DB_BIGINT:
+    if type(raw_total) is int and 0<=raw_total<=MAX_OFFICIAL_DB_INT:
         total=raw_total
     elif (isinstance(raw_total,str) and len(raw_total.strip())<=19
           and re.fullmatch(r"[0-9]+",raw_total.strip())
-          and int(raw_total.strip())<=MAX_OFFICIAL_DB_BIGINT):
+          and int(raw_total.strip())<=MAX_OFFICIAL_DB_INT):
         # Never pass a provider-controlled 4,301+ digit decimal to int().
         # Such a conversion raises outside a predictable evidence-validation
         # error and cannot be a credible monthly notice count.
@@ -361,7 +363,9 @@ def scan_month(first, pages_max=30):
     inspected=_audit_nonnegative_integer(row["checked"])
     matched=_audit_nonnegative_integer(row["matched"])
     page=_audit_nonnegative_integer(row["page_cursor"])
-    if (inspected is None or matched is None or page is None or page<1):
+    if (inspected is None or matched is None or page is None or page<1 or
+            inspected>MAX_OFFICIAL_DB_INT or matched>MAX_OFFICIAL_DB_INT or
+            page>MAX_OFFICIAL_DB_INT):
         return {"status":"blocked_invalid_page_cursor","first_day":str(first),
                 "read_only":True,"reason":"invalid_persisted_cursor_values"}
     if row["status"]=="unsearched" and (
@@ -738,6 +742,9 @@ def summarize_month_cursor(rows):
         # Never treat a coerced/negative/bool/fractional count as completed.
         cursor_valid=(valid_state and raw_checked is not None and raw_matched is not None and
                       raw_page is not None and raw_page>=1 and
+                      raw_checked<=MAX_OFFICIAL_DB_INT and
+                      raw_matched<=MAX_OFFICIAL_DB_INT and
+                      raw_page<=MAX_OFFICIAL_DB_INT and
                       raw_matched<=raw_checked)
         checked=raw_checked if raw_checked is not None else 0
         matched=raw_matched if raw_matched is not None else 0
