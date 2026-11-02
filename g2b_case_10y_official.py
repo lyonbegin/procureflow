@@ -140,7 +140,7 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
     # floating-point estimate. int(1.5) and int(True) silently fabricate
     # coverage and can turn a truncated page into a false completed month.
     raw_total=body["totalCount"]
-    if type(raw_total) is int:
+    if type(raw_total) is int and raw_total<10**38:
         total=raw_total
     elif (isinstance(raw_total,str) and len(raw_total.strip())<=38
           and re.fullmatch(r"[0-9]+",raw_total.strip())):
@@ -160,7 +160,7 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
         if field not in body:
             continue
         raw=body[field]
-        if type(raw) is int:
+        if type(raw) is int and raw<10**38:
             actual=raw
         elif (isinstance(raw,str) and len(raw.strip())<=38
               and re.fullmatch(r"[0-9]+",raw.strip())):
