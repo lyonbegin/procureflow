@@ -142,7 +142,11 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
     raw_total=body["totalCount"]
     if type(raw_total) is int:
         total=raw_total
-    elif isinstance(raw_total,str) and re.fullmatch(r"[0-9]+",raw_total.strip()):
+    elif (isinstance(raw_total,str) and len(raw_total.strip())<=38
+          and re.fullmatch(r"[0-9]+",raw_total.strip())):
+        # Never pass a provider-controlled 4,301+ digit decimal to int().
+        # Such a conversion raises outside a predictable evidence-validation
+        # error and cannot be a credible monthly notice count.
         total=int(raw_total.strip())
     else:
         raise ValueError("g2b_api_total_count_not_nonnegative_integer")
@@ -158,7 +162,9 @@ def _parse(response, *, expected_page=None, expected_rows=None, expected_query=N
         raw=body[field]
         if type(raw) is int:
             actual=raw
-        elif isinstance(raw,str) and re.fullmatch(r"[0-9]+",raw.strip()):
+        elif (isinstance(raw,str) and len(raw.strip())<=38
+              and re.fullmatch(r"[0-9]+",raw.strip())):
+            # Guard both pagination echoes before Python's decimal digit cap.
             actual=int(raw.strip())
         else:
             raise ValueError("g2b_api_"+field+"_not_positive_integer")
@@ -629,9 +635,13 @@ def scan_month(first, pages_max=30):
 
 def _audit_nonnegative_integer(value):
     """Reject bool/float/None instead of silently fabricating cursor coverage."""
-    if type(value) is int and value>=0:
+    # Persisted cursors are untrusted evidence. A corrupt 4,301+ digit
+    # decimal must not crash the read-only 121-month summary or bypass the
+    # explicit blocked_invalid_page_cursor path on resume.
+    if type(value) is int and 0<=value<10**38:
         return value
-    if isinstance(value,str) and re.fullmatch(r"[0-9]+",value.strip()):
+    if (isinstance(value,str) and len(value.strip())<=38
+            and re.fullmatch(r"[0-9]+",value.strip())):
         return int(value.strip())
     return None
 
