@@ -496,7 +496,12 @@ def scan_month(first, pages_max=30):
             # identity BEFORE skipping it: otherwise a duplicate or a row
             # with no identity in an out-of-scope category could silently
             # replace another result while the month is marked completed.
-            no=str(item.get("bidNtceNo") or "").strip()
+            # Official notice IDs are text identifiers, not JSON numbers.
+            # str(12345678901) previously manufactured a valid-looking
+            # legacy 11-digit notice ID from an upstream numeric token.
+            # Reject wrong types for both target and non-target rows.
+            raw_no=item.get("bidNtceNo")
+            no=raw_no.strip() if isinstance(raw_no,str) else ""
             # A missing official notice round defaults to 000. Explicit
             # boolean, float, object or list values must never be coerced
             # into a valid notice identity (False previously became "000").
