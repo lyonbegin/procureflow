@@ -1784,3 +1784,50 @@ def test_official_http_200_full_json_still_certifies_empty_month():
     assert statuses and statuses[-1][2] == "completed"
     assert inserted == []
     assert fake.read_calls == 1
+
+
+
+@pytest.mark.parametrize("amount", [
+    "9" * 39,
+    "9" * 4301,
+    "  " + "9" * 4301 + "  ",
+])
+def test_official_oversized_decimal_amount_fails_closed_without_unhandled_conversion(amount):
+    """Reject overlong provider amount strings before Python's int() digit cap.
+
+    A 4301-digit decimal raises ValueError on Python 3.11+ when converted by
+    int(); this parsing happens outside the HTTP exception handler. The
+    collector must instead report a blocked month, write no official history,
+    and never leak a raw provider amount into progress or audit output.
+    All dependencies are fake HTTP/DB, with no G2B/Railway contact.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK12345678",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+        "asignBdgtAmt": amount,
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert inserted == []
+    assert amount.strip() not in str(result)
+    assert amount.strip() not in str(statuses)
+
+
+@pytest.mark.parametrize("amount", ["0", "1234567890123456789"])
+def test_official_regular_decimal_amount_remains_compatible(amount):
+    """Normal official decimal strings continue through the existing path."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK12345678",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+        "asignBdgtAmt": amount,
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
