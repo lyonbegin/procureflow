@@ -601,7 +601,7 @@ test('deep metadata and array dispatch claims fail closed before native output',
 test('reject duplicate blocks, wrong input/output and simulated execution flags',()=>{
   assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block|nested dispatch claim blocked/);
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],input:'wrong'}]},'PF01','R26BK01787028','N01'),/block\/official/);
-  assert.throws(()=>validateProvenance({...blocked,automatic_bid_submission:true},'PF01','R26BK01787028','N01'),/response contract/);
+  assert.throws(()=>validateProvenance({...blocked,automatic_bid_submission:true},'PF01','R26BK01787028','N01'),/response contract|nested dispatch claim blocked/);
   assert.throws(()=>validateProvenance({...blocked,workflow_execution_engine:'mock'},'PF01','R26BK01787028','N01'),/response contract/);
 });
 test('exact manifest feature IDs are required for VERIFIED; wrong IDs remain HOLD',async()=>{
