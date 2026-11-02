@@ -431,8 +431,24 @@ def scan_month(first, pages_max=30):
                 # Content-Range also signals a sliced representation. Never
                 # accept it on a nominal 200 response from an intermediary.
                 response_headers=getattr(rsp,"headers",None)
-                if response_headers is not None and response_headers.get("Content-Range"):
-                    raise ValueError("g2b_api_partial_content_range")
+                content_length=None
+                if response_headers is not None:
+                    # Even an empty Content-Range signals a nonstandard
+                    # partial representation; never treat it as a full page.
+                    if response_headers.get("Content-Range") is not None:
+                        raise ValueError("g2b_api_partial_content_range")
+                    raw_length=response_headers.get("Content-Length")
+                    if raw_length is not None:
+                        # Reject malformed/overlong headers before int() and
+                        # before reading a potentially oversized response.
+                        # HTTPMessage values are strings; do not coerce bools,
+                        # floats or other untrusted header types.
+                        if (not isinstance(raw_length,str) or
+                                not re.fullmatch(r"[0-9]{1,8}",raw_length.strip())):
+                            raise ValueError("g2b_api_invalid_content_length")
+                        content_length=int(raw_length.strip())
+                        if content_length>MAX_OFFICIAL_RESPONSE_BYTES:
+                            raise ValueError("g2b_api_response_body_too_large")
                 # A bounded read MUST detect an oversized body. Reading only
                 # the first 15 MB can silently discard trailing response bytes:
                 # a valid JSON object followed by >15 MB of whitespace and a
@@ -440,6 +456,11 @@ def scan_month(first, pages_max=30):
                 raw=rsp.read(MAX_OFFICIAL_RESPONSE_BYTES+1)
                 if len(raw)>MAX_OFFICIAL_RESPONSE_BYTES:
                     raise ValueError("g2b_api_response_body_too_large")
+                # A proxy can return a syntactically valid JSON prefix and
+                # close the connection early. If the declared full length
+                # differs, an empty-result month must remain uncertified.
+                if content_length is not None and len(raw)!=content_length:
+                    raise ValueError("g2b_api_incomplete_content_length")
                 data=json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys,
                                 parse_constant=_reject_nonfinite_json_constant)
             entries,total=_parse(
