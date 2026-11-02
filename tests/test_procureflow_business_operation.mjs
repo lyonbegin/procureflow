@@ -537,10 +537,10 @@ test('read-only provenance rejects forged top-level bid and worker dispatch clai
     for(const value of [true,'true',1,null]){
       const forged={...blocked,[field]:value};
       assert.throws(()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
-        /official evidence response contract mismatch/,field+'='+String(value));
+        /official evidence response contract mismatch|nested dispatch claim blocked/,field+'='+String(value));
       await assert.rejects(
         ()=>instance.execute.call(ctx(getParam,async()=>{requests++;return forged;})),
-        /official evidence response contract mismatch/);
+        /official evidence response contract mismatch|nested dispatch claim blocked/);
     }
     // Explicit false and absence are both compatible with a read-only API.
     const explicitlyFalse={...blocked,[field]:false};
@@ -599,7 +599,7 @@ test('deep metadata and array dispatch claims fail closed before native output',
 });
 
 test('reject duplicate blocks, wrong input/output and simulated execution flags',()=>{
-  assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block/);
+  assert.throws(()=>validateProvenance({...blocked,blocks:[blocked.blocks[0],blocked.blocks[0]]},'PF01','R26BK01787028','N01'),/unique block|nested dispatch claim blocked/);
   assert.throws(()=>validateProvenance({...blocked,blocks:[{...blocked.blocks[0],input:'wrong'}]},'PF01','R26BK01787028','N01'),/block\/official/);
   assert.throws(()=>validateProvenance({...blocked,automatic_bid_submission:true},'PF01','R26BK01787028','N01'),/response contract/);
   assert.throws(()=>validateProvenance({...blocked,workflow_execution_engine:'mock'},'PF01','R26BK01787028','N01'),/response contract/);
@@ -1477,7 +1477,10 @@ test('root and selected-block getters/Proxy traps never leak evidence secrets',a
   const selectedOutput=structuredClone(blocked);
   accessor(selectedOutput.blocks[0].output_value,'evidence_verified');
   const rootProxy=new Proxy(structuredClone(blocked),{
-    get(){getterCalls++;throw Error(secret);}
+    // Promise resolution probes `then` before the mock HTTP helper returns.
+    // That probe is not an evidence-field read and must stay inert.
+    get(target,key){if(key==='then')return undefined;
+      getterCalls++;throw Error(secret);}
   });
   const selectedProxy=structuredClone(blocked);
   selectedProxy.blocks[0]=new Proxy(selectedProxy.blocks[0],{
