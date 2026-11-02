@@ -2200,11 +2200,11 @@ def test_official_total_count_exceeding_existing_integer_columns_fails_closed(va
 def test_persisted_integer_cursor_overflow_blocks_without_network_or_mutation(field, value):
     """Corrupted INT cursors must not pass resume/completed shortcuts."""
     db = FakeMonthDB()
-    with patch.dict(MONTH, {field: value}), \\
-         patch("g2b_case_10y_official.ensure_schema"), \\
-         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \\
-         patch("g2b_case_10y_official._service_key") as key, \\
-         patch("g2b_case_10y_official.urlopen") as http, \\
+    with patch.dict(MONTH, {field: value}), \
+         patch("g2b_case_10y_official.ensure_schema"), \
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
+         patch("g2b_case_10y_official._service_key") as key, \
+         patch("g2b_case_10y_official.urlopen") as http, \
          patch("g2b_case_10y_official._write_month") as write:
         result = scan_month("2024-03-01", pages_max=1)
     assert result["status"] == "blocked_invalid_page_cursor"
