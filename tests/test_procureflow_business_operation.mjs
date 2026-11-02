@@ -257,6 +257,79 @@ test('named dispatch properties on nested arrays fail closed before verified out
   }));
 });
 
+test('hidden, symbol and accessor provenance cannot bypass read-only dispatch preflight',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockGets=0,gettersInvoked=0;
+  const hiddenObject=()=>{
+    const parent={};
+    Object.defineProperty(parent,'hidden',{
+      value:{actualBidSubmitted:true},enumerable:false
+    });
+    return parent;
+  };
+  const hiddenArray=()=>{
+    const parent=[];
+    Object.defineProperty(parent,'hidden',{
+      value:{workerJobDispatched:true},enumerable:false
+    });
+    return parent;
+  };
+  const symbolChild=()=>{
+    const parent={};
+    parent[Symbol('not-json')]={bid_submitted:true};
+    return parent;
+  };
+  const accessorChild=()=>{
+    const parent={};
+    Object.defineProperty(parent,'hidden',{
+      enumerable:true,get(){gettersInvoked++;return {bid_submitted:true};}
+    });
+    return parent;
+  };
+  const accessorDispatch=()=>{
+    const parent={};
+    Object.defineProperty(parent,'bid_submitted',{
+      enumerable:true,get(){gettersInvoked++;return false;}
+    });
+    return parent;
+  };
+  const factories=[hiddenObject,hiddenArray,symbolChild,accessorChild,accessorDispatch];
+  for(const [i,make] of factories.entries()){
+    const upstream={metadata:{audit:[make()]}};
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockGets++;return blocked;},upstream)),
+      /upstream read-only preflight blocked/,
+      'Reject '+i+' before any outbound GET'
+    );
+    assert.equal(mockGets,i,'preflight must not contact the HTTP fixture');
+    const forged={...structuredClone(blocked),metadata:{audit:[make()]}};
+    assert.throws(
+      ()=>validateProvenance(forged,'PF01','R26BK01787028','N01'),
+      /nested dispatch claim blocked/,
+      'Reject '+i+' in returned evidence'
+    );
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,async()=>{mockGets++;return forged;})),
+      /nested dispatch claim blocked/
+    );
+  }
+  assert.equal(mockGets,factories.length,'only isolated forged-response GETs occurred');
+  assert.equal(gettersInvoked,0,'never invoke provider-controlled getters');
+  const benign={};
+  Object.defineProperty(benign,'bid_submitted',{value:false,enumerable:false});
+  const safe={...structuredClone(blocked),metadata:{audit:[benign]}};
+  const result=await instance.execute.call(ctx(getParam,async()=>{mockGets++;return safe;},
+    {metadata:{audit:[benign]}}));
+  assert.equal(result[0].length,0);
+  assert.equal(result[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockGets,factories.length+1);
+  console.log('PROCUREFLOW_HIDDEN_PROVENANCE_DISPATCH_BLOCKED',JSON.stringify({
+    upstreamBlocked:factories.length,forgedResponsesBlocked:factories.length,
+    gettersInvoked,isolatedMockGET:mockGets,actualBids:0,workerDispatches:0
+  }));
+});
+
 test('multi-item batch preflight rejects later invalid inputs before ANY HTTP request',async()=>{
   configure();
   const instance=new ProcureFlowBusinessOperation();
