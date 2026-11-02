@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from g2b_case_10y_official import (
-    MAX_OFFICIAL_RESPONSE_BYTES, MAX_OFFICIAL_DB_BIGINT,
+    MAX_OFFICIAL_RESPONSE_BYTES, MAX_OFFICIAL_DB_BIGINT, MAX_OFFICIAL_DB_INT,
     _audit_nonnegative_integer, _parse, _page_verdict, scan_month,
     summarize_month_cursor,
 )
@@ -1967,11 +1967,16 @@ def test_official_counts_above_postgres_bigint_fail_closed(field, encoding):
     assert str(value) not in str(result) + str(statuses)
 
 
-@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_BIGINT, str(MAX_OFFICIAL_DB_BIGINT)])
-def test_postgres_bigint_upper_boundary_is_accepted_as_integer(value):
-    """The boundary is inclusive, with no false overflow rejection."""
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_INT, str(MAX_OFFICIAL_DB_INT)])
+def test_postgres_integer_upper_boundary_is_accepted_as_official_count(value):
+    """The existing checked/matched columns are INTEGER, not BIGINT."""
     payload = response([], value)
-    assert _parse(payload) == ([], MAX_OFFICIAL_DB_BIGINT)
+    assert _parse(payload) == ([], MAX_OFFICIAL_DB_INT)
+    assert _audit_nonnegative_integer(value) == MAX_OFFICIAL_DB_INT
+
+
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_BIGINT, str(MAX_OFFICIAL_DB_BIGINT)])
+def test_bigint_snapshot_auditor_still_accepts_its_own_storage_boundary(value):
     assert _audit_nonnegative_integer(value) == MAX_OFFICIAL_DB_BIGINT
 
 
@@ -2167,3 +2172,56 @@ def test_completed_month_accepts_canonical_persisted_notice_identity(
     http.assert_not_called()
     write.assert_not_called()
     assert db.inserted==[]
+
+
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_INT + 1,
+                                    str(MAX_OFFICIAL_DB_INT + 1),
+                                    MAX_OFFICIAL_DB_BIGINT,
+                                    str(MAX_OFFICIAL_DB_BIGINT)])
+def test_official_total_count_exceeding_existing_integer_columns_fails_closed(value):
+    """totalCount may fit BIGINT but cannot fit the actual checked INT column.
+
+    The full month must not be certified, written or exposed as verified.
+    FakeHTTP/FakeDB only: no G2B, Railway, credentials or bids.
+    """
+    payload = response([], value)
+    with pytest.raises(ValueError, match="g2b_api_total_count_not_nonnegative_integer"):
+        _parse(payload)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+
+
+@pytest.mark.parametrize("field", ["checked", "matched", "page_cursor"])
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_INT + 1,
+                                    str(MAX_OFFICIAL_DB_INT + 1)])
+def test_persisted_integer_cursor_overflow_blocks_without_network_or_mutation(field, value):
+    """Corrupted INT cursors must not pass resume/completed shortcuts."""
+    db = FakeMonthDB()
+    with patch.dict(MONTH, {field: value}), \\
+         patch("g2b_case_10y_official.ensure_schema"), \\
+         patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \\
+         patch("g2b_case_10y_official._service_key") as key, \\
+         patch("g2b_case_10y_official.urlopen") as http, \\
+         patch("g2b_case_10y_official._write_month") as write:
+        result = scan_month("2024-03-01", pages_max=1)
+    assert result["status"] == "blocked_invalid_page_cursor"
+    assert result["read_only"] is True
+    key.assert_not_called()
+    http.assert_not_called()
+    write.assert_not_called()
+    assert db.inserted == []
+
+
+@pytest.mark.parametrize("field", ["checked", "matched", "page_cursor"])
+def test_readonly_month_audit_rejects_integer_column_overflow(field):
+    rows = _all_registered_months()
+    rows[0][field] = MAX_OFFICIAL_DB_INT + 1
+    audit = summarize_month_cursor(rows)
+    assert audit["invalid_cursor_rows"] == 1
+    assert audit["discovery_months_completed"] == 120
+    assert audit["eight_digit_notice_discovery_complete"] is False
+    assert audit["read_only"] is True
+    assert audit["bid_submitted"] is False
