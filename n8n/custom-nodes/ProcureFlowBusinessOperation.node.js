@@ -182,6 +182,12 @@ function hasConflictingSelectedIdentity(value,flowId,bidNo,operationId){
     ['operation_id','operationId'].some(key=>Object.hasOwn(value,key)&&value[key]!==operationId);
 }
 function validateProvenance(body,flowId,bidNo,operationId){
+  // Inspect the ENTIRE response before accessing even its first field.
+  // A Code-node/HTTP-helper Proxy or accessor can throw a secret-bearing
+  // exception from source_provenance, flow_id, blocks or block.id. The
+  // descriptor-only traversal rejects it without invoking the getter.
+  if(hasUnsafeNestedDispatchClaim(body))
+    throw Error('Business Operation nested dispatch claim blocked');
   // A synthetic HTTP fixture is allowed ONLY in an explicitly isolated test
   // runtime. It must declare itself synthetic and can never become VERIFIED.
   const synthetic=process.env.PROCUREFLOW_OPERATION_TEST_MODE==='1'&&
@@ -212,13 +218,6 @@ function validateProvenance(body,flowId,bidNo,operationId){
      (Array.isArray(block.features)&&block.features.some(feature=>
        hasConflictingSelectedIdentity(feature,flowId,bidNo,operationId))))
     throw Error('Business Operation response identity aliases mismatch');
-  // Reject forged dispatch claims throughout the ENTIRE inspection envelope:
-  // not only blocks and output_value, but also top-level metadata, audit
-  // records and arbitrary nested arrays. No provider-controlled subtree can
-  // claim a bid or Worker dispatch while the read-only gate returns VERIFIED.
-  // The bounded traversal also fails closed for oversized envelopes.
-  if(hasUnsafeNestedDispatchClaim(body))
-    throw Error('Business Operation nested dispatch claim blocked');
   if(block.real_data!==(synthetic?false:true)||block.simulation_only!==synthetic||
      block.job_enqueued!==false||block.input!==expected.input||
      block.output!==expected.output)
