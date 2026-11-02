@@ -219,13 +219,47 @@ try {
   const a2=await viewport();
   assert(Math.abs(a2.x-b2.x)>35,'Middle drag did not pan');
   await rec('middle-button-empty-pane-pan','PASS',{before:b2,after:a2});
-  const pt3=await panePoint(),b3=await viewport();
+  // A stationary viewport alone does not prove Shift area selection.
+  // Draw a genuine Chrome marquee around the existing Code node, observe
+  // the Vue Flow selection rectangle WHILE the mouse is held, then verify
+  // that the native node became selected. No REST/DOM selection injection.
+  const marqueeTarget=page.locator('[data-test-id="canvas-node"][data-node-name="Code"]').first();
+  await marqueeTarget.scrollIntoViewIfNeeded();
+  const box=await marqueeTarget.boundingBox();
+  const paneBounds=await page.locator('.vue-flow__pane').boundingBox();
+  assert(box&&paneBounds,'No visible native Code node/pane for Shift marquee');
+  const start={x:box.x-32,y:box.y-26};
+  const end={x:box.x+box.width+32,y:box.y+box.height+26};
+  assert(start.x>paneBounds.x+5&&start.y>paneBounds.y+5&&
+    end.x<paneBounds.x+paneBounds.width-5&&
+    end.y<paneBounds.y+paneBounds.height-5,
+    'Code node has no safe blank-pane marquee margin');
+  const hit=await page.evaluate(({x,y})=>{
+    const el=document.elementFromPoint(x,y);
+    return {pane:!!el?.closest('.vue-flow__pane'),
+      node:!!el?.closest('.vue-flow__node')};
+  },start);
+  assert(hit.pane&&!hit.node,'Shift marquee must start on actual blank pane');
+  const b3=await viewport();
   await page.keyboard.down('Shift');
-  await drag(pt3.x,pt3.y,pt3.x+90,pt3.y+70);
+  await page.mouse.move(start.x,start.y);
+  await page.mouse.down({button:'left'});
+  await page.mouse.move(end.x,end.y,{steps:24});
+  await sleep(250);
+  const marquee=await page.locator('.vue-flow__selection').boundingBox();
+  await page.mouse.up({button:'left'});
   await page.keyboard.up('Shift');
   const a3=await viewport();
-  assert(Math.abs(a3.x-b3.x)<5 && Math.abs(a3.y-b3.y)<5,'Shift selection incorrectly panned viewport');
-  await rec('shift-marquee-not-pan','PASS',{before:b3,after:a3});
+  assert(Math.abs(a3.x-b3.x)<5 && Math.abs(a3.y-b3.y)<5,
+    'Shift selection incorrectly panned viewport');
+  assert(marquee&&marquee.width>box.width&&marquee.height>box.height,
+    'Shift drag did not display a genuine Vue Flow selection marquee');
+  const selected=await marqueeTarget.evaluate(el=>
+    !!el.closest('.vue-flow__node.selected'));
+  assert(selected,'Shift marquee did not select the enclosed native Code node');
+  await rec('shift-marquee-not-pan','PASS',{before:b3,after:a3,
+    marquee:{width:marquee.width,height:marquee.height},
+    selectedNode:'Code',selectionVia:'real Chrome Shift+left drag'});
   const panStored=(await storageWorkflow(workflowId)).nodes.map(n=>({id:n.id,position:n.position}));
   assert(JSON.stringify(panStored)===JSON.stringify(original),'Camera Pan changed stored node coordinates');
   await rec('pan-does-not-change-node-coordinates','PASS',{positions:panStored});
