@@ -1372,3 +1372,58 @@ test('selected output and feature identity aliases cannot contradict the officia
     syntheticHTTPStubCalls:mockedGets,externalHTTP:0,workerDispatch:0,actualBids:0
   }));
 });
+
+test('inherited bid/Worker claims and non-JSON prototypes fail closed before HTTP',async()=>{
+  configure();
+  const instance=new ProcureFlowBusinessOperation();
+  let mockedGets=0;
+  const mock=async()=>{mockedGets++;return blocked;};
+  const inheritedTop=Object.assign(Object.create({bid_submitted:true}),{
+    bid_no:'R26BK01787028'
+  });
+  const inheritedChild=Object.create({workerJobEnqueued:true});
+  inheritedChild.note='hidden inherited dispatch flag';
+  const inheritedArray=[{note:'looks like normal JSON'}];
+  Object.setPrototypeOf(inheritedArray,{job_enqueued:true});
+  const variants=[
+    inheritedTop,
+    {bid_no:'R26BK01787028',metadata:{nested:inheritedChild}},
+    {bid_no:'R26BK01787028',metadata:{records:inheritedArray}}
+  ];
+  for(const upstream of variants){
+    await assert.rejects(
+      ()=>instance.execute.call(ctx(getParam,mock,upstream)),
+      /upstream read-only preflight blocked/,
+      'inherited non-JSON dispatch claim cannot reach read-only API'
+    );
+  }
+  const laterBad={...ctx(getParam,mock),getInputData:()=>[
+    {json:{bid_no:'R26BK01787028'}},
+    {json:variants[1]}
+  ]};
+  await assert.rejects(
+    ()=>instance.execute.call(laterBad),
+    /upstream read-only preflight blocked/,
+    'a later inherited claim blocks the whole batch before any GET'
+  );
+  assert.equal(mockedGets,0);
+  const response=structuredClone(blocked);
+  response.audit=Object.create({actualBidSubmitted:true});
+  response.audit.note='otherwise valid evidence';
+  assert.throws(
+    ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
+    /nested dispatch claim blocked/
+  );
+  const normal=Object.create(null);
+  normal.bid_no='R26BK01787028';
+  normal.metadata={events:[{workerJobEnqueued:false}]};
+  const held=await instance.execute.call(ctx(getParam,mock,normal));
+  assert.equal(held[0].length,0);
+  assert.equal(held[1].length,1);
+  assert.equal(held[1][0].json.inspection_status,'HOLD');
+  assert.equal(mockedGets,1,'only normal JSON-shaped fixture reaches mock GET');
+  console.log('PROCUREFLOW_INHERITED_DISPATCH_CLAIMS_BLOCKED',JSON.stringify({
+    upstreamRejected:4,forgedResponseRejected:1,mockedGets,
+    productionApiRequests:0,workerDispatches:0,actualBids:0
+  }));
+});
