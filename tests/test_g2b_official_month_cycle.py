@@ -1692,3 +1692,53 @@ def test_official_month_still_accepts_normal_unicode_after_del_c1_guard():
     assert len(inserted) == 1
     assert inserted[0][5] == notice["bidNtceNm"]
     assert inserted[0][6] == notice["dminsttNm"]
+
+
+@pytest.mark.parametrize("field", ["bidNtceNm", "dminsttNm", "ntceInsttNm"])
+@pytest.mark.parametrize("mark", [
+    "\u061c",  # Arabic letter mark
+    "\u200e", "\u200f",  # left/right-to-left marks
+    "\u202a", "\u202b", "\u202c", "\u202d", "\u202e",  # embeddings/overrides
+    "\u2066", "\u2067", "\u2068", "\u2069",  # isolates
+])
+def test_official_notice_bidi_format_controls_cannot_certify_month(field, mark):
+    """Fake G2B/Fake DB: invisible bidi marks can spoof title/agency display.
+
+    Any such mark in the three evidence text fields must reject the whole
+    official page, write zero notice history rows and never mark it completed.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "공식 공고명",
+        "dminsttNm": "서울 발주기관",
+        "ntceInsttNm": "서울 공고기관",
+    }
+    notice[field] = "확인" + mark + "필요"
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "blocked_unverified_response_scope"
+    assert result["invalid_scope_rows"] == 1
+    assert statuses and statuses[-1][2] == "blocked_unverified_response_scope"
+    assert all(s[2] != "completed" for s in statuses)
+    assert inserted == []
+
+
+def test_official_notice_real_rtl_letters_remain_accepted_without_bidi_controls():
+    """Do not reject valid Arabic/Hebrew letters or Korean/emoji text."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK90000000",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "20240312",
+        "bidNtceNm": "서울 입찰 إعلان 😀",
+        "dminsttNm": "기관 משרד",
+        "ntceInsttNm": "جهة إعلان",
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][5] == notice["bidNtceNm"]
+    assert inserted[0][6] == notice["dminsttNm"]
