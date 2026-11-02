@@ -244,7 +244,14 @@ def _official_notice_text_is_valid(value):
         0xD800<=ord(ch)<=0xDFFF or
         ord(ch)==0 or
         (ord(ch)<32 and ch not in "\t\r\n") or
-        (0x7F<=ord(ch)<=0x9F)
+        (0x7F<=ord(ch)<=0x9F) or
+        # Bidirectional formatting marks can reverse/reorder the apparent
+        # notice title or agency in audit screens without changing the stored
+        # identifier. Never certify a monthly evidence page containing these
+        # invisible controls. Ordinary RTL letters remain valid.
+        ord(ch) in (0x061C,0x200E,0x200F) or
+        (0x202A<=ord(ch)<=0x202E) or
+        (0x2066<=ord(ch)<=0x2069)
         for ch in value
     )
 
