@@ -9,6 +9,7 @@
  */
 const {readFileSync}=require('node:fs');
 const {join}=require('node:path');
+const {types:{isProxy}}=require('node:util');
 
 const manifest=JSON.parse(readFileSync(join(__dirname,'operational_manifest.json'),'utf8'));
 if(manifest.engine!=='n8n_only'||manifest.blocks.length!==43||manifest.flows.length!==15)
@@ -127,6 +128,10 @@ function hasUnsafeNestedDispatchClaim(root){
     // Skipping them would let a non-JSON evidence graph pass inspection.
     // Fail closed before any HTTP request or VERIFIED verdict instead.
     if(seen.has(value))return true;
+    // Proxy get traps can fabricate fields or throw secret-bearing errors
+    // even when ownKeys/descriptors appear normal. Reject without touching
+    // the trap, before reading any evidence identity or verdict field.
+    if(isProxy(value))return true;
     seen.add(value);
     if(++inspectedObjects>MAX_INSPECTED)return true;
     // JSON evidence has only plain/null-prototype objects and ordinary arrays.
