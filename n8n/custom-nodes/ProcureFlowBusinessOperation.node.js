@@ -95,11 +95,15 @@ const DISPATCH_CLAIM_KEYS=Object.freeze([
   'job_dispatched','jobDispatched'
 ]);
 function hasUnsafeDispatchClaim(value){
-  // JavaScript-produced n8n input can attach named properties to arrays.
-  // JSON responses cannot, but an upstream Code node can; inspect those
-  // own properties too instead of silently treating an array as harmless.
+  // Inspect descriptors rather than invoking provider-controlled getters.
+  // An accessor masquerading as a false dispatch flag is not JSON evidence.
   return value!==null&&typeof value==='object'&&
-    DISPATCH_CLAIM_KEYS.some(key=>Object.hasOwn(value,key)&&value[key]!==false);
+    DISPATCH_CLAIM_KEYS.some(key=>{
+      if(!Object.hasOwn(value,key))return false;
+      const descriptor=Object.getOwnPropertyDescriptor(value,key);
+      return !descriptor||!Object.hasOwn(descriptor,'value')||
+        descriptor.value!==false;
+    });
 }
 // Inspection envelopes may contain nested metadata and arrays from external
 // providers. Dispatch claims must be false at every depth, not only at the
@@ -122,12 +126,16 @@ function hasUnsafeNestedDispatchClaim(root){
     seen.add(value);
     if(++inspectedObjects>MAX_INSPECTED)return true;
     if(hasUnsafeDispatchClaim(value))return true;
-    // The response is JSON, but use own-property checks to avoid walking
-    // inherited fields if an in-memory test/helper supplies a custom object.
-    for(const key in value){
-      if(!Object.hasOwn(value,key))continue;
+    // An upstream n8n Code node can hide a nested dispatch claim behind a
+    // non-enumerable or symbol property. for...in silently skips both.
+    // Traverse OWN descriptors only; never execute untrusted accessors.
+    // Limit inspected fields before visiting children (including array length).
+    for(const key of Reflect.ownKeys(value)){
       if(++inspectedFields>MAX_INSPECTED)return true;
-      const child=value[key];
+      if(typeof key==='symbol')return true; // not representable in JSON
+      const descriptor=Object.getOwnPropertyDescriptor(value,key);
+      if(!descriptor||!Object.hasOwn(descriptor,'value'))return true;
+      const child=descriptor.value;
       if(child&&typeof child==='object')pending.push(child);
     }
   }
