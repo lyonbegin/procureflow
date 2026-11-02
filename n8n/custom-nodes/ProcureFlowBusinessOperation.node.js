@@ -84,7 +84,15 @@ const DISPATCH_CLAIM_KEYS=Object.freeze([
   // Provider/JS adapters may serialize the same unsafe claims in camelCase.
   // A different spelling must never bypass the read-only evidence boundary.
   'bidSubmitted','workerJobEnqueued','jobEnqueued',
-  'automatedBidSubmission','automaticBidSubmission','actualJobExecuted'
+  'automatedBidSubmission','automaticBidSubmission','actualJobExecuted',
+  // Alternate API/Worker spellings must not masquerade as harmless metadata.
+  // Even nested or upstream claims of completed submission/dispatch block
+  // read-only inspection before any VERIFIED result or outbound GET.
+  'actual_bid_submitted','actualBidSubmitted',
+  'bid_submission_succeeded','bidSubmissionSucceeded',
+  'bid_executed','bidExecuted',
+  'worker_job_dispatched','workerJobDispatched',
+  'job_dispatched','jobDispatched'
 ]);
 function hasUnsafeDispatchClaim(value){
   return value!==null&&typeof value==='object'&&!Array.isArray(value)&&
