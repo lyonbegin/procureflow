@@ -125,7 +125,17 @@ function hasUnsafeNestedDispatchClaim(root){
     if(seen.has(value))return true;
     seen.add(value);
     if(++inspectedObjects>MAX_INSPECTED)return true;
-    if(hasUnsafeDispatchClaim(value))return true;
+    // JSON evidence has only plain/null-prototype objects and ordinary arrays.
+    // An n8n Code node can attach a bid/Worker claim to an inherited prototype;
+    // own-key traversal would otherwise miss it and issue an inspection GET.
+    // Reject non-JSON prototypes without invoking inherited accessors. A
+    // malicious Proxy trap is also invalid evidence, never an error to echo.
+    try{
+      const prototype=Object.getPrototypeOf(value);
+      if(Array.isArray(value)?prototype!==Array.prototype:
+         prototype!==Object.prototype&&prototype!==null)return true;
+      if(hasUnsafeDispatchClaim(value))return true;
+    }catch{return true;}
     // An upstream n8n Code node can hide a nested dispatch claim behind a
     // non-enumerable or symbol property. for...in silently skips both.
     // Traverse OWN descriptors only; never execute untrusted accessors.
