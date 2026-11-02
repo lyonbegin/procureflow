@@ -622,7 +622,10 @@ def scan_month(first, pages_max=30):
             # missing/empty amounts remain unknown (NULL), not fabricated 0.
             if raw_amount is None or raw_amount=="":
                 amount=0
-            elif type(raw_amount) is int:
+            elif type(raw_amount) is int and 0<=raw_amount<10**38:
+                # JSON numeric tokens must obey the same 38-digit bound as
+                # decimal strings. Without this, a 100-digit JSON integer
+                # bypasses the string-only limit and becomes false evidence.
                 amount=raw_amount
             elif isinstance(raw_amount,str) and re.fullmatch(r"[0-9]+",raw_amount.strip()) and len(raw_amount.strip())<=38:
                 # Python 3.11+ raises ValueError on extremely long decimal
