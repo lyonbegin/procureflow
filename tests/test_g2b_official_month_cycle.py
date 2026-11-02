@@ -11,7 +11,8 @@ from unittest.mock import patch
 import pytest
 
 from g2b_case_10y_official import (
-    MAX_OFFICIAL_RESPONSE_BYTES, _parse, _page_verdict, scan_month,
+    MAX_OFFICIAL_RESPONSE_BYTES, MAX_OFFICIAL_DB_BIGINT,
+    _audit_nonnegative_integer, _parse, _page_verdict, scan_month,
     summarize_month_cursor,
 )
 from g2b_case_10y import CASE_BID
@@ -1892,3 +1893,49 @@ def test_official_oversized_integer_page_counts_are_rejected(field, oversized):
                 else "g2b_api_" + field + "_not_positive_integer")
     with pytest.raises(ValueError, match=expected):
         _parse(payload, expected_page=1, expected_rows=500)
+
+
+@pytest.mark.parametrize("field", ["totalCount", "pageNo", "numOfRows"])
+@pytest.mark.parametrize("encoding", ["json_integer", "decimal_string"])
+def test_official_counts_above_postgres_bigint_fail_closed(field, encoding):
+    """The API can return a 19-digit count that fits the 38-digit parser
+    but overflows the signed BIGINT used by the persisted month snapshot.
+    Reject it before the first official history insert or cursor write.
+    """
+    value = MAX_OFFICIAL_DB_BIGINT + 1
+    if encoding == "decimal_string":
+        value = str(value)
+    payload = response([], 0)
+    payload["response"]["body"][field] = value
+    expected = ("g2b_api_total_count_not_nonnegative_integer" if field == "totalCount"
+                else "g2b_api_" + field + "_not_positive_integer")
+    with pytest.raises(ValueError, match=expected):
+        _parse(payload, expected_page=1, expected_rows=500)
+    result, statuses, inserted = run_month(payload)
+    assert result["status"] == "error"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+    assert str(value) not in str(result) + str(statuses)
+
+
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_BIGINT, str(MAX_OFFICIAL_DB_BIGINT)])
+def test_postgres_bigint_upper_boundary_is_accepted_as_integer(value):
+    """The boundary is inclusive, with no false overflow rejection."""
+    payload = response([], value)
+    assert _parse(payload) == ([], MAX_OFFICIAL_DB_BIGINT)
+    assert _audit_nonnegative_integer(value) == MAX_OFFICIAL_DB_BIGINT
+
+
+@pytest.mark.parametrize("value", [MAX_OFFICIAL_DB_BIGINT + 1,
+                                    str(MAX_OFFICIAL_DB_BIGINT + 1)])
+def test_oversized_persisted_bigint_cursor_is_rejected_read_only(value):
+    """No credential lookup, HTTP, SQL write or completion for corrupt cursors."""
+    assert _audit_nonnegative_integer(value) is None
+    with patch.dict(MONTH, {"expected_total": value, "status": "partial",
+                            "checked": 500, "matched": 0, "page_cursor": 2}):
+        result, statuses, inserted = run_month(response([], 0))
+    assert result["status"] == "blocked_unverified_snapshot"
+    assert result["read_only"] is True
+    assert statuses == []
+    assert inserted == []
