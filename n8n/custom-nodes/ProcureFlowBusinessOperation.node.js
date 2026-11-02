@@ -112,6 +112,10 @@ function hasUnsafeDispatchClaim(value){
 // primitive values and evade an object-only limit. Never allocate an unbounded
 // Object.values() array while inspecting untrusted evidence. Cycles fail safely.
 function hasUnsafeNestedDispatchClaim(root){
+  // A Code-node Proxy can throw a secret-bearing error from ownKeys or a
+  // descriptor trap. Treat any such exception as invalid evidence instead of
+  // letting its raw message enter the n8n execution log.
+  try{
   const pending=[root],seen=new WeakSet();
   let inspectedObjects=0,inspectedFields=0;
   const MAX_INSPECTED=10000;
@@ -150,6 +154,7 @@ function hasUnsafeNestedDispatchClaim(root){
     }
   }
   return false;
+  }catch{return true;}
 }
 // A provider may return more than one spelling of the selected case ID.
 // Every supplied alias must agree with the authoritative n8n node selection.
