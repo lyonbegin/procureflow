@@ -218,7 +218,7 @@ test('named dispatch properties on nested arrays fail closed before verified out
   const http=async()=>{mockedGets++;return blocked;};
   // n8n Code nodes can produce arrays with named own-properties even though
   // an HTTP JSON document cannot. Treat them as untrusted provenance too.
-  for(const key of ['bid_submitted','workerJobEnqueued','actualBidSubmitted']){
+  for(const [index,key] of ['bid_submitted','workerJobEnqueued','actualBidSubmitted'].entries()){
     const malicious=[];
     malicious[key]=true;
     const upstream={metadata:{audit:malicious}};
@@ -227,7 +227,7 @@ test('named dispatch properties on nested arrays fail closed before verified out
       /upstream read-only preflight blocked/,
       'Reject upstream array property '+key+' before any GET'
     );
-    assert.equal(mockedGets,0);
+    assert.equal(mockedGets,index,'preflight must not add any HTTP requests');
     const response={...structuredClone(blocked),metadata:{audit:malicious}};
     assert.throws(
       ()=>validateProvenance(response,'PF01','R26BK01787028','N01'),
