@@ -4,12 +4,20 @@ import {dirname} from 'node:path';
 // The response /healthz 200 only proves the Caddy proxy, NOT owner/editor readiness.
 const base = (process.env.N8N_EDITOR_URL || 'https://procureflow-n8n-editor-gateway-production.up.railway.app').replace(/\/$/, '');
 async function check(path) {
-  const response = await fetch(base + path, {
-    method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(20000),
-    headers: { 'Accept': 'application/json' },
-  });
-  const payload = await response.text();
-  return { status: response.status, payload };
+  try {
+    const response = await fetch(base + path, {
+      method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(20000),
+      headers: { 'Accept': 'application/json' },
+    });
+    // Only settings contains the owner flag. Never read or retain private
+    // workflow/setup/health bodies in this diagnostic process.
+    const payload = path === '/rest/settings' ? await response.text() : '';
+    return { status: response.status, payload };
+  } catch {
+    // Network errors may embed gateway URLs, credentials or proxy details.
+    // Record a fixed status only; always emit the redacted verdict artifact.
+    return { status: null, payload: '' };
+  }
 }
 const [health, settings, setup, workflows] = await Promise.all(
   ['/healthz', '/rest/settings', '/setup', '/rest/workflows'].map(check),
@@ -29,7 +37,10 @@ const verdict = {
   // A failed owner gate is evidence of a blocked real editor, not a CI flake.
   ready: health.status === 200 && settings.status === 200 &&
     setup.status === 403 && workflows.status === 401 && ownerRequired === false,
-  blocker: ownerRequired === true ? 'EDITOR_BLOCKED_UNCLAIMED_OWNER' :
+  blocker: health.status !== 200 || settings.status !== 200 ? 'GATEWAY_NOT_READY' :
+    setup.status !== 403 ? 'PUBLIC_OWNER_SETUP_NOT_BLOCKED' :
+    workflows.status !== 401 ? 'WORKFLOW_AUTH_NOT_ENFORCED' :
+    ownerRequired === true ? 'EDITOR_BLOCKED_UNCLAIMED_OWNER' :
     ownerRequired === false ? null : 'OWNER_READINESS_UNKNOWN',
 };
 console.log('EXISTING_N8N_EDITOR_READINESS', JSON.stringify(verdict));
