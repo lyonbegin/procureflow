@@ -1982,3 +1982,54 @@ def test_valid_official_string_notice_id_still_completes_month(notice_id):
     assert statuses and statuses[-1][2] == "completed"
     assert len(inserted) == 1
     assert inserted[0][1] == notice_id
+
+
+@pytest.mark.parametrize("advertised", [
+    "0", "1", "999999", "not-a-number", "-1", "1.5", "9" * 4301,
+    True, False, 1, 1.5, [], {},
+])
+def test_official_http_declared_content_length_mismatch_or_invalid_blocks_month(advertised):
+    """Only a full, correctly framed HTTP body can certify a zero-result month.
+
+    A proxy may send a valid JSON prefix while claiming a longer body. This
+    must fail closed even when the JSON says totalCount=0. FakeHTTP/FakeDB
+    only; no Railway, official G2B, Worker or bid access.
+    """
+    fake = FakeHTTP(response([], 0), headers={"Content-Length": advertised})
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+
+
+def test_official_http_declared_content_length_exact_match_remains_compatible():
+    payload = response([], 0)
+    raw = json.dumps(payload).encode("utf-8")
+    fake = FakeHTTP(payload, headers={"Content-Length": str(len(raw))})
+    result, statuses, inserted = run_month(payload, http_response=fake)
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert inserted == []
+    assert fake.read_calls == 1
+
+
+def test_official_http_content_length_larger_than_limit_blocks_before_read():
+    fake = FakeHTTP(response([], 0), headers={
+        "Content-Length": str(MAX_OFFICIAL_RESPONSE_BYTES + 1),
+    })
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert statuses and statuses[-1][2] == "error"
+    assert inserted == []
+    assert fake.read_calls == 0
+
+
+def test_official_http_empty_content_range_header_is_not_full_response():
+    fake = FakeHTTP(response([], 0), headers={"Content-Range": ""})
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert statuses and statuses[-1][2] == "error"
+    assert inserted == []
+    assert fake.read_calls == 0
