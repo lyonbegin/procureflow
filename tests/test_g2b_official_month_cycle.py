@@ -71,8 +71,11 @@ class FakeMonthDB:
 
 
 class FakeHTTP:
-    def __init__(self, payload):
+    def __init__(self, payload, status=200, headers=None):
         self.payload = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        self.status = status
+        self.headers = headers if headers is not None else {}
+        self.read_calls = 0
 
     def __enter__(self):
         return self
@@ -82,6 +85,7 @@ class FakeHTTP:
 
     def read(self, limit):
         # Match HTTPResponse.read(n): never return more than n bytes.
+        self.read_calls += 1
         assert limit <= MAX_OFFICIAL_RESPONSE_BYTES + 1
         return self.payload[:limit]
 
@@ -91,13 +95,14 @@ def fake_month_session(db):
     yield db
 
 
-def run_month(payload, prior_keys=None, first="2024-03-01"):
+def run_month(payload, prior_keys=None, first="2024-03-01", *, http_response=None):
     db = FakeMonthDB(prior_keys=prior_keys)
     status = []
+    fake_http = http_response if http_response is not None else FakeHTTP(payload)
     with patch("g2b_case_10y_official.ensure_schema"), \
          patch("g2b_case_10y_official.session", lambda: fake_month_session(db)), \
          patch("g2b_case_10y_official._service_key", return_value="SENSITIVE_API_KEY"), \
-         patch("g2b_case_10y_official.urlopen", return_value=FakeHTTP(payload)), \
+         patch("g2b_case_10y_official.urlopen", return_value=fake_http), \
          patch("g2b_case_10y_official._write_month", side_effect=lambda *a: status.append(a)):
         result = scan_month(first, pages_max=1)
     return result, status, db.inserted
@@ -1742,3 +1747,40 @@ def test_official_notice_real_rtl_letters_remain_accepted_without_bidi_controls(
     assert len(inserted) == 1
     assert inserted[0][5] == notice["bidNtceNm"]
     assert inserted[0][6] == notice["dminsttNm"]
+
+
+@pytest.mark.parametrize("http_status", [202, 204, 206])
+def test_official_http_non_200_cannot_certify_valid_zero_count_json(http_status):
+    """Even parseable 2xx JSON cannot certify a month without HTTP 200."""
+    fake = FakeHTTP(response([], 0), status=http_status)
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert result["reason"] == "official_api_request_or_parse_failed:ValueError"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+    assert fake.read_calls == 0  # reject before consuming a partial body
+    assert "SENSITIVE_API_KEY" not in json.dumps(result)
+
+
+def test_official_http_200_with_content_range_cannot_certify_month():
+    """A proxy's Content-Range signals partial representation even with 200."""
+    fake = FakeHTTP(response([], 0), status=200,
+                    headers={"Content-Range": "bytes 0-99/1000"})
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "error"
+    assert statuses and statuses[-1][2] == "error"
+    assert all(row[2] != "completed" for row in statuses)
+    assert inserted == []
+    assert fake.read_calls == 0
+
+
+def test_official_http_200_full_json_still_certifies_empty_month():
+    """Normal full HTTP 200 remains backward-compatible."""
+    fake = FakeHTTP(response([], 0), status=200)
+    result, statuses, inserted = run_month(response([], 0), http_response=fake)
+    assert result["status"] == "completed"
+    assert result["checked"] == 0
+    assert statuses and statuses[-1][2] == "completed"
+    assert inserted == []
+    assert fake.read_calls == 1
