@@ -64,7 +64,7 @@ COPY g2b_feature_contract_core.py /app/g2b_feature_contract_core.py
 COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py
 COPY n8n/operational_manifest.json /app/operational_manifest.json
 RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py
-RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=='download_original_attachments''
+RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=="download_original_attachments"'
 RUN python3 -c 'import json,sys;sys.path.insert(0,"/app");import public_case_runtime as p;from g2b_feature_registry import FEATURES,FEATURE_GATES,GROUP_BOUNDS;rows=[{**f,"required_evidence":list(FEATURE_GATES[f["number"]]),"block_id":next(b["id"] for b in p.BLOCKS.values() if f["number"] in b["features"])} for f in FEATURES];open("/app/dist/public-case-feature-catalog.json","w").write(json.dumps({"case":p.summary_fixture(),"features":rows,"group_bounds":GROUP_BOUNDS,"block_order":p.ORDER,"manifest_blocks":list(p.BLOCKS.values()),"evidence_policy":"mock_is_never_official_verified"},ensure_ascii=False))'
 RUN mkdir -p /data && addgroup -S studio && adduser -S studio -G studio \
     && chown -R studio:studio /data /app
