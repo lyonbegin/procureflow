@@ -48,10 +48,10 @@ async function load(){
  st.loading=true;st.error=null;refreshView();
  try{
   const [n,j]=await Promise.allSettled([
-   request('stage1?'+new URLSearchParams({q:st.search,status:st.status,limit:30,offset:0})),
+   request('stage1?'+new URLSearchParams({q:st.search,status:st.status,limit:30,offset:0,selected_bid_no:st.selected||''})),
    request('latest')]);
   if(n.status==='fulfilled'){
-   if(n.value.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(n.value.notices?.items)||!Array.isArray(n.value.nodes)||n.value.nodes.length!==2)
+   if(n.value.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(n.value.notices?.items)||!Array.isArray(n.value.nodes)||n.value.nodes.length!==3)
     throw Error('모의 또는 확인되지 않은 공고 목록은 표시하지 않습니다');
    st.stage1=n.value;
    st.notices=n.value.notices;
@@ -87,15 +87,17 @@ function stageStatus(i){
 
 function stageOneInspector(){
  const d=st.stage1;
- if(!d)return '<div class="notice warn">1단계 N01·N02 실제 입력·출력 미확인. API 오류를 확인하세요.</div>';
+ if(!d)return '<div class="notice warn">1단계 N01·N02·조건분기 실제 입력·출력 미확인. API 오류를 확인하세요.</div>';
  const nodes=d.nodes||[];
  const blocks=nodes.map(n=>'<details open class="item"><summary><strong>'+esc(n.id+' · '+n.name)+'</strong> · '+esc(n.status)+'</summary>'+
   '<p class="muted smalltxt">실제 입력</p><pre class="log">'+esc(JSON.stringify(n.input,null,2))+'</pre>'+
   '<p class="muted smalltxt">실제 출력</p><pre class="log">'+esc(JSON.stringify(n.output,null,2))+'</pre></details>').join('');
  const selected=(nodes[1]?.output?.tender_identifiers||[]).find(z=>z.bid_no===st.selected);
- return '<section class="panel" id="p9-stage1"><h3>1단계 실제 노드 실행 · N01 → N02</h3>'+
- '<p class="muted smalltxt">실제 PostgreSQL 조회와 공고 식별을 수행합니다. 신규 G2B 크롤링·n8n Execution·Worker 재수집은 실행하지 않습니다. 원본이 구분하지 않는 정정·취소 상태는 임의로 판단하지 않습니다.</p>'+
+ const route=d.selected_route||{};
+ return '<section class="panel" id="p9-stage1"><h3>1단계 실제 노드 실행 · N01 → N02 → 조건 분기</h3>'+
+ '<p class="muted smalltxt">실제 PostgreSQL 조회와 공고 식별·선택별 조건 판정을 수행합니다. 신규 G2B 크롤링·n8n Execution·Worker 재수집은 실행하지 않습니다. 원본이 구분하지 않는 정정·취소 상태는 임의로 판단하지 않습니다.</p>'+
  '<div class="item"><b>실제 선택 입력</b><pre class="log">'+esc(JSON.stringify(selected||{bid_no:st.selected||null,status:"actual_row_not_selected"},null,2))+'</pre></div>'+
+ '<div class="item"><b>선택 공고 조건 분기 결과</b><p>'+esc(route.route||'미확인')+' · 후속 실제 실행: '+esc(route.downstream_executed===true?'있음':'없음')+'</p></div>'+ 
  '<div class="item"><b>조건부 후속 연결</b><pre class="log">'+esc(JSON.stringify(d.connections||[],null,2))+'</pre></div>'+blocks+'</section>';
 }
 
@@ -243,7 +245,7 @@ document.addEventListener('click',async event=>{
  event.preventDefault();event.stopPropagation();
  const a=hit.dataset.public9;
  try{
-  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;refreshView();}
+  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;await load();}
   else if(a==='node'){st.selectedNode=Number(hit.dataset.index)||0;refreshView();}
   else if(a==='reload'){
    st.search=document.getElementById('p9-q')?.value||'';
