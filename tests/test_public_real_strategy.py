@@ -31,6 +31,12 @@ class SourceSQL:
                  "excerpt":"입찰참가자격 및 견적서 제출방법을 확인하십시오.",
                  "content":"입찰참가자격 및 견적서 제출방법을 확인하십시오.",
                  "original_url":"https://www.g2b.go.kr/path"}])
+        if "GROUP BY r.company" in sql:
+            return Rows([{"company":"&#40;주&#41;실제업체","opening_rows":3,
+                 "distinct_notice_rounds":2,
+                 "rank_one_openings_not_awards":1,
+                 "rows_with_amount":2,
+                 "latest_notice_date":date(2026,10,20)}])
         if "AS opening_rows" in sql and "COUNT(DISTINCT" in sql:
             # Distinguish same-agency audit from all-market aggregate.
             same="ILIKE" in sql
@@ -40,12 +46,6 @@ class SourceSQL:
                           "rank_one_openings_not_awards":1 if same else 10,
                           "rows_with_numeric_amounts":1 if same else 156,
                           "rows_with_raw_rate":1 if same else 30}])
-        if "GROUP BY r.company" in sql:
-            return Rows([{"company":"&#40;주&#41;실제업체","opening_rows":3,
-                 "distinct_notice_rounds":2,
-                 "rank_one_openings_not_awards":1,
-                 "rows_with_amount":2,
-                 "latest_notice_date":date(2026,10,20)}])
         raise AssertionError("Unexpected SQL: "+sql[:150])
 
 now=datetime(2026,11,3,20,0,tzinfo=ZoneInfo("Asia/Seoul"))
