@@ -16,7 +16,8 @@ assert sum(n["id"].startswith("public-") and n["id"] not in ("public-H07-native-
 assert len(w["nodes"])==45 and sum(len(a) for c in w["connections"].values() for a in c["main"])==54
 assert len(public.ORDER)==43 and len(public.CATALOG)==104
 assert w["meta"]["studioDefaultInput"]==public.ROOT_DEFAULT
-for i,node in enumerate(w["nodes"]):
+business_nodes=[node for node in w["nodes"] if node["id"] not in ("public-H07-native-merge","public-H07-input-gate")]
+for i,node in enumerate(business_nodes):
     assert node["id"]=="public-"+public.ORDER[i]
     assert mod.node_binding(public.PATH,node["id"])==node["parameters"]["studioPython"]
     assert mod.node_type(public.PATH,node["id"])==node["type"]
