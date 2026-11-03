@@ -19,6 +19,8 @@ import statistics
 from g2b_feature_registry import FEATURES, FEATURE_GATES, GROUP_BOUNDS, REQUIREMENTS
 
 MANIFEST_PATH=Path(__file__).with_name("operational_manifest.json")
+if not MANIFEST_PATH.is_file():
+    MANIFEST_PATH=Path(__file__).resolve().parents[1]/"operational_manifest.json"
 MANIFEST=json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 BLOCKS={x["id"]:x for x in MANIFEST["blocks"]}
 CATALOG={int(f["number"]):f for f in FEATURES}
