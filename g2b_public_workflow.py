@@ -129,7 +129,7 @@ def run_actual_public_case(job_id,config):
     def package_task():
         if not case or not isinstance(strategy,dict):
             raise ValueError("REAL_SOURCE_CASE_OR_STRATEGY_MISSING")
-        package=proposal_contents()
+        package=proposal_contents(readiness_override={"status":"public_source_review","phases":[]})
         binary,_=draft_docx(contents=package,strategy=strategy,
                             source_clauses=case.get("source_clauses",[]))
         artifact=_save_draft(job_id,binary)
