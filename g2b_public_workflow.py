@@ -56,7 +56,7 @@ def _record_end(run_id,job_id,index,status,result):
         con.execute("""UPDATE procureflow.g2b_case_runs
            SET state=%s,result=%s::jsonb,
                error=%s,finished_at=now() WHERE id=%s""",
-           (status,raw[:16000],
+           (status,raw,
             str(result.get("error") or "")[:300] if status=="error" else "",
             run_id))
         con.execute("""INSERT INTO procureflow.g2b_case_events(
