@@ -41,7 +41,8 @@ try{
  await page.waitForFunction(()=>document.body.innerText.includes('운영 PostgreSQL은')&&document.body.innerText.includes('0개 기능'),{timeout:20000});
  await page.locator('[data-page="features"]').first().click();
  await page.waitForFunction(()=>document.querySelectorAll('#content tbody tr').length>=104,{timeout:20000});
- assert.equal(await page.locator('#content tbody tr').count(),111); // seven phase rows plus 104 original feature rows
+ const featureRows=await page.locator('#content tbody tr').allInnerTexts();
+ assert.equal(featureRows.filter(v=>/^F\d{3}\b/.test(v.trim())).length,104); // actual F001-F104, plus original 43 block/evidence rows
  assert.equal(await page.locator('#content tbody tr:has-text("F104")').count(),1);
  assert.match(await page.locator('#content').innerText(),/공식 미검증/);
  await page.locator('[data-page="audit"]').first().click();
