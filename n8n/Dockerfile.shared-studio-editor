@@ -58,7 +58,11 @@ COPY --from=ui /app/shared/server/node_run_store.py /app/node_run_store.py
 COPY --from=ui /app/shared/server/node_workspace_store.py /app/node_workspace_store.py
 COPY --from=ui /app/shared/server/project_adapter_runtime.py /app/project_adapter_runtime.py
 COPY n8n/strategy-runtime/procurement_node_adapter.py /app/procurement_node_adapter.py
-RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py
+COPY n8n/strategy-runtime/public_case_runtime.py /app/public_case_runtime.py
+COPY g2b_feature_registry.py /app/g2b_feature_registry.py
+COPY n8n/operational_manifest.json /app/operational_manifest.json
+RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py
+RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p;assert len(p.ORDER)==43 and len(p.CATALOG)==104'
 RUN mkdir -p /data && addgroup -S studio && adduser -S studio -G studio \
     && chown -R studio:studio /data /app
 ENV PORT=3000
