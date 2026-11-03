@@ -18,6 +18,22 @@ try{
       state:i===6?'blocked':i===2?'partial':'verified',
       summary:{original_job:1728,actual_step:i+1},error:'',started_at:'2026-11-03T10:00:00',finished_at:'2026-11-03T10:00:01'})),
     draft:{bytes:40488,sha256:'f'.repeat(64),state:'review_draft_not_submitted'}};
+ await page.route('**/api/procurement/public9/stage1?*',route=>{
+   const q=new URL(route.request().url()).searchParams;
+   const selected=q.get('selected_bid_no')||null;
+   const n01={id:'N01',name:'DB read',status:'db_read_executed',input:{query:'status=all'},output:{source:'actual_procureflow_postgresql_g2b_notices',records:rows,returned_count:rows.length,total:2}};
+   const identifiers=rows.map(x=>({bid_no:x.bid_no,bid_ord:x.bid_ord,title:x.title,agency:x.agency,branch:'unknown_unverified',can_run_full_evidence:x.can_run_full_evidence}));
+   const n02={id:'N02',name:'identify',status:'identification_executed',input:{source:n01.output.source,records:rows},
+     output:{tender_identifiers:identifiers,unique_count:2,duplicate_rows_filtered:0}};
+   const selectedRow=identifiers.find(x=>x.bid_no===selected)||null;
+   const out={selected:selectedRow,route:selectedRow?'unverified_hold':'selection_required',eligible_for_downstream:false,downstream_executed:false};
+   const n03={id:'N02_ROUTE',name:'route',status:'route_evaluated_not_dispatched',
+     input:{identified_records:identifiers,bid_no:selected},output:out};
+   return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+     source:n01.output.source,notices:{source:n01.output.source,items:rows,total:2},nodes:[n01,n02,n03],
+     selected_route:out,connections:[],crawler_executed:false,worker_executed:false
+   })});
+ });
  await page.route('**/api/procurement/public9/notices?*',route=>{
    calls.push({kind:'GET_NOTICES',url:route.request().url()});
    return route.fulfill({status:200,contentType:'application/json',
