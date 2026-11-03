@@ -1,3 +1,34 @@
+# 공공입찰 실제 데이터 수집 및 104기능 현황 — 2026-11-03 추가 검증
+
+## 실제 수집 요청의 결과 (모의 아님)
+사용자는 가상 테스트가 아니라 실제 G2B 자료 수집을 요청했다. 기존 운영 Worker의 공공입찰 한 건만 실제 실행했다.
+- 실제 대상: `R26BK01787028 / 000`, 10자리 관측 코드 `8111159901`.
+- 운영 PostgreSQL 기존 실측: 8자리 후보공고 444건(개찰·낙찰 실적과 다름), **10자리 원본 확인 238건**, 실제 개찰업체 **246행**, 금액 있는 개찰 **156행**, 공식 확정 낙찰 **0건**.
+- 국가종합전자조달시스템에서 원본 파일 4개(공고문 HWP/PDF, 과업지시서 HWP, 공내역서 XLSX) 다운로드·해시·파싱 이력 저장됨.
+- 실제 기존 작업 `1681`: 2026-11-03 Worker 재가동 후 공식 공개 개찰 조회, `completed_partial`. R26BK01716629의 개찰업체 4행 조회·중복 0건 증가, 최종 낙찰 정보는 없음.
+- 신규 실제 작업 `1685` 공고 원본 재조회: `completed_partial` 2026-11-03T12:04:33Z. `official.status=blocked_missing_official_api_key`, 공개 보조출처 처리, 새 건수 0.
+- 신규 실제 작업 `1686` 정확한 10자리 과거 개찰·낙찰 조회: `completed_partial` 2026-11-03T12:05:54Z, checked 1/added 0. 10년 공식 전수 및 확정 낙찰 완료 아님.
+- 최초 1685/1686 등록 때 `jsonb` 내 이중 직렬화 형식 오류로 즉시 실패했으며, **동일 작업 ID의 config만 올바른 object로 수정하여 정상 재실행**한 결과가 위 최종 상태.
+- 기존 `procureflow-worker`를 1회 재가동해 정체된 1681번을 정상 종료, 기존 DB 초기화·n8n 재설치·계정 생성 없음. 작업 등록용 임시 Railway Function은 최종 조회 후 삭제해 상시 외부 공개 서비스로 남기지 않음.
+
+## 실제 운영 화면
+- https://procureflow-n8n-native-canvas-production.up.railway.app/admin/index.html?section=public
+- https://procureflow-n8n-native-canvas-production.up.railway.app/api/procurement/public/actual-records
+- 실제 G2B 현황 원본 API: https://procureflow-api-production.up.railway.app/api/g2b/full/exact-outcomes
+- 소스 SHA `d3222282f6938ee1f06fd7538072b784e9dc7353`, Studio Railway 배포 `72fc72b9-28f8-4cd7-9697-9df521a47127` SUCCESS.
+- 공용 Studio 서버는 실제 기존 FastAPI GET 데이터만 읽고, 허구의 업체·가격을 메인 화면에 사용하지 않음. 기존 43개 MOCK은 접힌 개발 진단 영역에만 남음.
+- Chrome E2E: https://github.com/lyonbegin/procureflow/actions/runs/41631780378 SUCCESS. 별도 공개 브라우저에서 238/246/156/0, 실제 업체명과 원본 URL, 4건 원본 파일, HOLD 표시 확인.
+
+## 중요한 미완료 및 진실성 기준
+- `/api/g2b/full/schedule`상 공식 공공데이터 서비스 키가 아직 **미설정**. 121개월 중 공식 전수 검증 0개월, 기존 후보 공고 444건을 10년 완료로 주장하면 안 됨.
+- 별도 공개 입찰 사이트에서 현재 사건의 9개사 개찰·낙찰업체/금액 표기를 발견했지만, 사이트 간 최종 낙찰 확정 표현이 달라 공식 확정 낙찰은 0으로 유지.
+- 현재 운영 DB 원본 기능 승인 **8/104**, 미충족 96/104. 모의 계약 처리 104/104를 실제 수집·원본 증빙 완료라고 절대 보고 금지.
+- 원가·견적·참가자격·가격 산식·과거 확정 낙찰·실제 제출 문서가 미충족, **HOLD**. 선택 공고 자체의 투찰 마감 2026-10-29 10:00은 이미 지남.
+- 새 운영 n8n Execution ID를 받는 동작과 104개 Worker 실처리 전수는 아직 미완료. 실제 API 공개조회 및 bounded 실제 작업 실행은 수행됐지만 “자동화 완료” 아님.
+- B/C의 소스 구현 변경은 없음. 기존 Worker 재시작의 평소 스케줄은 별도로 돌아갈 수 있으며 공공 전용 신규 기능과 구분한다.
+
+---
+
 # 공공입찰 한 건 중심 104기능 업무 통합 — 2026-11-03 인수인계
 
 ## 적용 범위
