@@ -17,6 +17,7 @@ import re
 import statistics
 
 from g2b_feature_registry import FEATURES, FEATURE_GATES, GROUP_BOUNDS, REQUIREMENTS
+from g2b_feature_contract_core import feature_contract
 
 MANIFEST_PATH=Path(__file__).with_name("operational_manifest.json")
 if not MANIFEST_PATH.is_file():
@@ -288,11 +289,25 @@ def run_block(block_id,value):
     state["results"][block_id]=output
     checks=[]
     for no in block["features"]:
-        item=CATALOG[no]
-        rec={"number":no,"label":item["label"],"group":item["group"],
-            "required_verified_evidence":list(FEATURE_GATES[no]),
+        # This is the ORIGINAL production G2B API business contract, not a
+        # second handwritten 104-function definition. No collector is invoked.
+        contract=feature_contract(no,{
+            "bid_no":CASE_ID,"bid_ord":CASE_ORD,
+            "title":state["case"]["title"],"agency":None,"agency_code":None,
+            "deadline":None,"official_detail10":[],"official_parent8":[]
+        },{
+            "feature_acceptance":[{"number":no,"acceptance_state":"missing"}],
+            "verified_evidence_types":[]
+        })
+        rec={"number":no,"label":contract["name"],"group":contract["group"],
+            "required_verified_evidence":contract["input_contract"]["parameters"],
+            "original_g2b_execution_action":contract["execution"]["action"],
+            "actual_104_api_endpoint":contract["endpoint"],
+            "actual_104_api_execute_endpoint":contract["execute_endpoint"],
+            "acceptance_state":contract["acceptance_state"],
             "test_status":"MOCK_EXECUTED","official_verified":False,
-            "official_evidence_missing":list(FEATURE_GATES[no]),
+            "official_evidence_missing":contract["missing_evidence"],
+            "required_evidence_types":contract["input_contract"]["auto_from_selected_notice"],
             "source_block":block_id}
         state["feature_results"][str(no)]=rec
         checks.append(no)
