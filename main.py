@@ -613,6 +613,33 @@ def selected_actual_preparation(
         raise HTTPException(400,str(exc)) from None
 
 
+@app.get("/api/g2b/public/selected/proposal")
+def public_source_backed_proposal():
+    """Existing real case+documents review without legacy 121-month bootstrap."""
+    from g2b_bid_package import proposal_contents
+    return proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+
+
+@app.get("/api/g2b/public/selected/proposal.docx")
+def public_source_backed_proposal_docx():
+    """Source-backed real review document; not a signed bid or finalized proposal."""
+    from fastapi.responses import Response
+    from g2b_bid_package import proposal_contents,draft_docx
+    from g2b_search_first import single_case_material
+    from g2b_real_strategy import analyze_competition
+    case=single_case_material()
+    competition=analyze_competition(case=case)
+    contents=proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+    raw,_=draft_docx(contents=contents,strategy=competition,
+                     source_clauses=case.get("source_clauses",[]))
+    return Response(content=raw,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":"attachment; filename=ProcureFlow-G2B-Actual-Review.docx",
+                 "X-ProcureFlow-Draft-Only":"true"})
+
+
 class PublicFilteredCollection(BaseModel):
     start: str
     end: str
