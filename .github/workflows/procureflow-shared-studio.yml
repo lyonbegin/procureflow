@@ -16,6 +16,7 @@ on:
       - 'n8n/admin-console/**'
       - 'tests/test_procurement_console_e2e.mjs'
       - 'tests/test_public_original_104_bridge.py'
+      - 'tests/test_public_real_records.py'
       - 'tests/test_three_market_*'
       - '.github/workflows/procureflow-shared-studio.yml'
   workflow_dispatch:
@@ -31,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=9ed39729110dc9c4c08696b5fa9d73fd162e178e' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=51b8b24e9c2e6d9ace3a3ab4aa2ed81a79015e6b' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
@@ -46,6 +47,8 @@ jobs:
         run: python3 tests/test_three_market_strategy.py
       - name: Verify original 104 production API actions and read-only PostgreSQL bridge offline
         run: python3 tests/test_public_original_104_bridge.py
+      - name: Reject fake public source records and verify real opening/attachment read-only adapter
+        run: python3 tests/test_public_real_records.py
       - name: Build ONLY the same shared Vue Flow Studio used by investment
         shell: bash
         run: |
@@ -57,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach 9ed39729110dc9c4c08696b5fa9d73fd162e178e
+          git -C /tmp/shared-n8n-studio checkout --detach 51b8b24e9c2e6d9ace3a3ab4aa2ed81a79015e6b
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
