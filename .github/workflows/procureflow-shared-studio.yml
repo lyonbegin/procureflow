@@ -8,6 +8,10 @@ on:
       - 'n8n/operational_manifest.json'
       - 'n8n/workflows/**'
       - 'n8n/source-build/**'
+      - 'n8n/strategy-workflows/**'
+      - 'n8n/strategy-runtime/**'
+      - 'n8n/admin-console/**'
+      - 'tests/test_three_market_*'
       - '.github/workflows/procureflow-shared-studio.yml'
   workflow_dispatch:
 permissions:
@@ -22,13 +26,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=9195391c18d6641d47378afad6cb8a24e40eae3a' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=a099b7da4e47a0d0e3dc378f72324a7a043bf875' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
           if grep -E '(^FROM n8nio/n8n| n8n start|owner/setup|n8n import:workflow|user-management:reset|DB_POSTGRESDB)' n8n/Dockerfile.shared-studio-editor; then
             echo 'A n8n server or owner/DB mutation must not be included'; exit 1
           fi
+      - name: Three market Python adapter and exact native binding contracts (offline)
+        run: python3 tests/test_three_market_strategy.py
       - name: Build ONLY the same shared Vue Flow Studio used by investment
         shell: bash
         run: |
@@ -40,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach 9195391c18d6641d47378afad6cb8a24e40eae3a
+          git -C /tmp/shared-n8n-studio checkout --detach a099b7da4e47a0d0e3dc378f72324a7a043bf875
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
@@ -62,6 +68,11 @@ jobs:
           # The shared Studio is an SPA: unknown GET routes render index.html, not n8n REST JSON.
           curl -fsS http://127.0.0.1:3031/rest/settings | grep -F '<div id="app"></div>'
           ! curl -fsS http://127.0.0.1:3031/rest/settings | grep -q 'showSetupOnFirstLoad'
+      - name: HTTP test all 22 market nodes via Python and SQLite transfers
+        shell: bash
+        run: |
+          set -euo pipefail
+          STUDIO_BASE=http://127.0.0.1:3031 python3 tests/test_three_market_studio_http.py
       - name: Verify all 26 original workflow routes and all 43 custom gate nodes
         shell: bash
         run: |
@@ -117,6 +128,11 @@ jobs:
         run: |
           set -euo pipefail
           node tests/shared_studio_fixture_ui_e2e.mjs
+      - name: Chrome investor-parity three market canvas + node actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          STUDIO_BASE=http://127.0.0.1:3031 node tests/test_three_market_canvas_e2e.mjs
       - name: Retain container logs for failure analysis
         if: always()
         shell: bash
