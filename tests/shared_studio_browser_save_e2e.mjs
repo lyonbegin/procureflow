@@ -9,6 +9,8 @@ try{
  const page=await ctx.newPage();
  const exceptions=[];page.on('pageerror',e=>exceptions.push(e.message));
  await page.goto(url,{waitUntil:'domcontentloaded'});
+ await page.waitForTimeout(1400);
+ console.log('PF05_BROWSER_DIAGNOSTICS',JSON.stringify({url:page.url(),nodes:await page.locator('.vue-flow__node').count(),text:(await page.locator('body').innerText()).slice(0,1200),exceptions}));
  await page.waitForFunction(()=>document.body.innerText.includes('35 Nodes')&&
    document.body.innerText.includes('43 Connections'),{timeout:30000});
  await page.waitForFunction(()=>document.body.innerText.includes('DB 연결됨 · v0'),{timeout:15000});

@@ -1,0 +1,244 @@
+{
+  "id": "PROCURE_STRATEGY_C01",
+  "name": "C · 민간 인력·단순 용역 수급전략·제안",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "c01-01",
+      "name": "01 · 인력 용역·가상 입력 시작",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        240
+      ],
+      "parameters": {
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node01",
+          "code_version": "procure-three-markets-staffing-01-v1",
+          "node_character": "manual_collection_start"
+        }
+      },
+      "notes": "사용자 명시적 버튼 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-02",
+      "name": "02 · 직접 채용과 외주 용역 분리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        490,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node02",
+          "code_version": "procure-three-markets-staffing-02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-03",
+      "name": "03 · 인력확보·대체인력 수급",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node03",
+          "code_version": "procure-three-markets-staffing-03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-04",
+      "name": "04 · 급여·법정부담·용역 단가",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1110,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node04",
+          "code_version": "procure-three-markets-staffing-04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-05",
+      "name": "05 · 노무·계약 준수 요건",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node05",
+          "code_version": "procure-three-markets-staffing-05-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-06",
+      "name": "06 · 운영·인력배치 제안서",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1730,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node06",
+          "code_version": "procure-three-markets-staffing-06-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "c01-07",
+      "name": "07 · 인력 증빙·법률 검토 HOLD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node07",
+          "code_version": "procure-three-markets-staffing-07-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "01 · 인력 용역·가상 입력 시작": {
+      "main": [
+        [
+          {
+            "node": "02 · 직접 채용과 외주 용역 분리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · 직접 채용과 외주 용역 분리": {
+      "main": [
+        [
+          {
+            "node": "03 · 인력확보·대체인력 수급",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · 인력확보·대체인력 수급": {
+      "main": [
+        [
+          {
+            "node": "04 · 급여·법정부담·용역 단가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · 급여·법정부담·용역 단가": {
+      "main": [
+        [
+          {
+            "node": "05 · 노무·계약 준수 요건",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · 노무·계약 준수 요건": {
+      "main": [
+        [
+          {
+            "node": "06 · 운영·인력배치 제안서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · 운영·인력배치 제안서": {
+      "main": [
+        [
+          {
+            "node": "07 · 인력 증빙·법률 검토 HOLD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "studioDefaultInput": {
+      "fixture_kind": "staffing",
+      "scenario": "DEMO_STAFFING_001",
+      "strategy_preference": "balanced"
+    },
+    "market": "staffing",
+    "source_provenance": "fictional_test_fixture",
+    "simulation_only": true,
+    "never_calls_official_api": true,
+    "never_submits_bid": true,
+    "uses_shared_studio_python_adapter": true
+  },
+  "tags": []
+}
