@@ -559,6 +559,65 @@ def queue_historical_bid_window(req:BidHistoricalWindow,
     return {"job_id":jid,"source":source,"state":"queued","config":cfg}
 
 
+# Public-procurement search-first endpoints. These reuse production case,
+# original document and opening-result tables. No mock, new n8n engine or bid.
+@app.get("/api/g2b/public/selected/search")
+def public_selected_search(start: str | None = None, end: str | None = None,
+                           detail10: str = "8111159901",
+                           kind: str = Query("all",pattern="^(all|opening|award)$"),
+                           agency: str = Query("",max_length=100),
+                           limit: int = Query(50,ge=1,le=200),
+                           offset: int = Query(0,ge=0,le=50000)):
+    from g2b_search_first import filters, actual_case_workbench
+    try:
+        selection=filters(detail10=detail10,start=start,end=end,kind=kind,
+                          agency=agency,limit=limit,offset=offset)
+        return actual_case_workbench(
+           selection.start,selection.end,selection.kind,selection.agency,
+           selection.limit,selection.offset)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+class PublicFilteredCollection(BaseModel):
+    start: str
+    end: str
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+    max_notices: int = Field(2,ge=1,le=3)
+
+
+@app.post("/api/g2b/public/selected/search/collect")
+def collect_public_filtered(req:PublicFilteredCollection,
+                            authorization:str|None=Header(None)):
+    """Only queued original-G2B opening fetch of few already 10digit-verified ids.
+
+    Does not collect 121 months of notice candidates or run a mock scenario.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    try:
+        selection=filters(detail10=req.detail10,start=req.start,end=req.end,
+                          kind="all",agency=req.agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    config={"bid_no":selection.bid_no,"detail10":selection.detail10,
+      "start":selection.start.isoformat(),"end":selection.end.isoformat(),
+      "agency":selection.agency,"max_notices":req.max_notices}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+          WHERE source='g2b_filtered' AND state IN ('queued','running')
+          LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Another filtered source query is running")
+        row=con.execute("""INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('g2b_filtered',%s::jsonb,%s) RETURNING id""",
+          (json.dumps(config,ensure_ascii=False),
+           "Real selected G2B opening by exact original 10-digit/date filter")).fetchone()
+    return {"job_id":row["id"],"source":"g2b_filtered",
+            "state":"queued","filters":config,"bid_submitted":False}
+
+
 @app.get("/api/analysis/summary")
 def analysis_summary():
     """Aggregated live counts for the existing FastAPI dashboard.
