@@ -20,7 +20,7 @@ const GROUPS=[
 const caseState={
  catalog:null, workflow:null, run:null, history:null, rows:[],
  selectedNode:null, busy:false, cancel:false, loading:false, loadError:null, stage:'selected',
- latestRuns:[], readiness:null, verifiedSnapshot:null, verifiedLoading:false, verifiedError:null
+ latestRuns:[], readiness:null, verifiedSnapshot:null, verifiedLoading:false, verifiedError:null, actualRecords:null, actualLoading:false, actualError:null
 };
 const escapeHtml=x=>String(x===undefined||x===null?'':x).replace(/[&<>"']/g,v=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[v]));
 const pretty=x=>JSON.stringify(x===undefined?null:x,null,2);
@@ -29,7 +29,12 @@ const action=(key,title,css='small',disabled=false,attrs='')=>'<button type="but
 const card=(title,body,cls='')=>'<section class="panel '+cls+'"><h3>'+title+'</h3>'+body+'</section>';
 const stat=(label,value,small)=>'<div class="metric"><div class="legend">'+escapeHtml(label)+'</div><div class="num">'+escapeHtml(value)+'</div><small>'+escapeHtml(small)+'</small></div>';
 const info=(msg,warn=false)=>'<div class="notice '+(warn?'warn':'')+'">'+msg+'</div>';
-const selectCase=()=>caseState.catalog?.case||{bid_no:"R26BK01787028",bid_ord:"000",detail10:"8111159901",source:"fictional_test_fixture"};
+const selectCase=()=>caseState.actualRecords?{
+ bid_no:caseState.actualRecords.case_bid_no,bid_ord:caseState.actualRecords.bid_ord,
+ detail10:caseState.actualRecords.configured_detail10,title:caseState.actualRecords.title,
+ agency:caseState.actualRecords.agency,
+ source:"기존 운영 DB의 실제 G2B 수집 기록"
+}:caseState.catalog?.case||{bid_no:"R26BK01787028",bid_ord:"000",detail10:"8111159901",source:"미확인"};
 const progress=()=>{
  const r=caseState.run,n=caseState.workflow?.nodes?.length||43,count=r?.records?.length||0;
  const done=count===n&&(r?.status==="COMPLETE");
@@ -136,6 +141,49 @@ function verifiedPanel(){
  }
  return html;
 }
+function actualRecordPanel(){
+ const a=caseState.actualRecords;
+ if(!a){
+  return (caseState.actualLoading?'<div class="loading">기존 G2B 수집 기록을 읽는 중…</div>':'')+
+  (caseState.actualError?info('실제 자료를 조회하지 못했습니다: '+escapeHtml(caseState.actualError),true):'')+
+  '<div class="actions">'+action('load-actual','실제 DB 자료 다시 조회','primary',caseState.actualLoading)+'</div>';
+ }
+ const counts=a.actual_counts||{},rows=a.actual_opening_rows||[],docs=a.documents||[];
+ const money=x=>{const n=Number(x);return x!==null&&x!==undefined&&x!==''&&Number.isFinite(n)?n.toLocaleString('ko-KR')+'원':'미확인';};
+ let out='<div class="metric-grid">'+
+ stat('10자리 원본 확인 공고',counts.verified_notice_rounds??'—','실제 원본 분류가 확인된 차수')+
+ stat('개찰 참가업체 기록',counts.opening_bidder_rows??'—','실제 G2B 공개 개찰 결과')+
+ stat('투찰금액이 있는 행',counts.opening_amount_rows??'—','원본 연결 금액')+
+ stat('공식 확정 낙찰',counts.confirmed_award_rows??'—','순위 1위를 낙찰로 취급하지 않음')+'</div>'+
+ '<div class="actions">'+action('load-actual','↻ 실제 수집 DB 새로 조회','primary',caseState.actualLoading)+
+ '<a class="btn small" href="https://procureflow-api-production.up.railway.app/api/g2b/full/exact-outcomes" target="_blank" rel="noopener">원본 API 결과 ↗</a>'+
+ '<a class="btn small" href="https://procureflow-api-production.up.railway.app/api/g2b/full/documents" target="_blank" rel="noopener">원본 첨부 자료 ↗</a></div>'+
+ '<div class="table-wrap"><table><tbody>'+
+ [['원래 공고',a.title||'원본 확인 대기'],['발주기관',a.agency||'공식 원본 미확인'],
+ ['입찰 마감',a.deadline||'미확인'],['공식 공고 원본',a.official_notice_verified?'검증':'미검증'],
+ ['10자리 세부품명번호','8111159901 (공식 원본 증빙 여부 별도)'],
+ ['발견된 8자리 후보 공고',a.candidate_notices_not_results],
+ ['10년 기간',String(a.historical_period?.from||'')+' ~ '+String(a.historical_period?.to||'')],
+ ['10년 전수 검증',a.ten_year_coverage_complete?'완료':'미완료'],
+ ['공식 데이터 API 인증키',a.official_api_key_present?'설정됨':'미설정'],
+ ['입찰가격 산출',a.price_status||'미확인'],
+ ['입찰가격 근거 부족',(a.price_missing||[]).join(', ')||'미확인']
+ ].map(([k,v])=>'<tr><th>'+escapeHtml(k)+'</th><td>'+escapeHtml(v)+'</td></tr>').join('')+
+ '</tbody></table></div>';
+ out+=info('위 수치는 실제 서버에 저장된 자료입니다. 10년 전수 수집은 아직 완료되지 않았고, 개찰 순위 1위를 최종 낙찰업체라고 추정하지 않습니다.',true);
+ out+='<h4>실제 개찰업체 및 투찰금액 (현재 조회 '+rows.length+'행)</h4>';
+ out+=rows.length?'<div class="table-wrap"><table><thead><tr><th>개찰 공고</th><th>업체명</th><th>투찰금액</th><th>순위</th><th>원본 근거</th></tr></thead><tbody>'+
+ rows.map(r=>'<tr><td>'+escapeHtml(r.bid_no)+'</td><td>'+escapeHtml(r.company)+'</td>'+
+ '<td>'+escapeHtml(money(r.amount))+'</td><td>'+escapeHtml(r.rank||'미확인')+'</td><td>'+
+ (r.original_evidence_url?.startsWith('https://www.g2b.go.kr/')?'<a href="'+escapeHtml(r.original_evidence_url)+'" target="_blank" rel="noopener">공식 첨부 ↗</a>':'근거 확인 필요')+
+ '</td></tr>').join('')+'</tbody></table></div>':
+ '<div class="empty">이 조회에 포함된 실제 개찰 행이 없습니다.</div>';
+ out+='<h4>실제 발주 첨부 원본 · 다운로드/해시 확인</h4><div class="stack">'+
+ docs.map(d=>'<div class="item"><b>'+escapeHtml(d.filename)+'</b><p>상태 '+escapeHtml(d.state||'미확인')+
+ ' · '+escapeHtml(d.bytes||0)+' bytes · SHA256 '+escapeHtml(d.sha256||'미확인')+
+ ' · <a href="'+escapeHtml(d.source_url)+'" target="_blank" rel="noopener">나라장터 원본 열기 ↗</a></p></div>').join('')+'</div>';
+ return out;
+}
 function selector(){
  const c=selectCase();
  return '<section class="panel"><h3>① 현재 선택된 입찰공고</h3>'+
@@ -150,28 +198,35 @@ function selector(){
  info('본 공고번호는 기존 프로젝트의 선택 사례입니다. 회사·발주기관·금액·낙찰 결과는 가상 값이며 실제 입찰 완료 조건을 충족시키지 않습니다.',true)+'</section>';
 }
 function renderOverview(){
- return '<section class="hero"><div class="kicker">PUBLIC PROCUREMENT · SINGLE TENDER COMMAND</div>'+
- '<h2>입찰 한 건을 선택해 104개 업무를 끝까지 준비합니다</h2>'+
- '<p>주식의 전략 1개와 동일하게 공공입찰 1건을 고정합니다. 원본·첨부 → 정확한 10자리 세부품명 10년 개찰·낙찰 → 경쟁업체 → 자격·공급·인력 → 가격·수주전략 → 제안서 → 독립 감사·사람의 입찰참가 결정을 진행합니다.</p>'+
- '<div class="actions">'+action('start','▶ 선택 입찰 모의 처리 시작','primary')+
+ const a=caseState.actualRecords,c=selectCase();
+ return '<section class="hero"><div class="kicker">PUBLIC PROCUREMENT · ACTUAL COLLECTED EVIDENCE</div>'+
+ '<h2>실제 입찰공고 한 건 · 104개 업무를 원본 자료로 확인</h2>'+
+ '<p>'+escapeHtml(c.bid_no+' / '+c.bid_ord)+' · '+escapeHtml(c.title||'선택 공고')+
+ '. 가상 업체와 가상 가격 대신 운영 DB에 실제 저장된 개찰·투찰·과업지시서 및 누락 증빙을 확인합니다.</p>'+
+ '<div class="actions">'+action('load-actual','실제 수집자료 새로 조회','primary')+
  '<button data-page="public" class="btn small">입찰 한 건 상세 관제</button>'+
- '<button data-page="features" class="btn small">104개 기능별 검증</button></div></section>'+
- selector()+card('기존 104 API·43블록 공식 증빙 상태',verifiedPanel())+'<div class="metric-grid">'+
- stat('현재 발주','1건','다른 공고로 자동 변경 안 함')+
- stat('원래 43개 업무 노드',caseState.workflow?.nodes?.length||'43','기존 manifest 기반')+
- stat('모의 검증된 기능',Object.keys(caseState.run?.records?.at(-1)?.output_json?.feature_results||{}).length+'/104','공식 검증과 무관')+
- stat('최종 준비 판정',caseState.run?.records?.at(-1)?.output_json?.results?.O04?.decision||'HOLD','투찰 버튼 클릭 금지')+
- '</div>'+
- '<div class="panels">'+card('② 원래 7개 업무단계의 진행 상태',blockGroups())+
- card('③ 사용자 입찰 준비 산출물',proposalView(caseState.run?.records?.at(-1)?.output_json))+'</div>'+
- card('④ 이 입찰 1건의 실제 SQLite 모의 기록',historyRows());
+ '<button data-page="features" class="btn small">실제 104개 기능 증빙 확인</button></div></section>'+
+ card('① 선택 공고의 실제 수집 자료',actualRecordPanel())+
+ card('② 원래 104 API · 43개 블록 공식 증빙',verifiedPanel())+
+ info('실제 공고는 이미 마감됐으므로 참가 버튼은 실행하지 않습니다. G2B 10년 전수 및 공식 확정 낙찰이 빠져 있어 수주전략은 최종 승인할 수 없습니다.',true)+
+ '<details class="panel"><summary><b>개발 진단: 별도 모의 43블록 실행 기록</b></summary>'+
+ progress()+historyRows()+'</details>';
 }
 function renderPublic(){
- return '<section class="hero"><div class="kicker">PUBLIC TENDER / 104 STEPS</div><h2>입찰 한 건의 전체 실행·수주전략·최종 서류</h2>'+
- '<p>기존 PF00~PF15, 43개 블록, 104개 기능을 그대로 적용합니다. 이번 테스트에서는 외부 크롤링·운영 n8n 실행을 차단하고 같은 업무 계약을 가상 원본으로 검증합니다.</p></section>'+
- selector()+card('기존 운영 업무 DB와 모의 실행 차이',verifiedPanel())+card('② 전체 처리 및 진행 상황',progress()+runControls()+blockGroups())+
- card('③ 과거 낙찰데이터 → 가격전략 → 제안서',proposalView(caseState.run?.records?.at(-1)?.output_json))+
- card('④ 검증·감사·중단 이유',historyRows());
+ const c=selectCase();
+ return '<section class="hero"><div class="kicker">PUBLIC · ONE REAL TENDER</div>'+
+ '<h2>'+escapeHtml(c.title||'실제 공공입찰 한 건 분석')+'</h2>'+
+ '<p>공고 '+escapeHtml(c.bid_no+' / '+c.bid_ord)+' · 기관 '+escapeHtml(c.agency||'공식 원본 대조 대기')+
+ '. 실제 수집한 10자리 세부품명·과거 투찰업체·투찰금액·첨부 서류와 미완료 증빙을 확인합니다.</p></section>'+
+ card('① 실제 나라장터·운영 DB에서 수집된 자료',actualRecordPanel())+
+ card('② 실제 104개 기능·43블록의 공식 증빙 승인',verifiedPanel())+
+ card('③ 실제 자료 기준 입찰 준비 판정',
+ info('실제 낙찰 전수·공식 공고 원본·회사 자격·공급 견적·가격 산식이 아직 모두 충족되지 않았습니다. 실제 입찰 준비 판정: HOLD.',true)+
+ '<div class="actions"><a class="btn small" href="https://procureflow-api-production.up.railway.app/api/g2b/full/price" target="_blank" rel="noopener">실제 가격·원가 판정 조회 ↗</a>'+
+ '<a class="btn small" href="https://procureflow-api-production.up.railway.app/api/g2b/full/proposal" target="_blank" rel="noopener">실제 제안서·서류 근거 조회 ↗</a></div>')+
+ '<details class="panel"><summary><b>개발 전용: 원본 43블록 모의 테스트 (실제 실행 아님)</b></summary>'+
+ info('이 영역의 계산값은 실제 수주전략 또는 실제 입찰가격이 아닙니다.',true)+
+ progress()+runControls()+blockGroups()+proposalView(caseState.run?.records?.at(-1)?.output_json)+'</details>';
 }
 function renderTests(){
  const r=caseState.run,nodes=caseState.workflow?.nodes||[];
@@ -236,6 +291,20 @@ function renderAudit(){
  '<div class="empty">위 실행기록의 Run 원본 확인 버튼을 선택하세요.</div>')+
  card('원본 기준 결재·증빙 상태',proposalView(r?.records?.at(-1)?.output_json));
 }
+async function loadActual(){
+ if(caseState.actualLoading)return;
+ caseState.actualLoading=true;caseState.actualError=null;changed();
+ try{
+  const data=await getJSON('/api/procurement/public/actual-records');
+  if(data.mode!=='actual_existing_g2b_records'||
+     data.case_bid_no!=='R26BK01787028'||data.bid_ord!=='000'||
+     data.new_collection_started!==false||data.bid_submitted!==false||
+     !Array.isArray(data.actual_opening_rows)||!Array.isArray(data.documents))
+    throw Error('ACTUAL_G2B_PROVENANCE_INVALID');
+  caseState.actualRecords=data;
+ }catch(e){caseState.actualRecords=null;caseState.actualError=e.message;}
+ finally{caseState.actualLoading=false;changed();}
+}
 async function load(){
  if(caseState.loading||caseState.catalog&&caseState.workflow)return;
  caseState.loading=true;
@@ -250,6 +319,8 @@ async function load(){
    throw Error("SELECTED_CASE_IDENTITY_MISMATCH");
   caseState.catalog=catalog;caseState.workflow=response.workflow;caseState.loadError=null;
   await refresh();
+  // Real stored evidence, never a simulated fallback, loads first for public UI.
+  void loadActual();
  }catch(e){caseState.loadError=e.message;}
  finally{caseState.loading=false;changed();}
 }
@@ -342,6 +413,7 @@ document.addEventListener('click',e=>{
  if(key==='inspect'){caseState.selectedNode=b.dataset.node;changed();return;}
  if(key==='history')return openHistory(b.dataset.run);
  if(key==='load-verified')return loadVerified();
+ if(key==='load-actual')return loadActual();
 });
 function renderWithError(html){
  return caseState.loadError?info('확인 또는 실행 오류: '+escapeHtml(caseState.loadError),true)+html:html;
