@@ -266,6 +266,20 @@ def read_actual_job(job_id):
             "bid_submitted":False}
 
 
+def latest_actual_job():
+    """Resume real one-tender job monitoring after reloading public workbench."""
+    with session() as con:
+        row=con.execute("""SELECT id FROM procureflow.jobs
+             WHERE source='g2b_public_prepare' ORDER BY id DESC LIMIT 1""").fetchone()
+    if not row:
+        return {"last_job_id":None,"case_bid_no":CASE_BID,
+                "actual_stages_recorded":0,"job_state":"not_run",
+                "bid_submitted":False}
+    result=read_actual_job(int(row["id"]))
+    result["resumed_after_page_reload"]=True
+    return result
+
+
 def read_saved_docx(job_id):
     if type(job_id) is not int or job_id<=0:raise ValueError("INVALID_JOB_ID")
     with session() as con:
