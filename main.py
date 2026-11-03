@@ -1560,61 +1560,6 @@ def g2b_10_year_actual_opening_and_final_awards(
     """Actual bid/award evidence ONLY for official-original verified 8111159901."""
     from g2b_exact_outcome_history import actual_result_status
     return actual_result_status(limit)
-"]
-    params=[]
-    if q.strip():
-        predicates.append("(title ILIKE %s OR agency ILIKE %s OR external_id ILIKE %s)")
-        word="%"+q.strip().replace("%",r"\%").replace("_",r"\_")+"%"
-        params.extend([word]*3)
-    if status=="open":
-        predicates.append("deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND " +
-          "left(deadline,10)>=to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
-    elif status=="closed":
-        predicates.append("deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND " +
-          "left(deadline,10)<to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
-    where=" WHERE "+" AND ".join(predicates)
-    with session() as con:
-        summary=con.execute("SELECT count(*)::int AS count FROM procureflow.tenders"+where,tuple(params)).fetchone()
-        rows=con.execute("""SELECT external_id AS bid_no,title,agency,category,
-               notice_date,deadline,method,status,source_url,last_seen
-               FROM procureflow.tenders """+where+
-           """ ORDER BY notice_date DESC,last_seen DESC,external_id DESC
-               LIMIT %s OFFSET %s""",tuple(params+[limit,offset])).fetchall()
-    from g2b_search_first import _json_row
-    items=[]
-    for r in rows:
-        d=_json_row(r)
-        d["bid_ord"]="000"
-        d["preparation_engine"]="existing_selected_case" if d["bid_no"]==CASE_BID else "not_yet_connected_to_one_case_engine"
-        d["can_run_full_evidence"]=d["bid_no"]==CASE_BID
-        d["is_latest"]=False
-        items.append(d)
-    if items:items[0]["is_latest"]=offset==0
-    return {"source":"actual_procureflow_postgresql_g2b_notices",
-            "items":items,"total":summary["count"],
-            "filters":{"q":q,"status":status,"limit":limit,"offset":offset},
-            "default_latest_bid_no":items[0]["bid_no"] if items else None,
-            "automated_collection_claim":False,"bid_submitted":False}
-
-
-@app.get("/api/g2b/public/selected/search")
-def public_selected_search(start: str | None = None, end: str | None = None,
-                           detail10: str = "8111159901",
-                           kind: str = Query("all",pattern="^(all|opening|award)$"),
-                           agency: str = Query("",max_length=100),
-                           limit: int = Query(50,ge=1,le=200),
-                           offset: int = Query(0,ge=0,le=50000)):
-    from g2b_search_first import filters, actual_case_workbench
-    try:
-        selection=filters(detail10=detail10,start=start,end=end,kind=kind,
-                          agency=agency,limit=limit,offset=offset)
-        return actual_case_workbench(
-           selection.start,selection.end,selection.kind,selection.agency,
-           selection.limit,selection.offset)
-    except ValueError as exc:
-        raise HTTPException(400,str(exc)) from None
-
-
 @app.get("/api/g2b/public/selected/strategy")
 def selected_actual_competition_strategy(
     start: str | None = None, end: str | None = None,
