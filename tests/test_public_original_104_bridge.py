@@ -72,6 +72,7 @@ assert len(mock_by_flow)==15
 out=actual.read_original_evidence(fetcher=lambda k:copy.deepcopy(mock_by_flow[k]))
 assert out["business_blocks_checked"]==43 and out["features_checked"]==104
 assert out["features_officially_verified"]==0 and out["eligible_for_manual_bid_participation"] is False
+assert out["verified_official_detail10"]==[] and out["configured_or_observed_detail10"]==[mock.EXACT10]
 assert out["automatic_bid_submission"] is False and out["official_api_crawl_performed"] is False
 # Even if every acceptance gate is reported completed, bid readiness requires
 # an officially verified source notice, and cannot be inferred from mock success.
