@@ -26,7 +26,17 @@ const at=()=>window.location.search.includes('section=public_nodes')?'nodes':'ma
 const asTime=v=>v?String(v).replace('T',' ').slice(0,19):'미확인';
 const field=(name,val)=>'<span style="display:inline-flex;gap:5px;flex-wrap:wrap"><span class="muted">'+esc(name)+'</span><strong>'+esc(val)+'</strong></span>';
 const label=(name,value)=>'<div class="item"><b>'+esc(name)+'</b><p>'+esc(value)+'</p></div>';
-function refreshView(){if(['public','public_nodes'].includes(new URLSearchParams(location.search).get('section')))window.dispatchEvent(new Event('public9-render'));}
+function refreshView(){
+ const page=new URLSearchParams(location.search).get('section');
+ if(page==='public_nodes'&&document.getElementById('p9-node-inspector')){
+  // Preserve unsaved node editing in the original Studio iframe on every
+  // Worker polling tick; only repaint the real run-result inspector.
+  document.getElementById('p9-node-inspector').innerHTML=nodeInspector();
+  return;
+ }
+ if(['public','public_nodes','overview','workflows','strategy','tests','audit','opportunities'].includes(page))
+  window.dispatchEvent(new Event('public9-render'));
+}
 async function request(route,options){
  const r=await fetch(API+route,{credentials:'same-origin',cache:'no-store',...options});
  let result;try{result=await r.json()}catch{throw Error('실제 API에서 JSON 응답을 받지 못했습니다 ('+r.status+')')}
