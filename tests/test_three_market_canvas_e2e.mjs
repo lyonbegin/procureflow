@@ -1,34 +1,29 @@
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
+// The public operational management UI now uses NINE real G2B nodes.
+// Existing B/C prototype canvases must remain compatible with the ORIGINAL
+// investment shared-n8n-studio editor. No public 43-mock menu assumption.
 const base=process.env.STUDIO_BASE||'http://127.0.0.1:3031';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
-try {
- const context=await browser.newContext({viewport:{width:1500,height:950}});
- const page=await context.newPage();
- const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(base+'/admin/index.html?section=workflows',{waitUntil:'domcontentloaded'});
- await page.locator('#side-menu .nav').first().waitFor();
- assert.equal(await page.locator('#side-menu .nav').count(),11);
- const link=page.locator('a[href*="A01-public-win-strategy.json"]').first();
- await link.waitFor();
- const popupPromise=context.waitForEvent('page');
- await link.click();
- const canvas=await popupPromise;
- await canvas.waitForLoadState('domcontentloaded');
- await canvas.waitForFunction(()=>document.body.innerText.includes('43 Nodes'),{timeout:30000});
- assert.equal(await canvas.locator('.vue-flow__node').count(),43);
- assert.equal(await canvas.getByTestId('node-run-public-N01').count(),1);
- assert.equal(await canvas.getByTestId('node-open-public-N01').count(),1);
- await canvas.getByTestId('node-run-public-N01').click();
- await canvas.waitForFunction(()=>document.querySelector('[data-node-id="public-N01"]')?.innerText.includes('Python 실행 성공'),{timeout:30000});
- const state=await (await context.request.get(base+'/api/studio/nodes/graph-state?workflow=operations%2FA01-public-win-strategy.json')).json();
- assert(state);
- await canvas.getByTestId('node-run-public-N04').click();
- await canvas.waitForFunction(()=>document.querySelector('[data-node-id="public-N04"]')?.innerText.includes('Python 실행 성공'),{timeout:20000});
- await canvas.getByTestId('node-open-public-N04').click();
- await canvas.getByText('노드 입력').first().waitFor({timeout:15000}).catch(()=>{});
- assert.equal(errors.length,0,errors.join('\\n'));
- await canvas.close();
- console.log('CHROME_INVESTMENT_IDENTICAL_NODE_CARDS_ADMIN_LINK_AND_PYTHON_STAGE_PASS');
+try{
+ const context=await browser.newContext({viewport:{width:1440,height:930}});
+ for(const [flow,expected] of [
+  ['B01-private-software-proposal.json',7],
+  ['C01-staffing-service-proposal.json',7]]){
+  const page=await context.newPage();const errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(base+'/?workflow='+encodeURIComponent('operations/'+flow),
+      {waitUntil:'domcontentloaded'});
+  await page.waitForFunction(n=>document.querySelectorAll('.vue-flow__node').length===n,
+      expected,{timeout:30000});
+  assert.equal(await page.locator('.vue-flow__node').count(),expected,flow);
+  const record=await context.request.get(base+'/api/studio/workflows/operations/'+flow);
+  assert.equal(record.status(),200);
+  const body=await record.json();
+  assert.equal(body.workflow.nodes.length,expected);
+  assert.equal(errors.length,0,errors.join('\n'));
+  await page.close();
+ }
+ console.log('ORIGINAL_SHARED_STUDIO_B_AND_C_7_NODES_CANVAS_REGRESSION_PASS');
  await context.close();
 }finally{await browser.close();}
