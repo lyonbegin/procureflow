@@ -95,6 +95,73 @@ for(const flow of manifest.flows){
       count++;
     }
   }
+
+  if(id==='PF05'){
+    // The official custom Business Operation returns a sanitized verdict,
+    // NOT its upstream workflow_trace. Restore a prior *native Code node*
+    // output only after the custom gate has independently VERIFIED the exact
+    // operation, flow and selected bid. Apply ONLY to the PF05 scope.
+    const flowNodes=Object.fromEntries(flow.owned_blocks.map(blockId=>{
+      const node=w.nodes.find(x=>x.name.startsWith(blockId+' · ')&&x.type==='n8n-nodes-base.code');
+      if(!node)throw Error('PF05 missing business Code '+blockId);
+      return [blockId,node];
+    }));
+    const upstreamOf={H02:'H01',H03:'H02',H04:'H03',H05:'H04',H06:'H04',H08:'H07'};
+    for(const [blockId,prior] of Object.entries(upstreamOf)){
+      const current=flowNodes[blockId],name=flowNodes[prior].name;
+      const original=current.parameters.jsCode;
+      ensure(original.startsWith('const prev=$input.first().json;'),'PF05 restore missing original '+blockId);
+      current.parameters.jsCode=[
+        "const gate=$input.first().json;",
+        "if(gate.operation_id!=="+JSON.stringify(prior)+
+          "||gate.flow_id!=='PF05'||gate.case_id!=='R26BK01787028'"+
+          "||gate.inspection_status!=='VERIFIED'||gate.evidence_verified!==true"+
+          ")throw Error('PF05_UPSTREAM_GATE_NOT_VERIFIED_"+blockId+"');",
+        "const prev=$("+JSON.stringify(name)+").first().json;",
+        "if(prev.case_id!==gate.case_id||prev.flow_id!==gate.flow_id||prev.last_block!=="+JSON.stringify(prior)+
+          ")throw Error('PF05_UPSTREAM_TRACE_MISMATCH_"+blockId+"');",
+        original.slice('const prev=$input.first().json;'.length)
+      ].join('');
+    }
+    const joined=w.nodes.find(x=>x.name==='검증 H07 · 분기 결과 합치기');
+    ensure(joined,'PF05 H07 verified native join not found');
+    const h05=flowNodes.H05.name,h06=flowNodes.H06.name;
+    joined.parameters.jsCode=[
+      "const input=$input.all().map(x=>x.json);",
+      "if(input.length!==2)throw Error('H07_GATE_MISSING_BRANCH');",
+      "const gates=new Map();",
+      "for(const g of input){",
+      "if(!['H05','H06'].includes(g.operation_id)||gates.has(g.operation_id))throw Error('H07_GATE_DUPLICATE_OR_UNKNOWN');",
+      "if(g.case_id!=='R26BK01787028'||g.flow_id!=='PF05'||g.inspection_status!=='VERIFIED'||g.evidence_verified!==true)throw Error('H07_GATE_NOT_VERIFIED');",
+      "gates.set(g.operation_id,g);",
+      "}",
+      "if(!gates.has('H05')||!gates.has('H06'))throw Error('H07_GATE_MISSING_DEPENDENCY');",
+      "const left=$("+JSON.stringify(h05)+").first().json;",
+      "const right=$("+JSON.stringify(h06)+").first().json;",
+      "if(left.case_id!=='R26BK01787028'||right.case_id!==left.case_id||left.flow_id!=='PF05'||right.flow_id!==left.flow_id||left.last_block!=='H05'||right.last_block!=='H06')throw Error('H07_ORIGINAL_OUTPUT_MISMATCH');",
+      "if(!Array.isArray(left.workflow_trace)||!Array.isArray(right.workflow_trace))throw Error('H07_ORIGINAL_TRACE_MISSING');",
+      "const records=new Map();",
+      "for(const record of [...left.workflow_trace,...right.workflow_trace]){",
+      "if(!record||typeof record.block_id!=='string')throw Error('H07_INVALID_TRACE');",
+      "if(records.has(record.block_id)&&JSON.stringify(records.get(record.block_id))!==JSON.stringify(record))throw Error('H07_CONFLICTING_UPSTREAM_TRACE');",
+      "records.set(record.block_id,record);",
+      "}",
+      "const ordered="+JSON.stringify(flow.owned_blocks)+";",
+      "const trace=[...records.values()].sort((a,b)=>ordered.indexOf(a.block_id)-ordered.indexOf(b.block_id));",
+      "const h05=records.get('H05'),h06=records.get('H06');",
+      "if(!h05||!h06||!Object.prototype.hasOwnProperty.call(h05,'output')||!Object.prototype.hasOwnProperty.call(h06,'output'))throw Error('H07_SOURCE_OUTPUT_MISSING');",
+      "return [{json:{...left,workflow_trace:trace,last_block:null,previous_block:null,dependency_inputs:{H05:h05.output,H06:h06.output},dependency_source_blocks:['H05','H06'],dependency_input_case_id:left.case_id,dependency_input_flow_id:'PF05',dependency_join_complete:true,dependency_evidence_verified:false}}];"
+    ].join('');
+    const terminal=w.nodes.find(x=>x.name.startsWith('최종 ·'));
+    ensure(terminal&&terminal.parameters.jsCode.startsWith('const x=$input.first().json;'),'PF05 final gate missing');
+    terminal.parameters.jsCode=[
+      "const gate=$input.first().json;",
+      "if(gate.operation_id!=='H08'||gate.flow_id!=='PF05'||gate.case_id!=='R26BK01787028'||gate.inspection_status!=='VERIFIED'||gate.evidence_verified!==true)throw Error('PF05_FINAL_H08_GATE_NOT_VERIFIED');",
+      "const x=$("+JSON.stringify(flowNodes.H08.name)+").first().json;",
+      "if(x.flow_id!==gate.flow_id||x.case_id!==gate.case_id||x.last_block!=='H08')throw Error('PF05_FINAL_SOURCE_MISMATCH');",
+      terminal.parameters.jsCode.slice('const x=$input.first().json;'.length)
+    ].join('');
+  }
   const tmp=file+'.business.tmp';
   await writeFile(tmp,JSON.stringify(w,null,2)+'\n');
   await rename(tmp,file);
