@@ -162,6 +162,7 @@ def _stage(block,state):
     if key=="H09":
         award=results["H06"]["awards"]
         agency=[x for x in award if x["agency"]==case["agency"]]
+        if not agency:raise ValueError("NO_MATCHING_AUTHORITY_MOCK_RECORDS")
         return {"agency":case["agency"],"mock_award_count":len(agency),
           "mock_avg_award_ratio":round(statistics.mean(x["award_amount_krw"]/x["base_amount_krw"] for x in agency),4),
           "real_authority_evidence":False}
