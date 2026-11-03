@@ -15,6 +15,8 @@ on:
       - 'g2b_feature_api.py'
       - 'n8n/admin-console/**'
       - 'tests/test_procurement_console_e2e.mjs'
+      - 'tests/test_public9_console_e2e.mjs'
+      - 'tests/test_public9_control.py'
       - 'tests/test_public_original_104_bridge.py'
       - 'tests/test_public_real_records.py'
       - 'tests/test_three_market_*'
@@ -32,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=51b8b24e9c2e6d9ace3a3ab4aa2ed81a79015e6b' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=4bc637c4dd2a7adc4e99cedddca95f3d55649be2' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
@@ -43,6 +45,9 @@ jobs:
         run: |
           node --check n8n/admin-console/public-case.js
           node --check n8n/admin-console/dashboard.js
+          node --check n8n/admin-console/public9.js
+      - name: Verify actual 9-node G2B workflow and scoped administrator-only real API proxy
+        run: python3 tests/test_public9_control.py
       - name: Three market Python adapter and exact native binding contracts (offline)
         run: python3 tests/test_three_market_strategy.py
       - name: Verify original 104 production API actions and read-only PostgreSQL bridge offline
@@ -60,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach 51b8b24e9c2e6d9ace3a3ab4aa2ed81a79015e6b
+          git -C /tmp/shared-n8n-studio checkout --detach 4bc637c4dd2a7adc4e99cedddca95f3d55649be2
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
@@ -80,6 +85,9 @@ jobs:
           curl -fsS http://127.0.0.1:3031/admin/index.html | grep -F '종합 운영 관제센터'
           curl -fsS http://127.0.0.1:3031/procure-manifest.json | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const m=JSON.parse(s);if(m.blocks.length!==43||m.engine!=="n8n_only")process.exit(1)})'
           curl -fsS http://127.0.0.1:3031/procure-workflows/fixture-scenarios.json | node -e 'let b="";process.stdin.on("data",x=>b+=x).on("end",()=>{const d=JSON.parse(b);if(!d.never_calls_official_api||d.scenarios.length!==10)process.exit(1)})'
+          curl -fsS http://127.0.0.1:3031/api/procurement/public9/catalog | python3 -c 'import json,sys;j=json.load(sys.stdin);assert j["business_nodes"]==9 and j["native_n8n_execution_connected"] is False'
+          curl -fsSI http://127.0.0.1:3031/ | grep -Fi 'X-Frame-Options: SAMEORIGIN'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/api/procurement/public9/prepare)" = 415
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/rest/owner/setup)" = 405
           # The shared Studio is an SPA: unknown GET routes render index.html, not n8n REST JSON.
           curl -fsS http://127.0.0.1:3031/rest/settings | grep -F '<div id="app"></div>'
@@ -144,11 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           node tests/shared_studio_fixture_ui_e2e.mjs
-      - name: Chrome public one selected tender 43 real-contract blocks and 104 function checks
+      - name: Chrome latest real G2B tender listing, 9-node editor, source DB job continuity
         shell: bash
         run: |
           set -euo pipefail
-          STUDIO_BASE=http://127.0.0.1:3031 node tests/test_procurement_console_e2e.mjs
+          STUDIO_BASE=http://127.0.0.1:3031 node tests/test_public9_console_e2e.mjs
       - name: Chrome investor-parity three market canvas + node actions
         shell: bash
         run: |
