@@ -140,3 +140,92 @@ def analyze_competition(start=None,end=None,agency="",*,connection=None,
         "real_data_only":True,"manual_approval_required":True,
         "bid_submitted":False
     }
+
+
+def classify_public_preparation(strategy, eligibility, price, package):
+    """The nine real business outputs, instead of 104 unrelated HOLD flags.
+
+    A strategic backfill warning (10-year coverage, scarce award outcomes) is
+    NEVER a statutory submit blocker. Legally mandatory qualification, verified
+    source notice, price evidence and submission forms remain separate hard
+    gates. A human must approve any bid. No changes to the legacy feature API.
+    """
+    if strategy.get("status")=="selected_notice_missing":
+        return {"status":"NO_SOURCE_NOTICE","real_data_only":True,
+                "hard_blockers":["선택 공고 원본 없음"],
+                "analysis_warnings":[],"bid_submitted":False}
+    title=str(strategy["target_notice"].get("title") or "")
+    closed=strategy["target_notice"].get("deadline_passed") is True
+    # Signed/verified notices and final forms must be explicitly in source
+    # evidence, not inferred from a row existing in a bid mirror.
+    refs=package.get("evidence_references") or []
+    verified={x.get("evidence_type") for x in refs
+              if isinstance(x,dict) and x.get("verified_source") is True}
+    hard=[]
+    if "notice_official" not in verified:
+        hard.append("선택 공고의 공식 상세 원본 검증 필요")
+    if eligibility.get("status")=="ineligible":
+        hard.append("실제 참가자격 불충족")
+    elif eligibility.get("status")!="eligible":
+        hard.append("회사 참가자격·업종·실적 증빙 검토 필요")
+    if price.get("status") not in ("draft_computed_not_approved",):
+        needed=price.get("missing") or []
+        hard.append("원가·가격규칙 근거 부족"+(": "+", ".join(map(str,needed)) if needed else ""))
+    if "required_forms" not in verified:
+        hard.append("공고별 필수 제출서식·증빙 대조 필요")
+    if "final_validation" not in verified:
+        hard.append("최종 참가서류 원본·서명·버전 검수 필요")
+    warnings=["10년 전수 수집은 분석 보강 목표이며 필수 제출서류 완료 조건이 아님",
+              "기존 개찰·투찰 자료는 낙찰확정 자료와 다르므로 확률/투찰금액을 만들어내지 않음"]
+    if strategy.get("confirmed_award_observed",{}).get("award_rows",0)==0:
+        warnings.append("현재 필터에는 확인된 확정 낙찰 결과가 없음")
+    if strategy["observed"].get("rows_with_numeric_amounts",0)==0:
+        warnings.append("이 필터에 투찰금액이 확인된 행이 없어 가격비교가 제한됨")
+    if closed:
+        status="CLOSED_HISTORICAL_ANALYSIS_ONLY"
+    elif eligibility.get("status")=="ineligible":
+        status="NO_BID"
+    elif hard:
+        status="HOLD_REQUIREMENTS"
+    else:
+        status="MANUAL_FINAL_APPROVAL_REQUIRED"
+    observed=strategy["observed"]
+    steps=[
+      {"id":1,"name":"공고 한 건 선택","status":"source_found","detail":title},
+      {"id":2,"name":"공고·첨부 동시 분석","status":"documents_observed" if strategy.get("source_document_count",0) else "missing",
+       "count":strategy.get("source_document_count",0),
+       "extracted_conditions":strategy.get("document_clause_count",0)},
+      {"id":3,"name":"참가자격 판단","status":eligibility.get("status","unknown")},
+      {"id":4,"name":"과거 실개찰 검색","status":"real_rows_found" if observed["opening_rows"] else "no_rows",
+       "actual_opening_rows":observed["opening_rows"]},
+      {"id":5,"name":"경쟁업체·기관 분석","status":strategy["status"],
+       "unique_source_notice_rounds":observed["observed_notice_rounds"]},
+      {"id":6,"name":"수행 원가","status":"documented" if "cost_breakdown" not in (price.get("missing") or [])
+          and price.get("status")=="draft_computed_not_approved" else "incomplete"},
+      {"id":7,"name":"투찰전략·가격 대안","status":price.get("status","unknown"),
+       "approved_bid_price":price.get("recommended_bid_price")},
+      {"id":8,"name":"공고별 입찰서류 초안","status":package.get("stage","unknown"),
+       "source_documents":len(package.get("document_index") or [])},
+      {"id":9,"name":"사람의 최종 제출 승인","status":status}
+    ]
+    return {"status":status,"selected_case":strategy["case_bid_no"],
+       "source":"actual_production_g2b_document_competition_price_package",
+       "real_data_only":True,
+       "hard_blockers":hard,
+       "analysis_warnings":warnings,
+       "steps":steps,"actual_openings_used":observed["opening_rows"],
+       "confirmed_awards_used":strategy.get("confirmed_award_observed",{}).get("award_rows",0),
+       "actual_document_count":strategy.get("source_document_count",0),
+       "price_recommendation":None,
+       "requires_human_final_approval":True,
+       "bid_participation_clicked":False,"bid_submitted":False}
+
+
+def actual_preparation(start=None,end=None,agency=""):
+    from g2b_bid_package import evaluate_eligibility, documented_price_scenarios, proposal_contents
+    strategy=analyze_competition(start,end,agency)
+    # Only actual case-engine functions, never the offline fixture runner.
+    eligibility=evaluate_eligibility()
+    price=documented_price_scenarios()
+    package=proposal_contents()
+    return classify_public_preparation(strategy,eligibility,price,package)
