@@ -164,7 +164,7 @@ function renderTests(){
  return '<button class="step '+(ok?'done':'')+(caseState.selectedNode===n.id?' selected':'')+'" data-public-action="inspect" data-node="'+escapeHtml(n.id)+'">'+
  '<strong>'+escapeHtml(n.name)+'</strong><small>'+escapeHtml(n.id)+' · '+escapeHtml(ok?'Python MOCK 성공 '+ok.duration_ms+'ms':'테스트 대기')+'</small></button>';
  }).join('')+'</div>':'<div class="loading">43개 원본 업무 노드 목록 불러오는 중…</div>')+
- '<p class="muted smalltxt">이 테스트의 직렬 연결은 순차 입력 전달용입니다. 운영 n8n의 실제 PF 업무 DAG를 대체하지 않습니다.</p>')+
+ '<p class="muted smalltxt">이 테스트의 직렬 연결은 순차 입력 전달용입니다. 운영 n8n의 실제 PF 업무 DAG를 대체하지 않습니다.</p>'+
  card('선택한 노드 입력·출력·증빙',chosen?'<h4>'+escapeHtml(chosen.node_id)+' · '+escapeHtml(chosen.status)+'</h4>'+
  '<div class="muted smalltxt">run_id '+escapeHtml(chosen.run_id)+' · '+escapeHtml(chosen.duration_ms)+'ms</div>'+
  '<h4>INPUT</h4><pre class="log">'+escapeHtml(pretty(chosen.input_json))+'</pre>'+
