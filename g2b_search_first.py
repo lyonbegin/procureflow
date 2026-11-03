@@ -167,7 +167,8 @@ def single_case_material(*, connection=None):
     files=connection.execute("""SELECT d.file_id,d.filename,d.sha256,
        d.source_verified,d.extraction_state,
        length(d.extracted_text) AS extracted_chars,
-       LEFT(d.extracted_text,5000) AS excerpt,
+       LEFT(d.extracted_text,2500) AS excerpt,
+       LEFT(d.extracted_text,18000) AS content,
        d.url AS original_url
        FROM procureflow.g2b_case_documents d
        WHERE d.bid_no=%s AND d.bid_ord=%s
@@ -181,11 +182,65 @@ def single_case_material(*, connection=None):
         "bidClseDt","dminsttNm","ntceInsttNm","cntrctCnclsMthdNm",
         "sucsfbidMthdNm","asignBdgtAmt","bdgtAmt","presmptPrce","prdctClsfcNo","dtilPrdctClsfcNo")
        if key in raw}
+    original_documents=[]
+    for row in files:
+        item=_json_row(row)
+        item.pop("content",None)
+        original_documents.append(item)
+    clauses=extract_source_clauses(files)
     return {"status":"found","case_bid_no":CASE_BID,"case_bid_ord":CASE_ORD,
-       "notice":clean,"documents":[_json_row(x) for x in files],
+       "notice":clean,"documents":original_documents,
+       "source_clauses":clauses,
+       "source_clauses_are_candidate_excerpts":True,
        "retrieval":"one_cached_notice_query_and_one_cached_documents_query",
        "document_count":len(files),"redownloaded":False,
        "source":"existing_procureflow_db","bid_submitted":False}
+
+
+
+# Group related conditions found in an ALREADY DOWNLOADED document. This is
+# textual evidence extraction, not a legal-eligibility or contract-size verdict.
+CLAUSE_TERMS={
+ "참가자격":("입찰참가자격","견적제출자격","참가자격","업종등록","소기업","중소기업","지역제한"),
+ "낙찰·계약":("낙찰자 결정","계약상대자 결정","소액수의","낙찰하한율","계약방법"),
+ "금액·원가":("기초금액","추정가격","사업예산","금액","부가가치세"),
+ "수행·검수":("과업","납품","수행기간","검수","산출내역","유지관리"),
+ "제출서류":("제출서류","제출서식","견적서 제출","전자견적","입찰보증금")
+}
+
+def extract_source_clauses(files):
+    """One pass through existing original-file text, references every excerpt.
+
+    A source file is only accepted when its original SHA-256 and verified-source
+    flag are present. No classification of legal eligibility is fabricated.
+    """
+    findings=[]
+    per_group={}
+    for f in files:
+        if not f.get("source_verified"):
+            continue
+        digest=f.get("sha256")
+        if not isinstance(digest,str) or not re.fullmatch(r"[0-9a-f]{64}",digest):
+            continue
+        body=f.get("content")
+        if not isinstance(body,str) or not body.strip():
+            continue
+        for rawline in body.splitlines():
+            line=" ".join(rawline.split())
+            if len(line)<8:
+                continue
+            for group,terms in CLAUSE_TERMS.items():
+                if per_group.get(group,0)>=4:
+                    continue
+                if not any(term in line for term in terms):
+                    continue
+                findings.append({"category":group,"text":line[:350],
+                    "original_filename":f.get("filename"),
+                    "original_sha256":digest,
+                    "source_is_previously_downloaded":True,
+                    "human_review_required":True})
+                per_group[group]=per_group.get(group,0)+1
+    return findings
 
 
 def actual_case_workbench(start=None, end=None, kind="all", agency="",
