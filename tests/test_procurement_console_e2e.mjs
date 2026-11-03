@@ -18,7 +18,7 @@ try{
  assert.equal(await page.locator('.panel:has-text("S01~S10") .item').count(),10);
  await page.locator('[data-action="run-all"]').click();
  await page.waitForFunction(()=>document.body.innerText.includes('8/8 노드')&&document.body.innerText.includes('HOLD_OFFICIAL_EVIDENCE'),{timeout:30000});
- assert.match(await page.locator('#content').innerText(),/실제 Python/);
+ assert.match(await page.locator('#content').innerText(),/모의/);
  await page.locator('[data-action="inspect-node"][data-node="a01-03"]').click();
  assert.match(await page.locator('#content').innerText(),/노드 INPUT/);
  await page.locator('[data-page="audit"]').first().click();
