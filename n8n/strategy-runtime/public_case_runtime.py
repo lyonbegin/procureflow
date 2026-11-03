@@ -300,14 +300,14 @@ def run_block(block_id,value):
             "verified_evidence_types":[]
         })
         rec={"number":no,"label":contract["name"],"group":contract["group"],
-            "required_verified_evidence":contract["input_contract"]["parameters"],
+            "required_verified_evidence":contract["input_contract"]["required_verified_evidence"],
             "original_g2b_execution_action":contract["execution"]["action"],
             "actual_104_api_endpoint":contract["endpoint"],
             "actual_104_api_execute_endpoint":contract["execute_endpoint"],
             "acceptance_state":contract["acceptance_state"],
             "test_status":"MOCK_EXECUTED","official_verified":False,
             "official_evidence_missing":contract["missing_evidence"],
-            "required_evidence_types":contract["input_contract"]["auto_from_selected_notice"],
+            "input_parameters":contract["input_contract"]["parameters"],
             "source_block":block_id}
         state["feature_results"][str(no)]=rec
         checks.append(no)
