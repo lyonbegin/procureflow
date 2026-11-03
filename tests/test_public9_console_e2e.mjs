@@ -77,8 +77,11 @@ try{
  assert.match(await page.locator('#content').innerText(),/658/);
  await page.locator('#content [data-page="public"]').first().click();
  await page.locator('#content #p9-token').fill('ci-only-user-admin-token');
+ const realRequest=page.waitForRequest(req=>req.url().endsWith('/api/procurement/public9/prepare')&&req.method()==='POST',{timeout:20000});
  await page.locator('#content [data-public9="run"]').click();
- await page.waitForFunction(()=>document.body.innerText.includes('작업 ID 1728')||document.body.innerText.includes('실제 Worker 작업 ID 1728'),{timeout:15000});
+ try{await realRequest;}catch(error){
+   throw Error('Actual saved-n8n-node filter did not trigger production Worker queue: '+await page.locator('#content').innerText());
+ }
  assert.equal(calls.filter(x=>x.kind==='POST_WORKER').length,1);
  const q=calls.find(x=>x.kind==='POST_WORKER');
  assert.equal(q.authorization,'Bearer ci-only-user-admin-token');
