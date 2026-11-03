@@ -98,6 +98,7 @@ function stageOneInspector(){
  '<p class="muted smalltxt">실제 PostgreSQL 조회와 공고 식별·선택별 조건 판정을 수행합니다. 신규 G2B 크롤링·n8n Execution·Worker 재수집은 실행하지 않습니다. 원본이 구분하지 않는 정정·취소 상태는 임의로 판단하지 않습니다.</p>'+
  '<div class="item"><b>실제 선택 입력</b><pre class="log">'+esc(JSON.stringify(selected||{bid_no:st.selected||null,status:"actual_row_not_selected"},null,2))+'</pre></div>'+
  '<div class="item"><b>선택 공고 조건 분기 결과</b><p>'+esc(route.route||'미확인')+' · 후속 실제 실행: '+esc(route.downstream_executed===true?'있음':'없음')+'</p></div>'+ 
+ '<div class="item"><b>공용 편집기에서 조건 분기</b> <a href="/?workflow=operations%2FPF01-stage1-dataflow.json" target="_blank" rel="noopener">1단계 Switch 병렬 분기 그래프 열기</a></div>'+ 
  '<div class="item"><b>조건부 후속 연결</b><pre class="log">'+esc(JSON.stringify(d.connections||[],null,2))+'</pre></div>'+blocks+'</section>';
 }
 
@@ -171,6 +172,7 @@ function nodes(){
  '<h2>공공입찰 9개 업무 노드 관리</h2><p>관리센터와 같은 공고 '+esc(st.selected||'미선택')+
  ' · 기존 공용 Studio의 n8n 형식 노드를 저장·편집합니다. 실제 Worker의 단계 DB 이력은 아래에서 확인합니다.</p>'+
  '<div class="actions"><button class="btn primary" data-page="public">← 최신 공고·전체 실행 관리센터</button>'+
+ '<a class="btn" href="/?workflow=operations%2FPF01-stage1-dataflow.json" target="_blank" rel="noopener">N01→N02 분기 그래프 열기</a>'+
  '<a class="btn" href="'+path+'" target="_blank" rel="noopener">노드 편집기 새 창으로 열기 ↗</a></div></section>'+
  (!selectedReady()?'<div class="notice warn">선택 공고 '+esc(st.selected||'없음')+
  '의 실제 9단계 실행은 현재 기존 Worker에 미연결입니다. 이 편집기에서 다른 공고가 자동 실행되는 것은 아닙니다.</div>':'')+
