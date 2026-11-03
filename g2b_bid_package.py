@@ -108,8 +108,12 @@ def documented_price_scenarios(bid_no=SINGLE_CASE):
             "recommended_bid_price":None,
             "requires_human_approval":True,"actual_submission":False}
 
-def proposal_contents(bid_no=SINGLE_CASE):
-    readiness=readiness_check(bid_no)
+def proposal_contents(bid_no=SINGLE_CASE, *, readiness_override=None):
+    # New search-first public preparation must not call the legacy 104-gate
+    # readiness engine (which can register 121 unnecessary monthly windows).
+    # Old callers retain their API contract unchanged for compatibility.
+    readiness=(readiness_override if isinstance(readiness_override,dict)
+               else readiness_check(bid_no))
     with session() as db:
         details=db.execute("""SELECT title,agency,notice_date,deadline,method,
                raw FROM procureflow.tenders WHERE source='g2b' AND external_id=%s""",
