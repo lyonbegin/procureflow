@@ -21,7 +21,7 @@ RUN PF_SOURCE=/work PF_OUTPUT=/generated node /tools/compile-native-topology.mjs
 FROM node:22-alpine AS ui
 RUN apk add --no-cache git
 WORKDIR /app
-ARG SHARED_STUDIO_COMMIT=ebd5cfae12caaf48d203e3dd7bbaccc83c3f321d
+ARG SHARED_STUDIO_COMMIT=9748e1159b107dbbb2c2fc0cbc67206939fbfdaf
 RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /app/shared \
     && git -C /app/shared checkout --detach "$SHARED_STUDIO_COMMIT" \
     && test "$(git -C /app/shared rev-parse HEAD)" = "$SHARED_STUDIO_COMMIT" \
@@ -48,7 +48,10 @@ FROM python:3.12-alpine
 RUN apk add --no-cache su-exec
 WORKDIR /app
 COPY --from=ui /app/shared/playground/dist /app/dist
-COPY n8n/admin-console/index.html /app/dist/admin/index.html
+COPY n8n/admin-console/ /app/dist/admin/
+COPY n8n/operational_manifest.json /app/dist/procure-manifest.json
+RUN test -s /app/dist/admin/dashboard.js && test -s /app/dist/admin/dashboard.css \
+    && test -s /app/dist/procure-manifest.json
 RUN python3 -c 'from pathlib import Path; p=Path("/app/dist/index.html");s=p.read_text();a="<a href=\"/admin/index.html?section=tests\" style=\"position:fixed;bottom:16px;right:16px;z-index:9999;background:#165e9b;color:white;text-decoration:none;padding:12px 16px;border-radius:9px;font:600 13px sans-serif\" aria-label=\"조달청 통합 테스트센터\">통합 테스트센터 ↗</a>";assert "</body>" in s;p.write_text(s.replace("</body>",a+"</body>"))'
 COPY --from=ui /app/shared/server/studio_server.py /app/studio_server.py
 COPY --from=ui /app/shared/server/node_run_store.py /app/node_run_store.py
