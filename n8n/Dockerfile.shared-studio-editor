@@ -21,7 +21,7 @@ RUN PF_SOURCE=/work PF_OUTPUT=/generated node /tools/compile-native-topology.mjs
 FROM node:22-alpine AS ui
 RUN apk add --no-cache git
 WORKDIR /app
-ARG SHARED_STUDIO_COMMIT=9ed39729110dc9c4c08696b5fa9d73fd162e178e
+ARG SHARED_STUDIO_COMMIT=51b8b24e9c2e6d9ace3a3ab4aa2ed81a79015e6b
 RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /app/shared \
     && git -C /app/shared checkout --detach "$SHARED_STUDIO_COMMIT" \
     && test "$(git -C /app/shared rev-parse HEAD)" = "$SHARED_STUDIO_COMMIT" \
@@ -61,7 +61,8 @@ COPY n8n/strategy-runtime/procurement_node_adapter.py /app/procurement_node_adap
 COPY n8n/strategy-runtime/public_case_runtime.py /app/public_case_runtime.py
 COPY g2b_feature_registry.py /app/g2b_feature_registry.py
 COPY g2b_feature_contract_core.py /app/g2b_feature_contract_core.py
-COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py
+COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py /app/procurement_actual_records.py
+COPY n8n/strategy-runtime/procurement_actual_records.py /app/procurement_actual_records.py
 COPY n8n/operational_manifest.json /app/operational_manifest.json
 RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py
 RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=="download_original_attachments"'
