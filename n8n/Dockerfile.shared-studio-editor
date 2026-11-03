@@ -32,6 +32,8 @@ RUN mkdir -p /app/shared/playground/public/procure-workflows/operations \
 COPY --from=topology /generated/operational/ /app/shared/playground/public/procure-workflows/operations/
 COPY n8n/workflows/ /app/shared/playground/public/procure-workflows/scenarios/
 COPY n8n/strategy-workflows/ /app/shared/playground/public/procure-workflows/operations/
+# Reject the former A01 43-node / 42-edge serial display at image build.
+RUN node -e 'const w=require("/app/shared/playground/public/procure-workflows/operations/A01-public-win-strategy.json");const links=Object.values(w.connections).flatMap(x=>(x.main||[]).flat());const h=w.connections["H04 · 구형·신형 공고 검증"].main[0].map(x=>x.node);if(w.nodes.length!==43||links.length<=42||!h.some(x=>x.startsWith("H05 ·"))||!h.some(x=>x.startsWith("H06 ·")))process.exit(1);console.log("A01_MANIFEST_DAG_BUILD_GATE_PASS",links.length)'
 COPY n8n/scenarios.json /app/shared/playground/public/procure-workflows/fixture-scenarios.json
 ENV VITE_EDITOR_PROJECT=procurement
 RUN npm --prefix /app/shared/playground run build \
