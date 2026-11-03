@@ -52,3 +52,75 @@ def test_native_n8n_editor_url_only_after_configuration(monkeypatch):
     assert scenario_editor_url("S99")==""
     monkeypatch.setenv("N8N_EDITOR_URL","javascript:alert(1)")
     assert editor_base()==""
+
+
+def test_official_shared_n8n_is_only_editor_and_requires_verified_rollout(monkeypatch):
+    from n8n_landing import official_workflow_url, shared_editor_ready
+    client = TestClient(app)
+    monkeypatch.setenv("N8N_EDITOR_URL", "https://n8n.internal.example")
+    monkeypatch.delenv("N8N_SHARED_EDITOR_VERIFIED", raising=False)
+    assert not shared_editor_ready()
+    assert client.get("/editor").status_code == 503
+    assert client.get("/editor/workflow/PFOP2026PF05WF").status_code == 503
+    assert client.get("/n8n/native-preview").status_code == 503
+    assert not official_workflow_url("PFOP2026PF05WF")
+
+    monkeypatch.setenv("N8N_SHARED_EDITOR_VERIFIED", "1")
+    assert shared_editor_ready()
+    assert official_workflow_url("PFORCH2026MAINWF").endswith("/workflow/PFORCH2026MAINWF")
+    assert official_workflow_url("PFOP2026PF05WF").endswith("/workflow/PFOP2026PF05WF")
+    assert official_workflow_url("PFDEMO2026S10WF").endswith("/workflow/PFDEMO2026S10WF")
+    for invalid in ["PFOP2026PF99WF", "PFDEMO2026S11WF", "//attacker.example", "../setup", ""]:
+        assert not official_workflow_url(invalid)
+        assert client.get("/editor/workflow/" + invalid.replace("/", "%2F"), follow_redirects=False).status_code in (404, 405)
+    res = client.get("/flow", follow_redirects=False)
+    assert res.status_code == 307 and res.headers["location"] == "https://n8n.internal.example"
+    res = client.get("/editor/workflow/PFOP2026PF05WF", follow_redirects=False)
+    assert res.status_code == 307 and res.headers["location"].endswith("/workflow/PFOP2026PF05WF")
+    res = client.get("/n8n/native-preview", follow_redirects=False)
+    assert res.status_code == 307 and res.headers["location"] == "https://n8n.internal.example"
+
+
+
+def test_pf05_pf06_exact_detail10_scope_fails_closed_for_other_parent():
+    from n8n_operational import _selected_detail10_codes
+    assert _selected_detail10_codes(["8111159901"])
+    assert _selected_detail10_codes(["8111159901", "8111159902"])
+    for invalid in (
+        None, [], "8111159901", ["81111599"], ["81111599AB"],
+        ["8111229901"], ["9999999901"],
+        ["8111159901", "8111229901"],
+        [8111159901], [True], ["８１１１１５９９０１"],
+    ):
+        assert not _selected_detail10_codes(invalid), repr(invalid)
+
+
+def test_pf05_pf06_materialized_readonly_verdict_requires_selected_category():
+    from n8n_operational import _materialized, manifest
+    from g2b_case_10y import CASE_BID
+    from g2b_feature_registry import FEATURE_GATES
+
+    for flow_id in ("PF05", "PF06"):
+        flow = next(row for row in manifest()["flows"] if row["id"] == flow_id)
+        feature_ids = flow["business_features"]
+        gates = set().union(*(set(FEATURE_GATES[n]) for n in feature_ids))
+        gates.add("outcome_10years_complete")
+        snapshot = {
+            "verified_evidence_types": sorted(gates),
+            "feature_acceptance": [
+                {"number": n, "acceptance_state": "verified"} for n in feature_ids
+            ],
+        }
+        context = {
+            "bid_no": CASE_BID, "bid_ord": "000",
+            "original_notice_verified": True,
+            "official_detail10": ["8111229901"],
+        }
+        unrelated = _materialized(flow, context, snapshot)
+        assert unrelated["business_state"] == "BLOCKED_OR_PENDING", flow_id
+        assert unrelated["read_only"] is True
+        assert unrelated["automatic_bid_submission"] is False
+        context["official_detail10"] = ["8111159901"]
+        scoped = _materialized(flow, context, snapshot)
+        assert scoped["business_state"] == "VERIFIED", flow_id
+        assert scoped["actual_job_executed"] is False

@@ -2,6 +2,7 @@
 from html import escape
 import os
 from urllib.parse import urlparse
+import re
 from fastapi.responses import HTMLResponse
 
 
@@ -11,6 +12,25 @@ def editor_base() -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
         return ""
     return url
+
+
+def shared_editor_ready() -> bool:
+    """Never claim official shared n8n is live before protected rollout validation."""
+    return bool(editor_base()) and os.getenv("N8N_SHARED_EDITOR_VERIFIED", "0") == "1"
+
+
+def official_workflow_url(workflow_id: str) -> str:
+    """Allow only the real PF00-PF15 or S01-S10 imported n8n workflow IDs."""
+    base = editor_base() if shared_editor_ready() else ""
+    if not base:
+        return ""
+    if workflow_id == "PFORCH2026MAINWF":
+        return base + "/workflow/" + workflow_id
+    if re.fullmatch(r"PFOP2026PF(?:0[1-9]|1[0-5])WF", workflow_id):
+        return base + "/workflow/" + workflow_id
+    if re.fullmatch(r"PFDEMO2026S(?:0[1-9]|10)WF", workflow_id):
+        return base + "/workflow/" + workflow_id
+    return ""
 
 
 def scenario_editor_url(scenario_id: str) -> str:
@@ -30,7 +50,7 @@ def operational_editor_url(flow_id: str) -> str:
 
 
 def _button(url: str) -> str:
-    if not url:
+    if not url or not shared_editor_ready():
         return '<span class="blocked">n8n 편집기 주소 미설정</span>'
     return ('<a class="btn" target="_blank" rel="noopener noreferrer" '
             f'href="{escape(url, quote=True)}">n8n에서 열고 실행</a>')
@@ -54,6 +74,12 @@ def launcher() -> HTMLResponse:
             '다음 실제 수집계획·차단사유</a>' +
             f'<a class="quiet" href="/n8n/progress?flow={fid}">실제 작업 진행상황</a></div></article>'
         )
+    if shared_editor_ready():
+        flows.insert(0,
+            '<article><header><b>PF00</b><strong>실제 n8n 상위 오케스트레이터</strong></header>'
+            '<p>PF01~PF15 업무 의존성과 병렬 합류. 운영 입력 원본 검증 전에는 안전하게 차단됩니다.</p>'
+            '<div class="actions"><a class="btn" target="_blank" rel="noopener noreferrer" '
+            'href="/editor/workflow/PFORCH2026MAINWF">공통 n8n 편집기에서 열기</a></div></article>')
     demos = []
     for item in read_manifest()["scenarios"]:
         sid = item["id"]
@@ -67,8 +93,8 @@ def launcher() -> HTMLResponse:
         )
     status = ('추가 브라우저 로그인 없이 n8n 정식 편집기에 연결됩니다. n8n 관리자 계정이 설정되어 있으면 '
               '정식 노드 캔버스와 Execute workflow를 이용할 수 있습니다.'
-              if editor_base() else
-              'n8n은 외부 관리자 등록 위험 때문에 공개 접속이 차단돼 있습니다. '
+              if shared_editor_ready() else
+              '공식 공통 n8n 편집기는 운영 배포 및 관리자 보안 확인 전까지 접근이 차단돼 있습니다. '
               '관리자 소유권·인증 설정 전까지 실행 링크를 공개하지 않습니다.')
     native_editor = (
         '<section class="native-editor"><strong>실제 n8n 노드 편집기</strong>'
@@ -76,9 +102,9 @@ def launcher() -> HTMLResponse:
         'Execute workflow 버튼은 아래 n8n 원본 편집기에서 사용합니다.</p>'
         '<p>별도의 브라우저 사용자 이름·비밀번호 입력창은 사용하지 않습니다. n8n 자체 로그인 상태에 따라 화면이 표시됩니다.</p>'
         f'<a class="btn" target="_blank" rel="noopener noreferrer" '
-        f'href="{escape(editor_base(),quote=True)}">n8n 실제 노드 편집기 열기</a>'
+        f'href="/editor">n8n 실제 노드 편집기 열기</a>'
         '</section>'
-        if editor_base() else
+        if shared_editor_ready() else
         '<section class="native-editor"><strong>n8n 편집기 접근 준비 중</strong>'
         '<p>관리자 최초 등록을 공개하지 않도록 보안 게이트웨이를 설정 중입니다.</p></section>'
     )

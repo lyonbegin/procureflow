@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from g2b_case_10y import CASE_BID
+from g2b_case_10y import CASE_BID, CAT8
 from g2b_feature_registry import FEATURE_GATES, FEATURES
 from g2b_feature_api import FeatureRunRequest, feature_contract, notice_context, queue_one
 
@@ -54,6 +54,18 @@ def _get_flow(flow_id: str) -> dict:
 def _selected_case(bid_no: str) -> None:
     if bid_no != CASE_BID:
         raise HTTPException(422, "This source collector only supports the selected official G2B case; multi-case support is not implemented")
+
+
+def _selected_detail10_codes(codes) -> bool:
+    """Scope check only: official-direct codes must belong to selected parent8.
+
+    notice_context() supplies codes from official_direct rows for the selected
+    notice. This does not establish ten-year opening/award completeness.
+    """
+    return (isinstance(codes, list) and bool(codes) and
+            all(isinstance(code, str) and len(code) == 10 and
+                code.isascii() and code.isdecimal() and code.startswith(CAT8)
+                for code in codes))
 
 
 def _materialized(flow: dict, context: dict, snapshot: dict) -> dict:
@@ -115,7 +127,7 @@ def _materialized(flow: dict, context: dict, snapshot: dict) -> dict:
     if not context.get("original_notice_verified"):
         complete = False
     if flow["id"] in ("PF05", "PF06"):
-        if not context.get("official_detail10"):
+        if not _selected_detail10_codes(context.get("official_detail10")):
             complete = False
         if "outcome_10years_complete" not in accepted:
             complete = False
