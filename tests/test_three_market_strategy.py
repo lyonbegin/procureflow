@@ -12,7 +12,8 @@ mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 public=mod.public_case
 w=json.loads((root/"n8n/strategy-workflows/A01-public-win-strategy.json").read_text())
 assert not w["active"] and w["meta"]["simulation_only"] and w["meta"]["never_calls_official_api"]
-assert len(w["nodes"])==43 and len(w["connections"])==42
+assert sum(n["id"].startswith("public-") and n["id"] not in ("public-H07-native-merge","public-H07-input-gate") for n in w["nodes"])==43
+assert len(w["nodes"])==45 and sum(len(a) for c in w["connections"].values() for a in c["main"])==54
 assert len(public.ORDER)==43 and len(public.CATALOG)==104
 assert w["meta"]["studioDefaultInput"]==public.ROOT_DEFAULT
 for i,node in enumerate(w["nodes"]):
