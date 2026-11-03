@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from html import unescape
-from g2b_search_first import filters, _where, _json_row, single_case_material
+from g2b_search_first import filters, _where, _json_row, single_case_material, search_stored
 from db import session
 
 def _valid_deadline(raw):
@@ -74,6 +74,8 @@ def analyze_competition(start=None,end=None,agency="",*,connection=None,
     notice=case["notice"]
     all_stats=_raw_stats(connection,s)
     companies=_top_competitors(connection,s)
+    awards=search_stored(filters(start=s.start,end=s.end,kind="award",
+                         agency=s.agency,limit=1),connection=connection)
     agency_name=str(notice.get("agency") or "").strip()
     # Source data sometimes prefixes the same agency with "재단법인".
     agency_filter=("".join(agency_name.split()).removeprefix("재단법인")
@@ -113,6 +115,9 @@ def analyze_competition(start=None,end=None,agency="",*,connection=None,
         "source_document_count":case["document_count"],
         "document_clause_count":len(case["source_clauses"]),
         "observed":all_stats,
+        "confirmed_award_observed":{"award_rows":awards["summary"]["confirmed_award_rows"],
+                                    "source_notice_rounds":awards["summary"]["source_notice_rounds"],
+                                    "source":"original_verified_explicit_final_award_only"},
         "same_agency_filter":agency_filter if agency_stats is not None else None,
         "same_agency_observed":agency_stats,
         "competitors_from_all_filtered_records":companies,
