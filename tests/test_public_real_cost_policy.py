@@ -1,4 +1,7 @@
 """Validate actual cost evidence policy, never fabricate quotes."""
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from g2b_bid_package import required_price_evidence
 base={
  "verified_base_amount":{"amount_krw":"52000000"},
