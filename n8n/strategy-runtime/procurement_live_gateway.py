@@ -54,9 +54,74 @@ def _request(path,method="GET",body=None,token=None,*,opener=None):
         raise ValueError("BACKEND_NOT_JSON_OBJECT")
     return (202 if method=="POST" else 200),data
 
+
+def _stage1_actual_notice_nodes(query):
+    """Run N01 DB read and N02 identifier/branch classification on real source.
+    This is not a G2B crawl or an n8n Execution; unknown states stay unknown.
+    """
+    from datetime import datetime, timezone
+    status,notice=proxy_get("notices",query)
+    if status!=200 or notice.get("source")!="actual_procureflow_postgresql_g2b_notices" or not isinstance(notice.get("items"),list):
+        raise ValueError("STAGE1_REQUIRES_ACTUAL_POSTGRESQL_NOTICES")
+    rows=notice["items"]
+    stamp=datetime.now(timezone.utc).isoformat()
+    n01_input={"query":query,"operation":"read_existing_g2b_postgresql","crawl_requested":False}
+    n01_output={"source":notice["source"],"records":rows,"returned_count":len(rows),
+                "total":notice.get("total"),"read_at_utc":stamp}
+    identified=[]
+    seen=set()
+    for row in rows:
+        if not isinstance(row,dict):
+            raise ValueError("INVALID_SOURCE_NOTICE_ROW")
+        bid=row.get("bid_no")
+        ord_=row.get("bid_ord")
+        if not isinstance(bid,str) or not re.fullmatch(r"[A-Za-z0-9-]{5,50}",bid):
+            raise ValueError("INVALID_SOURCE_BID_IDENTIFIER")
+        if ord_ is not None and not isinstance(ord_,str):
+            raise ValueError("INVALID_SOURCE_BID_ORDINAL")
+        key=(bid,ord_)
+        if key in seen:
+            continue
+        seen.add(key)
+        raw_state=str(row.get("notice_status") or row.get("notice_type") or "").lower().strip()
+        if row.get("is_cancelled") is True or raw_state in ("cancelled","canceled","취소"):
+            branch="cancelled"
+        elif row.get("is_amended") is True or raw_state in ("amended","corrected","정정"):
+            branch="amended"
+        elif row.get("is_new") is True or raw_state in ("new","신규"):
+            branch="new"
+        else:
+            branch="unknown_unverified"
+        identified.append({"bid_no":bid,"bid_ord":ord_,"title":row.get("title"),
+                           "agency":row.get("agency"),"notice_date":row.get("notice_date"),
+                           "deadline":row.get("deadline"),"branch":branch,
+                           "can_run_full_evidence":row.get("can_run_full_evidence") is True})
+    n02_input={"upstream_node_id":"N01","source":n01_output["source"],
+               "records":n01_output["records"]}
+    n02_output={"tender_identifiers":identified,"unique_count":len(identified),
+                "duplicate_rows_filtered":len(rows)-len(identified),
+                "branches":{"new":sum(x["branch"]=="new" for x in identified),
+                            "amended":sum(x["branch"]=="amended" for x in identified),
+                            "cancelled":sum(x["branch"]=="cancelled" for x in identified),
+                            "unknown_unverified":sum(x["branch"]=="unknown_unverified" for x in identified)}}
+    return 200,{"source":notice["source"],"notices":notice,
+                "execution_kind":"actual_database_read_and_identifier_processing_not_n8n",
+                "crawler_executed":False,"worker_executed":False,
+                "nodes":[{"id":"N01","name":"기존 PostgreSQL 공고 후보 확보",
+                          "status":"db_read_executed","input":n01_input,"output":n01_output},
+                         {"id":"N02","name":"공고번호·차수 식별과 분기 판단",
+                          "status":"identification_executed","input":n02_input,"output":n02_output}],
+                "connections":[{"from":"N01","to":"N02","field":"output.records -> input.records"},
+                               {"from":"N02","to":"N05","condition":"user_selected_and_official_detail_required"},
+                               {"from":"N02","to":"O01","condition":"user_selected_and_case_claim_required"},
+                               {"from":"N02","to":"PF13","condition":"amended"},
+                               {"from":"N02","to":"HOLD","condition":"cancelled_or_unverified"}]}
+
 def proxy_get(route,query=""):
     """Known live endpoints only; no arbitrary paths/SSRF/credential leaking."""
     from urllib.parse import parse_qs
+    if route=="stage1":
+        return _stage1_actual_notice_nodes(query)
     if route=="notices":
         params=parse_qs(query,keep_blank_values=True)
         if set(params)-{"q","status","limit","offset"}:
