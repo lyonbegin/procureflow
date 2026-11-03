@@ -572,15 +572,60 @@ def actual_public_notice_list(q: str = Query("",max_length=120),
                               status: str = Query("all",pattern="^(all|open|closed)$"),
                               limit: int = Query(30,ge=1,le=100),
                               offset: int = Query(0,ge=0,le=10000)):
-    """Newest real G2B notices in the ORIGINAL procurement DB, no fixtures.
+    """Read latest ACTUAL G2B notices from original DB before selecting a case.
 
-    Every item has immutable bid number and source timestamp. No user token
-    needed for these public procurement listing fields; no DB writes.
+    Listing is not a Worker execution. The existing single-case pipeline only
+    supports R26BK01787028 and is explicitly labelled for every result.
     """
-    from g2b_case_10y import CASE_BID, SUB10
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    predicates=["source='g2b'","external_id ~ '^R[0-9]{2}BK[0-9]{8}
+    from g2b_search_first import _json_row
+    from g2b_case_10y import CASE_BID
+    predicates = ["source='g2b'",
+                  "external_id ~ '^R[0-9]{2}BK[0-9]{8}$'"]
+    params = []
+    if q.strip():
+        if any(ord(ch)<32 for ch in q):
+            raise HTTPException(400,"INVALID_NOTICE_SEARCH_TEXT")
+        term = "%" + q.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_") + "%"
+        predicates.append("(title ILIKE %s OR agency ILIKE %s OR external_id ILIKE %s)")
+        params.extend([term,term,term])
+    if status=="open":
+        predicates.append(
+          "deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND "
+          "left(deadline,10)>=to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
+    elif status=="closed":
+        predicates.append(
+          "deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND "
+          "left(deadline,10)<to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
+    where = " WHERE " + " AND ".join(predicates)
+    with session() as con:
+        total=con.execute(
+          "SELECT count(*)::int AS n FROM procureflow.tenders"+where,
+          tuple(params)).fetchone()["n"]
+        rows=con.execute(
+          """SELECT external_id AS bid_no,title,agency,category,
+                    notice_date,deadline,method,status,source_url,last_seen
+             FROM procureflow.tenders""" + where +
+          " ORDER BY notice_date DESC,last_seen DESC,external_id DESC LIMIT %s OFFSET %s",
+          tuple(params+[limit,offset])).fetchall()
+    items=[]
+    for item in rows:
+        data=_json_row(item)
+        data["bid_ord"]="000"
+        data["preparation_engine"]=(
+            "existing_selected_case" if data["bid_no"]==CASE_BID
+            else "not_yet_connected_to_one_case_engine")
+        data["can_run_full_evidence"]=data["bid_no"]==CASE_BID
+        items.append(data)
+    if items:
+        items[0]["is_latest"]=offset==0
+    return {"source":"actual_procureflow_postgresql_g2b_notices",
+            "items":items,"total":total,
+            "filters":{"q":q,"status":status,"limit":limit,"offset":offset},
+            "default_latest_bid_no":items[0]["bid_no"] if items else None,
+            "automated_collection_claim":False,"bid_submitted":False}
+
+
+@app.get("/api/g2b/public/selected/search")
 def public_selected_search(start: str | None = None, end: str | None = None,
                            detail10: str = "8111159901",
                            kind: str = Query("all",pattern="^(all|opening|award)$"),
