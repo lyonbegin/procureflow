@@ -652,6 +652,74 @@ def collect_public_filtered(req:PublicFilteredCollection,
             "state":"queued","filters":config,"bid_submitted":False}
 
 
+class PublicRealPrepareRequest(BaseModel):
+    start: str = Field("2016-10-24",pattern=r"^\d{4}-\d\d-\d\d$")
+    end: str = Field("2026-10-22",pattern=r"^\d{4}-\d\d-\d\d$")
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+
+
+@app.post("/api/g2b/public/selected/prepare")
+def queue_real_selected_preparation(req:PublicRealPrepareRequest,
+                                    authorization:str|None=Header(None)):
+    """Queue existing Worker to execute nine REAL bid-analysis/prep stages.
+
+    A successful queue operation is not an execution and NEVER a bid submission.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    from g2b_public_workflow import ensure_schema
+    try:
+        f=filters(detail10=req.detail10,start=req.start,end=req.end,
+                  agency=req.agency,kind="opening")
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    ensure_schema()
+    cfg={"bid_no":f.bid_no,"detail10":f.detail10,
+         "start":f.start.isoformat(),"end":f.end.isoformat(),
+         "agency":f.agency}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+            WHERE source='g2b_public_prepare' AND state IN('queued','running')
+            LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Public one-tender preparation already running")
+        row=con.execute("""INSERT INTO procureflow.jobs(
+            source,config,message)
+            VALUES('g2b_public_prepare',%s::jsonb,%s) RETURNING id""",
+            (json.dumps(cfg,ensure_ascii=False),
+             "9-stage real one-tender G2B source/strategy/draft preparation, not a simulation")).fetchone()
+    return {"job_id":row["id"],"queued":True,
+            "worker_source":"g2b_public_prepare","case_bid_no":f.bid_no,
+            "already_executed":False,"bid_submitted":False}
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}")
+def real_selected_preparation_job(job_id:int):
+    from g2b_public_workflow import read_actual_job
+    try:
+        return read_actual_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}/draft.docx")
+def real_selected_preparation_review_draft(job_id:int):
+    from g2b_public_workflow import read_saved_docx,DRAFT_MEDIA
+    from fastapi.responses import Response
+    try:
+        binary,digest=read_saved_docx(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    return Response(content=binary,media_type=DRAFT_MEDIA,
+        headers={"Content-Disposition":
+           "attachment; filename=ProcureFlow-Actual-G2B-Review-"+str(job_id)+".docx",
+           "X-ProcureFlow-Draft-Only":"true",
+           "X-ProcureFlow-Original-SHA256":digest})
+
+
 @app.get("/api/analysis/summary")
 def analysis_summary():
     """Aggregated live counts for the existing FastAPI dashboard.
