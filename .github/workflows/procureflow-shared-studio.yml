@@ -35,6 +35,10 @@ jobs:
           if grep -E '(^FROM n8nio/n8n| n8n start|owner/setup|n8n import:workflow|user-management:reset|DB_POSTGRESDB)' n8n/Dockerfile.shared-studio-editor; then
             echo 'A n8n server or owner/DB mutation must not be included'; exit 1
           fi
+      - name: Validate public case manager JavaScript syntax
+        run: |
+          node --check n8n/admin-console/public-case.js
+          node --check n8n/admin-console/dashboard.js
       - name: Three market Python adapter and exact native binding contracts (offline)
         run: python3 tests/test_three_market_strategy.py
       - name: Build ONLY the same shared Vue Flow Studio used by investment
