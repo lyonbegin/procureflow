@@ -58,6 +58,7 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <nav class="stages" aria-label="입찰 한 건 처리 단계">
 <span class="stage">1 공고선택</span><span class="stage">2 원본·첨부</span><span class="stage">3 참가자격</span><span class="stage">4 과거 결과검색</span><span class="stage">5 경쟁업체 분석</span><span class="stage">6 원가</span><span class="stage">7 가격전략</span><span class="stage">8 제출서류</span><span class="stage">9 최종 사람 검토</span>
 </nav>
+<section class="panel"><h2>실제 9개 업무의 처리·증빙 상태</h2><div id="stageDetails" class="muted">운영 DB의 실제 원본과 가격·자격 증빙을 확인 중…</div></section>
 <div class="metrics" id="metrics"><div class="metric">실제 데이터 확인 중</div></div>
 
 <section class="panel" id="search-panel">
@@ -213,13 +214,16 @@ async function loadHistory(reset=true){
     throw Error("실제 자료 출처 계약 불일치");
   renderResults(data);
   void loadStrategy();
+  void loadPreparation();
  }catch(e){showError(e)}
  finally{busy=false;el("search").disabled=false}
 }
 async function loadPreparation(){
+ const f=filters();
+ const q=new URLSearchParams({start:f.start,end:f.end,agency:f.agency});
  const got=await Promise.allSettled([
   fetchJSON("/api/g2b/full/price"),fetchJSON("/api/g2b/full/proposal"),
-  fetchJSON("/api/g2b/full/readiness")]);
+  fetchJSON("/api/g2b/public/selected/preparation?"+q)]);
  const [p,docs,ready]=got;
  if(p.status==="fulfilled"){
    const x=p.value;
@@ -238,8 +242,20 @@ async function loadPreparation(){
  }else el("proposal").textContent="실제 초안 자료 조회 오류: "+docs.reason.message;
  if(ready.status==="fulfilled"){
   const r=ready.value;
-  el("finalStatus").textContent="기존 실제 업무 엔진 판정: "+r.status+
-    ". 마감된 공고의 자동 참가·투찰은 진행하지 않습니다. 10년 분석자료 부족 자체를 모든 제출서류 차단 사유로 간주하지 않습니다.";
+  if(r.real_data_only!==true||r.source!=="actual_production_g2b_document_competition_price_package"){
+    throw Error("실제 9개 업무 증빙 계약이 아닙니다.");
+  }
+  const rows=r.steps||[];
+  el("stageDetails").innerHTML='<div class="scroll"><table><thead><tr><th>순서</th><th>실제 업무</th><th>실제 증빙 상태</th></tr></thead><tbody>'+
+    rows.map(x=>'<tr><td>'+esc(x.id)+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.status)+'</td></tr>').join('')+
+    '</tbody></table></div>';
+  el("finalStatus").innerHTML='<b>실제 준비 판정: '+esc(r.status)+'</b><p>필수 제출·참가 요건: '+
+   esc((r.hard_blockers||[]).join(" / ")||"근거 검증 완료, 사람 최종 승인 필요")+'</p>'+
+   '<p>참고 분석자료 경고 (실제 참가 필수조건과 별개): '+
+   esc((r.analysis_warnings||[]).join(" / "))+'</p>';
+ }else{
+   el("stageDetails").textContent="실제 업무 상태 조회 실패: "+ready.reason?.message;
+   el("finalStatus").textContent="실제 증빙 조회가 실패해 제출 준비 완료라고 판단할 수 없습니다.";
  }
 }
 async function collectFiltered(){
@@ -259,5 +275,5 @@ async function collectFiltered(){
 el("search").addEventListener("click",()=>loadHistory(true));
 el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
 el("collect").addEventListener("click",collectFiltered);
-loadHistory(true);loadPreparation();
+loadHistory(true);
 </script></body></html>
