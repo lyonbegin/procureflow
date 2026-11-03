@@ -585,6 +585,22 @@ def public_selected_search(start: str | None = None, end: str | None = None,
         raise HTTPException(400,str(exc)) from None
 
 
+@app.get("/api/g2b/public/selected/strategy")
+def selected_actual_competition_strategy(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Real source-backed bidder comparison for ALL filter matches, not page 1.
+
+    Never equate opening rank with a final award, assume decade completeness,
+    infer company qualifications, or produce a made-up recommended bid price.
+    """
+    from g2b_real_strategy import analyze_competition
+    try:
+        return analyze_competition(start=start,end=end,agency=agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
 class PublicFilteredCollection(BaseModel):
     start: str
     end: str
