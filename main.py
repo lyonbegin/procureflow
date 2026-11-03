@@ -601,6 +601,18 @@ def selected_actual_competition_strategy(
         raise HTTPException(400,str(exc)) from None
 
 
+@app.get("/api/g2b/public/selected/preparation")
+def selected_actual_preparation(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Nine REAL public tender work steps. 10-year analytics is advisory, not HOLD."""
+    from g2b_real_strategy import actual_preparation
+    try:
+        return actual_preparation(start,end,agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
 class PublicFilteredCollection(BaseModel):
     start: str
     end: str
