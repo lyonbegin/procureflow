@@ -1,3 +1,26 @@
+## 실제 운영 Worker 9단계 종단 간 검증 — 2026-11-03 (모의 아님)
+
+- 선택 공고 `R26BK01787028/000` / 상세종목 `8111159901` / 마감 `2026-10-29 10:00` (마감된 과거 입찰, 투찰 없음)
+- 기존 Railway API/Worker 배포 `67d7f25fdefc57a50bd4fec4957e44825b2b319a` `SUCCESS`.
+- 실제 운영 DB의 `procureflow.jobs`에 `source=g2b_public_prepare`, `config` JSON object, 정확한 한 공고 조건으로 **작업 ID 1728**을 *1회* 등록.
+- **실제 Worker가 실행한 작업 상태 `completed_partial`**, 각 단계는 기존 `procureflow.g2b_case_runs`와 `g2b_case_events`에 저장.
+- DB 실행 ID **651** 공고 원본 verified, **652** 기존 첨부 4개 verified(재다운로드 0, 실제 조건 문장 20개), **653** 참가자격 partial(자사 검증 원본 미비), **654** 실제 개찰 264행/원본 확인 공고차수 68건 verified, **655** 실제 경쟁업체 이름 208개/확정 낙찰 0건 verified, **656** 실제 원가 partial(명세 0), **657** 가격 blocked(원가·공식 가격 규칙·외부 인용 증빙 부족), **658** 원본 근거 DOCX review draft generated, **659** `CLOSED_HISTORICAL_ANALYSIS_ONLY` partial.
+- 실제 출력 Word 파일 **40,488 bytes**. SHA256 `b9b5a2b17e9f653cd186a0285e40153221b672a8fae2003a8bca7e172db6b33c`. 기존 운영 PostgreSQL `g2b_public_case_drafts`에 저장, 실제 DOCX URL에서 ZIP/Word 파일 형식을 응답한 것까지 확인.
+- 실제 DB 조회 `GET /api/g2b/public/selected/prepare-jobs/1728`에 9개 `run_id` 반환, `GET /api/g2b/public/selected/prepare-jobs/latest`에서도 새로 고침 시 마지막 작업 1728 자동 복원됨을 확인.
+- 실제 브라우저에서 `/public-search` 새로 열었을 때 9/9 실행 ID, 68개 차수·264개 개찰 기록, 문서 링크 및 비승인 가격 `blocked`가 보였으며 UI 오류 없음.
+- **실제 n8n Execution ID는 없음**. 1728은 기존 Worker 작업 ID, 651~659는 운영 PostgreSQL 실제 업무 단계 ID이다. 이 숫자를 n8n 실행 ID라고 보고하면 안 됨.
+- 공식 확정 낙찰 0건은 개찰 1순위로 대체하지 않았음. 원가·회사자격·필수 제출서류·공식 원본 증빙 부족에 대해서는 최종 제출 완료 주장 금지.
+- 공공(A) 전용 코드만 변경, 개발 외주(B)·고용24 등 민간 인력(C)의 새 로직은 구현하지 않음.
+
+**실제 증빙 링크**
+- [공공 한 건 실데이터 관리화면](https://procureflow-api-production.up.railway.app/public-search)
+- [실제 Worker 작업 1728 및 단계별 DB 이력](https://procureflow-api-production.up.railway.app/api/g2b/public/selected/prepare-jobs/1728)
+- [최신 실제 실행 조회](https://procureflow-api-production.up.railway.app/api/g2b/public/selected/prepare-jobs/latest)
+- [실제 생성된 DOCX 검토 초안](https://procureflow-api-production.up.railway.app/api/g2b/public/selected/prepare-jobs/1728/draft.docx)
+- [검증된 9단계 실행·DOCX 코드 검사](https://github.com/lyonbegin/procureflow/actions/runs/41647929096)
+
+---
+
 # 공공입찰 한 건 실데이터 검색 우선 실행 — 2026-11-03
 
 ## 추가 검증: 원본 문서 하나에서 여러 조건 추출
