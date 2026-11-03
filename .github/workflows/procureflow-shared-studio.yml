@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=a099b7da4e47a0d0e3dc378f72324a7a043bf875' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=470f1e3a376280e4c546cf83248cdf3c02b8fc27' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach a099b7da4e47a0d0e3dc378f72324a7a043bf875
+          git -C /tmp/shared-n8n-studio checkout --detach 470f1e3a376280e4c546cf83248cdf3c02b8fc27
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
