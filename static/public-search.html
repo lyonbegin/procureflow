@@ -86,8 +86,8 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 </div>
 <section class="panel"><h2>실제 수집 근거로 정한 준비 전략</h2><div id="strategy">원본·경쟁·가격 증빙을 종합하는 중…</div><div class="note">확정 낙찰과 가격규칙·원가가 미검증이면 낙찰 예측가격을 만들어내지 않습니다. 부족한 자료는 제출 필수조건인지, 참고 분석자료인지 구분해 표시합니다.</div></section>
 <section class="panel"><h2>공고에 필요한 서류 · 실제 원본을 사용한 초안</h2><div class="actions">
-<a class="btn" href="/api/g2b/full/proposal.docx" target="_blank" rel="noopener">기존 실제 원본 기반 입찰 준비 초안 (.docx)</a>
-<a class="btn secondary" href="/api/g2b/full/proposal" target="_blank" rel="noopener">원본 근거 JSON ↗</a>
+<a class="btn" href="/api/g2b/public/selected/proposal.docx" target="_blank" rel="noopener">기존 실제 원본 기반 입찰 준비 초안 (.docx)</a>
+<a class="btn secondary" href="/api/g2b/public/selected/proposal" target="_blank" rel="noopener">원본 근거 JSON ↗</a>
 </div><div id="proposal" class="muted">기존 업무 엔진의 초안·필수자료 확인 중</div><div class="note">요청된 제출서류 여부는 실제 공고·첨부별로 판단해야 합니다. 원본에 없는 제안서 양식이나 증빙을 완성했다고 표시하지 않습니다.</div></section>
 <section class="panel"><h2>필요한 공고만 추가 실제 개찰 조회 (관리자 승인)</h2>
 <p class="muted">필터에 일치하고 원본 10자리 세부품명이 공식 확인된 공고 중 최대 3건만 기존 G2B 공개 개찰 수집기에 넘깁니다. 현재 작업 중복 방지·원본 상태 검증 후 실제 Worker에 등록합니다. 10년 전체 일괄 수집은 실행하지 않습니다.</p>
@@ -229,7 +229,7 @@ async function loadPreparation(){
  const f=filters();
  const q=new URLSearchParams({start:f.start,end:f.end,agency:f.agency});
  const got=await Promise.allSettled([
-  fetchJSON("/api/g2b/full/price"),fetchJSON("/api/g2b/full/proposal"),
+  fetchJSON("/api/g2b/full/price"),fetchJSON("/api/g2b/public/selected/proposal"),
   fetchJSON("/api/g2b/public/selected/preparation?"+q)]);
  const [p,docs,ready]=got;
  if(p.status==="fulfilled"){
