@@ -20,7 +20,7 @@ const GROUPS=[
 const caseState={
  catalog:null, workflow:null, run:null, history:null, rows:[],
  selectedNode:null, busy:false, cancel:false, loading:false, loadError:null, stage:'selected',
- latestRuns:[], readiness:null
+ latestRuns:[], readiness:null, verifiedSnapshot:null, verifiedLoading:false, verifiedError:null
 };
 const escapeHtml=x=>String(x===undefined||x===null?'':x).replace(/[&<>"']/g,v=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[v]));
 const pretty=x=>JSON.stringify(x===undefined?null:x,null,2);
@@ -114,6 +114,28 @@ function historyRows(){
  '<td>'+action('history','Run 원본 확인','small',false,'data-run="'+escapeHtml(row.workflow_run_id)+'"')+'</td></tr>').join('')+
  '</tbody></table></div>';
 }
+function verifiedPanel(){
+ const original=caseState.verifiedSnapshot;
+ const scanned=!!original;
+ const main=caseState.run?.records?.at(-1)?.output_json;
+ const checked=Object.keys(main?.feature_results||{}).length;
+ let html='<div class="metric-grid">'+
+ stat('기존 업무 API 실제 증빙 조회',scanned?'조회됨':'미조회','G2B 수집·DB 쓰기 없음')+
+ stat('원본 104 기능 증빙 승인',scanned?(original.features_officially_verified+'/104'):'—','모의 실행 '+checked+'/104와 구분')+
+ stat('실제 43블록 확인',scanned?(original.business_blocks_checked+'/43'):'—','PF01~PF15 읽기 전용')+
+ stat('최종 준비 가능',scanned&&original.eligible_for_manual_bid_participation?'별도 사람 검토':'HOLD','자동 입찰참가 절대 없음')+'</div>';
+ html+='<div class="actions">'+action('load-verified',caseState.verifiedLoading?'기존 업무 DB 확인 중…':'↻ 기존 업무 DB 증빙만 확인','outline',caseState.verifiedLoading)+
+ '<span class="muted smalltxt">기존 ProcureFlow API의 PF01~PF15 inspect GET만 조회 · Worker/수집기 실행 없음</span></div>';
+ if(caseState.verifiedError)html+=info('운영 업무 DB 읽기 실패: '+escapeHtml(caseState.verifiedError)+'. 공식 완료로 표시하지 않습니다.',true);
+ if(original){
+  html+=info('운영 PostgreSQL은 <strong>'+original.features_officially_verified+'개 기능</strong>만 공식 증빙 검증 상태이며, 별도 Studio 모의 테스트 '+checked+'개를 공식 증빙으로 합산하지 않습니다.',true);
+  html+='<div class="table-wrap"><table><thead><tr><th>업무</th><th>원본 API 판정</th><th>미충족 공식 증빙</th></tr></thead><tbody>'+
+    (original.blocks||[]).map(b=>'<tr><td><b>'+escapeHtml(b.id)+' · '+escapeHtml(b.name)+'</b></td><td>'+
+    badge(b.status,b.status==='verified'?'ok':'warn')+'</td><td>'+
+    escapeHtml((b.missing_evidence||[]).join(', ')||'없음')+'</td></tr>').join('')+'</tbody></table></div>';
+ }
+ return html;
+}
 function selector(){
  const c=selectCase();
  return '<section class="panel"><h3>① 현재 선택된 입찰공고</h3>'+
@@ -134,7 +156,7 @@ function renderOverview(){
  '<div class="actions">'+action('start','▶ 선택 입찰 모의 처리 시작','primary')+
  '<button data-page="public" class="btn small">입찰 한 건 상세 관제</button>'+
  '<button data-page="features" class="btn small">104개 기능별 검증</button></div></section>'+
- selector()+'<div class="metric-grid">'+
+ selector()+card('기존 104 API·43블록 공식 증빙 상태',verifiedPanel())+'<div class="metric-grid">'+
  stat('현재 발주','1건','다른 공고로 자동 변경 안 함')+
  stat('원래 43개 업무 노드',caseState.workflow?.nodes?.length||'43','기존 manifest 기반')+
  stat('모의 검증된 기능',Object.keys(caseState.run?.records?.at(-1)?.output_json?.feature_results||{}).length+'/104','공식 검증과 무관')+
@@ -147,7 +169,7 @@ function renderOverview(){
 function renderPublic(){
  return '<section class="hero"><div class="kicker">PUBLIC TENDER / 104 STEPS</div><h2>입찰 한 건의 전체 실행·수주전략·최종 서류</h2>'+
  '<p>기존 PF00~PF15, 43개 블록, 104개 기능을 그대로 적용합니다. 이번 테스트에서는 외부 크롤링·운영 n8n 실행을 차단하고 같은 업무 계약을 가상 원본으로 검증합니다.</p></section>'+
- selector()+card('② 전체 처리 및 진행 상황',progress()+runControls()+blockGroups())+
+ selector()+card('기존 운영 업무 DB와 모의 실행 차이',verifiedPanel())+card('② 전체 처리 및 진행 상황',progress()+runControls()+blockGroups())+
  card('③ 과거 낙찰데이터 → 가격전략 → 제안서',proposalView(caseState.run?.records?.at(-1)?.output_json))+
  card('④ 검증·감사·중단 이유',historyRows());
 }
@@ -182,15 +204,15 @@ function renderFeatures(){
  '<p>기능별 명칭·증빙 요구조건을 원래 g2b_feature_registry.py에서 빌드 시 직접 추출했습니다. 모의 노드 성공은 실제 입찰업무 검증 완료가 아닙니다.</p></section>'+
  '<div class="metric-grid">'+stat('원본 기능',records.length||'104','기존 2026-10-28 기능 계약')+
  stat('모의 실행',Object.keys(checks).length+'/104','노드 호출 결과')+
- stat('공식 10년 증빙',0,'수집하지 않음')+
+ stat('원본 기능 공식 증빙',caseState.verifiedSnapshot?.features_officially_verified??'—','기존 DB 읽기 버튼으로 확인')+
  stat('입찰참가 준비','HOLD','원본·자격·가격 검증 미충족')+'</div>'+
- card('7개 업무분야 완료 현황',blockGroups())+
+ card('기존 업무 엔진 읽기 전용 증빙 확인',verifiedPanel())+card('7개 업무분야 완료 현황',blockGroups())+
  card('104개 기능별 실제 계약 · 검증 요건','<div class="table-wrap"><table><thead><tr><th>번호</th><th>기능명</th><th>담당 블록</th><th>모의 처리</th><th>공식 근거</th></tr></thead><tbody>'+
  records.map(item=>{let hit=checks[String(item.number)];
  return '<tr><td>F'+String(item.number).padStart(3,'0')+'</td><td><strong>'+escapeHtml(item.label)+'</strong>'+
  '<div class="muted smalltxt">필요 증빙: '+escapeHtml((item.required_evidence||[]).join(', '))+'</div></td>'+
  '<td>'+escapeHtml(item.block_id)+'</td><td>'+badge(hit?'MOCK 실행':'미실행',hit?'ok':'warn')+'</td>'+
- '<td>'+badge('공식 미검증','warn')+'</td></tr>';
+ '<td>'+badge(caseState.verifiedSnapshot?.features?.find(x=>x.number===item.number)?.acceptance_state||'미조회',caseState.verifiedSnapshot?.features?.find(x=>x.number===item.number)?.acceptance_state==='verified'?'ok':'warn')+'</td></tr>';
  }).join('')+'</tbody></table></div>')+
  info('공식 입찰 준비 완료 여부는 기존 g2b_case_engine.py의 독립 증빙 판정이 기준입니다. 테스트용 입력값과 기능의 구현·증빙 완료를 혼동하지 않습니다.',true);
 }
@@ -198,7 +220,7 @@ function renderStrategy(){
  return '<section class="hero"><div class="kicker">AWARD DATA → WIN STRATEGY → PROPOSAL</div>'+
  '<h2>낙찰데이터가 실제 입찰전략과 제안서를 바꾸는 과정</h2>'+
  '<p>10년의 실제 투찰·낙찰 기록, RFP 평가기준, 자격, 공급업체 견적, 원가가 한 입찰 건에 결합되어야 합니다. 모의 자료로 대안을 계산하되 공식 결과로 과장하지 않습니다.</p></section>'+
- selector()+card('기존 업무 104개 기반 전략·가격·제안서',proposalView(caseState.run?.records?.at(-1)?.output_json));
+ selector()+card('기존 104개 기능의 실제 업무 증빙',verifiedPanel())+card('기존 업무 104개 기반 전략·가격·제안서',proposalView(caseState.run?.records?.at(-1)?.output_json));
 }
 function renderAudit(){
  let h=caseState.history,r=caseState.run;
@@ -287,6 +309,20 @@ async function run(which){
   caseState.loadError=e.message;
  }finally{caseState.busy=false;changed();}
 }
+async function loadVerified(){
+ if(caseState.verifiedLoading)return;
+ caseState.verifiedLoading=true;caseState.verifiedError=null;changed();
+ try{
+  const obj=await getJSON('/api/procurement/public/verified-evidence');
+  if(obj.source_provenance!=='live_procureflow_postgresql_verified_evidence'||
+     obj.bid_no!=='R26BK01787028'||obj.bid_ord!=='000'||
+     obj.business_blocks_checked!==43||obj.features_checked!==104||
+     obj.automatic_bid_submission!==false||obj.actual_job_executed!==false)
+   throw Error('ORIGINAL_104_DATABASE_SOURCE_CONTRACT_MISMATCH');
+  caseState.verifiedSnapshot=obj;
+ }catch(e){caseState.verifiedSnapshot=null;caseState.verifiedError=e.message;}
+ finally{caseState.verifiedLoading=false;changed();}
+}
 async function openHistory(id){
  try{
   let out=await getJSON('/api/procurement/console/run?workflow_run_id='+encodeURIComponent(id));
@@ -305,6 +341,7 @@ document.addEventListener('click',e=>{
  if(key==='select'){if(!caseState.busy){caseState.run=null;caseState.selectedNode=null;changed();}return;}
  if(key==='inspect'){caseState.selectedNode=b.dataset.node;changed();return;}
  if(key==='history')return openHistory(b.dataset.run);
+ if(key==='load-verified')return loadVerified();
 });
 function renderWithError(html){
  return caseState.loadError?info('확인 또는 실행 오류: '+escapeHtml(caseState.loadError),true)+html:html;
