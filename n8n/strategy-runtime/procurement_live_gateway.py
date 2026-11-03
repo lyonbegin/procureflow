@@ -65,7 +65,7 @@ def proxy_get(route,query=""):
         status=params.get("status",["all"])[0]
         limit=params.get("limit",["30"])[0]
         offset=params.get("offset",["0"])[0]
-        if not isinstance(q,str) or len(q)>120 or status not in ("all","open","closed"):
+        if not isinstance(q,str) or len(q)>120 or any(ord(ch)<32 for ch in q) or status not in ("all","open","closed"):
             raise ValueError("INVALID_LIST_FILTER")
         if not limit.isdigit() or not 1<=int(limit)<=100:
             raise ValueError("INVALID_LIST_LIMIT")
