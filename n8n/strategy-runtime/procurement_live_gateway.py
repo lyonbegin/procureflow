@@ -60,12 +60,25 @@ def _stage1_actual_notice_nodes(query):
     This is not a G2B crawl or an n8n Execution; unknown states stay unknown.
     """
     from datetime import datetime, timezone
-    status,notice=proxy_get("notices",query)
+    from urllib.parse import parse_qs, urlencode
+    params=parse_qs(query,keep_blank_values=True)
+    selected_values=params.pop("selected_bid_no",[])
+    ord_values=params.pop("selected_bid_ord",[])
+    if len(selected_values)>1 or len(ord_values)>1:
+        raise ValueError("INVALID_STAGE1_SELECTION")
+    chosen=selected_values[0] if selected_values else ""
+    chosen_ord=ord_values[0] if ord_values else ""
+    if chosen and not re.fullmatch(r"[A-Za-z0-9-]{5,50}",chosen):
+        raise ValueError("INVALID_STAGE1_SELECTION")
+    if chosen_ord and not re.fullmatch(r"[A-Za-z0-9]{1,8}",chosen_ord):
+        raise ValueError("INVALID_STAGE1_SELECTION")
+    source_query=urlencode([(key,value) for key,values in params.items() for value in values])
+    status,notice=proxy_get("notices",source_query)
     if status!=200 or notice.get("source")!="actual_procureflow_postgresql_g2b_notices" or not isinstance(notice.get("items"),list):
         raise ValueError("STAGE1_REQUIRES_ACTUAL_POSTGRESQL_NOTICES")
     rows=notice["items"]
     stamp=datetime.now(timezone.utc).isoformat()
-    n01_input={"query":query,"operation":"read_existing_g2b_postgresql","crawl_requested":False}
+    n01_input={"query":source_query,"operation":"read_existing_g2b_postgresql","crawl_requested":False}
     n01_output={"source":notice["source"],"records":rows,"returned_count":len(rows),
                 "total":notice.get("total"),"read_at_utc":stamp}
     identified=[]
@@ -104,18 +117,41 @@ def _stage1_actual_notice_nodes(query):
                             "amended":sum(x["branch"]=="amended" for x in identified),
                             "cancelled":sum(x["branch"]=="cancelled" for x in identified),
                             "unknown_unverified":sum(x["branch"]=="unknown_unverified" for x in identified)}}
+    selected=next((r for r in identified if r["bid_no"]==chosen and
+                   (not chosen_ord or r["bid_ord"]==chosen_ord)),None)
+    if not chosen:
+        route="selection_required"
+    elif not selected:
+        route="selected_notice_not_in_current_source_page"
+    elif selected["branch"]=="cancelled":
+        route="cancelled_hold"
+    elif selected["branch"]=="amended":
+        route="pf13_revalidation_required"
+    elif selected["branch"]=="new":
+        route="n05_and_o01_candidate"
+    else:
+        route="unverified_hold"
+    selection_input={"upstream_node_id":"N02","bid_no":chosen or None,
+                     "bid_ord":chosen_ord or None,
+                     "identified_records":n02_output["tender_identifiers"]}
+    selection_output={"selected":selected,"route":route,
+                      "eligible_for_downstream":route=="n05_and_o01_candidate",
+                      "downstream_executed":False}
+    n02_output["selection"]=selection_output
     return 200,{"source":notice["source"],"notices":notice,
                 "execution_kind":"actual_database_read_and_identifier_processing_not_n8n",
-                "crawler_executed":False,"worker_executed":False,
+                "crawler_executed":False,"worker_executed":False,"selected_route":selection_output,
                 "nodes":[{"id":"N01","name":"기존 PostgreSQL 공고 후보 확보",
                           "status":"db_read_executed","input":n01_input,"output":n01_output},
                          {"id":"N02","name":"공고번호·차수 식별과 분기 판단",
-                          "status":"identification_executed","input":n02_input,"output":n02_output}],
+                          "status":"identification_executed","input":n02_input,"output":n02_output},
+                         {"id":"N02_ROUTE","name":"선택 공고 조건 분기","status":"route_evaluated_not_dispatched","input":selection_input,"output":selection_output}],
                 "connections":[{"from":"N01","to":"N02","field":"output.records -> input.records"},
-                               {"from":"N02","to":"N05","condition":"user_selected_and_official_detail_required"},
-                               {"from":"N02","to":"O01","condition":"user_selected_and_case_claim_required"},
-                               {"from":"N02","to":"PF13","condition":"amended"},
-                               {"from":"N02","to":"HOLD","condition":"cancelled_or_unverified"}]}
+                               {"from":"N02","to":"N02_ROUTE","field":"output.tender_identifiers -> input.identified_records"},
+                               {"from":"N02_ROUTE","to":"N05","condition":"user_selected_and_official_detail_required"},
+                               {"from":"N02_ROUTE","to":"O01","condition":"user_selected_and_case_claim_required"},
+                               {"from":"N02_ROUTE","to":"PF13","condition":"amended"},
+                               {"from":"N02_ROUTE","to":"HOLD","condition":"cancelled_or_unverified"}]}
 
 def proxy_get(route,query=""):
     """Known live endpoints only; no arbitrary paths/SSRF/credential leaking."""
