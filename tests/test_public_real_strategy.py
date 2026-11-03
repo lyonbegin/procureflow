@@ -31,6 +31,14 @@ class SourceSQL:
                  "excerpt":"입찰참가자격 및 견적서 제출방법을 확인하십시오.",
                  "content":"입찰참가자격 및 견적서 제출방법을 확인하십시오.",
                  "original_url":"https://www.g2b.go.kr/path"}])
+        if "COUNT(*)::int AS total_rows" in sql:
+            assert "r.result_kind=%s" in sql
+            assert "award" in params
+            return Rows([{"total_rows":0,"source_notice_rounds":0,
+              "opening_rows":0,"confirmed_award_rows":0,"bidder_names":0}])
+        if "r.bid_ntce_no AS bid_no" in sql:
+            assert "award" in params
+            return Rows([])
         if "GROUP BY r.company" in sql:
             return Rows([{"company":"&#40;주&#41;실제업체","opening_rows":3,
                  "distinct_notice_rounds":2,
@@ -53,6 +61,7 @@ con=SourceSQL()
 result=analyze_competition("2026-01-01","2026-10-22",connection=con,now=now)
 assert result["real_data_only"] and result["source"]=="existing_real_procureflow_g2b_openings"
 assert result["observed"]["opening_rows"]==262
+assert result["confirmed_award_observed"]["award_rows"]==0
 assert result["observed"]["observed_notice_rounds"]==67
 assert result["observed"]["rows_with_numeric_amounts"]==156
 assert result["same_agency_filter"]=="전남테크노파크"
