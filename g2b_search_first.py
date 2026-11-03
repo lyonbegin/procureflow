@@ -236,6 +236,11 @@ def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
     out=collector(days=1,pages=1,bid_numbers=selected)
     if not isinstance(out,dict):
         raise ValueError("EXISTING_G2B_COLLECTOR_INVALID_RESPONSE")
+    if connection is None:
+        with session() as con:
+            _save_filtered_attempts(con,candidates,out)
+    else:
+        _save_filtered_attempts(connection,candidates,out)
     return {"status":out.get("status","unknown"),
         "case_bid_no":s.bid_no,"exact_detail10":s.detail10,
         "selected":len(selected),"selected_notice_ids":selected,
@@ -285,3 +290,39 @@ def _filtered_gaps(con, s: Search, limit: int):
     sql+=" ORDER BY h.published_on DESC,v.bid_no LIMIT %s"
     args.append(limit)
     return [_json_row(x) for x in con.execute(sql,tuple(args)).fetchall()]
+
+
+def _save_filtered_attempts(con, candidates, collector_output):
+    """Persist *real* per-ID outcome, even when the public detail is unavailable.
+
+    The original _filtered_gaps excludes attempts from the previous 12 hours.
+    No inferred bidder/award is created when the official site has no detail.
+    """
+    saved={(x.get("bid_no"),x.get("bid_ord")):x
+            for x in collector_output.get("bid_details",[])
+            if isinstance(x,dict)}
+    unavailable=set(collector_output.get("unavailable_details",[]))
+    errors=collector_output.get("errors",[])
+    for row in candidates:
+        bid=row["bid_no"];ord_=row["bid_ord"]
+        detail=saved.get((bid,ord_))
+        if detail is not None:
+            status="received_opening"
+            body={"bid_no":bid,"bid_ord":ord_,
+                  "actual_bidders":int(detail.get("bidders") or 0),
+                  "saved":int(detail.get("saved") or 0),
+                  "new":int(detail.get("new") or 0),
+                  "winner_confirmed":bool(detail.get("winner_confirmed",False))}
+        elif bid in unavailable:
+            status="public_opening_unavailable"
+            body={"bid_no":bid,"bid_ord":ord_,"actual_bidders":0,
+                  "reason":"original_g2b_opening_detail_not_published"}
+        else:
+            status="error" if errors else "no_opening_rows"
+            body={"bid_no":bid,"bid_ord":ord_,"actual_bidders":0,
+                  "errors":[str(x)[:150] for x in errors[:3]]}
+        from json import dumps
+        con.execute("""INSERT INTO procureflow.g2b_case_outcome_attempts(
+           case_bid_no,bid_no,bid_ord,stage,status,detail)
+           VALUES (%s,%s,%s,'opening_collection',%s,%s::jsonb)""",
+           (CASE_BID,bid,ord_,status,dumps(body,ensure_ascii=False)))
