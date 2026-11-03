@@ -2288,7 +2288,7 @@ def test_official_json_integer_amount_within_decimal_bound_still_accepted(amount
     assert result["status"] == "completed"
     assert statuses and statuses[-1][2] == "completed"
     assert len(inserted) == 1
-    assert inserted[0][7] == (amount or None)
+    assert inserted[0][7] == amount  # explicit official zero is evidence, not NULL
 
 
 @pytest.mark.parametrize("raw_budget", [0, "0", " 0 "])
