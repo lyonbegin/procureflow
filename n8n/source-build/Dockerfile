@@ -57,7 +57,10 @@ COPY --chown=node:node n8n/source-build/compile-native-topology.mjs /usr/local/b
 COPY --chown=node:node n8n/source-build/test-native-topology.mjs /usr/local/bin/procureflow-test-topology
 COPY --chown=node:node n8n/source-build/bootstrap-workflows.sh /usr/local/bin/procureflow-n8n-bootstrap
 COPY --chown=node:node n8n/source-build/pf05-readonly-canary.sh /usr/local/bin/procureflow-pf05-canary
-RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap /usr/local/bin/procureflow-pf05-canary
+RUN chmod 755 /usr/local/bin/procureflow-n8n-bootstrap /usr/local/bin/procureflow-pf05-canary \
+    && /bin/sh -n /usr/local/bin/procureflow-n8n-bootstrap \
+    && /bin/sh -n /usr/local/bin/procureflow-pf05-canary \
+    && grep -Fxq 'exec n8n start' /usr/local/bin/procureflow-n8n-bootstrap
 USER root
 EXPOSE 5678
 ENTRYPOINT ["tini", "--"]
