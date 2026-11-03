@@ -5,6 +5,7 @@ on:
       - feature/public-search-first-real-20261103
     paths:
       - g2b_search_first.py
+      - g2b_bid_collector.py
       - g2b_bid_package.py
       - main.py
       - worker.py
@@ -31,6 +32,17 @@ jobs:
         run: python tests/test_public_search_first.py
       - name: In-house versus subcontract documented cost policy
         run: python tests/test_public_real_cost_policy.py
+      - name: Validate actual search-workbench inline browser JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          page=Path("static/public-search.html").read_text()
+          assert "실제 G2B" in page
+          assert '<script>' in page
+          js=page.split("<script>")[-1].split("</script>")[0]
+          Path("/tmp/public-search.js").write_text(js)
+          PY
+          node --check /tmp/public-search.js
       - name: Verify new real search endpoints and not standalone fake runner
         run: |
           python - <<'PY'
@@ -45,6 +57,8 @@ jobs:
           assert "g2b_case_10yr_windows" not in query
           assert "collect_filtered_gaps" in query
           assert "g2b_bid_collector" in query
+          collector=Path('g2b_bid_collector.py').read_text()
+          assert '0 if bid_numbers else remove_superseded_bid_rows()' in collector
           assert "new_n8n" not in query
           print('ORIGINAL_G2B_WORKER_REAL_QUERY_ONLY_CONTRACT_PASS')
           PY
