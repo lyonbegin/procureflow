@@ -621,7 +621,9 @@ def scan_month(first, pages_max=30):
             # only non-negative integer JSON numbers or decimal digit strings;
             # missing/empty amounts remain unknown (NULL), not fabricated 0.
             if raw_amount is None or raw_amount=="":
-                amount=0
+                # Unknown/missing budget is SQL NULL; an explicit official
+                # numeric zero is valid evidence and must stay integer 0.
+                amount=None
             elif type(raw_amount) is int and 0<=raw_amount<10**38:
                 # JSON numeric tokens must obey the same 38-digit bound as
                 # decimal strings. Without this, a 100-digit JSON integer
@@ -639,7 +641,7 @@ def scan_month(first, pages_max=30):
             else:
                 invalid+=1
                 continue
-            if amount<0:
+            if amount is not None and amount<0:
                 invalid+=1
                 continue
             # Official notice title/agency are text fields, not arbitrary
@@ -656,7 +658,7 @@ def scan_month(first, pages_max=30):
             confirmed.append((CASE_BID,no,ord_,CAT8,day,
                 (raw_title or "")[:350],
                 (raw_agency or raw_alt_agency or "")[:250],
-                amount or None,
+                amount,
                 "https://www.g2b.go.kr/","official_openapi_explicit_code"))
         if unknown or invalid:
             reason=("undetermined_category_rows="+str(unknown)+
