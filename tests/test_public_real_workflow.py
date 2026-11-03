@@ -10,7 +10,7 @@ from g2b_real_strategy import classify_public_preparation
 from g2b_bid_package import draft_docx
 from docx import Document
 
-strategy={"status":"actual_opening_comparison_available",
+strategy={"status":"actual_opening_comparison_available","real_data_only":True,
   "target_notice":{"title":"선택 공고","agency":"기관","method":"소액수의견적",
                    "deadline_passed":True},
   "case_bid_no":"R26BK01787028","source_document_count":1,
