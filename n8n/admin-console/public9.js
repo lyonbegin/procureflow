@@ -78,7 +78,7 @@ async function poll(){
 }
 function tender(){return st.notices?.items?.find(x=>x.bid_no===st.selected)||null;}
 function selectedReady(){return tender()?.can_run_full_evidence===true&&st.selected===CASE;}
-function nodeRecords(){return st.job?.steps||[];}
+function nodeRecords(){return selectedReady()?st.job?.steps||[]:[];}
 function stageStatus(i){
  if(st.selected!==CASE)return '이 공고 실행 엔진 미연결';
  const x=nodeRecords()[i];return x?x.state:(st.job?.job_state==='queued'?'실행 대기':'미실행');
@@ -99,7 +99,7 @@ function main(){
  const chosen=t?'<div class="item"><b>'+esc(t.title)+'</b><p>'+esc(t.bid_no+'/'+(t.bid_ord||'000'))+
   ' · '+esc(t.agency)+' · 공고일 '+esc(t.notice_date)+' · 마감 '+esc(t.deadline)+'</p></div>':
   '<div class="empty">선택된 실제 공고가 없습니다.</div>';
- const current=st.job;
+ const current=selectedReady()?st.job:null;
  const cards=STAGES.map(([name,desc],i)=>'<button class="btn small '+(st.selectedNode===i?'primary':'outline')+
   '" data-public9="node" data-index="'+i+'" style="text-align:left;flex:1 1 200px;min-width:185px;padding:12px">'+
   '<b>'+String(i+1).padStart(2,'0')+' · '+esc(name)+'</b><div class="muted smalltxt">'+esc(desc)+'</div>'+
