@@ -96,7 +96,7 @@ def _fixture_awards():
           "rank":j+1} for j in range(3+(i%2))]
         winner=vendors[i%3]
         rows.append({"notice_id":f"FICTIONAL-{year}-SW-{i+1:03d}",
-          "year":year,"detail10":EXACT10,"agency":"가상 발주기관(실제 기관 아님)" if i%2==0 else "가상 타기관",
+          "year":year,"detail10":EXACT10,"agency":"가상 발주기관(실제 기관 정보 아님)" if i%2==0 else "가상 타기관",
           "base_amount_krw":base+17_000_000,
           "bids":bids,"winner":winner,"award_amount_krw":next(x["bid_krw"] for x in bids if x["vendor"]==winner),
           "fictional":True})
