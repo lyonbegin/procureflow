@@ -103,10 +103,17 @@ def read_original_evidence(*,fetcher=None):
     if len(blocks)!=43 or len(features)!=104 or set(features)!=set(range(1,105)):
         raise ValueError("ORIGINAL_43_BLOCK_104_FEATURE_COVERAGE_INVALID")
     confirmed=sum(x["acceptance_state"]=="verified" and not x["missing_evidence"] for x in features.values())
+    # The backend may carry a configured 10-digit code before its original
+    # classification is certified. Never label that as official verified.
+    detail_verified=bool(notice_verified and all(
+       features[n]["acceptance_state"]=="verified" and not features[n]["missing_evidence"]
+       for n in (19,49)
+    ))
     return {
         "mode":"original_postgresql_read_only","source_provenance":SOURCE,
         "bid_no":CASE_BID,"bid_ord":CASE_ORD,"official_notice_verified":notice_verified,
-        "verified_official_detail10":sorted(official_details),
+        "configured_or_observed_detail10":sorted(official_details),
+        "verified_official_detail10":sorted(official_details) if detail_verified else [],
         "original_flows_checked":len(results),"business_blocks_checked":len(blocks),
         "features_checked":len(features),"features_officially_verified":confirmed,
         "features_missing_or_blocked":104-confirmed,
