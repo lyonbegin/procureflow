@@ -18,6 +18,9 @@ ID = re.compile(r"^(?:R\d{2}BK\d{8}|\d{11})$")
 TEN = re.compile(r"^\d{10}$")
 ALLOWED_KINDS = ("all", "opening", "award")
 MAX_LIMIT = 200
+# Only information available by the selected notice publication date may be
+# used to reconstruct its competitive decision. Exclude later outcomes.
+SELECTED_PUBLICATION_CUTOFF = date(2026, 10, 22)
 
 
 @dataclass(frozen=True)
@@ -41,10 +44,10 @@ def filters(bid_no=CASE_BID, detail10=SUB10, start=None, end=None,
     if not isinstance(detail10, str) or not TEN.fullmatch(detail10) or detail10 != SUB10:
         raise ValueError("TEN_DIGIT_DETAIL_MUST_MATCH_SELECTED_CASE")
     first = date.fromisoformat(start) if isinstance(start, str) else (start or BEGIN)
-    last = date.fromisoformat(end) if isinstance(end, str) else (end or END)
+    last = date.fromisoformat(end) if isinstance(end, str) else (end or min(END, SELECTED_PUBLICATION_CUTOFF))
     if not isinstance(first, date) or not isinstance(last, date) or first > last:
         raise ValueError("INVALID_SEARCH_PERIOD")
-    if first < BEGIN or last > END:
+    if first < BEGIN or last > min(END, SELECTED_PUBLICATION_CUTOFF):
         raise ValueError("SEARCH_OUTSIDE_SELECTED_CASE_HISTORICAL_PERIOD")
     if kind not in ALLOWED_KINDS:
         raise ValueError("INVALID_RESULT_KIND")
