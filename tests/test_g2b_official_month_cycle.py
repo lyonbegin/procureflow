@@ -2289,3 +2289,44 @@ def test_official_json_integer_amount_within_decimal_bound_still_accepted(amount
     assert statuses and statuses[-1][2] == "completed"
     assert len(inserted) == 1
     assert inserted[0][7] == (amount or None)
+
+
+@pytest.mark.parametrize("raw_budget", [0, "0", " 0 "])
+def test_official_zero_budget_is_not_missing_budget(raw_budget):
+    """An explicit official zero must survive into the history INSERT as 0.
+
+    Previous 'amount or None' silently converted a verified zero to NULL,
+    making an actual zero indistinguishable from absent budget evidence.
+    This uses FakeHTTP/FakeDB only; no G2B, Railway or real bid access.
+    """
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK12345678",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+        "asignBdgtAmt": raw_budget,
+    }
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][7] == 0
+    assert type(inserted[0][7]) is int
+
+
+@pytest.mark.parametrize("missing_budget", ["absent", None, ""])
+def test_official_missing_budget_stays_unknown_not_fabricated_zero(missing_budget):
+    """Missing/empty official amounts remain SQL NULL, not a claimed zero."""
+    notice = {
+        "prdctClsfcNo": "81111599",
+        "bidNtceNo": "R24BK12345678",
+        "bidNtceOrd": "000",
+        "bidNtceDt": "2024-03-07",
+    }
+    if missing_budget != "absent":
+        notice["asignBdgtAmt"] = missing_budget
+    result, statuses, inserted = run_month(response([notice], 1))
+    assert result["status"] == "completed"
+    assert statuses and statuses[-1][2] == "completed"
+    assert len(inserted) == 1
+    assert inserted[0][7] is None
