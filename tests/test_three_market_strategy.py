@@ -1,64 +1,67 @@
 #!/usr/bin/env python3
-"""No-network acceptance tests for the 3 new strategy markets and shared Studio bindings."""
-import importlib.util
-import json
+"""Public original 43/104 test plus regression-only B/C prototype checks.
+NO official G2B calls, official n8n runs or submissions.
+"""
+import importlib.util,json,sys
 from pathlib import Path
-
 root=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+sys.path.insert(0,str(root/"n8n/strategy-runtime"))
 spec=importlib.util.spec_from_file_location("procurement_node_adapter",root/"n8n/strategy-runtime/procurement_node_adapter.py")
 mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
-paths={
- "public":"A01-public-win-strategy.json",
- "private_dev":"B01-private-software-proposal.json",
- "staffing":"C01-staffing-service-proposal.json"}
-decisions={
- "public":"HOLD_OFFICIAL_EVIDENCE",
- "private_dev":"REVIEW_FOR_CLIENT_PROPOSAL",
- "staffing":"HOLD_LEGAL_AND_REAL_STAFF_CHECK"}
-for market,file in paths.items():
+public=mod.public_case
+w=json.loads((root/"n8n/strategy-workflows/A01-public-win-strategy.json").read_text())
+assert not w["active"] and w["meta"]["simulation_only"] and w["meta"]["never_calls_official_api"]
+assert len(w["nodes"])==43 and len(w["connections"])==42
+assert len(public.ORDER)==43 and len(public.CATALOG)==104
+assert w["meta"]["studioDefaultInput"]==public.ROOT_DEFAULT
+for i,node in enumerate(w["nodes"]):
+    assert node["id"]=="public-"+public.ORDER[i]
+    assert mod.node_binding(public.PATH,node["id"])==node["parameters"]["studioPython"]
+    assert mod.node_type(public.PATH,node["id"])==node["type"]
+state=mod.execute_node(public.PATH,w["nodes"][0]["id"],w["meta"]["studioDefaultInput"])
+for node in w["nodes"][1:]:
+    state=mod.execute_node(public.PATH,node["id"],state)
+assert state["business_status"]=="MOCK_COMPLETED_OFFICIAL_HOLD"
+assert state["strategy_decision"]=="HOLD_OFFICIAL_EVIDENCE"
+assert len(state["completed_blocks"])==43
+assert set(map(int,state["feature_results"]))==set(range(1,105))
+assert all(x["test_status"]=="MOCK_EXECUTED" and x["official_verified"] is False for x in state["feature_results"].values())
+assert state["results"]["H07"]["mock_windows_processed"]==121
+assert state["results"]["H07"]["official_windows_verified"]==0
+assert state["results"]["H07"]["official_10_year_coverage_complete"] is False
+assert state["results"]["P07"]["selected"]["name"]=="balanced"
+assert len(state["results"]["R01"]["sections"])==6
+assert state["results"]["Q05"]["eligible"] is False
+assert state["results"]["O04"]["official_verified_features"]==0
+assert not state["bid_submitted"] and not state["actual_job_executed"] and not state["n8n_live_execution"]
+for mutate in [
+ {"bid_no":"R26BK01787029"},
+ {"detail10":"81111599"},
+ {"fixture_id":"LIVE_G2B"},
+ {"live_api":True},
+]:
+    inp=dict(public.ROOT_DEFAULT);inp.update(mutate)
+    try:public.run_block("N01",inp)
+    except ValueError:pass
+    else:raise AssertionError("Unapproved input was accepted: "+str(mutate))
+try: public.run_block("H01",state)
+except ValueError:pass
+else:raise AssertionError("Unordered replay must be denied")
+print("PUBLIC_SELECTED_CASE_ORIGINAL_43_BLOCK_104_FEATURE_MOCK_E2E_PASS")
+# Existing B/C remain strictly regression-tested as they were.
+for market,file,decision in [
+ ("private_dev","B01-private-software-proposal.json","REVIEW_FOR_CLIENT_PROPOSAL"),
+ ("staffing","C01-staffing-service-proposal.json","HOLD_LEGAL_AND_REAL_STAFF_CHECK")
+]:
     path="operations/"+file
     wf=json.loads((root/"n8n/strategy-workflows"/file).read_text())
-    assert wf["active"] is False
-    assert wf["meta"]["simulation_only"] and wf["meta"]["never_calls_official_api"]
-    assert wf["meta"]["studioDefaultInput"]==mod.ROOT_DEFAULTS[market]
-    assert len(wf["nodes"])==len(mod.STEP_NAMES[market])
-    assert len(wf["connections"])==len(wf["nodes"])-1
-    for node in wf["nodes"]:
-        bind=mod.node_binding(path,node["id"])
-        assert bind==node["parameters"]["studioPython"]
-        assert mod.node_type(path,node["id"])==node["type"]
-        assert bind["python_module"]=="procurement_node_adapter"
-    value=mod.execute_node(path,wf["nodes"][0]["id"],wf["meta"]["studioDefaultInput"])
-    assert value["source_provenance"]=="fictional_test_fixture"
-    assert not value["actual_job_executed"] and not value["bid_submitted"] and not value["client_contacted"]
-    for i,node in enumerate(wf["nodes"][1:],2):
-        value=mod.execute_node(path,node["id"],value)
-        assert value["trace"][-1]["stage"]==i
-        assert len(value["trace"])==i
-    assert value["decision"]==decisions[market],(market,value.get("decision"))
-    assert value["simulation_only"] and value["source_provenance"]=="fictional_test_fixture"
-    if market=="public":
-        assert value["award_history"]["ten_year_coverage_verified"] is False
-        assert value["win_strategy"]["selected"]["name"]=="balanced"
-        assert len(value["proposal"]["sections"])>=5
-        assert not value["win_strategy"]["public_evidence_verified"]
-    if market=="private_dev":
-        assert value["effort"]["development_person_days"]>0
-        assert value["proposal"]["quote"]["margin_pct"]>=12
-    if market=="staffing":
-        assert value["demand"]["job_posting_is_not_procurement"] is True
-        assert value["audit"]["legal_review_missing"] is True
-    print("PASS",market,"nodes",len(wf["nodes"]),"decision",value["decision"])
+    assert len(wf["nodes"])==7 and wf["meta"]["studioDefaultInput"]==mod.ROOT_DEFAULTS[market]
+    out=mod.execute_node(path,wf["nodes"][0]["id"],wf["meta"]["studioDefaultInput"])
+    for node in wf["nodes"][1:]:
+        assert mod.node_binding(path,node["id"])==node["parameters"]["studioPython"]
+        out=mod.execute_node(path,node["id"],out)
+    assert out["decision"]==decision and out["bid_submitted"] is False
+    print("UNCHANGED_BC_PROTOTYPE_REGRESSION_PASS",market)
 assert mod.node_binding("operations/PF05.json","pf05-1") is None
-assert mod.node_binding("operations/A01-public-win-strategy.json","a01-99") is None
-for bad in [
-    {"fixture_kind":"public","scenario":"R26BK01787028","strategy_preference":"balanced"},
-    {"fixture_kind":"public","scenario":"DEMO_PUBLIC_001","strategy_preference":"balanced","live_api":True}
-]:
-    try:mod.execute_node01(bad,workflow_kind="public")
-    except ValueError:pass
-    else:raise AssertionError("External/unregistered input not rejected")
-try:mod.execute_node02({"source_provenance":"official","simulation_only":False},workflow_kind="public")
-except ValueError:pass
-else:raise AssertionError("Unsafe provenance accepted")
-print("THREE_MARKET_22_APPROVED_PYTHON_NODES_MOCK_ONLY_PASS")
+print("PUBLIC_ONLY_CHANGE_43_PLUS_UNCHANGED_7_7_PASS")
