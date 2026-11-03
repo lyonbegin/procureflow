@@ -21,7 +21,7 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("PUBLIC_API_REDIRECT_REFUSED")
 
 def _request(path,method="GET",body=None,token=None,*,opener=None):
-    if not path.startswith("/api/g2b/public/") or "?" in path or "://" in path:
+    if not path.startswith("/api/g2b/public/") or "://" in path or ("?" in path and not path.startswith("/api/g2b/public/notices?")):
         raise ValueError("UNREGISTERED_BACKEND_ENDPOINT")
     if method not in ("GET","POST"):
         raise ValueError("INVALID_METHOD")
@@ -72,7 +72,7 @@ def proxy_get(route,query=""):
         if not offset.isdigit() or int(offset)>10000:
             raise ValueError("INVALID_LIST_OFFSET")
         return _request("/api/g2b/public/notices?"+urlencode({
-            "q":q,"status":status,"limit":limit,"offset":offset}).replace("?","",1))
+            "q":q,"status":status,"limit":limit,"offset":offset}))
     if route=="latest":
         return _request("/api/g2b/public/selected/prepare-jobs/latest")
     if route.startswith("job/"):
