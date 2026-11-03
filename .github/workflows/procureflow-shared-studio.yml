@@ -15,6 +15,7 @@ on:
       - 'g2b_feature_api.py'
       - 'n8n/admin-console/**'
       - 'tests/test_procurement_console_e2e.mjs'
+      - 'tests/test_public_original_104_bridge.py'
       - 'tests/test_three_market_*'
       - '.github/workflows/procureflow-shared-studio.yml'
   workflow_dispatch:
@@ -43,6 +44,8 @@ jobs:
           node --check n8n/admin-console/dashboard.js
       - name: Three market Python adapter and exact native binding contracts (offline)
         run: python3 tests/test_three_market_strategy.py
+      - name: Verify original 104 production API actions and read-only PostgreSQL bridge offline
+        run: python3 tests/test_public_original_104_bridge.py
       - name: Build ONLY the same shared Vue Flow Studio used by investment
         shell: bash
         run: |
