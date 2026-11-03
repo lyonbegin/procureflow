@@ -201,3 +201,84 @@ def actual_case_workbench(start=None, end=None, kind="all", agency="",
             "source":"existing_procureflow_postgresql",
             "no_simulated_records":True,
             "bid_participation_clicked":False,"bid_submitted":False}
+
+
+def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
+                          connection=None):
+    """Actually query G2B public opening for a FEW exact verified notice IDs.
+
+    This reuses the working g2b_bid_collector.collect(bid_numbers=...), rather
+    than discovering all notices for all months and filtering afterwards.
+    Every attempt and actual outcome is persisted by the original collector.
+    A lack of confirmed awards is never fabricated into successful results.
+    Run this ONLY in the original authenticated Railway worker.
+    """
+    if not isinstance(max_notices,int) or not 1<=max_notices<=3:
+        raise ValueError("MAX_THREE_SELECTED_NOTICES_PER_JOB")
+    if connection is None:
+        with session() as con:
+            candidates=_filtered_gaps(con,s,max_notices)
+    else:
+        candidates=_filtered_gaps(connection,s,max_notices)
+    if not candidates:
+        return {"status":"no_uncollected_verified_records_in_filter",
+            "case_bid_no":s.bid_no,"selected":0,"actual_g2b_requests":0,
+            "results":[],"bid_submitted":False}
+    if collector is None:
+        from g2b_bid_collector import collect
+        collector=collect
+    selected=[x["bid_no"]+"-"+x["bid_ord"] for x in candidates]
+    # A direct exact-ID opening query does not discover an unrelated listing,
+    # even when the public site's general listing filters are weaker than SQL.
+    out=collector(days=1,pages=1,bid_numbers=selected)
+    if not isinstance(out,dict):
+        raise ValueError("EXISTING_G2B_COLLECTOR_INVALID_RESPONSE")
+    return {"status":out.get("status","unknown"),
+        "case_bid_no":s.bid_no,"exact_detail10":s.detail10,
+        "selected":len(selected),"selected_notice_ids":selected,
+        "actual_g2b_requests":len(selected),
+        "actual_opening_rows_seen":out.get("examined",0),
+        "actual_saved_records":out.get("saved",0),
+        "new_records":out.get("new",0),
+        "explicit_final_awards":out.get("final_winners",0),
+        "source":"existing_real_g2b_bid_collector",
+        "errors":out.get("errors",[]),
+        "bid_submitted":False,
+        "note":"Only real original-verified 10-digit selected notices; no entire ten-year loop."}
+
+
+def _filtered_gaps(con, s: Search, limit: int):
+    if s.detail10 != SUB10:
+        raise ValueError("DETAIL_MISMATCH")
+    sql="""SELECT v.bid_no,v.bid_ord,h.published_on
+      FROM procureflow.g2b_case_outcome_verification v
+      JOIN procureflow.g2b_case_10yr_history h
+        ON h.case_bid_no=v.case_bid_no
+       AND h.hist_notice_no=v.bid_no AND h.hist_notice_ord=v.bid_ord
+      JOIN procureflow.g2b_notice_categories c
+        ON c.bid_no=v.bid_no AND c.bid_ord=v.bid_ord
+       AND c.code_type='detail10' AND c.code=%s
+       AND c.evidence_level='official_direct'
+      WHERE v.case_bid_no=%s AND v.expected_detail10=%s
+        AND v.status='verified_exact_10'
+        AND h.published_on BETWEEN %s AND %s
+        AND h.hist_notice_no<>%s
+        AND NOT EXISTS (
+          SELECT 1 FROM procureflow.g2b_case_outcome_attempts a
+          WHERE a.case_bid_no=v.case_bid_no AND a.bid_no=v.bid_no
+            AND a.bid_ord=v.bid_ord AND a.stage='opening_collection'
+            AND a.created_at>now()-interval '12 hours'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM procureflow.bid_results r
+          WHERE r.source='g2b' AND r.bid_ntce_no=v.bid_no
+            AND r.bid_ntce_ord=v.bid_ord AND r.result_kind='award'
+        )"""
+    args=[s.detail10,s.bid_no,s.detail10,s.start,s.end,s.bid_no]
+    if s.agency:
+        escaped=s.agency.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")
+        sql+=r" AND h.agency ILIKE %s ESCAPE '\'"
+        args.append("%"+escaped+"%")
+    sql+=" ORDER BY h.published_on DESC,v.bid_no LIMIT %s"
+    args.append(limit)
+    return [_json_row(x) for x in con.execute(sql,tuple(args)).fetchall()]
