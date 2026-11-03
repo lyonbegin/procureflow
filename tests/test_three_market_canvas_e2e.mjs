@@ -6,12 +6,18 @@ try {
  const context=await browser.newContext({viewport:{width:1500,height:950}});
  const page=await context.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(base+'/admin/index.html?section=tests',{waitUntil:'domcontentloaded'});
- assert.equal(await page.locator('a:has-text("기존 노드 캔버스 열기")').count(),3);
- await page.locator('a:has-text("기존 노드 캔버스 열기")').first().click();
- await page.waitForFunction(()=>document.body.innerText.includes('8 Nodes'),{timeout:30000});
- assert.equal(await page.locator('.vue-flow__node').count(),8);
- assert.equal(await page.getByTestId('node-run-a01-01').count(),1);
+ await page.goto(base+'/admin/index.html?section=workflows',{waitUntil:'domcontentloaded'});
+ await page.locator('#side-menu .nav').first().waitFor();
+ assert.equal(await page.locator('#side-menu .nav').count(),11);
+ const link=page.locator('a[href*="A01-public-win-strategy.json"]').first();
+ await link.waitFor();
+ const popupPromise=context.waitForEvent('page');
+ await link.click();
+ const canvas=await popupPromise;
+ await canvas.waitForLoadState('domcontentloaded');
+ await canvas.waitForFunction(()=>document.body.innerText.includes('8 Nodes'),{timeout:30000});
+ assert.equal(await canvas.locator('.vue-flow__node').count(),8);
+ assert.equal(await canvas.getByTestId('node-run-a01-01').count(),1);
  assert.equal(await page.getByTestId('node-open-a01-01').count(),1);
  await page.getByTestId('node-run-a01-01').click();
  await page.waitForFunction(()=>document.querySelector('[data-node-id="a01-01"]')?.innerText.includes('Python 실행 성공'),{timeout:30000});
@@ -20,8 +26,9 @@ try {
  await page.getByTestId('node-run-a01-02').click();
  await page.waitForFunction(()=>document.querySelector('[data-node-id="a01-02"]')?.innerText.includes('Python 실행 성공'),{timeout:20000});
  await page.getByTestId('node-open-a01-02').click();
- await page.getByText('노드 입력').first().waitFor({timeout:15000}).catch(()=>{});
+ await canvas.getByText('노드 입력').first().waitFor({timeout:15000}).catch(()=>{});
  assert.equal(errors.length,0,errors.join('\\n'));
+ await canvas.close();
  console.log('CHROME_INVESTMENT_IDENTICAL_NODE_CARDS_ADMIN_LINK_AND_PYTHON_STAGE_PASS');
  await context.close();
 }finally{await browser.close();}
