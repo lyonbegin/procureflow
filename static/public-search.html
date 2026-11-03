@@ -95,6 +95,13 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <label>이번 검색에서 최대 처리 공고<select id="batch"><option value="1">1건</option><option selected value="2">2건</option><option value="3">3건</option></select></label></div>
 <div class="actions"><button type="button" id="collect" class="secondary">선택 필터로 실제 G2B 수집 작업 등록</button>
 <span id="collectResult" class="muted">관리자 승인 없이는 실행하지 않습니다.</span></div></section>
+<section class="panel"><h2>기존 Worker의 실데이터 9단계 실행 · 실제 작업 ID</h2>
+<p class="muted">현재 선택한 공고 하나의 기존 원본·문서·개찰·경쟁·회사 자격·원가·제안서 생성까지 실제 업무코드를 실행하고, 각 단계의 원래 PostgreSQL 실행 ID를 저장합니다. 공식 n8n 실행 ID를 꾸며내지 않습니다.</p>
+<div class="actions"><button id="prepare" type="button">실제 9단계 분석·서류 준비 실행</button>
+<span id="prepareResult" class="muted">위의 기존 관리자 토큰을 입력해야 작업을 시작합니다.</span></div>
+<div id="prepareStages" class="muted">실행된 기존 Worker 작업이 아직 없습니다.</div>
+<div class="actions"><a id="downloadRealDraft" class="btn secondary" href="#" hidden>실제 원본·경쟁분석을 포함한 서류 초안 내려받기 (.docx)</a></div>
+<div class="note">마감 공고 분석이며 전자입찰 참가·투찰·서명은 하지 않습니다. 생성 문서는 확정 제출본이 아닌 근거가 표시된 검토 초안입니다.</div></section>
 <section class="panel"><h2>최종 입찰 준비 판단</h2><div class="note" id="finalStatus">원본·자격·가격·제출서류 검증이 끝나기 전까지 HOLD. 현재 선택 공고는 마감된 과거 입찰로, 자동 입찰참가는 수행하지 않습니다.</div></section>
 </main>
 <footer>ProcureFlow / Original G2B · original PostgreSQL · existing Worker · existing n8n. 실제자료만 표시 · 입찰참가 버튼 자동 클릭 없음.</footer>
@@ -272,6 +279,68 @@ async function collectFiltered(){
  }catch(e){el("collectResult").textContent="수집 요청 실패: "+e.message}
  finally{el("adminToken").value="";el("collect").disabled=false}
 }
+let currentRealJob=null;
+let realJobTimer=null;
+let realJobPolling=false;
+function stopRealJobPolling(){
+ if(realJobTimer){clearInterval(realJobTimer);realJobTimer=null;}
+}
+async function inspectRealJob(){
+ if(!currentRealJob||realJobPolling)return;
+ realJobPolling=true;
+ try{
+  const id=currentRealJob;
+  const data=await fetchJSON("/api/g2b/public/selected/prepare-jobs/"+id);
+  if(data.worker_job_id_is_not_n8n_execution_id!==true)
+   throw Error("원본 Worker 작업 ID 근거를 확인하지 못했습니다.");
+  el("prepareResult").textContent="실제 Worker 작업 "+id+" · "+data.job_state+
+        " · 실제 DB 단계 "+data.actual_stages_recorded+"/9";
+  const entries=data.steps||[];
+  el("prepareStages").innerHTML=entries.length?
+    '<div class="scroll"><table><thead><tr><th>단계</th><th>실제 처리</th><th>DB 실행 ID</th><th>증빙 상태</th><th>요약</th></tr></thead><tbody>'+
+    entries.map((x,i)=>'<tr><td>'+esc(i+1)+'</td><td>'+esc(x.step)+'</td><td>'+
+        esc(x.run_id)+'</td><td>'+esc(x.state)+'</td><td><details><summary>실제 처리 결과</summary><pre>'+
+        esc(JSON.stringify(x.summary||{},null,2))+'</pre></details></td></tr>').join('')+
+    '</tbody></table></div>':
+    '<div class="empty">기존 Worker가 아직 첫 단계를 처리하지 않았습니다.</div>';
+  if(data.draft){
+    el("downloadRealDraft").hidden=false;
+    el("downloadRealDraft").href="/api/g2b/public/selected/prepare-jobs/"+id+"/draft.docx";
+    el("downloadRealDraft").textContent="작업 "+id+"의 실제 증빙 초안 내려받기 (.docx)";
+  }
+  if(["completed","completed_partial","failed","cancelled"].includes(data.job_state)){
+    stopRealJobPolling();
+    el("prepare").disabled=false;
+    // Updating a real source-backed preparation is not equivalent to bidding.
+    void loadPreparation();
+  }
+ }catch(e){el("prepareResult").textContent="기존 Worker DB 상태 확인 실패: "+e.message;}
+ finally{realJobPolling=false;}
+}
+async function startRealPreparation(){
+ const token=el("adminToken").value.trim();
+ if(!token){el("prepareResult").textContent="기존 관리자 토큰을 입력하세요.";return;}
+ const f=filters();
+ el("prepare").disabled=true;
+ try{
+  const data=await fetchJSON("/api/g2b/public/selected/prepare",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+    body:JSON.stringify({start:f.start,end:f.end,detail10:f.detail10,agency:f.agency})});
+  if(data.worker_source!=="g2b_public_prepare"||!data.job_id)
+    throw Error("실제 기존 Worker 작업 등록 결과가 아닙니다");
+  currentRealJob=data.job_id;
+  el("downloadRealDraft").hidden=true;
+  el("prepareResult").textContent="기존 Worker에 실제 9단계 작업 "+currentRealJob+"번 등록";
+  stopRealJobPolling();
+  await inspectRealJob();
+  realJobTimer=setInterval(inspectRealJob,4000);
+ }catch(e){
+  el("prepareResult").textContent="실제 작업 등록 실패: "+e.message;
+  el("prepare").disabled=false;
+ }finally{el("adminToken").value="";}
+}
+el("prepare").addEventListener("click",startRealPreparation);
 el("search").addEventListener("click",()=>loadHistory(true));
 el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
 el("collect").addEventListener("click",collectFiltered);
