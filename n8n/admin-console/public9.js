@@ -18,7 +18,7 @@ const STAGES=[
 ['독립 검증·사람 승인','필수 자격·가격·서류 / 선택 공고 마감']
 ];
 const API='/api/procurement/public9/';
-const st={notices:null,selected:null,job:null,search:'',status:'all',
+const st={notices:null,stage1:null,selected:null,job:null,search:'',status:'all',
   error:null,loading:false,submitting:false,token:'',selectedNode:0,
   nodeTab:'result',lastReload:null,loadStarted:false};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
@@ -48,12 +48,13 @@ async function load(){
  st.loading=true;st.error=null;refreshView();
  try{
   const [n,j]=await Promise.allSettled([
-   request('notices?'+new URLSearchParams({q:st.search,status:st.status,limit:30,offset:0})),
+   request('stage1?'+new URLSearchParams({q:st.search,status:st.status,limit:30,offset:0})),
    request('latest')]);
   if(n.status==='fulfilled'){
-   if(n.value.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(n.value.items))
+   if(n.value.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(n.value.notices?.items)||!Array.isArray(n.value.nodes)||n.value.nodes.length!==2)
     throw Error('모의 또는 확인되지 않은 공고 목록은 표시하지 않습니다');
-   st.notices=n.value;
+   st.stage1=n.value;
+   st.notices=n.value.notices;
    const matches=st.notices.items.some(x=>x.bid_no===st.selected);
    if(!st.selected||!matches)st.selected=st.notices.items[0]?.bid_no||null;
   }else throw n.reason;
@@ -83,6 +84,21 @@ function stageStatus(i){
  if(st.selected!==CASE)return '이 공고 실행 엔진 미연결';
  const x=nodeRecords()[i];return x?x.state:(st.job?.job_state==='queued'?'실행 대기':'미실행');
 }
+
+function stageOneInspector(){
+ const d=st.stage1;
+ if(!d)return '<div class="notice warn">1단계 N01·N02 실제 입력·출력 미확인. API 오류를 확인하세요.</div>';
+ const nodes=d.nodes||[];
+ const blocks=nodes.map(n=>'<details open class="item"><summary><strong>'+esc(n.id+' · '+n.name)+'</strong> · '+esc(n.status)+'</summary>'+
+  '<p class="muted smalltxt">실제 입력</p><pre class="log">'+esc(JSON.stringify(n.input,null,2))+'</pre>'+
+  '<p class="muted smalltxt">실제 출력</p><pre class="log">'+esc(JSON.stringify(n.output,null,2))+'</pre></details>').join('');
+ const selected=(nodes[1]?.output?.tender_identifiers||[]).find(z=>z.bid_no===st.selected);
+ return '<section class="panel" id="p9-stage1"><h3>1단계 실제 노드 실행 · N01 → N02</h3>'+
+ '<p class="muted smalltxt">실제 PostgreSQL 조회와 공고 식별을 수행합니다. 신규 G2B 크롤링·n8n Execution·Worker 재수집은 실행하지 않습니다. 원본이 구분하지 않는 정정·취소 상태는 임의로 판단하지 않습니다.</p>'+
+ '<div class="item"><b>실제 선택 입력</b><pre class="log">'+esc(JSON.stringify(selected||{bid_no:st.selected||null,status:"actual_row_not_selected"},null,2))+'</pre></div>'+
+ '<div class="item"><b>조건부 후속 연결</b><pre class="log">'+esc(JSON.stringify(d.connections||[],null,2))+'</pre></div>'+blocks+'</section>';
+}
+
 function main(){
  const items=st.notices?.items||[],t=tender();
  const waiting=st.loading?'<div class="loading">기존 G2B DB에서 실제 목록·실행이력 조회 중…</div>':'';
@@ -113,6 +129,7 @@ function main(){
  '<select id="p9-status" class="select" style="max-width:170px">'+
  [['all','전체'],['open','마감 전'],['closed','마감 후']].map(([v,n])=>'<option value="'+v+'" '+(st.status===v?'selected':'')+'>'+n+'</option>').join('')+
  '</select><button data-public9="reload" class="btn small">↻ 실제 목록 조회</button></div>'+
+ '<p class="muted smalltxt">1단계 N01/N02는 실제 DB 조회 및 식별을 실행하고 아래에 원본 입력·출력과 분기 판단을 표시합니다. 기존 수집기를 새로 실행하지 않습니다.</p>'+ 
  '<p class="muted smalltxt">저장된 공고 '+esc(st.notices?.total??'미확인')+'건 중 최신 30건 표시. 목록 갱신은 기존 G2B 수집기의 책임이며 조회 버튼은 새 크롤링을 시작하지 않습니다.</p>'+
  '<div class="table-wrap"><table><thead><tr><th>선택</th><th>실제 공고번호·제목</th><th>발주기관</th><th>게시</th><th>마감</th><th>실행 지원</th></tr></thead><tbody>'+
  (row||'<tr><td colspan="6">조건에 맞는 실제 수집 공고가 없습니다.</td></tr>')+
@@ -127,7 +144,7 @@ function main(){
  '<section class="panel"><h3>③ 동일 공고 9개 업무 노드</h3><div class="actions" style="gap:8px">'+cards+'</div>'+
  '<div class="actions"><button class="btn primary" data-page="public_nodes">선택 공고의 9노드 편집기 · 입력·출력 열기</button>'+
  '<button class="btn" data-public9="inspect">선택 단계의 실제 입력·출력 확인</button></div>'+
- nodeInspector()+'</section>'+
+ nodeInspector()+'</section>'+stageOneInspector()+
  '<section class="panel"><h3>④ 실제 Worker 실행 이력 · 경쟁·가격·제출서류</h3>'+
  (current?.job_id?label('실제 Worker 작업 ID '+current.job_id,'상태 '+current.job_state+
   ' · 기록 '+(current.actual_stages_recorded||0)+'/9 단계 · 공식 n8n Execution ID가 아님'):'<div class="empty">실제 Worker 실행 기록을 조회하지 못했습니다.</div>')+
@@ -158,7 +175,7 @@ function nodes(){
  '<section class="panel"><h3>같은 공고의 9개 노드 · 실제 단계별 실행 이력</h3>'+
  '<div class="actions">'+STAGES.map(([n],i)=>'<button data-public9="node" data-index="'+i+
  '" class="btn small '+(st.selectedNode===i?'primary':'')+'">'+String(i+1).padStart(2,'0')+' '+esc(n)+
- ' / '+esc(stageStatus(i))+'</button>').join('')+'</div>'+nodeInspector()+'</section>'+
+ ' / '+esc(stageStatus(i))+'</button>').join('')+'</div>'+nodeInspector()+'</section>'+stageOneInspector()+
  '<section class="panel"><h3>공용 n8n Studio 실제 편집 캔버스 (동일 출처)</h3>'+
  '<p class="muted smalltxt">노드 이동·연결·설정·저장은 원래 공유 Studio의 기능입니다. 아래 그래프는 실제 운영 API 증빙 조회를 표현하며, 원본 Worker를 실행하는 버튼은 위 관리센터에 있습니다. 현재 Studio에서 변경한 노드 구성이 공식 n8n Worker 실행에 자동 배포되는 기능은 아직 미연결입니다.</p>'+
  '<iframe title="공공입찰 9개 업무 노드 공용 Studio 편집기" loading="lazy" src="'+path+
