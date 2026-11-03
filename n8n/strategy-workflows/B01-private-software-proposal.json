@@ -1,0 +1,244 @@
+{
+  "id": "PROCURE_STRATEGY_B01",
+  "name": "B · 민간 SW 개발 외주 수주전략·견적",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "b01-01",
+      "name": "01 · 개발 외주·가상 입력 시작",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        240
+      ],
+      "parameters": {
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node01",
+          "code_version": "procure-three-markets-private_dev-01-v1",
+          "node_character": "manual_collection_start"
+        }
+      },
+      "notes": "사용자 명시적 버튼 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-02",
+      "name": "02 · 고객 요구·수행 범위 해석",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        490,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node02",
+          "code_version": "procure-three-markets-private_dev-02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-03",
+      "name": "03 · 기술 아키텍처 설계",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node03",
+          "code_version": "procure-three-markets-private_dev-03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-04",
+      "name": "04 · WBS·개발공수 산정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1110,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node04",
+          "code_version": "procure-three-markets-private_dev-04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-05",
+      "name": "05 · 원가·견적·수익 계산",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node05",
+          "code_version": "procure-three-markets-private_dev-05-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-06",
+      "name": "06 · 맞춤형 개발제안서 전략",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1730,
+        305
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node06",
+          "code_version": "procure-three-markets-private_dev-06-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "b01-07",
+      "name": "07 · 수익성·계약 승인 검토",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_node07",
+          "code_version": "procure-three-markets-private_dev-07-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "01 · 개발 외주·가상 입력 시작": {
+      "main": [
+        [
+          {
+            "node": "02 · 고객 요구·수행 범위 해석",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · 고객 요구·수행 범위 해석": {
+      "main": [
+        [
+          {
+            "node": "03 · 기술 아키텍처 설계",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · 기술 아키텍처 설계": {
+      "main": [
+        [
+          {
+            "node": "04 · WBS·개발공수 산정",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · WBS·개발공수 산정": {
+      "main": [
+        [
+          {
+            "node": "05 · 원가·견적·수익 계산",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · 원가·견적·수익 계산": {
+      "main": [
+        [
+          {
+            "node": "06 · 맞춤형 개발제안서 전략",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · 맞춤형 개발제안서 전략": {
+      "main": [
+        [
+          {
+            "node": "07 · 수익성·계약 승인 검토",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "studioDefaultInput": {
+      "fixture_kind": "private_dev",
+      "scenario": "DEMO_PRIVATE_001",
+      "strategy_preference": "balanced"
+    },
+    "market": "private_dev",
+    "source_provenance": "fictional_test_fixture",
+    "simulation_only": true,
+    "never_calls_official_api": true,
+    "never_submits_bid": true,
+    "uses_shared_studio_python_adapter": true
+  },
+  "tags": []
+}
