@@ -36,6 +36,7 @@ class DB:
                           "source_verified":True,"extraction_state":"parsed",
                           "extracted_chars":120,
                           "excerpt":"회사자격 및 제출요건을 포함하는 원본 공고문",
+                          "content":"입찰참가자격은 원본 공고문을 따릅니다.\\n기초금액은 실제 산출 원본을 확인합니다.\\n제출서류는 과업지시서를 참고합니다.",
                           "original_url":"https://www.g2b.go.kr/"}])
         if "INSERT INTO procureflow.g2b_case_outcome_attempts" in sql:
             assert params[0]=="R26BK01787028"
@@ -76,6 +77,11 @@ assert db.queries[1][1][-2:]==(23,10)
 assert response["has_more"] is False
 source=sf.single_case_material(connection=db)
 assert source["document_count"]==1 and source["redownloaded"] is False
+assert source["source_clauses_are_candidate_excerpts"] is True
+assert all(x["original_sha256"]=="b"*64 for x in source["source_clauses"])
+assert len(source["source_clauses"])>=2
+assert all(x["human_review_required"] for x in source["source_clauses"])
+assert all("content" not in x for x in source["documents"])
 assert source["notice"]["notice_fields"]["dtilPrdctClsfcNo"]=="8111159901"
 assert "unrelated_secret" not in str(source)
 assert len(db.queries)==4
