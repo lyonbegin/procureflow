@@ -10,6 +10,7 @@ on:
       - 'n8n/source-build/**'
       - 'n8n/strategy-workflows/**'
       - 'n8n/strategy-runtime/**'
+      - 'g2b_feature_registry.py'
       - 'n8n/admin-console/**'
       - 'tests/test_procurement_console_e2e.mjs'
       - 'tests/test_three_market_*'
@@ -27,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=9748e1159b107dbbb2c2fc0cbc67206939fbfdaf' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=a6227e8dadacffb47159281c478ef71029e2cd80' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
@@ -47,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach 9748e1159b107dbbb2c2fc0cbc67206939fbfdaf
+          git -C /tmp/shared-n8n-studio checkout --detach a6227e8dadacffb47159281c478ef71029e2cd80
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
@@ -71,7 +72,7 @@ jobs:
           # The shared Studio is an SPA: unknown GET routes render index.html, not n8n REST JSON.
           curl -fsS http://127.0.0.1:3031/rest/settings | grep -F '<div id="app"></div>'
           ! curl -fsS http://127.0.0.1:3031/rest/settings | grep -q 'showSetupOnFirstLoad'
-      - name: HTTP test all 22 market nodes via Python and SQLite transfers
+      - name: HTTP test original 43 public blocks plus B/C regression via Python and SQLite transfers
         shell: bash
         run: |
           set -euo pipefail
@@ -131,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           node tests/shared_studio_fixture_ui_e2e.mjs
-      - name: Chrome procurement full administration, market E2E and 104-feature coverage
+      - name: Chrome public one selected tender 43 real-contract blocks and 104 function checks
         shell: bash
         run: |
           set -euo pipefail
