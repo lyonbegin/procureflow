@@ -204,7 +204,7 @@ function renderOverview(){
  '<p>'+escapeHtml(c.bid_no+' / '+c.bid_ord)+' · '+escapeHtml(c.title||'선택 공고')+
  '. 가상 업체와 가상 가격 대신 운영 DB에 실제 저장된 개찰·투찰·과업지시서 및 누락 증빙을 확인합니다.</p>'+
  '<div class="actions">'+action('load-actual','실제 수집자료 새로 조회','primary')+
- '<button data-page="public" class="btn small">입찰 한 건 상세 관제</button>'+
+ '<a class="btn primary small" href="https://procureflow-api-production.up.railway.app/public-search" target="_blank" rel="noopener">실제 입찰 한 건 검색·분석·서류 준비 ↗</a>'+'<button data-page="public" class="btn small">입찰 한 건 상세 관제</button>'+
  '<button data-page="features" class="btn small">실제 104개 기능 증빙 확인</button></div></section>'+
  card('① 선택 공고의 실제 수집 자료',actualRecordPanel())+
  card('② 원래 104 API · 43개 블록 공식 증빙',verifiedPanel())+
@@ -218,6 +218,7 @@ function renderPublic(){
  '<h2>'+escapeHtml(c.title||'실제 공공입찰 한 건 분석')+'</h2>'+
  '<p>공고 '+escapeHtml(c.bid_no+' / '+c.bid_ord)+' · 기관 '+escapeHtml(c.agency||'공식 원본 대조 대기')+
  '. 실제 수집한 10자리 세부품명·과거 투찰업체·투찰금액·첨부 서류와 미완료 증빙을 확인합니다.</p></section>'+
+ card('새 실데이터 통합 검색·입찰 준비', '<div class="actions"><a class="btn primary" href="https://procureflow-api-production.up.railway.app/public-search" target="_blank" rel="noopener">기간·10자리·기관 필터로 실제 개찰 검색 및 입찰 서류 준비 ↗</a></div>')+
  card('① 실제 나라장터·운영 DB에서 수집된 자료',actualRecordPanel())+
  card('② 실제 104개 기능·43블록의 공식 증빙 승인',verifiedPanel())+
  card('③ 실제 자료 기준 입찰 준비 판정',
