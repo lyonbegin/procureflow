@@ -721,6 +721,13 @@ def queue_real_selected_preparation(req:PublicRealPrepareRequest,
             "already_executed":False,"bid_submitted":False}
 
 
+@app.get("/api/g2b/public/selected/prepare-jobs/latest")
+def latest_real_selected_preparation_job():
+    """Resume original production DB stage IDs and source-backed doc after reload."""
+    from g2b_public_workflow import latest_actual_job
+    return latest_actual_job()
+
+
 @app.get("/api/g2b/public/selected/prepare-jobs/{job_id}")
 def real_selected_preparation_job(job_id:int):
     from g2b_public_workflow import read_actual_job
