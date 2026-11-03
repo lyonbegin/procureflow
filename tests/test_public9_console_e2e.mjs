@@ -60,6 +60,19 @@ try{
  assert.equal(w.workflow.meta.real_data_only,true);
  assert.equal(w.workflow.meta.native_n8n_verified,false);
  assert.equal(w.workflow.meta.can_start_real_worker_from_this_graph,false);
+ // A valid edit to REAL search-node 04 must control the actual Worker filter,
+ // not merely redraw a disconnected node card. All other business code is
+ // still explicitly not deployed to the official n8n Worker.
+ const edited=structuredClone(w.workflow);
+ const n4=edited.nodes.find(x=>x.id==='public9-04');
+ n4.parameters.url=n4.parameters.url.replace('start=2016-10-24','start=2020-01-01');
+ const saved=await ctx.request.put(base+'/api/studio/workflows/operations/PF00-public-nine-real.json',{
+   data:{expectedVersion:w.version,workflow:edited}
+ });
+ assert.equal(saved.status(),200,'save real n8n source node graph first');
+ const newVersion=await saved.json();
+ assert.equal(newVersion.version,1);
+
  await page.locator('#content [data-public9="node"][data-index="7"]').click();
  assert.match(await page.locator('#content').innerText(),/658/);
  await page.locator('#content [data-page="public"]').first().click();
@@ -71,6 +84,7 @@ try{
  assert.equal(q.authorization,'Bearer ci-only-user-admin-token');
  assert.equal(q.payload.bid_no,'R26BK01787028');
  assert.equal(q.payload.detail10,'8111159901');
+ assert.equal(q.payload.start,'2020-01-01');
  assert.equal(q.payload.end,'2026-10-22');
  assert.equal(q.payload.submit_bid,undefined);
  assert.equal(await page.locator('#content #p9-token').inputValue(),'');
