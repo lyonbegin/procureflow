@@ -61,7 +61,7 @@ COPY n8n/strategy-runtime/procurement_node_adapter.py /app/procurement_node_adap
 COPY n8n/strategy-runtime/public_case_runtime.py /app/public_case_runtime.py
 COPY g2b_feature_registry.py /app/g2b_feature_registry.py
 COPY g2b_feature_contract_core.py /app/g2b_feature_contract_core.py
-COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py /app/procurement_actual_records.py
+COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py
 COPY n8n/strategy-runtime/procurement_actual_records.py /app/procurement_actual_records.py
 COPY n8n/operational_manifest.json /app/operational_manifest.json
 RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py
