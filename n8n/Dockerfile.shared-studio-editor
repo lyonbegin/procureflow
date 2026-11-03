@@ -48,6 +48,7 @@ FROM python:3.12-alpine
 RUN apk add --no-cache su-exec
 WORKDIR /app
 COPY --from=ui /app/shared/playground/dist /app/dist
+# Bundled public-case admin links to real source-filtered G2B preparation API.
 COPY n8n/admin-console/ /app/dist/admin/
 COPY n8n/operational_manifest.json /app/dist/procure-manifest.json
 RUN test -s /app/dist/admin/dashboard.js && test -s /app/dist/admin/dashboard.css \
