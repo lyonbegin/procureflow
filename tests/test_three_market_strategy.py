@@ -21,8 +21,8 @@ for i,node in enumerate(business_nodes):
     assert node["id"]=="public-"+public.ORDER[i]
     assert mod.node_binding(public.PATH,node["id"])==node["parameters"]["studioPython"]
     assert mod.node_type(public.PATH,node["id"])==node["type"]
-state=mod.execute_node(public.PATH,w["nodes"][0]["id"],w["meta"]["studioDefaultInput"])
-for node in w["nodes"][1:]:
+state=mod.execute_node(public.PATH,business_nodes[0]["id"],w["meta"]["studioDefaultInput"])
+for node in business_nodes[1:]:
     state=mod.execute_node(public.PATH,node["id"],state)
 assert state["business_status"]=="MOCK_COMPLETED_OFFICIAL_HOLD"
 assert state["strategy_decision"]=="HOLD_OFFICIAL_EVIDENCE"
