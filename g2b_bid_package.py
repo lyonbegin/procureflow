@@ -57,6 +57,21 @@ def evaluate_eligibility(bid_no=SINGLE_CASE):
     return {"status":result,"passed":result=="eligible",
             "requirements_evidence_present":True,"bid_no":bid_no}
 
+def required_price_evidence(verified):
+    """Decide whether supplier quotations are actually relevant to this tender.
+
+    An independently sourced self-performed SW cost breakdown may replace
+    external supplier quotes, but it must contain real positive labor cost.
+    Never infer in-house execution from a title or absent supplier records.
+    """
+    core={"verified_base_amount","price_rules","cost_breakdown"}
+    breakdown=verified.get("cost_breakdown",{})
+    in_house=(isinstance(breakdown,dict)
+       and breakdown.get("execution_model") in ("self_performed","in_house")
+       and (_d(breakdown.get("labor_krw")) or 0)>0)
+    return core if in_house else core|{"supplier_quotes"}
+
+
 def documented_price_scenarios(bid_no=SINGLE_CASE):
     basic=cost_summary(bid_no)
     elig=evaluate_eligibility(bid_no)
@@ -67,7 +82,7 @@ def documented_price_scenarios(bid_no=SINGLE_CASE):
                     'cost_breakdown','supplier_quotes')""",(bid_no,)).fetchall()
     verified={v["evidence_type"]:v["structured"] for v in values
               if v["verified_source"] and isinstance(v["structured"],dict)}
-    required={"verified_base_amount","price_rules","cost_breakdown","supplier_quotes"}
+    required=required_price_evidence(verified)
     missing=sorted(required-set(verified))
     if missing or not elig["passed"]:
         return {"status":"blocked","missing":missing,
