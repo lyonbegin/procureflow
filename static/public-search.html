@@ -80,9 +80,10 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 </div>
 <section class="panel"><h2>한 번 다운로드한 공고·과업지시서에서 동시 추출한 실제 조건 문장</h2><div id="clauses" class="empty">원본 문장 추출 중</div><div class="note">모든 문장은 저장된 원본파일의 내용·SHA-256에 연결됩니다. 문장 자동 추출은 법적 참가자격 승인 판정이 아니며 사람 검토가 필요합니다.</div></section>
 <div class="grid">
-<section class="panel"><h2>실제 경쟁 기록의 현재 검색 결과</h2><div id="competitors">검색 결과 확인 중</div><div class="note">현재 표시된 페이지 내 기업 출현 빈도입니다. 이것만으로 다음 입찰의 참가업체나 낙찰확률을 확정하지 않습니다.</div></section>
+<section class="panel"><h2>실제 과거 경쟁업체 분석 · 전체 필터 결과</h2><div id="competitors">실제 전체 검색 결과로 업체별 분석 중</div><div class="note">현재 페이지 50건이 아니라 조건에 일치하는 전체 실제 개찰 행을 집계합니다. 개찰 1순위는 낙찰 확정이 아닙니다. 결과 업체의 다음 입찰 참여도 확정할 수 없습니다.</div></section>
 <section class="panel"><h2>참가자격 · 실제 원가 · 가격 판단</h2><div id="price"><div class="empty">기존 가격 엔진 조회 중</div></div></section>
 </div>
+<section class="panel"><h2>실제 수집 근거로 정한 준비 전략</h2><div id="strategy">원본·경쟁·가격 증빙을 종합하는 중…</div><div class="note">확정 낙찰과 가격규칙·원가가 미검증이면 낙찰 예측가격을 만들어내지 않습니다. 부족한 자료는 제출 필수조건인지, 참고 분석자료인지 구분해 표시합니다.</div></section>
 <section class="panel"><h2>공고에 필요한 서류 · 실제 원본을 사용한 초안</h2><div class="actions">
 <a class="btn" href="/api/g2b/full/proposal.docx" target="_blank" rel="noopener">기존 실제 원본 기반 입찰 준비 초안 (.docx)</a>
 <a class="btn secondary" href="/api/g2b/full/proposal" target="_blank" rel="noopener">원본 근거 JSON ↗</a>
@@ -154,13 +155,52 @@ function renderResults(r){
  '<td>'+esc(x.bid_rank)+'</td><td><span class="tag '+(x.result_kind==="award"?"":"warn")+'">'+esc(x.result_kind==="award"?"공식 확정 낙찰":"실제 개찰")+'</span></td>'+
  '<td>'+(safeUrl(x.original_detail10_source)?'<a href="'+esc(x.original_detail10_source)+'" target="_blank" rel="noopener">원본 ↗</a>':'확인 필요')+'</td></tr>').join(""):
  '<tr><td colspan="7">해당 조건에 검증된 실제 개찰·낙찰 기록이 없습니다. 다른 기간 또는 기관 조건으로 검색하세요.</td></tr>';
- let freq=new Map();
- for(let x of rows)if(x.result_kind==="opening"&&x.company)freq.set(x.company,(freq.get(x.company)||0)+1);
- let entries=[...freq.entries()].sort((a,b)=>b[1]-a[1]).slice(0,12);
- el("competitors").innerHTML=entries.length?'<table><thead><tr><th>실제 개찰 참가업체</th><th>현 페이지 기록 수</th></tr></thead><tbody>'+
- entries.map(([n,c])=>'<tr><td>'+esc(n)+'</td><td>'+c+'</td></tr>').join("")+'</tbody></table>':
- '<div class="empty">현재 조회 조건에 개찰 업체 자료가 없습니다.</div>';
+ el("competitors").textContent="실제 전체 검색 결과에 대한 업체별 집계 확인 중…";
  renderNotice(r.case||{});
+}
+async function loadStrategy(){
+ const f=filters();
+ try{
+  const q=new URLSearchParams({start:f.start,end:f.end,agency:f.agency});
+  const data=await fetchJSON("/api/g2b/public/selected/strategy?"+q);
+  if(data.real_data_only!==true||data.source!=="existing_real_procureflow_g2b_openings")
+   throw Error("실제 경쟁분석 근거를 확인할 수 없습니다");
+  const stats=data.observed||{},same=data.same_agency_observed||null;
+  const entries=data.competitors_from_all_filtered_records||[];
+  el("competitors").innerHTML=
+    '<p>원본 10자리 확인 공고차수 <b>'+esc(stats.observed_notice_rounds||0)+
+    '</b>건 · 실제 개찰 기록 <b>'+esc(stats.opening_rows||0)+
+    '</b>행 · 금액 있는 기록 <b>'+esc(stats.rows_with_numeric_amounts||0)+
+    '</b>행 · 개찰 1순위 <b>'+esc(stats.rank_one_openings_not_awards||0)+
+    '</b>행 (낙찰 확정 아님)</p>'+
+    (same?'<p class="muted">동일 기관 '+esc(data.same_agency_filter)+
+      ': 실제 개찰 '+esc(same.opening_rows||0)+'행</p>':'')+
+    (entries.length?'<div class="scroll"><table><thead><tr><th>실제 개찰업체</th><th>참가한 공고차수</th><th>개찰 행</th><th>1순위 행</th></tr></thead><tbody>'+
+      entries.map(x=>'<tr><td>'+esc(x.display_company||x.company)+'</td><td>'+
+        esc(x.distinct_notice_rounds)+'</td><td>'+esc(x.opening_rows)+'</td><td>'+
+        esc(x.rank_one_openings_not_awards)+'</td></tr>').join('')+
+      '</tbody></table></div>':
+      '<div class="empty">검증된 개찰업체 표본이 없습니다.</div>');
+  const a=data.strategy_inputs||{};
+  el("strategy").innerHTML=
+   '<div class="metrics">'+
+   metric("과거 실제 개찰",stats.opening_rows||0,"정확한 10자리 원본 검증")+
+   metric("구분된 업체명",stats.distinct_name_strings||0,"법적 동일 업체 식별은 별도")+
+   metric("과거 동일 발주기관 개찰",same?.opening_rows??"—","기관명 원본 필터")+
+   metric("최종 승인 가격", "없음","원가·자격·가격규칙 미확인")+
+   '</div><h3>제출서류 판단</h3><p>'+esc(a.document_type_guidance)+'</p>'+
+   '<h3>실제자료로 다음에 처리할 업무</h3><ol>'+
+   (a.next_actions||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>'+
+   '<details><summary>통계 한계·공고 기간 유의사항</summary><ul>'+
+   (data.analysis_limitations||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+
+   '</ul></details>'+
+   '<div class="note">'+(data.target_notice?.deadline_passed?
+      '선택한 공고는 이미 마감돼 실제 투찰 대상이 아닙니다.':'공고 마감과 회사 참가자격을 최종 확인해야 합니다.')+
+      ' 본 분석은 확정 낙찰이나 수주확률을 조작하지 않습니다.</div>';
+ }catch(e){
+  el("competitors").textContent="실제 경쟁업체 집계 불가: "+e.message;
+  el("strategy").textContent="실제 수주전략 근거를 읽을 수 없습니다: "+e.message;
+ }
 }
 async function loadHistory(reset=true){
  if(busy)return;
@@ -172,6 +212,7 @@ async function loadHistory(reset=true){
   if(data.mode!=="real_one_tender_search_first"||data.no_simulated_records!==true)
     throw Error("실제 자료 출처 계약 불일치");
   renderResults(data);
+  void loadStrategy();
  }catch(e){showError(e)}
  finally{busy=false;el("search").disabled=false}
 }
