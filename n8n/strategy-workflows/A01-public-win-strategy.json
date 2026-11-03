@@ -670,7 +670,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3940,
+        4690,
         210
       ],
       "parameters": {
@@ -692,7 +692,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3940,
+        4690,
         490
       ],
       "parameters": {
@@ -714,7 +714,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4310,
+        5060,
         210
       ],
       "parameters": {
@@ -736,7 +736,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4310,
+        5060,
         490
       ],
       "parameters": {
@@ -758,7 +758,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4680,
+        5430,
         210
       ],
       "parameters": {
@@ -780,7 +780,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4680,
+        5430,
         490
       ],
       "parameters": {
@@ -802,7 +802,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5050,
+        5800,
         210
       ],
       "parameters": {
@@ -824,7 +824,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5420,
+        6170,
         210
       ],
       "parameters": {
@@ -846,7 +846,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5790,
+        6540,
         210
       ],
       "parameters": {
@@ -868,7 +868,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6160,
+        6910,
         210
       ],
       "parameters": {
@@ -890,7 +890,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6530,
+        7280,
         210
       ],
       "parameters": {
@@ -912,7 +912,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6900,
+        7650,
         210
       ],
       "parameters": {
@@ -934,7 +934,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        7270,
+        8020,
         210
       ],
       "parameters": {
@@ -948,6 +948,38 @@
         }
       },
       "notes": "기존 2026-10-28 43블록·104기능 계약 / 103,104 / 입력: eligibility_verdict+package_validation+approved_price_or_block+audit_findings / 출력: READY/HOLD/NO_BID/REVIEW / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N04, R02, O03 → O04 → \n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H07-native-merge",
+      "name": "H07 기술합류 · H05+H06 두 입력 대기",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3950,
+        350
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "notes": "n8n native Merge: H05 output port 0 and H06 output port 1. A01 remains a fixture preview; official execution is not connected.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H07-input-gate",
+      "name": "H07 입력검사 · 서로 다른 공고·누락 차단",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4250,
+        350
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const all=$input.all().map(x=>x.json);if(all.length!==2)throw Error('H07_TWO_INPUTS_REQUIRED');const byId=new Map();let caseId=null,flowId=null;for(const item of all){const id=item?.last_block||item?.previous_block?.block_id;if(!['H05','H06'].includes(id)||byId.has(id))throw Error('H07_DUPLICATE_OR_MISSING_BRANCH');const bid=item.case_id||item.bid_no;if(!bid||typeof bid!=='string')throw Error('H07_MISSING_CASE');if(caseId!==null&&caseId!==bid)throw Error('H07_CROSS_CASE');if(flowId!==null&&flowId!==item.flow_id)throw Error('H07_CROSS_FLOW');caseId=bid;flowId=item.flow_id;const record=item.workflow_trace?.findLast(r=>r?.block_id===id);if(!record||!Object.prototype.hasOwnProperty.call(record,'output'))throw Error('H07_MISSING_SOURCE_OUTPUT');byId.set(id,{item,record});}if(!byId.has('H05')||!byId.has('H06'))throw Error('H07_REQUIRED_BRANCH_MISSING');const left=byId.get('H05'),right=byId.get('H06');const h02=left.item.workflow_trace.find(r=>r.block_id==='H02');if(!h02)throw Error('H07_SEARCH_WINDOWS_MISSING');const input={H05:left.record.output,H06:right.record.output,H02:h02.output};return [{json:{...left.item,dependency_inputs:input,dependency_join_complete:true,dependency_evidence_verified:false,actual_job_executed:false,bid_submitted:false}}];"
+      },
+      "notes": "Checks two distinct upstream IDs and same bid. Does NOT verify award evidence, execute Worker, or submit a bid. Operational PF05 has corresponding native gate.",
       "notesInFlow": true
     }
   ],
@@ -1150,7 +1182,7 @@
       "main": [
         [
           {
-            "node": "H07 · 10년 개찰·낙찰 완전성",
+            "node": "H07 기술합류 · H05+H06 두 입력 대기",
             "type": "main",
             "index": 0
           }
@@ -1161,9 +1193,9 @@
       "main": [
         [
           {
-            "node": "H07 · 10년 개찰·낙찰 완전성",
+            "node": "H07 기술합류 · H05+H06 두 입력 대기",
             "type": "main",
-            "index": 0
+            "index": 1
           }
         ]
       ]
@@ -1457,6 +1489,28 @@
           }
         ]
       ]
+    },
+    "H07 기술합류 · H05+H06 두 입력 대기": {
+      "main": [
+        [
+          {
+            "node": "H07 입력검사 · 서로 다른 공고·누락 차단",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H07 입력검사 · 서로 다른 공고·누락 차단": {
+      "main": [
+        [
+          {
+            "node": "H07 · 10년 개찰·낙찰 완전성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "meta": {
@@ -1482,7 +1536,9 @@
     "graph_source": "operational_manifest.blocks[].to (transitive-reduction of 43 business blocks)",
     "linearly_played_by_studio_runtime": false,
     "native_n8n_execution_verified": false,
-    "official_business_execution_enabled": false
+    "official_business_execution_enabled": false,
+    "native_technical_join_nodes": 2,
+    "join_preview": "H05+H06 -> n8n Merge(append,2) -> input validation -> H07; A01 still fixture-only"
   },
   "tags": []
 }
