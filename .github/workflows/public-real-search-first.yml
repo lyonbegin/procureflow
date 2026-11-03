@@ -5,6 +5,8 @@ on:
       - feature/public-search-first-real-20261103
     paths:
       - g2b_search_first.py
+      - g2b_real_strategy.py
+      - tests/test_public_real_strategy.py
       - g2b_bid_collector.py
       - g2b_bid_package.py
       - main.py
@@ -27,11 +29,13 @@ jobs:
       - name: Install original database driver
         run: python -m pip install "psycopg[binary]>=3.1,<4" "fastapi>=0.110" "pydantic>=2,<3"
       - name: Compile actual backend and worker source
-        run: python -m compileall -q g2b_search_first.py g2b_bid_package.py main.py worker.py
+        run: python -m compileall -q g2b_search_first.py g2b_real_strategy.py g2b_bid_package.py main.py worker.py
       - name: One selected tender, actual original verified 10digit SQL, dates and existing real collector action
         run: python tests/test_public_search_first.py
       - name: In-house versus subcontract documented cost policy
         run: python tests/test_public_real_cost_policy.py
+      - name: Aggregate real original-verified competitors across all filtered rows and same-agency data
+        run: python tests/test_public_real_strategy.py
       - name: Validate actual search-workbench inline browser JavaScript
         run: |
           python - <<'PY'
@@ -56,6 +60,7 @@ jobs:
           assert "c.evidence_level='official_direct'" in query
           assert "g2b_case_10yr_windows" not in query
           assert "collect_filtered_gaps" in query
+          assert '/api/g2b/public/selected/strategy' in api
           assert "g2b_bid_collector" in query
           collector=Path('g2b_bid_collector.py').read_text()
           assert '0 if bid_numbers else remove_superseded_bid_rows()' in collector
