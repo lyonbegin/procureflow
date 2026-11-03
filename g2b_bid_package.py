@@ -134,11 +134,15 @@ def proposal_contents(bid_no=SINGLE_CASE):
                         "Final bid forms must match original tender attachments",
                         "Manual review and bid participation remain separate"]}
 
-def draft_docx(bid_no=SINGLE_CASE):
-    """Downloadable true draft with explicit missing-evidence markers."""
+def draft_docx(bid_no=SINGLE_CASE, *, contents=None, strategy=None, source_clauses=None):
+    """Actual source-backed procurement review draft, never a submitted bid.
+
+    When a Worker has already retrieved proposal/context/competition, those
+    objects are reused without repeating the same upstream document requests.
+    """
     from docx import Document
-    from docx.shared import Pt
-    data=proposal_contents(bid_no)
+    from html import unescape
+    data=contents if isinstance(contents,dict) else proposal_contents(bid_no)
     doc=Document()
     sec=doc.sections[0]
     doc.add_heading("입찰 사전검토 및 제출서류 준비서",0)
@@ -152,6 +156,47 @@ def draft_docx(bid_no=SINGLE_CASE):
                      ("원가 및 가격안",data["price"])]:
         doc.add_heading(name,level=1)
         doc.add_paragraph(json.dumps(obj,ensure_ascii=False,default=str,indent=2)[:7000])
+    if isinstance(strategy,dict) and strategy.get("real_data_only") is True:
+        observed=strategy.get("observed") or {}
+        awards=strategy.get("confirmed_award_observed") or {}
+        doc.add_heading("원본 검증 과거 개찰·경쟁 분석",level=1)
+        doc.add_paragraph(
+            "본 데이터는 선택 공고의 정확한 10자리 세부종목 원본이 확인된 과거 개찰 기록입니다. "
+            "분석 범위의 모든 기록이 최종 낙찰 결과를 의미하지 않습니다.")
+        for label,key in [
+            ("실제 개찰기록 행","opening_rows"),
+            ("원본 검증 공고차수","observed_notice_rounds"),
+            ("확인된 업체명 문자열","distinct_name_strings"),
+            ("투찰금액이 있는 실제 기록","rows_with_numeric_amounts"),
+            ("개찰 1순위 기록(낙찰 확정 아님)","rank_one_openings_not_awards")
+        ]:
+            doc.add_paragraph(label+": "+str(observed.get(key,"미확인")))
+        doc.add_paragraph("공식 확정 낙찰 기록: "+str(awards.get("award_rows","미확인")))
+        doc.add_paragraph(
+           "검색기간: "+str(strategy.get("filters",{}).get("start",""))+
+           " ~ "+str(strategy.get("filters",{}).get("end","")))
+        doc.add_heading("과거 경쟁업체 개찰 참가 현황",level=2)
+        for row in (strategy.get("competitors_from_all_filtered_records") or [])[:12]:
+            company=unescape(str(row.get("company") or ""))[:150]
+            doc.add_paragraph(
+               company+" · 서로 다른 공고차수 "+str(row.get("distinct_notice_rounds",0))+
+               " · 개찰 행 "+str(row.get("opening_rows",0))+
+               " · 개찰 1순위 "+str(row.get("rank_one_openings_not_awards",0)),
+               style="List Bullet")
+        doc.add_paragraph(
+            "과거 수주확률 또는 추천 투찰가격은 생성하지 않았습니다. "
+            "동종 계약방법·원가·가격규칙·회사 자격과 입찰 마감 여부를 별도로 검증하십시오.")
+    if source_clauses:
+        doc.add_heading("저장된 원본 공고·과업지시서에서 추출한 확인 문장",level=1)
+        doc.add_paragraph("다음 문장은 원본 문서의 그대로 추출한 참고 항목이며, 법적 적격성 판정이 아닙니다.")
+        for clause in source_clauses[:25]:
+            if not clause.get("original_sha256"):continue
+            doc.add_paragraph(
+                str(clause.get("category") or "")+" · "+
+                str(clause.get("original_filename") or "")+" · "+
+                str(clause.get("text") or "")[:350]+"\n"+
+                "원본 SHA256: "+str(clause["original_sha256"]),
+                style="List Bullet")
     doc.add_heading("수집한 첨부 원본",level=1)
     if not data["document_index"]:doc.add_paragraph("다운로드한 첨부원본 없음.")
     for row in data["document_index"]:
