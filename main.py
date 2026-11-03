@@ -561,6 +561,12 @@ def queue_historical_bid_window(req:BidHistoricalWindow,
 
 # Public-procurement search-first endpoints. These reuse production case,
 # original document and opening-result tables. No mock, new n8n engine or bid.
+@app.get("/public-search",response_class=HTMLResponse)
+def public_selected_search_workbench():
+    """Real stored G2B data and original files; not the A01 fixture canvas."""
+    return (Path(__file__).parent/"static/public-search.html").read_text(encoding="utf-8")
+
+
 @app.get("/api/g2b/public/selected/search")
 def public_selected_search(start: str | None = None, end: str | None = None,
                            detail10: str = "8111159901",
