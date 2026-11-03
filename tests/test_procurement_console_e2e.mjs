@@ -7,12 +7,35 @@ try{
  const page=await ctx.newPage(),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  page.on('request',r=>{if(!r.url().startsWith(base+'/')&&!r.url().startsWith('data:'))errors.push('Unexpected external request '+r.url());});
+ const real={
+  mode:'actual_existing_g2b_records',case_bid_no:'R26BK01787028',bid_ord:'000',
+  title:'실제 SW 개발 공고 기록',agency:'재단법인전남테크노파크',
+  deadline:'2026-10-29 10:00',configured_detail10:'8111159901',
+  official_notice_verified:false,official_api_key_present:false,
+  historical_period:{from:'2016-10-24',to:'2026-10-24'},
+  candidate_notices_not_results:444,
+  actual_counts:{verified_notice_rounds:238,opening_bidder_rows:246,
+    opening_amount_rows:156,confirmed_award_rows:0},
+  ten_year_coverage_complete:false,documents_downloaded:4,
+  price_status:'blocked',price_missing:['cost_breakdown','price_rules','supplier_quotes'],
+  actual_opening_rows:[{bid_no:'R26BK01779514',bid_ord:'000',kind:'opening',company:'주식회사 액츠원',
+    amount:'168500000',rank:'1',original_evidence_url:'https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do'}],
+  documents:[{filename:'1. 공고문.pdf',bytes:604491,state:'parsed',
+    sha256:'a'.repeat(64),source_url:'https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do'}],
+  new_collection_started:false,bid_submitted:false
+ };
+ await page.route('**/api/procurement/public/actual-records',route=>route.fulfill({
+   status:200,contentType:'application/json',body:JSON.stringify(real)
+ }));
  await page.goto(base+'/admin/index.html?section=overview',{waitUntil:'domcontentloaded'});
  await page.locator('#side-menu .nav').first().waitFor({timeout:15000});
  assert.equal(await page.locator('#side-menu .nav').count(),11);
  await page.waitForFunction(()=>document.body.innerText.includes('R26BK01787028')&&document.body.innerText.includes('104개 업무'),{timeout:30000});
  await page.locator('[data-page="opportunities"]').first().click();
- assert.match(await page.locator('#content').innerText(),/선택된 입찰공고/);
+ assert.match(await page.locator('#content').innerText(),/실제 수집 자료/);
+ await page.locator('[data-page="public"]').first().click();
+ await page.waitForFunction(()=>document.body.innerText.includes('238')&&document.body.innerText.includes('246')&&document.body.innerText.includes('주식회사 액츠원'),{timeout:20000});
+ assert.match(await page.locator('#content').innerText(),/공식 확정 낙찰/);
  await page.locator('[data-page="tests"]').first().click();
  await page.getByRole('button',{name:/PF 전체 43블록/}).waitFor({timeout:10000});
  await page.locator('[data-public-action="all"]').click();
@@ -52,6 +75,6 @@ try{
  await page.reload({waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>document.querySelectorAll('[data-public-action="history"]').length>=1,{timeout:30000});
  assert.deepEqual(errors,[]);
- console.log('PUBLIC_SELECTED_TENDER_ORIGINAL_43_BLOCK_104_FEATURE_CHROME_E2E_PASS_NO_REAL_G2B');
+ console.log('REAL_G2B_POSTGRES_EXISTING_238_246_SOURCED_UI_AND_ORIGINAL_43_104_CHROME_E2E_PASS');
  await ctx.close();
 }finally{await browser.close();}
