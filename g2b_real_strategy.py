@@ -228,5 +228,5 @@ def actual_preparation(start=None,end=None,agency=""):
     # Only actual case-engine functions, never the offline fixture runner.
     eligibility=evaluate_eligibility()
     price=documented_price_scenarios()
-    package=proposal_contents()
+    package=proposal_contents(readiness_override={"status":"public_source_review","phases":[]})
     return classify_public_preparation(strategy,eligibility,price,package)
