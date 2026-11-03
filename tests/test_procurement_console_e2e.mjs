@@ -23,6 +23,22 @@ try{
  await page.locator('[data-page="strategy"]').first().click();
  assert.match(await page.locator('#content').innerText(),/10년/);
  assert.match(await page.locator('#content').innerText(),/제안서/);
+ const catalog=await (await ctx.request.get(base+'/public-case-feature-catalog.json')).json();
+ const verified={
+   source_provenance:'live_procureflow_postgresql_verified_evidence',
+   bid_no:'R26BK01787028',bid_ord:'000',
+   business_blocks_checked:43,features_checked:104,
+   features_officially_verified:0,eligible_for_manual_bid_participation:false,
+   automatic_bid_submission:false,actual_job_executed:false,
+   features:catalog.features.map(x=>({number:x.number,acceptance_state:'missing'})),
+   blocks:catalog.manifest_blocks.map(x=>({id:x.id,name:x.label,status:'blocked',missing_evidence:['official_evidence_missing']}))
+ };
+ await page.route('**/api/procurement/public/verified-evidence',route=>route.fulfill({
+   status:200,contentType:'application/json',body:JSON.stringify(verified)
+ }));
+ await page.locator('[data-page="public"]').first().click();
+ await page.locator('[data-public-action="load-verified"]').first().click();
+ await page.waitForFunction(()=>document.body.innerText.includes('운영 PostgreSQL은')&&document.body.innerText.includes('0개 기능'),{timeout:20000});
  await page.locator('[data-page="features"]').first().click();
  await page.waitForFunction(()=>document.querySelectorAll('#content tbody tr').length>=104,{timeout:20000});
  assert.equal(await page.locator('#content tbody tr').count(),111); // seven phase rows plus 104 original feature rows
