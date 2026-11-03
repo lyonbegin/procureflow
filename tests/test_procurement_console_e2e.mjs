@@ -44,7 +44,8 @@ try{
  const featureRows=await page.locator('#content tbody tr').allInnerTexts();
  assert.equal(featureRows.filter(v=>/^F\d{3}\b/.test(v.trim())).length,104); // actual F001-F104, plus original 43 block/evidence rows
  assert.equal(await page.locator('#content tbody tr:has-text("F104")').count(),1);
- assert.match(await page.locator('#content').innerText(),/공식 미검증/);
+ assert.match(await page.locator('#content').innerText(),/공식 검증 없음/);
+ assert.match(await page.locator('#content').innerText(),/missing/);
  await page.locator('[data-page="audit"]').first().click();
  await page.locator('[data-public-action="history"]').first().click();
  await page.waitForFunction(()=>document.body.innerText.includes('43개')&&document.body.innerText.includes('public-O04'),{timeout:15000});
