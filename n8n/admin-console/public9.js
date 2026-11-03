@@ -123,7 +123,7 @@ function main(){
  '<div class="actions"><label class="label" style="min-width:210px">기존 관리자 토큰 (실행 시에만 사용)<input id="p9-token" class="input" type="password" autocomplete="off" placeholder="ADMIN_TOKEN"></label>'+
  '<button data-public9="run" class="btn primary" '+(!selectedReady()||st.submitting?'disabled':'')+'>▶ 선택 공고 전체 입찰 준비 실행</button>'+
  '<button data-public9="latest" class="btn">최근 실제 실행 기록 조회</button></div>'+
- '<p class="muted smalltxt">관리센터의 실행 버튼만 기존 Worker 작업을 등록합니다. 자동 투찰·전자서명·입찰참가 없음. 토큰은 저장하지 않습니다.</p></section>'+
+ '<p class="muted smalltxt">관리센터의 실행 버튼은 공용 Studio에 저장된 04번 검색노드의 기간·기관 필터를 검증해 기존 Worker에 전달합니다. 다른 노드의 코드 변경은 Worker에 자동 반영되지 않습니다. 자동 투찰·전자서명·입찰참가 없음.</p></section>'+
  '<section class="panel"><h3>③ 동일 공고 9개 업무 노드</h3><div class="actions" style="gap:8px">'+cards+'</div>'+
  '<div class="actions"><button class="btn primary" data-page="public_nodes">선택 공고의 9노드 편집기 · 입력·출력 열기</button>'+
  '<button class="btn" data-public9="inspect">선택 단계의 실제 입력·출력 확인</button></div>'+
@@ -164,16 +164,55 @@ function nodes(){
  '<iframe title="공공입찰 9개 업무 노드 공용 Studio 편집기" loading="lazy" src="'+path+
  '" style="display:block;width:100%;height:840px;border:1px solid #54708a;border-radius:12px;background:#0c1522"></iframe></section>';
 }
+async function readApprovedNodeFilter(){
+ // Read the EXACT cookie-scoped saved original shared-Studio workflow.
+ // Never treat arbitrary edited JS or URLs as executable backend code.
+ const r=await fetch('/api/studio/workflows/'+FLOW,{credentials:'same-origin',cache:'no-store'});
+ if(!r.ok)throw Error('저장된 노드 그래프 확인 실패: HTTP '+r.status);
+ const body=await r.json(),w=body.workflow;
+ if(!w||!Array.isArray(w.nodes)||w.nodes.length!==10)
+   throw Error('9개 업무노드 + 시작노드가 일치하지 않습니다');
+ const ids=['public9-trigger',...Array.from({length:9},(_,i)=>'public9-'+String(i+1).padStart(2,'0'))];
+ if(new Set(w.nodes.map(n=>n.id)).size!==10||ids.some(id=>!w.nodes.find(n=>n.id===id)))
+   throw Error('승인되지 않은 노드 변경이 있습니다. 9개 정규 업무노드를 유지해야 합니다');
+ for(let i=0;i<ids.length-1;i++){
+  const from=w.nodes.find(n=>n.id===ids[i]),to=w.nodes.find(n=>n.id===ids[i+1]);
+  const next=w.connections?.[from.name]?.main?.[0]||[];
+  if(next.length!==1||next[0].node!==to.name)
+   throw Error('운영 9단계 연결선이 변경되었습니다. 먼저 원본 DAG를 검증해야 합니다');
+ }
+ const node=w.nodes.find(n=>n.id==='public9-04');
+ if(node.type!=='n8n-nodes-base.httpRequest'||node.parameters?.method!=='GET')
+   throw Error('과거 검색 노드 유형이 원본에서 변경되었습니다');
+ let url;try{url=new URL(node.parameters.url)}catch{throw Error('과거 검색 노드 API 주소 오류')}
+ if(url.origin!=='https://procureflow-api-production.up.railway.app'||
+    url.pathname!=='/api/g2b/public/selected/search'||
+    url.searchParams.get('detail10')!==DETAIL||
+    url.searchParams.get('kind')!=='opening')
+    throw Error('실제 조달 검색으로 허가된 세부종목·API가 아닙니다');
+ const start=url.searchParams.get('start'),end=url.searchParams.get('end');
+ if(!/^\d{4}-\d\d-\d\d$/.test(start||'')||!/^\d{4}-\d\d-\d\d$/.test(end||'')||
+   start<'2016-10-24'||end>'2026-10-22'||start>end)
+    throw Error('노드 04의 기간 필터가 선택 공고의 과거 범위를 벗어납니다');
+ const agency=url.searchParams.get('agency')||'';
+ if(agency.length>100||/[\x00-\x1f]/.test(agency))
+   throw Error('원본 기관 필터가 유효하지 않습니다');
+ return {start,end,agency};
+}
 async function execute(){
  if(!selectedReady())throw Error('현재 선택 공고의 실제 처리 Worker가 연결되지 않았습니다');
  const input=document.getElementById('p9-token');
  const token=input?.value.trim();
  if(!token)throw Error('기존 관리자 토큰을 입력해야 합니다');
+ // The operator can change dates/agency via native Studio node 04,
+ // SAVE the graph, and the actual Worker receives these validated filters.
+ // Other JS/HTTP changes are never silently deployed to the Worker.
+ const runFilter=await readApprovedNodeFilter();
  input.value='';
  st.submitting=true;refreshView();
  try{
   const v=await request('prepare',{method:'POST',headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
-   body:JSON.stringify({bid_no:CASE,detail10:DETAIL,start:"2016-10-24",end:"2026-10-22",agency:""})});
+   body:JSON.stringify({bid_no:CASE,detail10:DETAIL,...runFilter})});
   if(v.worker_source!=='g2b_public_prepare'||!v.job_id||v.bid_submitted!==false)
    throw Error('실제 기존 Worker 작업을 확인할 수 없습니다');
   st.job={job_id:v.job_id,case_bid_no:CASE,job_state:'queued',steps:[],actual_stages_recorded:0};
