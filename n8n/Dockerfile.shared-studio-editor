@@ -21,7 +21,7 @@ RUN PF_SOURCE=/work PF_OUTPUT=/generated node /tools/compile-native-topology.mjs
 FROM node:22-alpine AS ui
 RUN apk add --no-cache git
 WORKDIR /app
-ARG SHARED_STUDIO_COMMIT=9748e1159b107dbbb2c2fc0cbc67206939fbfdaf
+ARG SHARED_STUDIO_COMMIT=a6227e8dadacffb47159281c478ef71029e2cd80
 RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /app/shared \
     && git -C /app/shared checkout --detach "$SHARED_STUDIO_COMMIT" \
     && test "$(git -C /app/shared rev-parse HEAD)" = "$SHARED_STUDIO_COMMIT" \
