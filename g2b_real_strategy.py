@@ -62,12 +62,13 @@ def _top_competitors(con,s):
             for x in records]
 
 def analyze_competition(start=None,end=None,agency="",*,connection=None,
-                        now=None):
+                        now=None,case=None):
     s=filters(start=start,end=end,kind="opening",agency=agency,limit=1,offset=0)
     if connection is None:
         with session() as con:
-            return analyze_competition(start,end,agency,connection=con,now=now)
-    case=single_case_material(connection=connection)
+            return analyze_competition(start,end,agency,connection=con,now=now,case=case)
+    if case is None:
+        case=single_case_material(connection=connection)
     if case.get("status")!="found":
         return {"status":"selected_notice_missing","real_data_only":True,
                 "case_bid_no":s.bid_no,"bid_submitted":False}
