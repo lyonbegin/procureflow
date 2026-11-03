@@ -97,7 +97,7 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <span id="collectResult" class="muted">관리자 승인 없이는 실행하지 않습니다.</span></div></section>
 <section class="panel"><h2>기존 Worker의 실데이터 9단계 실행 · 실제 작업 ID</h2>
 <p class="muted">현재 선택한 공고 하나의 기존 원본·문서·개찰·경쟁·회사 자격·원가·제안서 생성까지 실제 업무코드를 실행하고, 각 단계의 원래 PostgreSQL 실행 ID를 저장합니다. 공식 n8n 실행 ID를 꾸며내지 않습니다.</p>
-<div class="actions"><button id="prepare" type="button">실제 9단계 분석·서류 준비 실행</button>
+<div class="actions"><button id="prepare" type="button">실제 9단계 분석·서류 준비 실행</button><button id="loadLatestRealJob" type="button" class="secondary">최근 실제 실행기록 조회</button>
 <span id="prepareResult" class="muted">위의 기존 관리자 토큰을 입력해야 작업을 시작합니다.</span></div>
 <div id="prepareStages" class="muted">실행된 기존 Worker 작업이 아직 없습니다.</div>
 <div class="actions"><a id="downloadRealDraft" class="btn secondary" href="#" hidden>실제 원본·경쟁분석을 포함한 서류 초안 내려받기 (.docx)</a></div>
@@ -317,6 +317,23 @@ async function inspectRealJob(){
  }catch(e){el("prepareResult").textContent="기존 Worker DB 상태 확인 실패: "+e.message;}
  finally{realJobPolling=false;}
 }
+async function loadLatestRealJob(){
+ try{
+  const data=await fetchJSON("/api/g2b/public/selected/prepare-jobs/latest");
+  if(!data.job_id){
+   el("prepareResult").textContent="현재 저장된 실제 9단계 실행 작업이 없습니다.";
+   return;
+  }
+  currentRealJob=Number(data.job_id);
+  await inspectRealJob();
+  if(["queued","running"].includes(data.job_state)){
+   stopRealJobPolling();
+   realJobTimer=setInterval(inspectRealJob,4000);
+  }
+ }catch(e){
+  el("prepareResult").textContent="최근 실제 실행기록 조회 오류: "+e.message;
+ }
+}
 async function startRealPreparation(){
  const token=el("adminToken").value.trim();
  if(!token){el("prepareResult").textContent="기존 관리자 토큰을 입력하세요.";return;}
@@ -341,8 +358,10 @@ async function startRealPreparation(){
  }finally{el("adminToken").value="";}
 }
 el("prepare").addEventListener("click",startRealPreparation);
+el("loadLatestRealJob").addEventListener("click",loadLatestRealJob);
 el("search").addEventListener("click",()=>loadHistory(true));
 el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
 el("collect").addEventListener("click",collectFiltered);
 loadHistory(true);
+loadLatestRealJob();
 </script></body></html>
