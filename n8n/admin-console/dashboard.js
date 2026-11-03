@@ -24,7 +24,8 @@ const MARKETS={
 const M=[
  ['overview','종합 관제센터','사업기회·전략·실행·DB 총괄','◫','platform'],
  ['opportunities','사업기회·접수센터','발주·개발 의뢰·인력 수요의 구분','⌕','platform'],
- ['public','공공조달 수주전략','과거 낙찰 → 경쟁·가격 → 제안서','▣','markets'],
+ ['public','공공입찰 통합 실행센터','최신 공고 → 한 건 선택 → 실데이터 9단계 실행','▣','markets'],
+ ['public_nodes','공공입찰 9노드 관리','동일 공고·실제 실행 단계·공용 Studio 편집','⤴','operations'],
  ['private_dev','민간 SW 개발 외주','기술설계·공수·견적·영업제안','⌘','markets'],
  ['staffing','민간 인력·단순 용역','수급·노무·운영·단가','♙','markets'],
  ['strategy','수주전략·제안서','가격·마진·제안서·판단 근거','◈','operations'],
@@ -340,19 +341,21 @@ function infraPage(){
 function render(){
  menu();header();
  const content={
- overview:()=>window.PublicCase.renderOverview(),
- opportunities:()=>window.PublicCase.renderOpportunity(),
- public:()=>window.PublicCase.renderPublic(),
+ overview:()=>window.Public9.render(),
+ opportunities:()=>window.Public9.render(),
+ public:()=>window.Public9.render(),
+ public_nodes:()=>window.Public9.renderNodes(),
  private_dev:()=>marketPage('private_dev'),staffing:()=>marketPage('staffing'),
- strategy:()=>state.market==='public'?window.PublicCase.renderStrategy():strategyPage(),
- workflows:workflowsPage,
- tests:()=>state.market==='public'?window.PublicCase.renderTests():testsPage(),
+ strategy:()=>state.market==='public'?window.Public9.render():strategyPage(),
+ workflows:()=>state.market==='public'?window.Public9.renderNodes():workflowsPage(),
+ tests:()=>state.market==='public'?window.Public9.renderNodes():testsPage(),
  features:()=>window.PublicCase.renderFeatures(),
- audit:()=>state.market==='public'?window.PublicCase.renderAudit():auditPage(),
+ audit:()=>state.market==='public'?window.Public9.renderNodes():auditPage(),
  infra:infraPage
  };
  el('content').innerHTML=(content[state.page]||renderOverview)();
 }
+window.Public9.requestRender=render;
 async function loadHealth(){
  try{state.health=await api('/api/studio/health');}
  catch(e){state.health={status:'error',error:e.message};}
@@ -482,6 +485,6 @@ document.addEventListener('input',e=>{
  }
 });
 window.addEventListener('public-case-changed',()=>render());
-el('refresh-all').addEventListener('click',()=>Promise.all([reload(),window.PublicCase.refresh()]).then(()=>popup('입찰 한 건·노드 이력 상태 확인 완료')));
+el('refresh-all').addEventListener('click',()=>Promise.all([reload(),window.Public9.load()]).then(()=>popup('최신 입찰공고·실제 Worker 이력 갱신 완료')));
 reload();
 })();
