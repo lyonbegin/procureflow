@@ -43,6 +43,20 @@ async function request(route,options){
  if(!r.ok)throw Error(result.error||'API HTTP '+r.status);
  return result;
 }
+async function refreshSelectedRoute(){
+ if(!st.selected)return;
+ const data=await request('stage1?'+new URLSearchParams({
+  q:st.search,status:st.status,limit:30,offset:0,selected_bid_no:st.selected
+ }));
+ if(data.source!=='actual_procureflow_postgresql_g2b_notices'||
+    !Array.isArray(data.nodes)||data.nodes.length!==3||
+    data.selected_route?.selected?.bid_no!==st.selected)
+  throw Error('선택 공고 N02 분기 입력·출력 일치 검증 실패');
+ st.stage1=data;
+ st.notices=data.notices;
+ refreshView();
+}
+
 async function load(){
  if(st.loading)return;
  st.loading=true;st.error=null;refreshView();
@@ -57,6 +71,7 @@ async function load(){
    st.notices=n.value.notices;
    const matches=st.notices.items.some(x=>x.bid_no===st.selected);
    if(!st.selected||!matches)st.selected=st.notices.items[0]?.bid_no||null;
+   if(st.selected)await refreshSelectedRoute();
   }else throw n.reason;
   if(j.status==='fulfilled'&&j.value.worker_job_id_is_not_n8n_execution_id===true){
    st.job=j.value;
@@ -247,7 +262,7 @@ document.addEventListener('click',async event=>{
  event.preventDefault();event.stopPropagation();
  const a=hit.dataset.public9;
  try{
-  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;await load();}
+  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;await refreshSelectedRoute();}
   else if(a==='node'){st.selectedNode=Number(hit.dataset.index)||0;refreshView();}
   else if(a==='reload'){
    st.search=document.getElementById('p9-q')?.value||'';
