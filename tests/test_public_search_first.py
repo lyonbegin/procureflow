@@ -47,7 +47,7 @@ class Rows:
     def fetchone(self): return self.items[0] if self.items else None
     def fetchall(self): return self.items
 
-s=sf.filters(start="2026-01-01",end="2026-10-24",
+s=sf.filters(start="2026-01-01",end="2026-10-22",
              kind="opening",agency=r"기관%_상세",limit=23,offset=10)
 assert s.detail10=="8111159901"
 db=DB()
@@ -75,7 +75,7 @@ assert source["document_count"]==1 and source["redownloaded"] is False
 assert source["notice"]["notice_fields"]["dtilPrdctClsfcNo"]=="8111159901"
 assert "unrelated_secret" not in str(source)
 assert len(db.queries)==4
-combined=sf.actual_case_workbench(start="2026-01-01",end="2026-10-24",
+combined=sf.actual_case_workbench(start="2026-01-01",end="2026-10-22",
                                   agency="전남",connection=DB())
 assert combined["no_simulated_records"] is True
 assert combined["filtered_before_result_fetch"] is True
