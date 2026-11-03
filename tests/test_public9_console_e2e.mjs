@@ -62,6 +62,8 @@ try{
    'other tender must never inherit previous Worker stage evidence');
  await page.locator('input[data-public9="choose"][data-bid="R26BK01787028"]').click();
  assert.equal(await page.locator('#content [data-public9="run"]').isEnabled(),true);
+ assert.match(await page.locator('#content').innerText(),/unverified_hold/);
+ assert.match(await page.locator('#content').innerText(),/후속 실제 실행: 없음/);
  assert.match(await page.locator('#content').innerText(),/1728/);
  await page.locator('#content [data-public9="node"][data-index="4"]').click();
  assert.match(await page.locator('#content').innerText(),/655/);
