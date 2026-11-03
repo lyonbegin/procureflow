@@ -37,6 +37,10 @@ class DB:
                           "extracted_chars":120,
                           "excerpt":"회사자격 및 제출요건을 포함하는 원본 공고문",
                           "original_url":"https://www.g2b.go.kr/"}])
+        if "INSERT INTO procureflow.g2b_case_outcome_attempts" in sql:
+            assert params[0]=="R26BK01787028"
+            assert params[4].startswith("{")
+            return Rows([])
         if "SELECT v.bid_no,v.bid_ord,h.published_on" in sql:
             return Rows([{"bid_no":"R26BK01716629","bid_ord":"000",
                           "published_on":date(2026,9,20)}])
@@ -97,12 +101,15 @@ def actual_collector(**kwargs):
     calls.append(kwargs)
     return {"status":"collected","examined":2,"saved":2,"new":1,
             "final_winners":0,"errors":[]}
-out=sf.collect_filtered_gaps(s,max_notices=1,collector=actual_collector,connection=DB())
+audit_db=DB()
+out=sf.collect_filtered_gaps(s,max_notices=1,collector=actual_collector,connection=audit_db)
+assert len([q for q,_ in audit_db.queries if "INSERT INTO procureflow.g2b_case_outcome_attempts" in q])==1
 assert out["source"]=="existing_real_g2b_bid_collector"
 assert out["selected"]==1 and out["new_records"]==1
 assert calls[0]["bid_numbers"]==["R26BK01716629-000"]
 assert calls[0]["pages"]==1
 assert out["explicit_final_awards"]==0 and out["bid_submitted"] is False
+
 try:sf.collect_filtered_gaps(s,max_notices=999,collector=actual_collector,connection=DB())
 except ValueError:pass
 else:raise AssertionError("Unbounded collection allowed")
