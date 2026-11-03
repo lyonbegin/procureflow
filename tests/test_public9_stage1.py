@@ -22,15 +22,26 @@ with patch.object(g,"_request",side_effect=fake_request):
  assert status==200
  assert r["source"]=="actual_procureflow_postgresql_g2b_notices"
  assert r["crawler_executed"] is False and r["worker_executed"] is False
- assert [x["id"] for x in r["nodes"]]==["N01","N02"]
- n01,n02=r["nodes"]
+ assert [x["id"] for x in r["nodes"]]==["N01","N02","N02_ROUTE"]
+ n01,n02,route_node=r["nodes"]
  assert n01["output"]["records"]==source["items"]
  assert n02["input"]["records"]==n01["output"]["records"]
  assert n02["output"]["unique_count"]==4
  assert n02["output"]["duplicate_rows_filtered"]==1
  assert n02["output"]["branches"]=={"new":1,"amended":1,"cancelled":1,"unknown_unverified":1}
  assert n02["output"]["tender_identifiers"][0]["bid_no"]=="R26BK01787028"
- assert len(r["connections"])==5
+ assert len(r["connections"])==6
+with patch.object(g,"_request",side_effect=fake_request):
+ for bid,expect in (("R26BK01787028","unverified_hold"),
+                    ("R26BK01788888","pf13_revalidation_required"),
+                    ("R26BK01799999","cancelled_hold"),
+                    ("R26BK01777777","n05_and_o01_candidate"),
+                    ("R26BK00000001","selected_notice_not_in_current_source_page")):
+  _,r=g.proxy_get("stage1","status=all&limit=30&offset=0&q=&selected_bid_no="+bid)
+  assert r["selected_route"]["route"]==expect,(bid,r["selected_route"])
+  assert r["selected_route"]["downstream_executed"] is False
+  assert r["nodes"][2]["input"]["identified_records"]==r["nodes"][1]["output"]["tender_identifiers"]
+  assert r["nodes"][2]["output"]==r["selected_route"]
 bad={**source,"source":"mock"}
 with patch.object(g,"_request",return_value=(200,bad)):
  try:g.proxy_get("stage1","")
