@@ -25,9 +25,21 @@ DRAFT_MEDIA="application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 
 
 def ensure_schema():
-    from g2b_case_engine import ensure_engine
-    ensure_engine()
+    # This pipeline does not initialise 104 feature rows or 121 monthly windows.
+    # It only reuses the original per-stage run/audit tables and creates one
+    # real prepared-document table in the existing procureflow schema.
     with session() as con:
+        con.execute("""CREATE TABLE IF NOT EXISTS procureflow.g2b_case_runs(
+             id bigserial PRIMARY KEY,bid_no text NOT NULL,
+             phase text NOT NULL,state text NOT NULL DEFAULT 'queued',
+             result jsonb NOT NULL DEFAULT '{}'::jsonb,
+             error text NOT NULL DEFAULT '',
+             started_at timestamptz,finished_at timestamptz,
+             created_at timestamptz NOT NULL DEFAULT now())""")
+        con.execute("""CREATE TABLE IF NOT EXISTS procureflow.g2b_case_events(
+             id bigserial PRIMARY KEY,bid_no text NOT NULL,
+             action text NOT NULL,details jsonb NOT NULL DEFAULT '{}'::jsonb,
+             created_at timestamptz NOT NULL DEFAULT now())""")
         con.execute("""CREATE TABLE IF NOT EXISTS procureflow.g2b_public_case_drafts(
            job_id bigint PRIMARY KEY REFERENCES procureflow.jobs(id),
            case_bid_no text NOT NULL,
