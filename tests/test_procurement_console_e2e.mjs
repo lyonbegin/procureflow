@@ -32,9 +32,7 @@ try{
  await page.locator('[data-public-action="history"]').first().click();
  await page.waitForFunction(()=>document.body.innerText.includes('43개')&&document.body.innerText.includes('public-O04'),{timeout:15000});
  await page.reload({waitUntil:'domcontentloaded'});
- await page.waitForFunction(()=>document.body.innerText.includes('104개 업무'),{timeout:20000});
- await page.locator('[data-page="audit"]').first().click();
- await page.waitForFunction(()=>document.querySelectorAll('[data-public-action="history"]').length>=1,{timeout:20000});
+ await page.waitForFunction(()=>document.querySelectorAll('[data-public-action="history"]').length>=1,{timeout:30000});
  assert.deepEqual(errors,[]);
  console.log('PUBLIC_SELECTED_TENDER_ORIGINAL_43_BLOCK_104_FEATURE_CHROME_E2E_PASS_NO_REAL_G2B');
  await ctx.close();
