@@ -193,9 +193,9 @@ def _stage(block,state):
       "real_quote_quorum":False,"mock_quote_min_krw":138_000_000}
     if key=="P01":return {"base_amount_krw":case["budget_krw"],
       "budget_krw":case["budget_krw"],"source":"fictional_budget","quantity_lines_verified":False}
-    if key=="P02":return {"synthetic_development_krw":125_000_000,
-      "synthetic_staffing_krw":29_000_000,"synthetic_external_krw":12_000_000,
-      "synthetic_direct_cost_krw":166_000_000,"actual_cost_verified":False}
+    if key=="P02":return {"synthetic_development_krw":118_000_000,
+      "synthetic_staffing_krw":27_000_000,"synthetic_external_krw":12_000_000,
+      "synthetic_direct_cost_krw":157_000_000,"actual_cost_verified":False}
     if key=="P03":
         direct=results["P02"]["synthetic_direct_cost_krw"]
         overhead=_money(direct*Decimal("0.08"))
