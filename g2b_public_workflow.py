@@ -83,7 +83,7 @@ def _stage(job_id,index,task):
     try:
         value,state,summary=task()
         summary={"step":STEPS[index],"case":CASE_BID,
-                 "provenance":"existing_operational_g2b_db",**summary}
+                 "provenance":("official_g2b_websquare_and_existing_postgresql" if index==4 else "existing_operational_g2b_db"),**summary}
         _record_end(run_id,job_id,index,state,summary)
         return value,state,run_id
     except Exception as exc:
