@@ -261,6 +261,35 @@ def actual_case_workbench(start=None, end=None, kind="all", agency="",
             "bid_participation_clicked":False,"bid_submitted":False}
 
 
+def preview_filtered_gaps(s: Search, max_notices=3, *, connection=None):
+    """Read-only preview of source-verified exact10 IDs before WebSquare calls.
+
+    The preview is not a complete G2B search result: it only considers
+    original-verified IDs already present in operational PostgreSQL.
+    """
+    if not isinstance(max_notices,int) or not 1<=max_notices<=3:
+        raise ValueError("MAX_THREE_SELECTED_NOTICES_PER_JOB")
+    if connection is None:
+        with session() as con:
+            return preview_filtered_gaps(s,max_notices,connection=con)
+    candidates=_filtered_gaps(connection,s,max_notices)
+    return {"source":"existing_original_verified_detail10",
+            "filter_field":"g2b_notice_categories.code",
+            "exact_detail10":s.detail10,
+            "selected_bid_no":s.bid_no,
+            "period":{"start":s.start.isoformat(),"end":s.end.isoformat()},
+            "agency":s.agency,
+            "candidate_ids":[{"bid_no":x["bid_no"],
+                              "bid_ord":x["bid_ord"],
+                              "notice_date":str(x["published_on"])}
+                             for x in candidates],
+            "candidate_count":len(candidates),
+            "next_step":"existing_WebSquare_opening_then_explicit_final_award",
+            "official_webside_10digit_search_verified":False,
+            "ten_year_coverage_complete":False,
+            "external_requests":0,"bid_submitted":False}
+
+
 def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
                           award_lookup=None, connection=None):
     """Use EXISTING public WebSquare opening + explicit-final-award adapters.
@@ -338,9 +367,9 @@ def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
             award_errors.append(result)
             _save_filtered_award_attempt(
                 bid_no,bid_ord,result,connection=connection)
-    openings_errors=[str(err)[:150] for err in out.get("errors",[])]
-    if not isinstance(out.get("errors",[]),list):
-        openings_errors=["INVALID_OPENING_ERRORS_SCHEMA"]
+    raw_opening_errors=out.get("errors") or []
+    openings_errors=([str(err)[:150] for err in raw_opening_errors]
+            if isinstance(raw_opening_errors,list) else ["INVALID_OPENING_ERRORS_SCHEMA"])
     return {"status":"partial_source_errors" if award_errors or openings_errors
             else "partial_source_evidence",
         "case_bid_no":s.bid_no,"exact_detail10":s.detail10,
