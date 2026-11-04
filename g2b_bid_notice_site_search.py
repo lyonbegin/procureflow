@@ -776,7 +776,23 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 data=last.json()
             except Exception:
                 raise SearchBlocked("BID_NOTICE_SEARCH_RESPONSE_NOT_JSON") from None
+            # Schema evidence only, never log bid rows or sensitive values.
+            def public_shape(value,depth=0):
+                if depth>3:return {"type":type(value).__name__}
+                if isinstance(value,dict):
+                    return {str(k)[:55]: public_shape(v,depth+1)
+                            for k,v in list(value.items())[:35]}
+                if isinstance(value,list):
+                    return {"type":"list","length":len(value),
+                            "first":public_shape(value[0],depth+1) if value else None}
+                return {"type":type(value).__name__}
+            import logging
+            logging.warning("FRESH_G2B_OFFICIAL_RESULT_SCHEMA %s",
+                json.dumps(public_shape(data),ensure_ascii=False)[:4500])
             records,total=_response_records(data)
+            logging.warning("FRESH_G2B_OFFICIAL_RESULT_COUNTS %s",
+                json.dumps({"parsed":len(records) if records is not None else None,
+                            "total":total},ensure_ascii=False))
             if records is None:
                 raise SearchBlocked("BID_NOTICE_RESPONSE_SCHEMA_UNCONFIRMED")
             confirmed=[]
