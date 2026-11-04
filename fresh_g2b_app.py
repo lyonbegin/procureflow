@@ -44,6 +44,23 @@ async def lifespan(app):
             from threading import Thread
             job_id=store.create_job("diagnostic",{})
             Thread(target=_execute,args=(job_id,"diagnostic",{}),daemon=True).start()
+    file_canary=os.environ.get("FRESH_CANARY_DOCUMENT_URL","").strip()
+    if file_canary:
+        with store.db() as cx:
+            count=cx.execute("""SELECT count(*) AS n FROM fresh_g2b.site_jobs
+                WHERE kind='official-file'""").fetchone()["n"]
+        if count==0:
+            try:
+                from threading import Thread
+                no,ord_=site.official_file_identity(file_canary)
+                args={"bid_no":no,"bid_ord":ord_,"url":file_canary,
+                     "detail10":os.environ.get("FRESH_CANARY_DOCUMENT_CODE","")}
+                if store.TEN.fullmatch(args["detail10"]):
+                    job_id=store.create_job("official-file",args)
+                    Thread(target=_execute,args=(job_id,"official-file",args),
+                           daemon=True).start()
+            except ValueError:
+                logging.warning("FRESH_CANARY_DOCUMENT_IDENTITY_REJECTED")
     yield
 
 app=FastAPI(title="나라장터 실사이트 신규 수집센터",lifespan=lifespan,
@@ -135,10 +152,19 @@ def _parse_date(value):
     return date.fromisoformat(value)
 
 def _validate_action(kind,params):
-    if kind not in ("search","detail","opening","file"):
+    if kind not in ("search","detail","opening","file","official-file"):
         raise ValueError("UNSUPPORTED_SITE_ACTION")
     if not isinstance(params,dict):
         raise ValueError("ACTION_PARAMS_MUST_BE_OBJECT")
+    if kind=="official-file":
+        url=str(params.get("url") or "")
+        code=str(params.get("detail10") or "")
+        if not store.TEN.fullmatch(code):
+            raise ValueError("EXPECTED_DETAIL10_REQUIRED")
+        if len(url)>1600:
+            raise ValueError("FILE_URL_TOO_LONG")
+        no,ord_=site.official_file_identity(url)
+        return {"bid_no":no,"bid_ord":ord_,"url":url,"detail10":code}
     if kind=="search":
         code=str(params.get("detail10") or "")
         if not store.TEN.fullmatch(code):
@@ -188,6 +214,12 @@ def _execute(job_id,kind,params):
             result["next_month"]=w.get("next_month")
             result["website_request_verified"]=bool(w.get("search_request_verified"))
             state="completed" if result["website_request_verified"] else "blocked"
+        elif kind=="official-file":
+            no,ord_=params["bid_no"],params["bid_ord"]
+            file=site.download_original_file(params["url"])
+            result=store.store_official_notice_file(
+                no,ord_,params["url"],params["detail10"],file,job_id)
+            state="completed" if result["stored"] else "blocked"
         elif kind=="detail":
             no,ord_=params["bid_no"],params["bid_ord"]
             with store.db() as cx:
