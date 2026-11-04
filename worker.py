@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_feature' THEN 0 WHEN source='g2b_full_case' THEN 1 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_feature' THEN 0 WHEN source='g2b_public_prepare' THEN 0 WHEN source='g2b_filtered' THEN 1 WHEN source='g2b_full_case' THEN 1 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -655,6 +655,55 @@ def main():
                                        "state":state,
                                        "run_id":result.get('run_id')
                                      },ensure_ascii=False))
+                    elif job['source']=='g2b_public_prepare':
+                        from g2b_public_workflow import run_actual_public_case
+                        cfg=job.get('config') or {}
+                        if not isinstance(cfg,dict):
+                            raise ValueError('Production public preparation job requires JSON object')
+                        outcome=run_actual_public_case(int(job['id']),cfg)
+                        update(job['id'],
+                               checked=int(outcome['actual_worker_stages']),
+                               added=0,
+                               message=json.dumps({
+                                   'status':outcome['status'],
+                                   'actual_steps':outcome['actual_worker_stages'],
+                                   'draft_generated':outcome['draft_generated'],
+                                   'source':'existing_real_g2b_postgresql',
+                                   'n8n_execution_id':None},
+                                   ensure_ascii=False)[:450])
+                        done(job['id'],'completed_partial' if not outcome['errors']
+                             else 'failed',
+                             json.dumps(outcome,ensure_ascii=False,default=str))
+                        logging.info('G2B_PUBLIC_REAL_9_STAGE_WORKER %s',
+                                     json.dumps(outcome,ensure_ascii=False,default=str)[:2500])
+                    elif job['source']=='g2b_filtered':
+                        from g2b_search_first import filters,collect_filtered_gaps
+                        cfg=job.get('config') or {}
+                        if not isinstance(cfg,dict):
+                            raise ValueError('Filtered G2B config must be JSON object')
+                        selected=filters(
+                            bid_no=cfg.get('bid_no',''),
+                            detail10=cfg.get('detail10',''),
+                            start=cfg.get('start'),
+                            end=cfg.get('end'),
+                            agency=cfg.get('agency',''),
+                            kind='all')
+                        result=collect_filtered_gaps(
+                            selected,max_notices=int(cfg.get('max_notices',2)))
+                        update(job['id'],checked=int(result.get('selected',0)),
+                               added=int(result.get('new_records',0)),
+                               message=json.dumps({
+                                   'status':result.get('status'),
+                                   'actual_records_seen':result.get('actual_opening_rows_seen',0),
+                                   'selected':result.get('selected',0),
+                                   'saved':result.get('actual_saved_records',0),
+                                   'explicit_final_awards':result.get('explicit_final_awards',0),
+                                   'error_count':len(result.get('errors',[]))
+                               },ensure_ascii=False)[:450])
+                        done(job['id'],'completed_partial',
+                             json.dumps(result,ensure_ascii=False,default=str))
+                        logging.info('G2B_FILTERED_ACTUAL_RESULT %s',
+                                     json.dumps(result,ensure_ascii=False,default=str)[:2300])
                     elif job['source']=='g2b_full_case':
                         import g2b_full_runner
                         cfg=job.get('config') or {}

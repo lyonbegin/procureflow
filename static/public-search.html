@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ProcureFlow · 공공입찰 한 건 실데이터 준비실</title>
+<meta name="description" content="선택한 공공입찰의 실제 원본·첨부·10자리 개찰 결과 검색·수주전략·필요서류"/>
+<style>
+:root{font-family:Inter,system-ui,"Noto Sans KR",sans-serif;background:#0c1421;color:#eaf1fa;font-size:14px}
+*{box-sizing:border-box}body{margin:0}a{color:#8dccfc;text-decoration:none}a:hover{text-decoration:underline}
+header{background:#142438;border-bottom:1px solid #30435c;padding:20px clamp(15px,3vw,42px);display:flex;justify-content:space-between;gap:15px;align-items:center}
+.brand{font-weight:850;letter-spacing:1px;font-size:15px}.brand span{color:#65c6cf}
+small,.muted{color:#92abc3}small{font-size:11px}
+.wrap{max-width:1500px;margin:auto;padding:24px clamp(12px,2.8vw,40px) 55px}
+.hero{border:1px solid #3e6282;background:linear-gradient(120deg,#1a3954,#17293e);padding:22px 25px;border-radius:14px}
+.kicker{font-size:10px;font-weight:850;letter-spacing:1.5px;color:#7ad4e3}
+h1{font-size:23px;line-height:1.4;margin:8px 0}h2{font-size:16px;margin:0 0 13px}h3{font-size:13px;margin:14px 0 10px}
+.hero p{color:#afc8dd;margin:0;line-height:1.7}
+.status{padding:8px 12px;border:1px solid #6a6b46;color:#f8d99c;border-radius:25px;background:#372d25;font-size:11px;font-weight:700}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0}
+.metric,.panel{border:1px solid #31455d;background:#142337;border-radius:11px;padding:18px;min-width:0}
+.metric strong{font-size:26px;display:block;margin:5px 0;overflow-wrap:anywhere}
+.metric span{color:#a5bfda;font-size:11px}
+.stages{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0}
+.stage{background:#1d334b;border:1px solid #385575;padding:9px 11px;color:#d2e7f8;border-radius:7px;font-size:11px;font-weight:700}
+.panel{margin:16px 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.fields{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:11px;margin-bottom:12px}
+label{font-size:11px;color:#a9c1d9;font-weight:700;display:grid;gap:5px}
+input,select{min-width:0;width:100%;background:#101d2d;color:#eaf6ff;border:1px solid #46627b;padding:10px;border-radius:8px;font:inherit}
+input:focus,select:focus{outline:2px solid #69b1eb}
+button,.btn{display:inline-flex;align-items:center;border:1px solid #4b7195;color:#eff8ff;border-radius:8px;background:#28587e;padding:10px 14px;font-size:12px;font-weight:750;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}.btn:hover,button:hover{background:#31709f;text-decoration:none}
+button.secondary,.btn.secondary{background:#1a344c}.actions{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0}
+.note{border-left:3px solid #dbad58;background:#302c2a;color:#ead6bd;padding:12px 15px;font-size:12px;line-height:1.6;margin:12px 0;border-radius:4px}
+.note.info{border-color:#49b9c7;background:#1b343c;color:#c2e3e8}
+table{border-collapse:collapse;width:100%;text-align:left;font-size:12px}td,th{padding:11px 10px;border-bottom:1px solid #2a4059;vertical-align:top;overflow-wrap:anywhere}
+th{color:#aac3d9;font-weight:750;background:#192d45}td{color:#d2e2f4}
+.scroll{overflow-x:auto}.scroll table{min-width:600px}
+details{border:1px solid #314d68;border-radius:9px;margin:9px 0;padding:10px;background:#152a41}summary{cursor:pointer;font-weight:750}
+pre{background:#0a1827;color:#b8d4ea;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;padding:13px;font-size:11px}
+.tag{padding:4px 6px;border-radius:5px;background:#2d4055;color:#c7ddf0;font-size:10px}
+.tag.warn{color:#ffd49e;background:#56412b}
+.empty{border:1px dashed #43607a;border-radius:9px;padding:24px;text-align:center;color:#92abc4}
+footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11px}
+@media(max-width:1000px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:670px){header{flex-direction:column;align-items:flex-start}.wrap{padding:12px}.grid{grid-template-columns:1fr}.fields{grid-template-columns:1fr 1fr}.metric strong{font-size:21px}}
+</style></head>
+<body>
+<header>
+<div><div class="brand">P<span>F</span> · PROCUREFLOW</div><small>공공입찰 · 기존 운영 G2B·PostgreSQL 자료만 사용</small></div>
+<div><a class="btn secondary" href="https://procureflow-n8n-native-canvas-production.up.railway.app/admin/index.html?section=public" target="_blank" rel="noopener">기존 공용 Studio ↗</a></div>
+</header>
+<main class="wrap">
+<section class="hero"><div class="kicker">ONE REAL TENDER · SEARCH FIRST · NO SIMULATED RECORDS</div>
+<h1 id="noticeTitle">공고 R26BK01787028 / 000의 실제 입찰 분석</h1>
+<p>공고 원본과 첨부를 재사용하고, 과거 입찰은 정확한 10자리 세부품명·기간·기관·결과 종류로 먼저 검색합니다. 기존 실제 개찰·낙찰 기록을 사용하며, 새 입찰을 자동 제출하지 않습니다.</p>
+<div class="actions"><span class="status" id="status">실제 운영 DB 조회 중</span><span class="status">선택 공고 마감 후 분석 전용 · 투찰 없음</span></div></section>
+<nav class="stages" aria-label="입찰 한 건 처리 단계">
+<span class="stage">1 공고선택</span><span class="stage">2 원본·첨부</span><span class="stage">3 참가자격</span><span class="stage">4 과거 결과검색</span><span class="stage">5 경쟁업체 분석</span><span class="stage">6 원가</span><span class="stage">7 가격전략</span><span class="stage">8 제출서류</span><span class="stage">9 최종 사람 검토</span>
+</nav>
+<section class="panel"><h2>실제 9개 업무의 처리·증빙 상태</h2><div id="stageDetails" class="muted">운영 DB의 실제 원본과 가격·자격 증빙을 확인 중…</div></section>
+<div class="metrics" id="metrics"><div class="metric">실제 데이터 확인 중</div></div>
+
+<section class="panel" id="search-panel">
+<h2>과거 개찰·낙찰 결과 — 먼저 필터 검색</h2>
+<div class="fields">
+<label>세부품명번호<input value="8111159901" disabled title="선택한 실제 공고에 연결된 10자리 번호"></label>
+<label>검색 시작일<input type="date" id="start" min="2016-10-24" max="2026-10-22" value="2016-10-24"></label>
+<label>검색 종료일<input type="date" id="end" min="2016-10-24" max="2026-10-22" value="2026-10-22"></label>
+<label>결과 유형<select id="kind"><option value="all">개찰 + 확정 낙찰</option><option value="opening">실제 개찰·투찰</option><option value="award">공식 확정 낙찰</option></select></label>
+<label>발주기관 (선택)<input id="agency" maxlength="100" placeholder="전체 기관"></label>
+</div>
+<div class="actions"><button id="search" type="button">실제 DB에서 조건 검색</button><button id="next" type="button" class="secondary" disabled>다음 결과 페이지</button>
+<span class="muted" id="rangeState">검색 페이지 1</span></div>
+<div class="note">10년은 검색 범위입니다. 121개월을 모두 다운로드하지 않습니다. 기존 DB의 원본 10자리 검증 결과부터 사용하며, 이후 입찰공고일에 공개되지 않았던 미래 결과는 제외합니다.</div>
+<div class="scroll"><table><thead><tr><th>공고일</th><th>공고번호/차수</th><th>업체</th><th>실제 투찰·낙찰 금액</th><th>순위</th><th>구분</th><th>원본</th></tr></thead><tbody id="historyRows"><tr><td colspan="7">실제 DB 검색 중…</td></tr></tbody></table></div>
+</section>
+<div class="grid">
+<section class="panel"><h2>공고 상세 · 한 번 저장한 원본 재사용</h2><div id="notice"><div class="empty">원본 확인 중</div></div></section>
+<section class="panel"><h2>실제 첨부 · 다운로드/해시/추출 결과</h2><div id="documents"><div class="empty">실제 문서 확인 중</div></div></section>
+</div>
+<section class="panel"><h2>한 번 다운로드한 공고·과업지시서에서 동시 추출한 실제 조건 문장</h2><div id="clauses" class="empty">원본 문장 추출 중</div><div class="note">모든 문장은 저장된 원본파일의 내용·SHA-256에 연결됩니다. 문장 자동 추출은 법적 참가자격 승인 판정이 아니며 사람 검토가 필요합니다.</div></section>
+<div class="grid">
+<section class="panel"><h2>실제 과거 경쟁업체 분석 · 전체 필터 결과</h2><div id="competitors">실제 전체 검색 결과로 업체별 분석 중</div><div class="note">현재 페이지 50건이 아니라 조건에 일치하는 전체 실제 개찰 행을 집계합니다. 개찰 1순위는 낙찰 확정이 아닙니다. 결과 업체의 다음 입찰 참여도 확정할 수 없습니다.</div></section>
+<section class="panel"><h2>참가자격 · 실제 원가 · 가격 판단</h2><div id="price"><div class="empty">기존 가격 엔진 조회 중</div></div></section>
+</div>
+<section class="panel"><h2>실제 수집 근거로 정한 준비 전략</h2><div id="strategy">원본·경쟁·가격 증빙을 종합하는 중…</div><div class="note">확정 낙찰과 가격규칙·원가가 미검증이면 낙찰 예측가격을 만들어내지 않습니다. 부족한 자료는 제출 필수조건인지, 참고 분석자료인지 구분해 표시합니다.</div></section>
+<section class="panel"><h2>공고에 필요한 서류 · 실제 원본을 사용한 초안</h2><div class="actions">
+<a class="btn" href="/api/g2b/public/selected/proposal.docx" target="_blank" rel="noopener">기존 실제 원본 기반 입찰 준비 초안 (.docx)</a>
+<a class="btn secondary" href="/api/g2b/public/selected/proposal" target="_blank" rel="noopener">원본 근거 JSON ↗</a>
+</div><div id="proposal" class="muted">기존 업무 엔진의 초안·필수자료 확인 중</div><div class="note">요청된 제출서류 여부는 실제 공고·첨부별로 판단해야 합니다. 원본에 없는 제안서 양식이나 증빙을 완성했다고 표시하지 않습니다.</div></section>
+<section class="panel"><h2>필요한 공고만 추가 실제 개찰 조회 (관리자 승인)</h2>
+<p class="muted">필터에 일치하고 원본 10자리 세부품명이 공식 확인된 공고 중 최대 3건만 기존 G2B 공개 개찰 수집기에 넘깁니다. 현재 작업 중복 방지·원본 상태 검증 후 실제 Worker에 등록합니다. 10년 전체 일괄 수집은 실행하지 않습니다.</p>
+<div class="fields"><label>기존 관리자 토큰 (이번 요청에만 사용)<input type="password" id="adminToken" autocomplete="off" placeholder="기존 ADMIN_TOKEN"></label>
+<label>이번 검색에서 최대 처리 공고<select id="batch"><option value="1">1건</option><option selected value="2">2건</option><option value="3">3건</option></select></label></div>
+<div class="actions"><button type="button" id="collect" class="secondary">선택 필터로 실제 G2B 수집 작업 등록</button>
+<span id="collectResult" class="muted">관리자 승인 없이는 실행하지 않습니다.</span></div></section>
+<section class="panel"><h2>기존 Worker의 실데이터 9단계 실행 · 실제 작업 ID</h2>
+<p class="muted">현재 선택한 공고 하나의 기존 원본·문서·개찰·경쟁·회사 자격·원가·제안서 생성까지 실제 업무코드를 실행하고, 각 단계의 원래 PostgreSQL 실행 ID를 저장합니다. 공식 n8n 실행 ID를 꾸며내지 않습니다.</p>
+<div class="actions"><button id="prepare" type="button">실제 9단계 분석·서류 준비 실행</button><button id="loadLatestRealJob" type="button" class="secondary">최근 실제 실행기록 조회</button>
+<span id="prepareResult" class="muted">위의 기존 관리자 토큰을 입력해야 작업을 시작합니다.</span></div>
+<div id="prepareStages" class="muted">실행된 기존 Worker 작업이 아직 없습니다.</div>
+<div class="actions"><a id="downloadRealDraft" class="btn secondary" href="#" hidden>실제 원본·경쟁분석을 포함한 서류 초안 내려받기 (.docx)</a></div>
+<div class="note">마감 공고 분석이며 전자입찰 참가·투찰·서명은 하지 않습니다. 생성 문서는 확정 제출본이 아닌 근거가 표시된 검토 초안입니다.</div></section>
+<section class="panel"><h2>최종 입찰 준비 판단</h2><div class="note" id="finalStatus">원본·자격·가격·제출서류 검증이 끝나기 전까지 HOLD. 현재 선택 공고는 마감된 과거 입찰로, 자동 입찰참가는 수행하지 않습니다.</div></section>
+</main>
+<footer>ProcureFlow / Original G2B · original PostgreSQL · existing Worker · existing n8n. 실제자료만 표시 · 입찰참가 버튼 자동 클릭 없음.</footer>
+<script>
+"use strict";
+const el=id=>document.getElementById(id);
+const esc=x=>String(x===undefined||x===null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeUrl=v=>typeof v==="string"&&v.startsWith("https://www.g2b.go.kr/")?v:null;
+const fmtAmount=n=>{const x=Number(n);return n!==null&&n!==""&&Number.isFinite(x)?x.toLocaleString("ko-KR")+"원":"없음"};
+let lastOffset=0,lastSearch=null,busy=false;
+const filters=()=>({start:el("start").value,end:el("end").value,kind:el("kind").value,
+   agency:el("agency").value.trim(),limit:50,offset:lastOffset,detail10:"8111159901"});
+async function fetchJSON(uri,options){
+ const r=await fetch(uri,{cache:"no-store",credentials:"same-origin",...options});
+ let j;try{j=await r.json()}catch{throw Error("JSON 응답 오류 "+r.status)}
+ if(!r.ok)throw Error(j.detail||j.error||("HTTP "+r.status));
+ return j;
+}
+const metric=(title,value,desc)=>'<div class="metric"><span>'+esc(title)+'</span><strong>'+esc(value)+'</strong><small>'+esc(desc)+'</small></div>';
+function showError(e){
+ el("status").textContent="조회 실패: "+e.message;
+ el("historyRows").innerHTML='<tr><td colspan="7">'+esc("데이터 조회 실패: "+e.message)+'</td></tr>';
+}
+function renderNotice(caseObj){
+ if(caseObj.status!=="found"){el("notice").textContent="공고 원본이 DB에 없습니다";return;}
+ const n=caseObj.notice||{};
+ el("noticeTitle").textContent=String(n.title||"실제 선택 공고")+" · "+caseObj.case_bid_no+"/000";
+ el("notice").innerHTML='<table><tbody>'+[
+ ["공고번호",n.external_id],["수요기관",n.agency],["공고일",n.notice_date],
+ ["마감",n.deadline],["계약방법",n.method],["원본 링크",n.source_url]
+ ].map(([k,v])=>'<tr><th>'+esc(k)+'</th><td>'+((k==="원본 링크"&&safeUrl(v))?'<a href="'+esc(v)+'" target="_blank" rel="noopener">나라장터 원본 ↗</a>':esc(v))+'</td></tr>').join("")+'</tbody></table>';
+ const clauses=caseObj.source_clauses||[];
+ el("clauses").innerHTML=clauses.length?'<div class="scroll"><table><thead><tr><th>분야</th><th>원본 추출 문장</th><th>원본파일·증빙</th></tr></thead><tbody>'+
+ clauses.map(x=>'<tr><td>'+esc(x.category)+'</td><td>'+esc(x.text)+'</td>'+
+ '<td>'+esc(x.original_filename)+'<small> SHA256 '+esc(x.original_sha256)+'</small></td></tr>').join("")+
+ '</tbody></table></div>':'<div class="empty">현재 저장된 텍스트에서 조건 문장을 추출하지 못했습니다. 원본 첨부를 직접 확인하세요.</div>';
+ const docs=caseObj.documents||[];
+ el("documents").innerHTML=docs.length?docs.map(d=>'<details><summary>'+esc(d.filename)+' · '+esc(d.extraction_state)+'</summary>'+
+ '<p class="muted">원본 해시 '+esc(d.sha256)+' · 추출 글자 '+esc(d.extracted_chars)+'</p>'+
+ (safeUrl(d.original_url)?'<a href="'+esc(d.original_url)+'" target="_blank" rel="noopener">원본 문서 확인 ↗</a>':'')+
+ '<pre>'+esc(d.excerpt||"문서 텍스트 미추출")+'</pre></details>').join(""):
+ '<div class="empty">저장된 실제 원본 첨부가 없습니다.</div>';
+}
+function renderResults(r){
+ const h=r.history||{},sum=h.summary||{},rows=h.rows||[];
+ lastSearch=r;
+ el("status").textContent="실제 PostgreSQL 조회 · 가상 데이터 없음";
+ el("metrics").innerHTML=[
+ metric("원본 10자리 일치 공고차수",sum.source_notice_rounds??0,"현재 검색 필터 기준"),
+ metric("실제 개찰 기록",sum.opening_rows??0,"확정 낙찰과 구분"),
+ metric("공식 확정 낙찰",sum.confirmed_award_rows??0,"0건이면 근거 없음"),
+ metric("해당 필터 총 결과",h.total??0,"현재 페이지 최대 50행")
+ ].join("");
+ el("rangeState").textContent="검색 결과 "+(lastOffset+1)+"~"+(lastOffset+rows.length)+" / "+(h.total||0)+"행";
+ el("next").disabled=!h.has_more;
+ el("historyRows").innerHTML=rows.length?rows.map(x=>'<tr>'+
+ '<td>'+esc(x.notice_date)+'</td><td>'+esc(x.bid_no+"/"+x.bid_ord)+'</td>'+
+ '<td>'+esc(x.company)+'</td><td>'+esc(fmtAmount(x.amount))+'</td>'+
+ '<td>'+esc(x.bid_rank)+'</td><td><span class="tag '+(x.result_kind==="award"?"":"warn")+'">'+esc(x.result_kind==="award"?"공식 확정 낙찰":"실제 개찰")+'</span></td>'+
+ '<td>'+(safeUrl(x.original_detail10_source)?'<a href="'+esc(x.original_detail10_source)+'" target="_blank" rel="noopener">원본 ↗</a>':'확인 필요')+'</td></tr>').join(""):
+ '<tr><td colspan="7">해당 조건에 검증된 실제 개찰·낙찰 기록이 없습니다. 다른 기간 또는 기관 조건으로 검색하세요.</td></tr>';
+ el("competitors").textContent="실제 전체 검색 결과에 대한 업체별 집계 확인 중…";
+ renderNotice(r.case||{});
+}
+async function loadStrategy(){
+ const f=filters();
+ try{
+  const q=new URLSearchParams({start:f.start,end:f.end,agency:f.agency});
+  const data=await fetchJSON("/api/g2b/public/selected/strategy?"+q);
+  if(data.real_data_only!==true||data.source!=="existing_real_procureflow_g2b_openings")
+   throw Error("실제 경쟁분석 근거를 확인할 수 없습니다");
+  const stats=data.observed||{},same=data.same_agency_observed||null;
+  const entries=data.competitors_from_all_filtered_records||[];
+  el("competitors").innerHTML=
+    '<p>원본 10자리 확인 공고차수 <b>'+esc(stats.observed_notice_rounds||0)+
+    '</b>건 · 실제 개찰 기록 <b>'+esc(stats.opening_rows||0)+
+    '</b>행 · 금액 있는 기록 <b>'+esc(stats.rows_with_numeric_amounts||0)+
+    '</b>행 · 개찰 1순위 <b>'+esc(stats.rank_one_openings_not_awards||0)+
+    '</b>행 (낙찰 확정 아님)</p>'+
+    (same?'<p class="muted">동일 기관 '+esc(data.same_agency_filter)+
+      ': 실제 개찰 '+esc(same.opening_rows||0)+'행</p>':'')+
+    (entries.length?'<div class="scroll"><table><thead><tr><th>실제 개찰업체</th><th>참가한 공고차수</th><th>개찰 행</th><th>1순위 행</th></tr></thead><tbody>'+
+      entries.map(x=>'<tr><td>'+esc(x.display_company||x.company)+'</td><td>'+
+        esc(x.distinct_notice_rounds)+'</td><td>'+esc(x.opening_rows)+'</td><td>'+
+        esc(x.rank_one_openings_not_awards)+'</td></tr>').join('')+
+      '</tbody></table></div>':
+      '<div class="empty">검증된 개찰업체 표본이 없습니다.</div>');
+  const a=data.strategy_inputs||{};
+  el("strategy").innerHTML=
+   '<div class="metrics">'+
+   metric("과거 실제 개찰",stats.opening_rows||0,"정확한 10자리 원본 검증")+
+   metric("구분된 업체명",stats.distinct_name_strings||0,"법적 동일 업체 식별은 별도")+
+   metric("과거 동일 발주기관 개찰",same?.opening_rows??"—","기관명 원본 필터")+
+   metric("최종 승인 가격", "없음","원가·자격·가격규칙 미확인")+
+   '</div><h3>제출서류 판단</h3><p>'+esc(a.document_type_guidance)+'</p>'+
+   '<h3>실제자료로 다음에 처리할 업무</h3><ol>'+
+   (a.next_actions||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>'+
+   '<details><summary>통계 한계·공고 기간 유의사항</summary><ul>'+
+   (data.analysis_limitations||[]).map(x=>'<li>'+esc(x)+'</li>').join('')+
+   '</ul></details>'+
+   '<div class="note">'+(data.target_notice?.deadline_passed?
+      '선택한 공고는 이미 마감돼 실제 투찰 대상이 아닙니다.':'공고 마감과 회사 참가자격을 최종 확인해야 합니다.')+
+      ' 본 분석은 확정 낙찰이나 수주확률을 조작하지 않습니다.</div>';
+ }catch(e){
+  el("competitors").textContent="실제 경쟁업체 집계 불가: "+e.message;
+  el("strategy").textContent="실제 수주전략 근거를 읽을 수 없습니다: "+e.message;
+ }
+}
+async function loadHistory(reset=true){
+ if(busy)return;
+ if(reset)lastOffset=0;
+ busy=true;el("search").disabled=true;
+ try{
+  const p=new URLSearchParams(filters());
+  const data=await fetchJSON("/api/g2b/public/selected/search?"+p);
+  if(data.mode!=="real_one_tender_search_first"||data.no_simulated_records!==true)
+    throw Error("실제 자료 출처 계약 불일치");
+  renderResults(data);
+  void loadStrategy();
+  void loadPreparation();
+ }catch(e){showError(e)}
+ finally{busy=false;el("search").disabled=false}
+}
+async function loadPreparation(){
+ const f=filters();
+ const q=new URLSearchParams({start:f.start,end:f.end,agency:f.agency});
+ const got=await Promise.allSettled([
+  fetchJSON("/api/g2b/full/price"),fetchJSON("/api/g2b/public/selected/proposal"),
+  fetchJSON("/api/g2b/public/selected/preparation?"+q)]);
+ const [p,docs,ready]=got;
+ if(p.status==="fulfilled"){
+   const x=p.value;
+   el("price").innerHTML='<table><tbody>'+
+     [["원가·가격 계산 상태",x.status],["자격 검증",x.eligibility],
+      ["미충족 원가·가격 증빙",(x.missing||[]).join(", ")||"없음"],
+      ["실제 승인 투찰금액",x.recommended_bid_price===null?"미승인":fmtAmount(x.recommended_bid_price)]
+     ].map(([k,v])=>'<tr><th>'+esc(k)+'</th><td>'+esc(v)+'</td></tr>').join("")+'</tbody></table>'+
+     '<details><summary>실제 원가를 이용한 가격대안·근거</summary><pre>'+esc(JSON.stringify(x.scenarios||[],null,2))+'</pre></details>';
+ }else el("price").textContent="실제 가격 엔진 조회 오류: "+p.reason.message;
+ if(docs.status==="fulfilled"){
+   const x=docs.value;
+   el("proposal").innerHTML='<p>단계: <b>'+esc(x.stage)+'</b> · 첨부문서 '+(x.document_index||[]).length+
+    '건 · 증빙 참조 '+(x.evidence_references||[]).length+'건</p>'+
+    '<div class="note">실제 제안서 작성은 요구 제출양식과 회사 근거가 채워진 범위에서만 가능합니다.</div>';
+ }else el("proposal").textContent="실제 초안 자료 조회 오류: "+docs.reason.message;
+ if(ready.status==="fulfilled"){
+  const r=ready.value;
+  if(r.real_data_only!==true||r.source!=="actual_production_g2b_document_competition_price_package"){
+    throw Error("실제 9개 업무 증빙 계약이 아닙니다.");
+  }
+  const rows=r.steps||[];
+  el("stageDetails").innerHTML='<div class="scroll"><table><thead><tr><th>순서</th><th>실제 업무</th><th>실제 증빙 상태</th></tr></thead><tbody>'+
+    rows.map(x=>'<tr><td>'+esc(x.id)+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.status)+'</td></tr>').join('')+
+    '</tbody></table></div>';
+  el("finalStatus").innerHTML='<b>실제 준비 판정: '+esc(r.status)+'</b><p>필수 제출·참가 요건: '+
+   esc((r.hard_blockers||[]).join(" / ")||"근거 검증 완료, 사람 최종 승인 필요")+'</p>'+
+   '<p>참고 분석자료 경고 (실제 참가 필수조건과 별개): '+
+   esc((r.analysis_warnings||[]).join(" / "))+'</p>';
+ }else{
+   el("stageDetails").textContent="실제 업무 상태 조회 실패: "+ready.reason?.message;
+   el("finalStatus").textContent="실제 증빙 조회가 실패해 제출 준비 완료라고 판단할 수 없습니다.";
+ }
+}
+async function collectFiltered(){
+ const token=el("adminToken").value.trim();
+ if(!token){el("collectResult").textContent="기존 ADMIN_TOKEN 필요";return;}
+ const f=filters();
+ el("collect").disabled=true;
+ try{
+  const data=await fetchJSON("/api/g2b/public/selected/search/collect",{
+    method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+    body:JSON.stringify({start:f.start,end:f.end,detail10:f.detail10,
+                         agency:f.agency,max_notices:Number(el("batch").value)})});
+  el("collectResult").textContent="기존 Worker에 실제 수집 작업 "+data.job_id+"번 등록됨. 상태는 기존 Jobs 화면에서 확인.";
+ }catch(e){el("collectResult").textContent="수집 요청 실패: "+e.message}
+ finally{el("adminToken").value="";el("collect").disabled=false}
+}
+let currentRealJob=null;
+let realJobTimer=null;
+let realJobPolling=false;
+function stopRealJobPolling(){
+ if(realJobTimer){clearInterval(realJobTimer);realJobTimer=null;}
+}
+async function inspectRealJob(){
+ if(!currentRealJob||realJobPolling)return;
+ realJobPolling=true;
+ try{
+  const id=currentRealJob;
+  const data=await fetchJSON("/api/g2b/public/selected/prepare-jobs/"+id);
+  if(data.worker_job_id_is_not_n8n_execution_id!==true)
+   throw Error("원본 Worker 작업 ID 근거를 확인하지 못했습니다.");
+  el("prepareResult").textContent="실제 Worker 작업 "+id+" · "+data.job_state+
+        " · 실제 DB 단계 "+data.actual_stages_recorded+"/9";
+  const entries=data.steps||[];
+  el("prepareStages").innerHTML=entries.length?
+    '<div class="scroll"><table><thead><tr><th>단계</th><th>실제 처리</th><th>DB 실행 ID</th><th>증빙 상태</th><th>요약</th></tr></thead><tbody>'+
+    entries.map((x,i)=>'<tr><td>'+esc(i+1)+'</td><td>'+esc(x.step)+'</td><td>'+
+        esc(x.run_id)+'</td><td>'+esc(x.state)+'</td><td><details><summary>실제 처리 결과</summary><pre>'+
+        esc(JSON.stringify(x.summary||{},null,2))+'</pre></details></td></tr>').join('')+
+    '</tbody></table></div>':
+    '<div class="empty">기존 Worker가 아직 첫 단계를 처리하지 않았습니다.</div>';
+  if(data.draft){
+    el("downloadRealDraft").hidden=false;
+    el("downloadRealDraft").href="/api/g2b/public/selected/prepare-jobs/"+id+"/draft.docx";
+    el("downloadRealDraft").textContent="작업 "+id+"의 실제 증빙 초안 내려받기 (.docx)";
+  }
+  if(["completed","completed_partial","failed","cancelled"].includes(data.job_state)){
+    stopRealJobPolling();
+    el("prepare").disabled=false;
+    // Updating a real source-backed preparation is not equivalent to bidding.
+    void loadPreparation();
+  }
+ }catch(e){el("prepareResult").textContent="기존 Worker DB 상태 확인 실패: "+e.message;}
+ finally{realJobPolling=false;}
+}
+async function loadLatestRealJob(){
+ try{
+  const data=await fetchJSON("/api/g2b/public/selected/prepare-jobs/latest");
+  if(!data.job_id){
+   el("prepareResult").textContent="현재 저장된 실제 9단계 실행 작업이 없습니다.";
+   return;
+  }
+  currentRealJob=Number(data.job_id);
+  await inspectRealJob();
+  if(["queued","running"].includes(data.job_state)){
+   stopRealJobPolling();
+   realJobTimer=setInterval(inspectRealJob,4000);
+  }
+ }catch(e){
+  el("prepareResult").textContent="최근 실제 실행기록 조회 오류: "+e.message;
+ }
+}
+async function startRealPreparation(){
+ const token=el("adminToken").value.trim();
+ if(!token){el("prepareResult").textContent="기존 관리자 토큰을 입력하세요.";return;}
+ const f=filters();
+ el("prepare").disabled=true;
+ try{
+  const data=await fetchJSON("/api/g2b/public/selected/prepare",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+    body:JSON.stringify({start:f.start,end:f.end,detail10:f.detail10,agency:f.agency})});
+  if(data.worker_source!=="g2b_public_prepare"||!data.job_id)
+    throw Error("실제 기존 Worker 작업 등록 결과가 아닙니다");
+  currentRealJob=data.job_id;
+  el("downloadRealDraft").hidden=true;
+  el("prepareResult").textContent="기존 Worker에 실제 9단계 작업 "+currentRealJob+"번 등록";
+  stopRealJobPolling();
+  await inspectRealJob();
+  realJobTimer=setInterval(inspectRealJob,4000);
+ }catch(e){
+  el("prepareResult").textContent="실제 작업 등록 실패: "+e.message;
+  el("prepare").disabled=false;
+ }finally{el("adminToken").value="";}
+}
+el("prepare").addEventListener("click",startRealPreparation);
+el("loadLatestRealJob").addEventListener("click",loadLatestRealJob);
+el("search").addEventListener("click",()=>loadHistory(true));
+el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
+el("collect").addEventListener("click",collectFiltered);
+loadHistory(true);
+loadLatestRealJob();
+</script></body></html>
