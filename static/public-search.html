@@ -70,9 +70,12 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <label>결과 유형<select id="kind"><option value="all">개찰 + 확정 낙찰</option><option value="opening">실제 개찰·투찰</option><option value="award">공식 확정 낙찰</option></select></label>
 <label>발주기관 (선택)<input id="agency" maxlength="100" placeholder="전체 기관"></label>
 </div>
-<div class="actions"><button id="search" type="button">실제 DB에서 조건 검색</button><button id="next" type="button" class="secondary" disabled>다음 결과 페이지</button>
+<div class="actions"><button id="officialSearch" type="button">나라장터에서 10자리 세부종목 직접 검색</button><button id="officialNext" type="button" class="secondary" disabled>나라장터 검색 다음 페이지·기간</button><span id="officialState" class="muted">서버측 세부품명번호 필터: 8111159901</span></div>
+<div class="note info">나라장터 공식 검색 API에 <code>dtilPrdctClsfcNo=8111159901</code>을 전달합니다. 8자리 전체 공고는 먼저 수집하지 않습니다. 날짜 검색 제약에 맞춰 한 번에 한 기간·한 페이지씩 조회하며, 검색 결과에서 10자리 원본이 확인되지 않은 공고는 미검증 후보로 분리합니다. 조회용 버튼에는 관리자 토큰이 필요하지 않습니다.</div>
+<div id="officialResults" class="empty">아직 나라장터 검색을 실행하지 않았습니다. 공식 검색 API가 연결되지 않으면 오류와 사유를 그대로 표시합니다.</div>
+<div class="actions"><button id="search" type="button">저장된 개찰·낙찰 결과 조회</button><button id="next" type="button" class="secondary" disabled>다음 결과 페이지</button>
 <span class="muted" id="rangeState">검색 페이지 1</span></div>
-<div class="note">10년은 검색 범위입니다. 121개월을 모두 다운로드하지 않습니다. 기존 DB의 원본 10자리 검증 결과부터 사용하며, 이후 입찰공고일에 공개되지 않았던 미래 결과는 제외합니다.</div>
+<div class="note">10년은 검색기간입니다. 위의 직접 검색은 정확한 10자리 세부품명번호를 공식 검색 서버에 전달하며, 기존 DB 결과는 별도로 표시됩니다. 공개되지 않았던 미래 자료를 과거 입찰 당시 경쟁분석에 포함하지 않습니다.</div>
 <div class="scroll"><table><thead><tr><th>공고일</th><th>공고번호/차수</th><th>업체</th><th>실제 투찰·낙찰 금액</th><th>순위</th><th>구분</th><th>원본</th></tr></thead><tbody id="historyRows"><tr><td colspan="7">실제 DB 검색 중…</td></tr></tbody></table></div>
 </section>
 <div class="grid">
@@ -112,6 +115,7 @@ const esc=x=>String(x===undefined||x===null?"":x).replace(/[&<>"']/g,c=>({"&":"&
 const safeUrl=v=>typeof v==="string"&&v.startsWith("https://www.g2b.go.kr/")?v:null;
 const fmtAmount=n=>{const x=Number(n);return n!==null&&n!==""&&Number.isFinite(x)?x.toLocaleString("ko-KR")+"원":"없음"};
 let lastOffset=0,lastSearch=null,busy=false;
+let officialCursor=null,officialPage=1,officialBusy=false;
 const filters=()=>({start:el("start").value,end:el("end").value,kind:el("kind").value,
    agency:el("agency").value.trim(),limit:50,offset:lastOffset,detail10:"8111159901"});
 async function fetchJSON(uri,options){
@@ -144,6 +148,43 @@ function renderNotice(caseObj){
  (safeUrl(d.original_url)?'<a href="'+esc(d.original_url)+'" target="_blank" rel="noopener">원본 문서 확인 ↗</a>':'')+
  '<pre>'+esc(d.excerpt||"문서 텍스트 미추출")+'</pre></details>').join(""):
  '<div class="empty">저장된 실제 원본 첨부가 없습니다.</div>';
+}
+
+async function loadOfficialDetailSearch(reset){
+ if(officialBusy)return;
+ if(reset){officialCursor=null;officialPage=1}
+ officialBusy=true;el("officialSearch").disabled=true;el("officialNext").disabled=true;
+ const f=filters();
+ const q=new URLSearchParams({detail10:f.detail10,start:f.start,end:f.end,
+   agency:f.agency,page_size:"100",page:String(officialPage)});
+ if(officialCursor)q.set("cursor",officialCursor);
+ try{
+  const r=await fetchJSON("/api/g2b/public/selected/detail-search?"+q);
+  const meta="공식 검색 · "+esc(r.request_window?.start)+" ~ "+esc(r.request_window?.end)+" · 페이지 "+esc(r.page);
+  if(r.status==="blocked_missing_official_api_credential"){
+   el("officialState").textContent="공식 API 접근 차단 (서버 연결 필요)";
+   el("officialResults").innerHTML='<div class="note">'+meta+" · 공식 API 서비스키가 서버에 구성되지 않았습니다. 등록된 결과가 없다고 표시하지 않습니다. 사용자 관리자 토큰 입력은 필요하지 않습니다."+'</div>';
+   return;
+  }
+  if(r.status==="source_error"||r.status.startsWith("blocked_")){
+   el("officialState").textContent="공식 검색 실패 · "+r.status;
+   el("officialResults").innerHTML='<div class="note">'+meta+" · "+esc(r.reason||r.status)+" · 결과 미검증</div>";
+   return;
+  }
+  const found=r.matched||[],pending=r.unverified_candidates||[];
+  el("officialState").textContent="정확 10자리 확인 "+found.length+"건 · 추가 검증 필요 "+pending.length+"건 · 해당 기간 공식 반환 "+esc(r.official_rows_returned)+"건";
+  const rows=[...found.map(x=>({...x,tag:"정확 10자리 확인"})),...pending.map(x=>({...x,tag:"10자리 검증 대기"}))];
+  el("officialResults").innerHTML='<div class="note info">'+meta+
+    " · 공식 검색 총건수 "+esc(r.official_total)+" (해당 검색기간). "+(r.next?"다음 페이지/기간 조회 가능":"요청한 검색범위의 마지막 페이지")+
+    " · 개찰·낙찰 자료 수집이 아니라 검색 결과입니다.</div>"+
+    (rows.length?'<div class="scroll"><table><thead><tr><th>공고번호·차수</th><th>공고명</th><th>발주기관</th><th>세부종목 검증</th><th>원본</th></tr></thead><tbody>'+
+    rows.map(x=>'<tr><td>'+esc(x.bid_no+"/"+x.bid_ord)+'</td><td>'+esc(x.title)+'</td><td>'+esc(x.agency)+'</td><td>'+esc(x.tag)+'</td><td><a target="_blank" rel="noopener" href="'+esc(x.original_url)+'">나라장터 ↗</a></td></tr>').join("")+
+    '</tbody></table></div>':'<div class="empty">이 페이지에 10자리 확인 공고가 없습니다. 전체 기간에 공고가 없다는 뜻은 아닙니다.</div>');
+  if(r.next){officialCursor=r.next.cursor;officialPage=r.next.page;el("officialNext").disabled=false}
+ }catch(e){
+  el("officialState").textContent="검색 API 오류";
+  el("officialResults").innerHTML='<div class="note">실제 나라장터 검색 오류: '+esc(e.message)+'</div>';
+ }finally{officialBusy=false;el("officialSearch").disabled=false}
 }
 function renderResults(r){
  const h=r.history||{},sum=h.summary||{},rows=h.rows||[];
@@ -359,6 +400,8 @@ async function startRealPreparation(){
 }
 el("prepare").addEventListener("click",startRealPreparation);
 el("loadLatestRealJob").addEventListener("click",loadLatestRealJob);
+el("officialSearch").addEventListener("click",()=>loadOfficialDetailSearch(true));
+el("officialNext").addEventListener("click",()=>loadOfficialDetailSearch(false));
 el("search").addEventListener("click",()=>loadHistory(true));
 el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
 el("collect").addEventListener("click",collectFiltered);
