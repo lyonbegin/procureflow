@@ -353,41 +353,16 @@ def _open_detail_search(page):
 
 
 def _click_notice_search(page):
-    """Click a visible public notice-list search control, never a bid action."""
-    script=r"""()=>{
-      const nodes=[...document.querySelectorAll(
-        'input[type=button],input[type=submit],button,a,[role=button]')];
-      const norm=v=>(v||'').replace(/\s+/g,'').trim();
-      const matches=nodes.filter(e=>{
-        if(e.disabled || !e.getClientRects().length)return false;
-        const id=e.id||'';
-        if(/BidSubmit|Bidding|BidApply|btnSearchToggle/i.test(id))return false;
-        const label=norm(e.value||e.innerText||e.textContent||e.title||e.getAttribute('aria-label'));
-        return label==='검색' || label==='조회';
-      });
-      matches.sort((a,b)=>{
-        const rank=e=> (e.id||'').endsWith('btnS0004')?100:
-          (e.id||'').includes('tacBidPbancLst')?20:0;
-        return rank(b)-rank(a);
-      });
-      if(!matches.length)return false;
-      matches[0].click();
-      return true;
-    }"""
+    """Use native pointer click on the observed notice-list main search control."""
     for frame in _frames(page):
         try:
-            choices=frame.evaluate("""() => [...document.querySelectorAll('input[type=button],button,a,[role=button]')]
-                .filter(e=>e.getClientRects().length>0 && /검색|조회/.test((e.value||e.innerText||e.title||'')))
-                .slice(0,35).map(e=>({id:(e.id||'').slice(0,100),label:(e.value||e.innerText||e.title||'').trim().slice(0,35),
-                    parent:(e.closest('[id*="tacBidPbancLst"]')?.id||'').slice(0,100)}))""")
-            import logging
-            logging.warning("FRESH_G2B_SEARCH_BUTTON_CHOICES %s",json.dumps(choices,ensure_ascii=False)[:3400])
-            if frame.evaluate(script):
+            button=frame.locator('input[id$="btnS0004"]:visible')
+            if button.count():
+                button.first.click(timeout=5000)
                 return True
         except Exception:
             continue
     return False
-
 
 def _navigate(page):
     """Reach the real public notice list, then open advanced 10-digit criteria."""
