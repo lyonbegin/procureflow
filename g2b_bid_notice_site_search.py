@@ -281,6 +281,7 @@ def _navigate(page):
             page.goto("https://www.g2b.go.kr/link/PNPE027_01/",
                       wait_until="domcontentloaded",timeout=30000)
             _wait_for_site_rendered(page,16000)
+            _click_label(page,("입찰공고목록",))
             if _field_from_label(page,DETAIL_LABELS)[1] is not None:
                 return
         except Exception:
