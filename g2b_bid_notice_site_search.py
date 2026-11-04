@@ -541,7 +541,7 @@ def _response_records(document):
             if not node:known_list=True
             for v in node[:200]:visit(v,depth+1)
         elif isinstance(node,dict):
-            if "bidPbancNo" in node or "bidNtceNo" in node:
+            if any(k in node for k in ("bidPbancNo","bidNtceNo","untyBidPbancNo","bidPbancUntyNo")):
                 found.append(node);known_list=True;return
             for k,v in node.items():
                 if isinstance(v,list) and re.search(r"bid|pbanc|ntce|list|result",str(k),re.I):
@@ -560,8 +560,10 @@ def _response_records(document):
     out=[]
     seen=set()
     for rec in found:
-        no=str(rec.get("bidPbancNo") or rec.get("bidNtceNo") or "")
-        ord_=str(rec.get("bidPbancOrd") or rec.get("bidNtceOrd") or "000").zfill(3)
+        no=str(rec.get("bidPbancNo") or rec.get("bidNtceNo") or
+               rec.get("untyBidPbancNo") or rec.get("bidPbancUntyNo") or "")
+        ord_=str(rec.get("bidPbancOrd") or rec.get("bidNtceOrd") or
+                 rec.get("untyBidPbancOrd") or rec.get("bidPbancUntyOrd") or "000").zfill(3)
         if not ID_RE.fullmatch(no) or not ORD_RE.fullmatch(ord_):continue
         if (no,ord_) in seen:continue
         seen.add((no,ord_))
@@ -569,7 +571,8 @@ def _response_records(document):
             r"(dtlsPrnmNo|dtilPrdctClsfcNo|dtilPrdlstClsfcNo|dtilPrdctClsfNo)",str(k),re.I) and v}
         out.append({"bid_no":no,"bid_ord":ord_,
                     "title":str(rec.get("bidPbancNm") or rec.get("bidNtceNm") or "")[:240],
-                    "agency":str(rec.get("grpNm") or rec.get("ntceInsttNm") or "")[:150],
+                    "agency":str(rec.get("grpNm") or rec.get("ntceInsttNm") or
+                                  rec.get("oderInstUntyGrpNm") or rec.get("dmstNm") or "")[:150],
                     "direct_category_codes":list(sorted(codes))[:5],
                     "raw":rec,
                     "posted_on":str(rec.get("bidPbancPstgDt") or
@@ -792,7 +795,9 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             records,total=_response_records(data)
             logging.warning("FRESH_G2B_OFFICIAL_RESULT_COUNTS %s",
                 json.dumps({"parsed":len(records) if records is not None else None,
-                            "total":total},ensure_ascii=False))
+                            "total":total,
+                            "sample_public_bid_ids":[x["bid_no"] for x in (records or [])[:3]]},
+                           ensure_ascii=False))
             if records is None:
                 raise SearchBlocked("BID_NOTICE_RESPONSE_SCHEMA_UNCONFIRMED")
             confirmed=[]
