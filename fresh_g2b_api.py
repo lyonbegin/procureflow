@@ -9,6 +9,8 @@ import logging,re,os
 from threading import Thread
 from datetime import date
 from pathlib import Path
+from html import escape
+from urllib.parse import urlencode
 from fastapi import FastAPI,BackgroundTasks,HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel,Field
@@ -140,6 +142,46 @@ def boot():
 def home():
     return HTMLResponse((ROOT/"fresh_g2b.html").read_text(encoding="utf-8"),
                         headers={"Cache-Control":"no-store"})
+
+@app.get("/live-notices",response_class=HTMLResponse)
+def live_notices():
+    """Server-render actual isolated-DB notices, even without browser JS."""
+    items=store.recent_notices(100)
+    rows=[]
+    for item in items:
+        no=str(item.get("bid_no") or "")
+        ord_=str(item.get("bid_ord") or "")
+        flag=("원본 10자리 확인" if item.get("category_verified")
+              else "공식 필터 조회 / 상세 분류 확인 대기")
+        detail="https://www.g2b.go.kr/link/PNPE027_01/single/?"+urlencode({
+            "bidPbancNo":no,"bidPbancOrd":ord_})
+        rows.append("<tr><td><a href='"+escape(detail,quote=True)+
+            "' target='_blank' rel='noopener'>"+escape(no+"-"+ord_)+
+            "</a></td><td>"+escape(str(item.get("title") or ""))+
+            "</td><td>"+escape(str(item.get("agency") or ""))+
+            "</td><td>"+escape(str(item.get("posted_on") or "미확인"))+
+            "</td><td>"+escape(flag)+"</td></tr>")
+    data_rows="".join(rows) if rows else "<tr><td colspan='5'>실제 수집 공고 0건</td></tr>"
+    markup=("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+       "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+       "<title>나라장터 실제 수집 공고</title>"
+       "<style>body{font:15px/1.7 system-ui,sans-serif;max-width:1300px;"
+       "padding:20px;margin:auto;color:#142b44}table{border-collapse:collapse;"
+       "width:100%}td,th{border-bottom:1px solid #dfe7f1;padding:10px;"
+       "text-align:left}th{background:#f3f6fa}a{color:#1463b7}"
+       ".scroll{overflow-x:auto}.muted{color:#56677e}"
+       "</style></head><body><h1>나라장터 실제 신규 수집 결과</h1>"
+       "<p>기존 DB 미사용 · 공식 나라장터 검색 응답 원본 기반 · 신규 DB "
+       +str(len(items))+"건</p>"
+       "<p class='muted'>상세 분류 확인 대기는 공식 10자리 검색 결과이지만 공고 상세의 "
+       "10자리 코드 확인이 아직 끝나지 않은 상태입니다. "
+       "개찰·낙찰 결과를 확인한 것으로 보지 않습니다.</p>"
+       "<p><a href='/'>수집 관리화면으로 돌아가기</a></p>"
+       "<div class='scroll'><table><thead><tr><th>공고번호</th><th>공고명</th>"
+       "<th>공고기관</th><th>공고일</th><th>분류검증</th></tr></thead>"
+       "<tbody>"+data_rows+"</tbody></table></div></body></html>")
+    return HTMLResponse(markup,headers={"Cache-Control":"no-store"})
+
 
 @app.get("/health")
 def health():
