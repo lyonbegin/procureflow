@@ -383,8 +383,9 @@ def _safe_search_screen_diagnostic(tab):
             nodes=frame.evaluate(r"""()=>{
               const xs=[...document.querySelectorAll('a,button,input,label,[role=link],[role=button]')];
               return {title:(document.title||'').slice(0,90),
-                bodyText:(document.body?.innerText||'').slice(0,230),
-                controls:xs.slice(0,65).map(e=>({
+                bodyText:(document.body?.innerText||'').slice(-550),
+                fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,18),
+                controls:xs.filter(e=>e.tagName==='INPUT'||e.tagName==='LABEL'||e.tagName==='BUTTON').slice(0,55).map(e=>({
                     tag:e.tagName,
                     text:(e.tagName==='INPUT'?'':(e.innerText||e.title||'')).trim().slice(0,55),
                     type:e.getAttribute('type')||'',
