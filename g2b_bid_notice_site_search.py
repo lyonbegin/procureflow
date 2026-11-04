@@ -327,22 +327,22 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                     responses.append(r)
             context.on("request",on_request)
             context.on("response",on_response)
-            page=context.new_page()
-            page.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
-            _navigate(page)
-            _fill_search_fields(page,w)
+            tab=context.new_page()
+            tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
+            _navigate(tab)
+            _fill_search_fields(tab,w)
             # Require an actual site search button and form submission.
-            if not _click_label(page,("검색",),"click"):
+            if not _click_label(tab,("검색",),"click"):
                 raise SearchBlocked("BID_NOTICE_SEARCH_BUTTON_NOT_FOUND")
-            page.wait_for_timeout(2500)
+            tab.wait_for_timeout(2500)
             if not requests:
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
             if page>1:
                 # Every page request must repeat the same 10-digit filter.
                 pg=str(page)
-                if not _click_label(page,(pg,),"click"):
+                if not _click_label(tab,(pg,),"click"):
                     raise SearchBlocked("BID_NOTICE_PAGE_BUTTON_NOT_FOUND")
-                page.wait_for_timeout(1700)
+                tab.wait_for_timeout(1700)
             # Only the selected window + page may be accepted.
             matched_responses=[r for r in responses if request_has_filter(
                 r.request.post_data,detail10,w["start"],w["end"])]
