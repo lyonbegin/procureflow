@@ -365,8 +365,11 @@ def _click_notice_search(page):
         const label=norm(e.value||e.innerText||e.textContent||e.title||e.getAttribute('aria-label'));
         return label==='검색' || label==='조회';
       });
-      matches.sort((a,b)=>
-        (Number((b.id||'').includes('mf_wfm_container'))-Number((a.id||'').includes('mf_wfm_container'))));
+      matches.sort((a,b)=>{
+        const rank=e=> (e.id||'').endsWith('btnS0004')?100:
+          (e.id||'').includes('tacBidPbancLst')?20:0;
+        return rank(b)-rank(a);
+      });
       if(!matches.length)return false;
       matches[0].click();
       return true;
