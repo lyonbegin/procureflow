@@ -371,6 +371,30 @@ def read_jobs(limit=25):
                   ORDER BY id DESC LIMIT %s""",(limit,)).fetchall()
 
 
+def extract_official_pdf_header(text_value):
+    """Capture only brief directly labelled fields; stop at next document field.
+
+    PDF text extraction often loses newlines. Never store 200-char neighboring
+    clauses as if they were a bid title or agency name.
+    """
+    labels={
+        "title":r"(?:용\s*역\s*명|입찰\s*건명|사\s*업\s*명)",
+        "agency":r"(?:수\s*요\s*기\s*관|발\s*주\s*기\s*관)"
+    }
+    stop=r"(?:\d{1,2}\.\d{1,2}\.|입찰서\s*접수|입찰\s*공고|용\s*역\s*기\s*간|수\s*요\s*기\s*관|발\s*주\s*기\s*관|기\s*초\s*금\s*액|과\s*업\s*내\s*용|이\s*입찰\s*공고문|제\s*안\s*서|[※\r\n])"
+    fields={}
+    for name,label in labels.items():
+        m=re.search(label+r"\s*[:：]\s*",text_value,re.I)
+        if not m:
+            fields[name]="";continue
+        tail=text_value[m.end():m.end()+230]
+        stop_match=re.search(stop,tail,re.I)
+        if stop_match:tail=tail[:stop_match.start()]
+        tail=" ".join(tail.split()).strip(" :：.,-–")
+        fields[name]=tail[:115] if 3<=len(tail)<=115 else ""
+    return fields
+
+
 def store_official_notice_file(no,ord_,url,expected10,file,job_id):
     """Commit fresh original G2B PDF ONLY when its actual text proves detail10.
 
@@ -391,17 +415,9 @@ def store_official_notice_file(no,ord_,url,expected10,file,job_id):
               {"file_sha256":digest,"extraction_state":file.get("state")})
         return {"status":"blocked","reason":"OFFICIAL_FILE_DOES_NOT_PROVE_EXACT_DETAIL10",
                 "file_sha256":digest,"stored":False}
-    # Titles and institutions must be visible in the newly downloaded PDF.
-    title=""
-    agency=""
-    for pattern,target in (
-      (r"(?:용\s*역\s*명|입찰\s*건명|사\s*업\s*명)\s*[:：]\s*([^\r\n]{5,150})","title"),
-      (r"(?:수요기관|발주기관)\s*[:：]\s*([^\r\n]{2,130})","agency")):
-        m=re.search(pattern,text_value,re.I)
-        if m:
-            candidate=" ".join(m.group(1).split())
-            if target=="title":title=candidate[:300]
-            else:agency=candidate[:220]
+    fields=extract_official_pdf_header(text_value)
+    title=fields["title"]
+    agency=fields["agency"]
     with db() as cx:
         prev=cx.execute("""SELECT detail10,original_verified,original_sha256
             FROM fresh_g2b.site_notices WHERE bid_no=%s AND bid_ord=%s""",
@@ -416,9 +432,9 @@ def store_official_notice_file(no,ord_,url,expected10,file,job_id):
                   'official_g2b_downloaded_pdf_explicit10')
           ON CONFLICT(bid_no,bid_ord) DO UPDATE SET
              detail10=excluded.detail10,
-             title=CASE WHEN fresh_g2b.site_notices.title='' THEN excluded.title
+             title=CASE WHEN excluded.title<>'' THEN excluded.title
                         ELSE fresh_g2b.site_notices.title END,
-             agency=CASE WHEN fresh_g2b.site_notices.agency='' THEN excluded.agency
+             agency=CASE WHEN excluded.agency<>'' THEN excluded.agency
                         ELSE fresh_g2b.site_notices.agency END,
              original_url=excluded.original_url,
              original_verified=true,
