@@ -1,0 +1,211 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>조달청 자동화 · 실사이트 신규 수집센터</title>
+<style>
+:root{color-scheme:light;--bg:#f3f6fb;--card:#fff;--border:#dce4ef;--dark:#12273c;--blue:#1763b8;--muted:#697b90;--orange:#a36516}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--dark);font:14px/1.5 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+header{background:#10243a;color:#fff}.nav{max-width:1390px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 23px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:18px}.brand small{display:block;font-size:11px;color:#bdcee0;font-weight:400}
+.links{display:flex;flex-wrap:wrap;gap:7px}.links a{color:white;text-decoration:none;border:1px solid #667e94;padding:7px 10px;border-radius:8px;font-size:12px}
+main{max-width:1390px;margin:20px auto 50px;padding:0 16px}
+h1{font-size:23px;margin:2px 0 3px}h2{font-size:16px;margin:0}h3{font-size:14px;margin:0}
+.muted{color:var(--muted);font-size:12px}.card{border:1px solid var(--border);background:var(--card);border-radius:12px;padding:18px;box-shadow:0 4px 16px #33496307}
+.layout{display:grid;grid-template-columns:410px 1fr;gap:15px;margin-top:15px}.right{display:flex;flex-direction:column;gap:15px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+input,button{font:inherit}input{padding:9px 10px;min-width:0;border:1px solid #ccd8e6;border-radius:7px;color:var(--dark);background:#fff}
+button{border:1px solid #cbd9e8;border-radius:7px;padding:9px 12px;background:#fff;color:#14549a;font-size:12px;font-weight:750;cursor:pointer}
+button.primary{background:var(--blue);border-color:var(--blue);color:white}button:disabled{opacity:.45;cursor:not-allowed}
+form{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin:11px 0}.field{display:flex;flex-direction:column;gap:3px;min-width:110px}.field label{font-size:11px;color:#677c91}
+.hint{padding:10px 12px;background:#eef5fe;border:1px solid #dce9fa;color:#345e88;border-radius:8px;font-size:12px}
+.warn{background:#fff4df;color:#8d590e;border-color:#eadab9}.ok{background:#ecf7f1;color:#166c53;border-color:#c8e9d9}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.metric{background:#f5f8fc;border:1px solid #e7edf5;border-radius:9px;padding:11px}
+.metric span{font-size:11px;color:#627b90}.metric b{display:block;font-size:23px}
+.notice{display:block;width:100%;border:0;border-bottom:1px solid #e4ebf3;background:white;padding:12px 5px;text-align:left;border-radius:0;color:var(--dark)}
+.notice:hover,.notice.on{background:#eff6ff}.notice b{display:block;font-size:12px}.notice span{display:block;color:#778ba0;font-size:11px;margin-top:5px}
+.scroll{max-height:530px;overflow:auto;margin:10px 0}
+.badge{background:#eaf3fc;color:#175eac;font-size:10px;padding:3px 7px;border-radius:6px;font-weight:800}
+.badge.bad{background:#fff1d8;color:#925d08}.badge.good{background:#e1f3e9;color:#17754e}
+table{border-collapse:collapse;width:100%;min-width:620px}th,td{padding:9px 10px;border-bottom:1px solid #e4ebf1;text-align:left;font-size:12px;vertical-align:top}
+th{background:#f4f7fa;color:#698098;font-size:11px}.tbl{overflow:auto;max-height:400px;border:1px solid #e1eaf2;border-radius:8px}
+dt{color:#778ba0;font-size:12px}dd{margin:0;font-weight:650;overflow-wrap:anywhere}dl{display:grid;grid-template-columns:110px 1fr;gap:9px;margin:10px 0}
+a{color:#145caa;text-decoration:none}.status{font-size:12px;margin-top:9px;color:#516980;white-space:pre-wrap;overflow-wrap:anywhere}
+footer{font-size:11px;color:#778ba0;margin:25px 0}.actions{display:flex;gap:6px;flex-wrap:wrap}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<header><div class="nav"><div class="brand">조달청 자동화 · 실사이트 신규 수집센터<small>기존 DB 229건 재사용 금지 · 새 PostgreSQL · 공식 사이트 원본 확인 후 저장</small></div>
+<div class="links"><a href="https://procureflow-n8n-native-canvas-production.up.railway.app/admin/index.html?section=public_nodes" target="_blank" rel="noopener">기존 노드 관리 ↗</a>
+<a href="https://procureflow-n8n-native-canvas-production.up.railway.app/?workflow=operations%2FA01-public-win-strategy.json" target="_blank" rel="noopener">기존 전체 노드 그래프 ↗</a></div></div></header>
+<main><div class="row"><div><h1>실제 나라장터 → 신규 DB → 동일 세부종목 분석</h1><div class="muted">기존 데이터는 표시하지 않습니다. 새 사이트 검색이 성공한 이후부터 공고가 쌓입니다.</div></div><span class="badge bad">10년 전체 수집 완료 아님</span></div>
+<div class="card" style="margin-top:15px">
+ <div class="row"><h2>① 나라장터 실제 검색</h2><span class="muted">월별 1회 · 공고번호 원본 확인</span></div>
+ <form id="searchForm">
+  <div class="field"><label for="code">세부품명번호 10자리</label><input id="code" maxlength="10" value="8111159901" required pattern="[0-9]{10}" style="width:125px"/></div>
+  <div class="field"><label for="start">검색 시작일</label><input type="date" id="start" value="2016-11-04" required/></div>
+  <div class="field"><label for="end">검색 종료일</label><input type="date" id="end" value="2026-11-04" required/></div>
+  <div class="field"><label for="month">조회 월 (한 번에 한 달)</label><input type="month" id="month" value="2026-11" required/></div>
+  <div class="field"><label for="admin">관리자 인증 토큰</label><input id="admin" type="password" autocomplete="off" placeholder="Railway ADMIN_TOKEN" style="width:175px"/></div>
+  <button class="primary" id="startSearch" type="submit">실제 나라장터 검색 실행</button>
+  <button type="button" id="prevMonth">이전 월 검색</button>
+ </form>
+ <div id="searchMsg" class="hint">실제 사이트 입찰공고 검색 XHR에 정확한 10자리와 기간이 담겼는지 검증합니다. 검색 실패를 0건으로 표시하지 않습니다.</div>
+ <div class="cards" style="margin-top:12px">
+  <div class="metric"><span>새 DB 공고 후보</span><b id="mNotice">—</b></div>
+  <div class="metric"><span>원본 확인 공고</span><b id="mProof">—</b></div>
+  <div class="metric"><span>실제 투찰 기록</span><b id="mOffer">—</b></div>
+  <div class="metric"><span>명시적 최종 낙찰</span><b id="mAward">—</b></div>
+ </div>
+</div>
+<div class="layout">
+<section class="card">
+ <div class="row"><h2>② 신규 DB 공고 목록</h2><button id="refresh">새로고침</button></div>
+ <div class="muted" style="margin-top:6px">이번 새 수집기에서 실제 사이트 응답으로 확보한 공고만 표시</div>
+ <div id="list" class="scroll"><div class="hint">DB 연결 확인 중…</div></div>
+ <div class="row"><span id="listStatus" class="muted"></span><button id="more" disabled>다음 50건</button></div>
+</section>
+<div class="right">
+ <section class="card">
+  <div class="row"><h2>③ 선택 공고의 실제 원본</h2><span id="verified" class="badge bad">공고 미선택</span></div>
+  <div id="caseInfo" class="hint" style="margin-top:11px">새 공고가 수집된 후 왼쪽에서 하나를 선택하세요.</div>
+  <div class="actions" style="margin-top:11px">
+   <button id="getDetail" disabled>실제 나라장터 공고 원본 확인</button>
+   <button id="getOpening" disabled>실제 개찰·투찰 조회</button>
+   <button id="getHistory" disabled>동일 세부종목 신규 기록</button>
+  </div>
+  <div id="filesArea" style="margin-top:12px"></div>
+  <div id="offersArea" style="margin-top:12px"></div>
+ </section>
+ <section class="card">
+  <div class="row"><h2>④ 동일 세부종목 과거 입찰 · 새로 수집한 결과만</h2><span class="badge">기존 229건 사용 안 함</span></div>
+  <div id="hist" class="hint" style="margin-top:12px">원본 10자리 확인된 공고만 이 표에 포함합니다.</div>
+ </section>
+ <section class="card">
+  <div class="row"><h2>⑤ 실제 사이트 수집 작업 · 오류 기록</h2><button id="refreshJobs">실행상태 새로고침</button></div>
+  <div id="jobs" class="status">작업 내역 조회 중…</div>
+  <h3 style="margin:13px 0 6px">원본 검색 요청 이력</h3>
+  <div id="searchRuns" class="status"></div>
+ </section>
+</div>
+</div>
+<footer>조달청 실제 사이트 기반 신규 수집 서비스. 이전 PostgreSQL 조회·가져오기 없음. 10자리 원본 미확인 후보는 분석에서 제외. 나라장터 로그인·입찰참가·투찰 제출 자동 실행 없음.</footer>
+</main>
+<script>
+"use strict";
+const $=x=>document.getElementById(x);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const state={notices:[],offset:0,selected:null,jobs:[],poll:null};
+async function get(path){const r=await fetch(path,{cache:"no-store"});const o=await r.json();if(!r.ok)throw Error(o.detail||r.status);return o}
+async function post(kind,params){
+ const token=$("admin").value;
+ if(!token){$("searchMsg").textContent="관리자 인증 토큰이 필요합니다. 기존 Railway API의 ADMIN_TOKEN을 사용합니다.";return}
+ try{
+  const r=await fetch("/api/actions/"+kind,{method:"POST",headers:{"Content-Type":"application/json","X-Admin-Token":token},body:JSON.stringify(params)});
+  const v=await r.json();if(!r.ok)throw Error(v.detail||"HTTP "+r.status);
+  $("searchMsg").textContent="실제 사이트 수집작업 "+v.job_id+" 등록 · 결과 확인 중…";
+  await refreshJobs();beginPoll(v.job_id);
+ }catch(e){$("searchMsg").textContent="작업 등록 실패: "+e.message}
+}
+function beginPoll(id){
+ if(state.poll)clearInterval(state.poll);
+ let count=0;
+ state.poll=setInterval(async()=>{
+   if(++count>40){clearInterval(state.poll);state.poll=null;return}
+   await refreshJobs();const row=state.jobs.find(x=>x.id===id);
+   if(row&&["completed","blocked","error","interrupted"].includes(row.status)){
+     clearInterval(state.poll);state.poll=null;
+     $("searchMsg").textContent="작업 #"+id+" : "+row.status+
+       (row.error?" ("+row.error+")":"")+
+       (row.result?.website_status?" · 사이트 검색 "+row.result.website_status:"")+
+       (row.result?.reason?" · "+row.result.reason:"");
+     await loadList(true);await summary();await searchRuns();
+     if(state.selected)await selectNotice(state.selected.bid_no,state.selected.bid_ord);
+   }
+ },2500);
+}
+async function summary(){try{
+ const v=await get("/api/summary");const n=v.totals;
+ $("mNotice").textContent=n.notices;$("mProof").textContent=n.verified;
+ $("mOffer").textContent=n.offers;$("mAward").textContent=n.awards;
+}catch(e){$("searchMsg").textContent="신규 DB 연결 오류: "+e.message}}
+async function loadList(reset){
+ try{
+ if(reset){state.offset=0;state.notices=[]}
+ const r=await get("/api/notices?limit=50&offset="+state.offset);
+ state.notices.push(...r.items);state.offset+=r.items.length;
+ $("list").innerHTML=state.notices.length?state.notices.map(x=>
+  '<button class="notice '+(state.selected?.bid_no===x.bid_no?"on":"")+
+  '" data-id="'+esc(x.bid_no)+'" data-ord="'+esc(x.bid_ord)+'"><b>'+esc(x.title||x.bid_no)+'</b>'+
+  '<span>'+esc(x.bid_no+"-"+x.bid_ord)+" · "+esc(x.agency||"기관 미확인")+'</span>'+
+  '<span>'+(x.original_verified?"<b>원본 확인 "+esc(x.detail10)+"</b>":"원본 검증 대기")+'</span></button>').join(""):
+  '<div class="hint warn">아직 새 DB에 수집된 공고가 없습니다. 기존 229건은 가져오지 않습니다. 실제 나라장터 검색 실행 결과가 필요합니다.</div>';
+ $("listStatus").textContent=state.notices.length+"건 표시 · 새 DB";
+ $("more").disabled=r.items.length<50;
+ }catch(e){$("list").innerHTML='<div class="hint warn">신규 DB 조회 오류: '+esc(e.message)+'</div>'}
+}
+async function selectNotice(id,ord){
+ try{
+ const d=await get("/api/notices/"+encodeURIComponent(id)+"/"+encodeURIComponent(ord));
+ state.selected=d.notice;const x=d.notice;
+ $("verified").textContent=x.original_verified?"실사이트 원본 검증":"미검증 후보";
+ $("verified").className="badge "+(x.original_verified?"good":"bad");
+ $("caseInfo").innerHTML="<dl><dt>공고번호·차수</dt><dd>"+esc(x.bid_no+"-"+x.bid_ord)+"</dd>"+
+ "<dt>공고명</dt><dd>"+esc(x.title)+"</dd><dt>발주기관</dt><dd>"+esc(x.agency)+"</dd>"+
+ "<dt>세부품명번호</dt><dd>"+esc(x.detail10||"원본 미확인")+"</dd>"+
+ "<dt>출처 상태</dt><dd>"+esc(x.verification_reason)+"</dd>"+
+ "<dt>공고 원본</dt><dd>"+(x.original_url?'<a target="_blank" rel="noopener" href="'+esc(x.original_url)+'">공식 공고 열기 ↗</a>':"원본 다운로드 전")+"</dd></dl>";
+ $("getDetail").disabled=false;$("getOpening").disabled=!x.original_verified;$("getHistory").disabled=!x.original_verified;
+ $("filesArea").innerHTML=d.files.length?"<h3>공식 원본 첨부파일</h3>"+d.files.map(f=>
+  '<div class="row"><span class="muted">'+esc(f.filename)+" · "+esc(f.extraction_state)+'</span>'+
+  '<button class="fileFetch" data-url="'+esc(f.file_url)+'">실제 파일 확인·다운로드</button></div>').join(""):"<p class='muted'>공식 첨부 링크 미확보</p>";
+ $("offersArea").innerHTML="<h3 style='margin:15px 0 8px'>실제 개찰·투찰업체 ("+d.offers.length+"행)</h3>"+
+ (d.offers.length?'<div class="tbl"><table><thead><tr><th>업체명</th><th>금액</th><th>투찰률</th><th>순위</th><th>무효사유</th></tr></thead><tbody>'+
+ d.offers.map(v=>"<tr><td>"+esc(v.company)+"</td><td>"+esc(v.amount)+"</td><td>"+esc(v.rate)+"</td><td>"+esc(v.rank)+"</td><td>"+esc(v.validity_code)+"</td></tr>").join("")+'</tbody></table></div>':
+ "<div class='hint warn'>새 DB에 개찰 기록 없음. 실제 결과를 조회하기 전에는 경쟁업체 0개로 판단하지 않습니다.</div>")+
+ "<h3 style='margin:14px 0 5px'>명시적 확정 낙찰 ("+d.awards.length+"건)</h3>"+
+ (d.awards.length?d.awards.map(a=>"<p>"+esc(a.company)+" · "+esc(a.amount)+"원</p>").join(""):
+ "<p class='muted'>새 DB에 공식 최종 선정 증빙 없음</p>");
+ }catch(e){$("caseInfo").textContent="공고 상세 조회 실패: "+e.message}
+}
+async function history(){
+ if(!state.selected)return;
+ try{
+  const x=state.selected;const r=await get("/api/history/"+x.bid_no+"/"+x.bid_ord);
+  $("hist").innerHTML=r.status==="HOLD"?"원본 미검증: "+esc(r.reason):
+    "<div class='muted'>동일 세부종목 "+esc(r.detail10)+" · 신규 공식 원본 검증 공고 "+r.items.length+
+    "건 · 과거 10년 전체 수집 미완료</div>"+
+    (r.items.length?'<div class="tbl"><table><thead><tr><th>공고번호</th><th>공고명</th><th>기관</th><th>개찰 행</th><th>확정 낙찰</th></tr></thead><tbody>'+
+     r.items.map(a=>"<tr><td>"+esc(a.bid_no+"-"+a.bid_ord)+"</td><td>"+esc(a.title)+"</td><td>"+esc(a.agency)+"</td><td>"+esc(a.offer_rows)+"</td><td>"+esc(a.final_award_rows)+"</td></tr>").join("")+
+     "</tbody></table></div>":"<p>이번 새 DB에는 아직 원본 검증된 동일 세부종목 과거 공고가 없습니다.</p>");
+ }catch(e){$("hist").textContent="신규 기록 조회 실패: "+e.message}
+}
+async function refreshJobs(){try{
+ const r=await get("/api/jobs");state.jobs=r.jobs;
+ $("jobs").innerHTML=r.jobs.length?'<div class="tbl"><table><thead><tr><th>작업ID</th><th>작업</th><th>상태</th><th>사이트 결과·오류</th></tr></thead><tbody>'+
+ r.jobs.map(j=>"<tr><td>"+j.id+"</td><td>"+esc(j.kind)+"</td><td>"+esc(j.status)+"</td><td>"+esc(j.error||j.result?.reason||j.result?.website_status||"—")+"</td></tr>").join("")+"</tbody></table></div>":"실제 수집 작업 기록 없음";
+ }catch(e){$("jobs").textContent=e.message}}
+async function searchRuns(){try{
+ const r=await get("/api/search-runs");
+ $("searchRuns").innerHTML=r.items.length?r.items.slice(0,8).map(x=>
+  "<div>"+esc(x.code10)+" / "+esc(x.cursor)+" / "+esc(x.status)+" / 서버필터확인: "+
+  (x.request_verified?"예":"아니오")+" / 확인 "+x.confirmed_count+" 후보 "+x.pending_count+"</div>").join(""):"실사이트 검색 요청 기록 없음";
+ }catch(e){$("searchRuns").textContent=e.message}}
+$("searchForm").addEventListener("submit",e=>{e.preventDefault();post("search",{
+ detail10:$("code").value,start:$("start").value,end:$("end").value,month:$("month").value,page:1})});
+$("prevMonth").addEventListener("click",()=>{
+ const [y,m]=$("month").value.split("-").map(Number);
+ $("month").value=m===1?(y-1)+"-12":y+"-"+String(m-1).padStart(2,"0");
+ $("searchForm").requestSubmit();
+});
+$("list").addEventListener("click",e=>{const el=e.target.closest("[data-id]");if(el)selectNotice(el.dataset.id,el.dataset.ord)});
+$("filesArea").addEventListener("click",e=>{const el=e.target.closest("[data-url]");if(el&&state.selected)post("file",{
+ bid_no:state.selected.bid_no,bid_ord:state.selected.bid_ord,url:el.dataset.url})});
+$("getDetail").addEventListener("click",()=>{
+ const x=state.selected;if(x)post("detail",{bid_no:x.bid_no,bid_ord:x.bid_ord,
+ detail10:x.detail10||$("code").value})});
+$("getOpening").addEventListener("click",()=>{
+ const x=state.selected;if(x)post("opening",{bid_no:x.bid_no,bid_ord:x.bid_ord})});
+$("getHistory").addEventListener("click",history);
+$("refresh").addEventListener("click",()=>loadList(true));
+$("more").addEventListener("click",()=>loadList(false));
+$("refreshJobs").addEventListener("click",refreshJobs);
+Promise.allSettled([summary(),loadList(true),refreshJobs(),searchRuns()]);
+</script></body></html>
