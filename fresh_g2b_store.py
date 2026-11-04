@@ -234,3 +234,67 @@ def save_final(bid_no,bid_ord,listing,entry,winner_name):
            dump({"bid_info":entry.get("bid_info"),"etc_data":entry.get("etc_data"),
                  "winner_row":r}),digest(entry)))
     return True
+
+
+def save_attachment(no,ord_,file):
+    with conn() as c:
+        c.execute("""INSERT INTO freshg2b.attachments
+          (bid_no,bid_ord,file_key,filename,source_url,sha256,mime,
+           data,extracted_text,extract_state)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+          ON CONFLICT (bid_no,bid_ord,file_key,sha256)
+          DO NOTHING""",(no,ord_,file["file_key"],file["filename"],file["url"],
+           file["sha256"],file["mime"],file["data"],file["extracted_text"],
+           file["extract_state"]))
+
+def recent_notices(limit=40):
+    with conn() as c:
+        rows=c.execute("""SELECT n.bid_no,n.bid_ord,n.detail10,n.title,
+            n.agency,n.posted_on,n.source_url,n.category_verified,n.first_seen,
+            COUNT(DISTINCT e.bid_clsfc_no||'/'||e.progress_ord) AS opening_executions,
+            COUNT(DISTINCT a.file_key) AS files
+          FROM freshg2b.notices n
+          LEFT JOIN freshg2b.executions e ON e.bid_no=n.bid_no AND e.bid_ord=n.bid_ord
+          LEFT JOIN freshg2b.attachments a ON a.bid_no=n.bid_no AND a.bid_ord=n.bid_ord
+          GROUP BY n.bid_no,n.bid_ord
+          ORDER BY n.posted_on DESC NULLS LAST,n.first_seen DESC LIMIT %s""",
+          (min(max(1,limit),100),)).fetchall()
+    return [public(r) for r in rows]
+
+def notice_detail(no,ord_):
+    with conn() as c:
+        row=c.execute("""SELECT bid_no,bid_ord,detail10,title,agency,posted_on,
+           source_url,category_verified,response_sha,first_seen,last_seen
+           FROM freshg2b.notices WHERE bid_no=%s AND bid_ord=%s""",(no,ord_)).fetchone()
+        if not row:return None
+        execs=c.execute("""SELECT bid_clsfc_no,progress_ord,observed_status,
+            total_offers_claimed,detail_complete,last_checked
+          FROM freshg2b.executions
+          WHERE bid_no=%s AND bid_ord=%s ORDER BY progress_ord,bid_clsfc_no""",
+          (no,ord_)).fetchall()
+        offers=c.execute("""SELECT bid_clsfc_no,progress_ord,company,
+             amount,bid_rate,rank,invalid_reason,business_no
+          FROM freshg2b.offers WHERE bid_no=%s AND bid_ord=%s
+          ORDER BY progress_ord,bid_clsfc_no,rank LIMIT 2000""",(no,ord_)).fetchall()
+        awards=c.execute("""SELECT bid_clsfc_no,progress_ord,winner_company,
+            winner_amount,evidence,verified_at
+          FROM freshg2b.final_awards WHERE bid_no=%s AND bid_ord=%s""",
+          (no,ord_)).fetchall()
+        files=c.execute("""SELECT file_key,filename,sha256,extract_state,
+           length(extracted_text) AS text_len,fetched_at
+          FROM freshg2b.attachments WHERE bid_no=%s AND bid_ord=%s
+          ORDER BY fetched_at DESC LIMIT 100""",(no,ord_)).fetchall()
+    return {"notice":public(row),"executions":[public(r) for r in execs],
+      "offers":[public(r) for r in offers],"final_awards":[public(r) for r in awards],
+      "attachments":[public(r) for r in files]}
+
+def job_detail(job_id):
+    with conn() as c:
+        row=c.execute("""SELECT id,kind,args,status,rows_seen,rows_saved,error,
+            created_at,started_at,finished_at FROM freshg2b.jobs WHERE id=%s""",
+            (job_id,)).fetchone()
+        if not row:return None
+        events=c.execute("""SELECT stage,status,bid_no,bid_ord,error_kind,checked_at
+          FROM freshg2b.fetch_attempts WHERE job_id=%s
+          ORDER BY id DESC LIMIT 70""",(job_id,)).fetchall()
+    return {**public(row),"events":[public(x) for x in events]}
