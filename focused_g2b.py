@@ -58,6 +58,15 @@ def ensure_bid(bid_no):
     return bid_no
 
 
+def table_flags(con):
+    row=con.execute("""SELECT
+        to_regclass('procureflow.tenders') IS NOT NULL AS tenders,
+        to_regclass('procureflow.g2b_notice_categories') IS NOT NULL AS categories,
+        to_regclass('procureflow.g2b_case_10yr_history') IS NOT NULL AS history,
+        to_regclass('procureflow.bid_results') IS NOT NULL AS results""").fetchone()
+    return {k:bool(v) for k,v in row.items()}
+
+
 def select_case(con,bid):
     row=con.execute("""SELECT external_id AS bid_no,title,agency,category,
       notice_date,deadline,status,source_url,last_seen
@@ -65,11 +74,12 @@ def select_case(con,bid):
       WHERE source='g2b' AND external_id=%s""",(bid,)).fetchone()
     if not row:
         raise HTTPException(404,"SELECTED_NOTICE_NOT_IN_ACTUAL_G2B_DB")
-    codes=con.execute("""SELECT code,source_uri,source_field,evidence_level,bid_ord
+    codes=(con.execute("""SELECT code,source_uri,source_field,evidence_level,bid_ord
       FROM procureflow.g2b_notice_categories
       WHERE bid_no=%s AND code_type='detail10'
         AND evidence_level='official_direct' AND code ~ '^[0-9]{10}$'
       ORDER BY created_at DESC LIMIT 20""",(bid,)).fetchall()
+           if table_flags(con)["categories"] else [])
     distinct=list(dict.fromkeys(x["code"] for x in codes))
     return {**clean(row),"original_detail10":distinct[0] if len(distinct)==1 else None,
         "source_verified":len(distinct)==1,
@@ -87,19 +97,19 @@ def home():
 
 @app.get("/health")
 def health():
-    # Real DB probe, not just "DATABASE_URL exists". Railway health checks must
-    # fail closed if actual G2B tables are unavailable.
     with readonly() as con:
+        flags=table_flags(con)
+        if not flags["tenders"]:
+            raise HTTPException(503,"ACTUAL_G2B_TENDERS_TABLE_UNAVAILABLE")
         row=con.execute("""SELECT EXISTS(SELECT 1 FROM procureflow.tenders
-                       WHERE source='g2b') AS has_g2b,
-                    EXISTS(SELECT 1 FROM procureflow.g2b_notice_categories
-                       WHERE code_type='detail10'
-                         AND evidence_level='official_direct') AS has_verified_categories""").fetchone()
-    return {"status":"ok","scope":"single_g2b_original_exact10_readonly",
-            "database_connected":True,
-            "has_g2b_notice_rows":bool(row["has_g2b"]),
-            "has_original_verified_category_rows":bool(row["has_verified_categories"]),
-            "site_search_verified":False,"bid_submitted":False}
+                          WHERE source='g2b') AS has_g2b""").fetchone()
+    logging.warning("FOCUSED_G2B_TABLES tenders=%s categories=%s history=%s results=%s",
+        flags["tenders"],flags["categories"],flags["history"],flags["results"])
+    return {"status":"ok" if flags["categories"] else "degraded_original_evidence_unavailable",
+       "scope":"single_g2b_original_exact10_readonly",
+       "database_connected":True,"table_flags":flags,
+       "has_g2b_notice_rows":bool(row["has_g2b"]),
+       "site_search_verified":False,"bid_submitted":False}
 
 
 @app.get("/api/notices")
