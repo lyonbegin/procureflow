@@ -262,14 +262,17 @@ def actual_case_workbench(start=None, end=None, kind="all", agency="",
 
 
 def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
-                          connection=None):
-    """Actually query G2B public opening for a FEW exact verified notice IDs.
+                          award_lookup=None, connection=None):
+    """Use EXISTING public WebSquare opening + explicit-final-award adapters.
 
-    This reuses the working g2b_bid_collector.collect(bid_numbers=...), rather
-    than discovering all notices for all months and filtering afterwards.
-    Every attempt and actual outcome is persisted by the original collector.
-    A lack of confirmed awards is never fabricated into successful results.
-    Run this ONLY in the original authenticated Railway worker.
+    Query the existing database for official_original-verified exact 10-digit
+    notice IDs *before* any website call. Per-ID WebSquare opening is
+    g2b_bid_collector.collect; final award is
+    g2b_exact_outcome_history.fetch_one_final_award. Never search every
+    8-digit parent notice/month, infer winner from rank 1, or submit bids.
+
+    This does NOT discover every matching 10-digit bid in the entire G2B
+    website. It only enriches IDs already verified from their originals.
     """
     if not isinstance(max_notices,int) or not 1<=max_notices<=3:
         raise ValueError("MAX_THREE_SELECTED_NOTICES_PER_JOB")
@@ -291,23 +294,91 @@ def collect_filtered_gaps(s: Search, max_notices=3, *, collector=None,
     out=collector(days=1,pages=1,bid_numbers=selected)
     if not isinstance(out,dict):
         raise ValueError("EXISTING_G2B_COLLECTOR_INVALID_RESPONSE")
+    # Track opening attempts separately from final-award attempts. A public
+    # opening result is never evidence that its first-ranked company won.
     if connection is None:
         with session() as con:
             _save_filtered_attempts(con,candidates,out)
     else:
         _save_filtered_attempts(connection,candidates,out)
-    return {"status":out.get("status","unknown"),
+
+    if award_lookup is None:
+        from g2b_exact_outcome_history import fetch_one_final_award
+        award_lookup=fetch_one_final_award
+    official_awards=[]
+    award_errors=[]
+    for row in candidates:
+        bid_no,bid_ord=row["bid_no"],row["bid_ord"]
+        try:
+            award=award_lookup(bid_no,bid_ord,row["published_on"])
+            if not isinstance(award,dict):
+                raise ValueError("OFFICIAL_FINAL_AWARD_RESPONSE_NOT_OBJECT")
+            if award.get("bid_no")!=bid_no or award.get("bid_ord")!=bid_ord:
+                raise ValueError("OFFICIAL_FINAL_AWARD_IDENTITY_MISMATCH")
+            # Existing fetch_one_final_award returns this status only when it
+            # has found an explicit final winner + matching price. Never rely
+            # on a top-ranked opening bidder.
+            confirmed=(award.get("winner_confirmed") is True and
+                award.get("status")=="official_explicit_final_winner_confirmed")
+            if award.get("winner_confirmed") is True and not confirmed:
+                raise ValueError("OFFICIAL_FINAL_AWARD_PROVENANCE_CONFLICT")
+            result={"bid_no":bid_no,"bid_ord":bid_ord,
+                    "status":str(award.get("status") or "not_confirmed")[:90],
+                    "winner_confirmed":confirmed,
+                    "saved":max(0,int(award.get("saved") or 0))}
+            official_awards.append(result)
+            _save_filtered_award_attempt(
+                bid_no,bid_ord,result,connection=connection)
+        except Exception as exc:
+            reason=type(exc).__name__ + ":" + str(exc)[:130]
+            result={"bid_no":bid_no,"bid_ord":bid_ord,
+                    "status":"source_error","winner_confirmed":False,
+                    "reason":reason}
+            official_awards.append(result)
+            award_errors.append(result)
+            _save_filtered_award_attempt(
+                bid_no,bid_ord,result,connection=connection)
+    openings_errors=[str(err)[:150] for err in out.get("errors",[])]
+    if not isinstance(out.get("errors",[]),list):
+        openings_errors=["INVALID_OPENING_ERRORS_SCHEMA"]
+    return {"status":"partial_source_errors" if award_errors or openings_errors
+            else "partial_source_evidence",
         "case_bid_no":s.bid_no,"exact_detail10":s.detail10,
         "selected":len(selected),"selected_notice_ids":selected,
-        "actual_g2b_requests":len(selected),
-        "actual_opening_rows_seen":out.get("examined",0),
-        "actual_saved_records":out.get("saved",0),
-        "new_records":out.get("new",0),
-        "explicit_final_awards":out.get("final_winners",0),
-        "source":"existing_real_g2b_bid_collector",
-        "errors":out.get("errors",[]),
+        "opening_notice_ids_queried":len(selected),
+        "final_award_notice_ids_queried":len(official_awards),
+        "actual_g2b_requests":None,
+        "actual_g2b_request_count_unverified":True,
+        "actual_opening_rows_seen":int(out.get("examined") or 0),
+        "actual_saved_records":int(out.get("saved") or 0),
+        "new_records":int(out.get("new") or 0),
+        "explicit_final_awards":sum(a["winner_confirmed"] for a in official_awards),
+        "official_award_checks":official_awards,
+        "source":"existing_g2b_bid_collector_and_official_websquare_final_award",
+        "errors":openings_errors+[a["reason"] for a in award_errors],
+        "website_10digit_server_search_verified":False,
+        "source_list_is_prior_original_verified_10digit_only":True,
+        "ten_year_history_complete":False,
         "bid_submitted":False,
-        "note":"Only real original-verified 10-digit selected notices; no entire ten-year loop."}
+        "note":"Existing official-original 10digit IDs -> opening -> explicit winner only; not whole-category website discovery."}
+
+def _save_filtered_award_attempt(bid_no,bid_ord,result,*,connection=None):
+    import json
+    if connection is None:
+        with session() as con:
+            return _save_filtered_award_attempt(bid_no,bid_ord,result,connection=con)
+    status=("confirmed_final_award" if result["winner_confirmed"]
+            else result["status"])
+    safe={"bid_no":bid_no,"bid_ord":bid_ord,"status":result["status"],
+          "winner_confirmed":bool(result["winner_confirmed"]),
+          "saved":int(result.get("saved") or 0)}
+    if result.get("reason"):
+        safe["reason"]=str(result["reason"])[:145]
+    connection.execute("""INSERT INTO procureflow.g2b_case_outcome_attempts(
+      case_bid_no,bid_no,bid_ord,stage,status,detail)
+      VALUES (%s,%s,%s,'final_award_collection',%s,%s::jsonb)""",
+      (CASE_BID,bid_no,bid_ord,status,json.dumps(safe,ensure_ascii=False)))
+
 
 
 def _filtered_gaps(con, s: Search, limit: int):
