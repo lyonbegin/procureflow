@@ -34,6 +34,14 @@ class BidBody(BaseModel):
     bid_no:str=Field(pattern=r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
     bid_ord:str=Field(default="000",pattern=r"^\d{3}$")
 
+def _create_job_or_409(kind,args):
+    try:
+        return store.create_job(kind,args)
+    except RuntimeError as exc:
+        if str(exc) in ("FRESH_CRAWLER_ALREADY_RUNNING","FRESH_CRAWLER_ALREADY_QUEUING"):
+            raise HTTPException(409,str(exc)) from None
+        raise
+
 def _run(job_id,kind,args):
     try:
         store.change_job(job_id,"running")
@@ -116,14 +124,14 @@ def boot():
     # The same startup probe is never repeated across redeploys.
     with store.conn() as con:
         exists=con.execute("""SELECT id FROM freshg2b.jobs
-          WHERE args->>'origin'='startup_probe_v5' LIMIT 1""").fetchone()
+          WHERE args->>'origin'='startup_probe_v6' LIMIT 1""").fetchone()
     if exists:return
     today=date.today()
     try:begin=today.replace(year=today.year-10)
     except ValueError:begin=today.replace(year=today.year-10,day=28)
     args={"detail10":"8111159901","first":begin.isoformat(),
       "last":today.isoformat(),"month":today.strftime("%Y-%m"),
-      "page":1,"origin":"startup_probe_v5"}
+      "page":1,"origin":"startup_probe_v6"}
     id_=store.create_job("search",args)
     Thread(target=_run,args=(id_,"search",args),daemon=True).start()
 
@@ -138,9 +146,10 @@ def health():
     with store.conn() as c:
         old=c.execute("SELECT to_regclass('procureflow.tenders') IS NOT NULL AS old").fetchone()["old"]
         count=c.execute("SELECT count(*) AS n FROM freshg2b.notices").fetchone()["n"]
+        confirmed=c.execute("SELECT count(*) AS n FROM freshg2b.search_pages WHERE request_verified=true").fetchone()["n"]
     if old:raise HTTPException(503,"LEGACY_DB_PRESENT_BLOCKED")
     return {"status":"ok","isolated_new_db":True,"old_db_access":False,
-            "new_db_notices":count,"official_site_search_live_proven":False}
+            "new_db_notices":count,"official_site_search_live_proven":bool(confirmed)}
 
 @app.get("/api/fresh/notices")
 def notices(limit:int=40):
@@ -169,7 +178,7 @@ def search(body:SearchBody,background:BackgroundTasks):
     except Exception as exc:
         raise HTTPException(400,str(exc)) from None
     args=body.model_dump()
-    id_=store.create_job("search",args)
+    id_=_create_job_or_409("search",args)
     background.add_task(_run,id_,"search",args)
     return {"job_id":id_,"status":"queued","request_window":w,
             "source":"actual_g2b_site_not_existing_database"}
@@ -179,7 +188,7 @@ def opening(body:BidBody,background:BackgroundTasks):
     args=body.model_dump()
     if not store.notice_detail(body.bid_no,body.bid_ord):
         raise HTTPException(404,"FIRST_COLLECT_NOTICE_FROM_LIVE_SITE")
-    id_=store.create_job("opening",args)
+    id_=_create_job_or_409("opening",args)
     background.add_task(_run,id_,"opening",args)
     return {"job_id":id_,"status":"queued",
             "uses":"real_websquare_listing_and_bidder_detail"}
@@ -189,7 +198,7 @@ def files(body:BidBody,background:BackgroundTasks):
     args=body.model_dump()
     if not store.notice_detail(body.bid_no,body.bid_ord):
         raise HTTPException(404,"FIRST_COLLECT_NOTICE_FROM_LIVE_SITE")
-    id_=store.create_job("files",args)
+    id_=_create_job_or_409("files",args)
     background.add_task(_run,id_,"files",args)
     return {"job_id":id_,"status":"queued",
             "uses":"real_official_notice_detail_attachment_download"}
