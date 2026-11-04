@@ -128,7 +128,7 @@ def notices(q:str=Query("",max_length=100),
             c.code AS exact_detail10,c.source_uri AS exact_code_source
           FROM procureflow.tenders t
           {join}
-          WHERE t.source='g2b' AND t.external_id ~ '^R[0-9]{2}BK[0-9]{8}$'
+          WHERE t.source='g2b'
             AND (t.title ILIKE %s OR t.agency ILIKE %s OR t.external_id ILIKE %s)
           ORDER BY t.notice_date DESC,t.last_seen DESC,t.external_id DESC
           LIMIT %s OFFSET %s""",(pat,pat,pat,limit,offset)).fetchall()
