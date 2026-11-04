@@ -103,7 +103,10 @@ def conn():
         yield c
 
 def initialize():
-    with conn() as c:c.execute(SCHEMA)
+    with conn() as c:
+        if c.execute("SELECT to_regclass('procureflow.tenders') IS NOT NULL AS old").fetchone()["old"]:
+            raise RuntimeError("LEGACY_DATABASE_FORBIDDEN_DO_NOT_CONNECT")
+        c.execute(SCHEMA)
 
 def dump(x):
     return json.dumps(x,ensure_ascii=False,sort_keys=True,default=str)
