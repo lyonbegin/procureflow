@@ -351,7 +351,11 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
         with factory() as p:
             browser=p.chromium.launch(headless=True,args=[
                 "--no-sandbox","--disable-dev-shm-usage"])
-            context=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
+            context=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul",
+                viewport={"width":1440,"height":900},
+                user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/154.0.0.0 Safari/537.36"))
             context.set_default_timeout(2800)
             requests=[]
             responses=[]
