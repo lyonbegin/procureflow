@@ -625,6 +625,26 @@ def actual_public_notice_list(q: str = Query("",max_length=120),
             "automated_collection_claim":False,"bid_submitted":False}
 
 
+# Direct official search FIRST, with the chosen notice's exact 10-digit
+# category sent to the G2B search backend. Read-only; NO full historical crawl.
+@app.get("/api/g2b/public/selected/detail-search")
+def public_selected_official_detail_search(
+    detail10: str = Query("8111159901",pattern=r"^\d{10}$"),
+    start: str = Query("2016-10-24",pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query("2026-10-22",pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    cursor: str | None = Query(None,pattern=r"^\d{4}-\d{2}$"),
+    page: int = Query(1,ge=1,le=10000),
+    page_size: int = Query(100,ge=1,le=100),
+    agency: str = Query("",max_length=100)):
+    from g2b_detail10_search import search_one_page
+    try:
+        return search_one_page(
+            detail10=detail10,start=start,end=end,cursor=cursor,
+            page=page,page_size=page_size,agency=agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
 @app.get("/api/g2b/public/selected/search")
 def public_selected_search(start: str | None = None, end: str | None = None,
                            detail10: str = "8111159901",
