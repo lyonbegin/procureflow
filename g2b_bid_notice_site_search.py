@@ -646,6 +646,8 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             stage="home_load"
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
             if not _wait_for_site_rendered(tab):
+                tab.reload(wait_until="domcontentloaded",timeout=30000)
+            if not _wait_for_site_rendered(tab):
                 import logging
                 logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN_LIVE %s",
                   json.dumps(_safe_search_screen_diagnostic(tab),
