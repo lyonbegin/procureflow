@@ -706,6 +706,27 @@ class PublicFilteredCollection(BaseModel):
     max_notices: int = Field(2,ge=1,le=3)
 
 
+@app.get("/api/g2b/public/selected/search/websquare-preview")
+def public_websquare_exact10_preview(
+    start: str = Query("2016-10-24"),
+    end: str = Query("2026-10-22"),
+    detail10: str = Query("8111159901",pattern=r"^\d{10}$"),
+    agency: str = Query("",max_length=100),
+    max_notices: int = Query(3,ge=1,le=3)):
+    """Read-only exact-10 original-index filter; G2B per-ID web lookup is Worker-only.
+
+    Does NOT claim the external bid-publication website accepted a 10-digit
+    server-side search field. Do not infer 10-year completeness from preview.
+    """
+    from g2b_search_first import filters,preview_filtered_gaps
+    try:
+        s=filters(detail10=detail10,start=start,end=end,
+                  agency=agency,kind="all")
+        return preview_filtered_gaps(s,max_notices=max_notices)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
 @app.post("/api/g2b/public/selected/search/collect")
 def collect_public_filtered(req:PublicFilteredCollection,
                             authorization:str|None=Header(None)):
