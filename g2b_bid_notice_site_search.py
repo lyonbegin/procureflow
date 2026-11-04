@@ -332,6 +332,22 @@ def _official_menu_click(page, labels):
     return False
 
 
+def _open_detail_search(page):
+    """Click the observed active WebSquare advanced-filter toggle."""
+    for frame in _frames(page):
+        try:
+            buttons=frame.locator('input[id$="btnSearchToggle"]:visible')
+            for index in range(min(buttons.count(),8)):
+                button=buttons.nth(index)
+                if not button.is_enabled():continue
+                button.click(timeout=3500)
+                page.wait_for_timeout(800)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _navigate(page):
     """Reach the real public notice list, then open advanced 10-digit criteria."""
     if _wait_for_exact10_field(page,1500):
@@ -341,8 +357,7 @@ def _navigate(page):
             raise SearchBlocked("G2B_NOTICE_MENU_MISSING_"+str(len(names)))
     if _wait_for_exact10_field(page,2500):
         return
-    if not (_click_label(page,("상세조건","상세검색","상세조건 펼침")) or
-            _official_menu_click(page,("상세조건",))):
+    if not _open_detail_search(page):
         raise SearchBlocked("G2B_NOTICE_DETAIL_TOGGLE_NOT_FOUND")
     if not _wait_for_exact10_field(page,12000):
         raise SearchBlocked("G2B_NOTICE_EXACT10_FIELD_NOT_RENDERED")
