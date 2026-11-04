@@ -36,6 +36,14 @@ async def lifespan(app):
                   "end":"2026-11-04","month":"2026-11","page":1}
             job_id=store.create_job("search",args)
             Thread(target=_execute,args=(job_id,"search",args),daemon=True).start()
+    if os.environ.get("FRESH_DIAGNOSTIC_ON_BOOT")=="1":
+        with store.db() as cx:
+            count=cx.execute("""SELECT count(*) AS n FROM fresh_g2b.site_jobs
+                WHERE kind='diagnostic'""").fetchone()["n"]
+        if count==0:
+            from threading import Thread
+            job_id=store.create_job("diagnostic",{})
+            Thread(target=_execute,args=(job_id,"diagnostic",{}),daemon=True).start()
     yield
 
 app=FastAPI(title="나라장터 실사이트 신규 수집센터",lifespan=lifespan,
@@ -167,7 +175,10 @@ def _validate_action(kind,params):
 def _execute(job_id,kind,params):
     store.job_update(job_id,"running")
     try:
-        if kind=="search":
+        if kind=="diagnostic":
+            result=site.probe_public_ui()
+            state="completed"
+        elif kind=="search":
             w=site.search_original_site(params["detail10"],params["start"],
                        params["end"],params["month"],params["page"])
             result=store.store_search(w,params["detail10"],params["start"],
