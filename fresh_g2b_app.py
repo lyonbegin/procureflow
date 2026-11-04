@@ -25,6 +25,17 @@ HERE=Path(__file__).parent
 @asynccontextmanager
 async def lifespan(app):
     store.initialize()  # hard fail when wired to legacy DB
+    # One bounded, auditable official-site probe on an EMPTY new database.
+    # This never imports old notices and does not perform a bid submission.
+    if os.environ.get("FRESH_CANARY_ON_BOOT")=="1":
+        with store.db() as cx:
+            previous=cx.execute("SELECT count(*) AS n FROM fresh_g2b.site_search_runs").fetchone()["n"]
+        if previous==0:
+            from threading import Thread
+            args={"detail10":"8111159901","start":"2016-11-04",
+                  "end":"2026-11-04","month":"2026-11","page":1}
+            job_id=store.create_job("search",args)
+            Thread(target=_execute,args=(job_id,"search",args),daemon=True).start()
     yield
 
 app=FastAPI(title="나라장터 실사이트 신규 수집센터",lifespan=lifespan,
