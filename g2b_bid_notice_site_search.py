@@ -353,14 +353,20 @@ def _open_detail_search(page):
 
 
 def _click_notice_search(page):
-    """Use native pointer click on the observed notice-list main search control."""
+    """Click the public main notice search button; never bid/submit controls."""
+    import logging
     for frame in _frames(page):
         try:
             button=frame.locator('input[id$="btnS0004"]:visible')
             if button.count():
-                button.first.click(timeout=5000)
+                try:
+                    button.first.click(timeout=2500)
+                except Exception as exc:
+                    logging.warning("FRESH_G2B_MAIN_SEARCH_POINTER %s",type(exc).__name__)
+                    button.first.click(force=True,timeout=2500)
                 return True
-        except Exception:
+        except Exception as exc:
+            logging.warning("FRESH_G2B_MAIN_SEARCH_CLICK_FAILURE %s",type(exc).__name__)
             continue
     return False
 
@@ -531,6 +537,13 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.on("request",on_request)
             context.on("response",on_response)
             tab=context.new_page()
+            dialogs=[]
+            def note_dialog(d):
+                msg=(d.message or "")[:150]
+                dialogs.append(msg)
+                try:d.dismiss()
+                except Exception:pass
+            tab.on("dialog",note_dialog)
             stage="home_load"
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
             if not _wait_for_site_rendered(tab):
@@ -558,6 +571,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             tab.wait_for_timeout(2500)
             if not requests:
                 import logging
+                logging.warning("FRESH_G2B_SEARCH_DIALOGS %s",json.dumps(dialogs[-8:],ensure_ascii=False))
                 logging.warning("FRESH_G2B_SEARCH_POST_DIAG %s",
                     json.dumps(observed_posts[-16:],ensure_ascii=False))
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
