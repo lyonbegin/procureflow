@@ -102,6 +102,32 @@ class FreshTest(unittest.TestCase):
         with self.assertRaises(SearchBlocked):
             _verified_date_replay(req,"8111159901","2026-11-01","2026-11-04")
 
+    def test_actual_unified_notice_response_parses_public_rows(self):
+        from g2b_bid_notice_site_search import _response_records
+        body={"ErrorCode":0,"result":[
+            {"untyBidPbancNo":"R26BK01787028","untyBidPbancOrd":"000",
+             "bidPbancNm":"공식 테스트 공고명","oderInstUntyGrpNm":"공식 발주기관",
+             "pbancPstgDt":"20261027"}]}
+        rows,total=_response_records(body)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["bid_no"],"R26BK01787028")
+        self.assertEqual(rows[0]["agency"],"공식 발주기관")
+        self.assertEqual(rows[0]["direct_category_codes"],[])
+
+    def test_public_filtered_candidate_must_remain_category_unverified(self):
+        candidate={"bid_no":"R26BK01787028","bid_ord":"000",
+            "direct_category_codes":[],"raw":{"untyBidPbancNo":"R26BK01787028"},
+            "title":"공식 검색 결과","agency":"원본 기관","posted_on":"20261027"}
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "matched_explicit_detail10":[],
+              "pending_original_detail10_verification":[candidate]}
+        with patch.object(site,"run_search",return_value=fake):
+            _,_,rows=site.search_one("8111159901","2026-10-01","2026-10-31")
+        self.assertEqual(len(rows),1)
+        self.assertFalse(rows[0]["original_category_evidence"])
+        self.assertTrue(rows[0]["official_filter_verified"])
+        self.assertEqual(rows[0]["posted_on"],"2026-10-27")
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
