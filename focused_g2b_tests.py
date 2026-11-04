@@ -63,6 +63,14 @@ class PageTest(unittest.TestCase):
         self.assertIn("data-bid",content)
         self.assertNotIn("가상 공고 A",content)
 
+    def test_actual_current_notice_number_formats_are_selectable(self):
+        self.assertEqual(app.ensure_bid("R26DD20902086"),"R26DD20902086")
+        self.assertEqual(app.ensure_bid("R26BK01787028"),"R26BK01787028")
+        from g2b_bid_notice_site_search import ID_RE
+        self.assertTrue(ID_RE.fullmatch("R26DD20902086"))
+        with self.assertRaises(Exception):
+            app.ensure_bid("NOT_A_G2B_NOTICE")
+
     def test_selected_original_exact10(self):
         s=app.select_case(FakeDB(),BID)
         self.assertTrue(s["source_verified"])
