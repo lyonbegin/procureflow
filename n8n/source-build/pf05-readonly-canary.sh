@@ -34,29 +34,37 @@ n8n import:workflow --input="$canary" > /tmp/pf05-native-join-qa-import.log 2>&1
 }
 echo "PF05_CANARY_IMPORT_SUCCESS id=$canary_id"
 set +e
+canary_start_sec=$(date -u +%s)
 n8n execute --id "$canary_id" > "$log" 2>&1
 status=$?
 set -e
-PF05_CANARY_CLI_EXIT="$status" node - "$log" "$canary_id" <<'JS'
-const fs=require('node:fs');
-const raw=fs.readFileSync(process.argv[2],'utf8');
-const id=process.argv[3];
-const statuses=[...raw.matchAll(/"executionStatus"\s*:\s*"([^"]+)"/g)].map(x=>x[1]);
-const traces=[...raw.matchAll(/"executionId"\s*:\s*"([0-9]+)"/g)].map(x=>x[1]);
-const names=['H05 · 실제 개찰·투찰 상세','H06 · 확정 낙찰결과','H07 · 10년 개찰·낙찰 완전성'];
-const present=Object.fromEntries(names.map(n=>[n.slice(0,3),raw.includes(n)]));
-const summary={
- workflow_id:id,cli_exit:Number(process.env.PF05_CANARY_CLI_EXIT),
- execution_id:traces.at(-1)||null,execution_status:statuses.at(-1)||null,
- h05_present:present.H05,h06_present:present.H06,h07_present:present.H07,
- actual_join_output_present:raw.includes('"dependency_join_complete": true')||raw.includes('"dependency_join_complete":true'),
- evidence_accepted:raw.includes('"dependency_evidence_verified": true')||raw.includes('"dependency_evidence_verified":true'),
- bid_submitted:false,worker_job_enqueued:false,
- raw_log_retained_only_in_test_container:true
-};
-console.log('PF05_NATIVE_N8N_CANARY_RESULT '+JSON.stringify(summary));
-if(summary.cli_exit!==0||!summary.h05_present||!summary.h06_present||!summary.h07_present||
-   !summary.actual_join_output_present||!statuses.includes('success'))
- console.log('PF05_NATIVE_N8N_CANARY_NOT_VERIFIED_NEEDS_DIAGNOSIS');
-else console.log('PF05_NATIVE_N8N_CANARY_H07_DATA_FLOW_CONFIRMED');
-JS
+node /usr/local/bin/procureflow-pf05-canary-parser "$log" "$canary_id" "$status"
+# n8n CLI stdout contains IRun but not necessarily its internal Execution ID.
+# Look it up from the existing isolated SQLite, read-only, only if it was persisted.
+if [ -f /home/node/.n8n/database.sqlite ]; then
+ python3 - "$canary_id" "$canary_start_sec" <<'PY'
+import sqlite3, json, sys, datetime
+workflow_id, started=sys.argv[1],float(sys.argv[2])
+out={"workflow_id":workflow_id,"execution_id":None,"status":None,
+     "source":"isolated_n8n_sqlite_readonly","found":False}
+try:
+ con=sqlite3.connect("file:/home/node/.n8n/database.sqlite?mode=ro",uri=True)
+ con.row_factory=sqlite3.Row
+ rows=con.execute('SELECT id,status,startedAt FROM execution_entity WHERE workflowId=? ORDER BY CAST(id AS INTEGER) DESC LIMIT 5',(workflow_id,)).fetchall()
+ for row in rows:
+  stamp=row["startedAt"]
+  if not stamp: continue
+  if isinstance(stamp,(int,float)):
+   epoch=float(stamp)/1000 if stamp>10**12 else float(stamp)
+  else:
+   epoch=datetime.datetime.fromisoformat(str(stamp).replace("Z","+00:00")).timestamp()
+  if epoch>=started-15:
+   out.update(execution_id=str(row["id"]),status=row["status"],found=True)
+   break
+except Exception as e:
+ out["reason"]="read_only_execution_row_unavailable"
+print("PF05_CANARY_SQLITE_EXECUTION_ROW "+json.dumps(out,separators=(",",":")))
+PY
+else
+ echo 'PF05_CANARY_SQLITE_EXECUTION_ROW {"execution_id":null,"found":false,"reason":"sqlite_database_not_found"}'
+fi
