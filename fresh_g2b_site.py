@@ -35,20 +35,27 @@ def search_one(detail10,first,last,cursor=None,page=1):
             result.get("search_request_verified")):
         raise SourceBlocked("OFFICIAL_BID_SEARCH_UNVERIFIED_"+str(result.get("reason") or result.get("status")))
     rows=[]
-    for item in result.get("matched_explicit_detail10") or []:
+    verified=result.get("matched_explicit_detail10") or []
+    pending=result.get("pending_original_detail10_verification") or []
+    for item in list(verified)+list(pending):
         codes=item.get("direct_category_codes") or []
-        if detail10 not in codes:
+        explicit=detail10 in codes
+        if codes and not explicit:
             continue
         raw=item.get("raw")
         if not isinstance(raw,dict):
             raise SourceBlocked("OFFICIAL_SEARCH_ORIGINAL_ROW_MISSING")
         posted=str(item.get("posted_on") or "")[:10]
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}",posted):posted=None
+        if re.fullmatch(r"\\d{8}",posted):
+            posted=posted[:4]+"-"+posted[4:6]+"-"+posted[6:8]
+        if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",posted):
+            posted=None
         rows.append({
           "bid_no":item["bid_no"],"bid_ord":item["bid_ord"],
           "detail10":detail10,"title":item["title"],
           "agency":item["agency"],"posted_on":posted,
-          "original_category_evidence":True,"raw":raw
+          "original_category_evidence":explicit,
+          "official_filter_verified":True,"raw":raw
         })
     return w,result,rows
 
