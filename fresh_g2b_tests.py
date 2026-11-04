@@ -32,6 +32,40 @@ class FreshTest(unittest.TestCase):
         self.assertFalse(request_has_filter('{"title":"8111159901","dateSt":"20261101","dateEd":"20261104"}',
               "8111159901","2026-11-01","2026-11-04"))
 
+    def test_bounded_site_readiness_waits_for_delayed_websquare(self):
+        class Frame:
+            url="https://www.g2b.go.kr/"
+            def __init__(self):
+                self.calls=0
+            def is_detached(self):
+                return False
+            def evaluate(self,script):
+                self.calls+=1
+                return {"state":"complete","text":0,"controls":0} if self.calls<3 else (
+                    {"state":"complete","text":24,"controls":3})
+        class Page:
+            def __init__(self):
+                self.frames=[Frame()]
+                self.waits=[]
+            def wait_for_timeout(self,ms):
+                self.waits.append(ms)
+        page=Page()
+        self.assertTrue(__import__("g2b_bid_notice_site_search")._wait_for_site_rendered(page,2000))
+        self.assertEqual(len(page.waits),2)
+
+    def test_empty_site_after_bounded_wait_blocks(self):
+        class Frame:
+            url="https://www.g2b.go.kr/"
+            def is_detached(self):
+                return False
+            def evaluate(self,script):
+                return {"state":"complete","text":0,"controls":0}
+        class Page:
+            frames=[Frame()]
+            def wait_for_timeout(self,ms):
+                pass
+        self.assertFalse(__import__("g2b_bid_notice_site_search")._wait_for_site_rendered(Page(),1000))
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
