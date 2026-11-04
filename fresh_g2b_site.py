@@ -6,7 +6,7 @@ project. Never invoke their collect / save_batch / session functions or legacy D
 from __future__ import annotations
 from datetime import date
 from hashlib import sha256
-from urllib.parse import urljoin,urlparse,urlencode
+from urllib.parse import urljoin,urlparse,urlencode,parse_qs
 from urllib.request import Request,urlopen
 import json
 import re
@@ -26,6 +26,24 @@ class SiteUnavailable(RuntimeError):
 def official_url(url):
     parsed=urlparse(url)
     return parsed.scheme=="https" and parsed.hostname in ALLOWED and not parsed.username and not parsed.password
+
+
+def official_file_identity(url):
+    """Recognize real G2B site attachment endpoint and its notice identity."""
+    if not official_url(url):
+        raise ValueError("G2B_HTTPS_HOST_REQUIRED")
+    p=urlparse(url)
+    if p.path!="/pn/pnp/pnpe/UntyAtchFile/downloadFile.do":
+        raise ValueError("NOT_OFFICIAL_NOTICE_FILE_ENDPOINT")
+    q=parse_qs(p.query,keep_blank_values=True)
+    no=(q.get("bidPbancNo") or [""])[0]
+    ord_=(q.get("bidPbancOrd") or [""])[0]
+    seq=(q.get("fileSeq") or [""])[0]
+    if not BID.fullmatch(no) or not ORD.fullmatch(ord_) or not re.fullmatch(r"\d{1,4}",seq):
+        raise ValueError("OFFICIAL_ATTACHMENT_IDENTITY_INCOMPLETE")
+    if any(len(vals)!=1 for vals in q.values()):
+        raise ValueError("DUPLICATE_ATTACHMENT_QUERY_PARAMETERS")
+    return no,ord_
 
 
 def detail_url(no,ord_):
@@ -159,6 +177,11 @@ def download_original_file(url,max_bytes=18*1024*1024):
         name=str(name or urlparse(r.url).path.rsplit("/",1)[-1] or "unknown")[:240]
         raw=r.read(max_bytes+1)
     if len(raw)>max_bytes:raise ValueError("FILE_EXCEEDS_18MB_LIMIT")
+    # WebSquare downloadFile.do often has no filename extension at all.
+    if raw.startswith(b"%PDF") and not name.lower().endswith(".pdf"):
+        name="official_notice_"+sha256(raw).hexdigest()[:12]+".pdf"
+    elif raw.startswith(b"PK\x03\x04") and "." not in name:
+        name="official_notice_"+sha256(raw).hexdigest()[:12]+".hwpx"
     if raw[:50].lstrip().lower().startswith((b"<!doctype html",b"<html")):
         raise SiteUnavailable("FILE_RETURNED_HTML_NOT_DOWNLOAD")
     state,text_value=extract_file(name,raw)
