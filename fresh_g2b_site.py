@@ -46,9 +46,9 @@ def search_one(detail10,first,last,cursor=None,page=1):
         if not isinstance(raw,dict):
             raise SourceBlocked("OFFICIAL_SEARCH_ORIGINAL_ROW_MISSING")
         posted=str(item.get("posted_on") or "")[:10]
-        if re.fullmatch(r"\\d{8}",posted):
+        if re.fullmatch(r"\d{8}",posted):
             posted=posted[:4]+"-"+posted[4:6]+"-"+posted[6:8]
-        if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",posted):
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}",posted):
             posted=None
         rows.append({
           "bid_no":item["bid_no"],"bid_ord":item["bid_ord"],
