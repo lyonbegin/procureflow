@@ -292,7 +292,10 @@ def _response_records(document):
         out.append({"bid_no":no,"bid_ord":ord_,
                     "title":str(rec.get("bidPbancNm") or rec.get("bidNtceNm") or "")[:240],
                     "agency":str(rec.get("grpNm") or rec.get("ntceInsttNm") or "")[:150],
-                    "direct_category_codes":list(sorted(codes))[:5]})
+                    "direct_category_codes":list(sorted(codes))[:5],
+                    "raw":rec,
+                    "posted_on":str(rec.get("bidPbancPstgDt") or
+                             rec.get("bidNtceDt") or rec.get("pbancPstgDt") or "")[:10]})
     return out,total
 
 
@@ -372,6 +375,8 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 live_search_endpoint=urlparse(last.url).path,
                 matched_explicit_detail10=confirmed,
                 pending_original_detail10_verification=pending,
+                response_sha=__import__("hashlib").sha256(
+                    json.dumps(data,ensure_ascii=False,sort_keys=True,default=str).encode()).hexdigest(),
                 returned_bid_ids=len(records),official_total=total,
                 next_page=page+1 if len(records)>0 and len(records)>=10 else None,
                 search_source_status="live_post_with_exact_filter_and_window")
