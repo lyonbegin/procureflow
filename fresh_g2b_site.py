@@ -56,17 +56,19 @@ def _body_html(fr):
 
 
 def explicit_detail10(text,expected):
-    """Do not infer a classification from an arbitrary number in a page."""
+    """Require the FIRST explicit ten-digit number following a field label.
+
+    A later unrelated code, or a code in a notice title, never proves this
+    notice has the expected 10-digit detail classification.
+    """
     if not TEN.fullmatch(expected):return False
     simple=re.sub(r"\s+"," ",text)
-    patt=(r"(?:세부품명번호|세부품명\s*번호|세부품명)\s*[:：]?\s*"
-          +re.escape(expected)+r"(?!\d)")
-    # Some WebSquare layouts separate label and value by a table boundary;
-    # allow up to 100 text chars but do not cross another 10-digit code.
-    adjacent=re.search(r"(?:세부품명번호|세부품명\s*번호).{0,100}?\b"+
-                       re.escape(expected)+r"\b",simple,re.I)
-    return bool(re.search(patt,simple) or adjacent)
-
+    for label in re.finditer(r"(?:세부품명번호|세부품명\s*번호|세부품명)",simple,re.I):
+        segment=simple[label.end():label.end()+105]
+        first=re.search(r"(?<!\d)\d{10}(?!\d)",segment)
+        if first and first.group(0)==expected:
+            return True
+    return False
 
 def extract_links(frame):
     js=r"""() => Array.from(document.querySelectorAll('a[href]'))
