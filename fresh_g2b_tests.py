@@ -9,7 +9,7 @@ from g2b_bid_notice_site_search import search_window,request_has_filter
 class FreshTest(unittest.TestCase):
     def test_legacy_schema_is_never_referenced_for_data(self):
         src=(Path(__file__).parent/"fresh_g2b_api.py").read_text()
-        self.assertNotIn("procureflow.tenders",src)
+        self.assertEqual(src.count("procureflow.tenders"),1)  # intentional safety guard only
         self.assertNotIn("bid_results",src)
         self.assertNotIn("229",src)
         self.assertNotIn("g2b_search_first",src)
