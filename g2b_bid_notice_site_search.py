@@ -114,7 +114,7 @@ def request_has_filter(post, detail10, start, end):
     exact=any(is_code_key(key) and value.strip()==detail10 for key,value in fields)
     if not exact:
         return False
-    dates=[start.replace("-",""),end.replace("-")]
+    dates=[start.replace("-",""),end.replace("-","")]
     # A date field may contain YYYYMMDD, YYYY-MM-DD or YYYY/MM/DD.
     compact=re.sub(r"[^0-9]","",raw)
     return all(d in compact for d in dates)
