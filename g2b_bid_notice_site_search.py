@@ -368,7 +368,14 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.on("response",on_response)
             tab=context.new_page()
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
-            _navigate(tab)
+            try:
+                _navigate(tab)
+            except SearchBlocked:
+                import logging
+                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN_LIVE %s",
+                  json.dumps(_safe_search_screen_diagnostic(tab),
+                    ensure_ascii=False,default=str)[:5500])
+                raise
             _fill_search_fields(tab,w)
             # Require an actual site search button and form submission.
             if not _click_label(tab,("검색",),"click"):
