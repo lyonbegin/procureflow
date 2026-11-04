@@ -325,7 +325,14 @@ def _safe_search_screen_diagnostic(tab):
                             "body":nodes.get("bodyText"),
                             "controls":nodes.get("controls",[])})
         except Exception as exc:
-            details.append({"error_type":type(exc).__name__})
+            # Only public page path and single-line exception category/message;
+            # never request bodies, private values, cookies or auth headers.
+            try:
+                target=urlparse(frame.url)
+                details.append({"host":target.hostname,"path":target.path[:120],
+                   "error_type":type(exc).__name__,
+                   "detail":str(exc).splitlines()[0][:160]})
+            except Exception:details.append({"error_type":type(exc).__name__})
     return details
 
 def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
