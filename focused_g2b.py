@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse
 
 from g2b_bid_notice_site_search import run_search, search_window
 
-CASE = re.compile(r"^(?:R\d{2}BK\d{8}|\d{11})$")
+CASE = re.compile(r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
 TEN = re.compile(r"^\d{10}$")
 HERE = Path(__file__).parent
 app = FastAPI(title="조달청 단일 공고·동일 세부종목 검색", docs_url=None, redoc_url=None)
