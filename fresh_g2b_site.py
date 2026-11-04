@@ -167,7 +167,7 @@ def download_original_file(url,max_bytes=18*1024*1024):
 
 
 def fetch_actual_opening(no,ord_):
-    """Pure fetch_opening(), NOT collect()/save_batch() from old project."""
+    """Pure fetch_opening(), NOT collection or legacy save method from old project."""
     if not BID.fullmatch(no) or not ORD.fullmatch(ord_):
         raise ValueError("INVALID_OPENING_NOTICE")
     from playwright.sync_api import sync_playwright
