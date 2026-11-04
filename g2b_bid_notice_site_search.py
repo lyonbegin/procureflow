@@ -390,6 +390,19 @@ def _click_notice_search(page):
                     }""")
                     logging.warning("FRESH_G2B_MAIN_SEARCH_POINTER %s %s",
                       type(exc).__name__,json.dumps(diagnostic,ensure_ascii=False))
+                    modal=frame.evaluate("""() => ({
+                      popups:[...document.querySelectorAll('[class*=popup],[id*=poup],[role=dialog]')]
+                        .filter(e=>e.getClientRects().length>0).slice(0,14)
+                        .map(e=>({id:(e.id||'').slice(0,90),cls:(""+(e.className||'')).slice(0,100),
+                          text:(e.innerText||'').trim().slice(0,180)})),
+                      closers:[...document.querySelectorAll('input[type=button],button,a')]
+                        .filter(e=>e.getClientRects().length>0 &&
+                          /닫기|확인|close/i.test((e.value||'')+' '+(e.title||'')+' '+(e.innerText||'')))
+                        .slice(0,20).map(e=>({id:(e.id||'').slice(0,100),
+                          label:((e.value||e.innerText||e.title||'')+'').slice(0,65)}))
+                    })""")
+                    logging.warning("FRESH_G2B_MODAL_CHOICES %s",
+                      json.dumps(modal,ensure_ascii=False)[:3500])
                     button.first.click(force=True,timeout=2500)
                 return True
         except Exception as exc:
