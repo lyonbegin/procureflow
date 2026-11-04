@@ -353,44 +353,40 @@ def _open_detail_search(page):
 
 
 def _dismiss_public_notices(page):
-    """Dismiss actual G2B public popups by native WebSquare button click."""
+    """Close only observed G2B public announcements using WebSquare API."""
     import logging
-    done=0
-    for _ in range(10):
-        changed=False
-        for frame in _frames(page):
-            try:
-                confirmations=frame.locator('[id*="alert"][id$="btnConfirm"]:visible')
-                if confirmations.count():
-                    confirmations.last.click(force=True,timeout=2000)
-                    page.wait_for_timeout(250)
-                    changed=True
-                    done+=1
-                    break
-                closers=frame.locator('[id*="poupR"][id$="btnClose"]:visible')
-                prior=closers.count()
-                if prior:
-                    closers.last.click(force=True,timeout=2000)
-                    page.wait_for_timeout(350)
-                    remaining=frame.locator('[id*="poupR"][id$="btnClose"]:visible').count()
-                    logging.warning("FRESH_G2B_POPUP_CLOSE prior=%s remaining=%s",prior,remaining)
-                    if remaining<prior:
-                        changed=True
-                        done+=1
-                        break
-            except Exception as exc:
-                logging.warning("FRESH_G2B_POPUP_CLOSE_ERROR %s",type(exc).__name__)
-        if not changed:
-            break
+    closed=0
+    for frame in _frames(page):
+        try:
+            outcome=frame.evaluate(r"""() => {
+                const windows=[...document.querySelectorAll('.w2popup_window')]
+                  .filter(e=>e.getClientRects().length>0 &&
+                    (e.innerText||'').includes('나라장터 공지사항'));
+                const ids=[...new Set(windows.map(e=>((e.id||'').match(/poupR[^_]+/)||[])[0]).filter(Boolean))];
+                const api=window.WebSquare?.util;
+                const scope=window.$p;
+                let invoked=0;
+                for(const id of ids){
+                    try{
+                        if(api && typeof api.closePopup==='function'){api.closePopup(id);invoked++;}
+                        else if(scope && typeof scope.closePopup==='function'){scope.closePopup(id);invoked++;}
+                    }catch(e){}
+                }
+                return {found:ids.length,invoked};
+            }""")
+            closed+=int(outcome.get("invoked") or 0)
+            logging.warning("FRESH_G2B_OFFICIAL_POPUP_CLOSE %s",
+                            json.dumps(outcome,ensure_ascii=False))
+        except Exception as exc:
+            logging.warning("FRESH_G2B_OFFICIAL_POPUP_CLOSE_ERROR %s",type(exc).__name__)
+    page.wait_for_timeout(650)
     for frame in _frames(page):
         try:
             close=frame.locator('[id$="btnSitemapClose"]:visible')
-            if close.count():
-                close.first.click(force=True,timeout=1800)
+            if close.count():close.first.click(force=True,timeout=1800)
         except Exception:
             pass
-    logging.warning("FRESH_G2B_NOTICE_POPUPS_CLOSED %s",done)
-    return done
+    return closed
 
 def _click_notice_search(page):
     """Click the public main notice search button; never bid/submit controls."""
