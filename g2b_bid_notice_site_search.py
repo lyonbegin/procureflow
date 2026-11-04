@@ -451,6 +451,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
       "page":page,"cursor":w["cursor"],"next_month":w["previous_month"],
       "case_specific_outcome_collection":False,"ten_year_complete":False,
       "bid_submitted":False}
+    stage="setup"
     if factory is None:
         from playwright.sync_api import sync_playwright
         factory=sync_playwright
@@ -478,6 +479,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.on("request",on_request)
             context.on("response",on_response)
             tab=context.new_page()
+            stage="home_load"
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
             if not _wait_for_site_rendered(tab):
                 import logging
@@ -485,6 +487,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                   json.dumps(_safe_search_screen_diagnostic(tab),
                     ensure_ascii=False,default=str)[:5500])
                 raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT")
+            stage="menu_navigation"
             try:
                 _navigate(tab)
             except SearchBlocked:
@@ -493,10 +496,13 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                   json.dumps(_safe_search_screen_diagnostic(tab),
                     ensure_ascii=False,default=str)[:5500])
                 raise
+            stage="fill_code_and_dates"
             _fill_search_fields(tab,w)
+            stage="submit_search"
             # Require an actual site search button and form submission.
             if not _click_label(tab,("검색",),"click"):
                 raise SearchBlocked("BID_NOTICE_SEARCH_BUTTON_NOT_FOUND")
+            stage="await_verified_request"
             tab.wait_for_timeout(2500)
             if not requests:
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
@@ -511,6 +517,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 r.request.post_data,detail10,w["start"],w["end"])]
             if not matched_responses:
                 raise SearchBlocked("BID_NOTICE_SEARCH_RESPONSE_NOT_CAPTURED")
+            stage="verify_response"
             last=matched_responses[-1]
             if last.status!=200:
                 raise SearchBlocked("BID_NOTICE_SEARCH_HTTP_"+str(last.status))
@@ -546,6 +553,6 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
         output["reason"]=exc.reason
         output["search_request_verified"]=False
     except Exception as exc:
-        output["reason"]="G2B_UI_RUNTIME_"+type(exc).__name__
+        output["reason"]="G2B_UI_RUNTIME_"+stage+"_"+type(exc).__name__
         output["search_request_verified"]=False
     return output
