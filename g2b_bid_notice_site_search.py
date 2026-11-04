@@ -245,6 +245,20 @@ def _navigate(page):
             return
     _click_label(page,("상세조건","상세검색","검색조건","상세조건 검색"),action="click")
     if _field_from_label(page,DETAIL_LABELS)[1] is None:
+        try:
+            # Official homepage can return a valid page title but empty
+            # WebSquare body in the Railway headless environment.
+            empty=page.evaluate("""() => {
+              const body=(document.body?.innerText||'').trim();
+              const controls=document.querySelectorAll('input,button,a').length;
+              return !body && controls===0;
+            }""")
+            if empty:
+                raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY")
+        except SearchBlocked:
+            raise
+        except Exception:
+            pass
         raise SearchBlocked("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND")
 
 
