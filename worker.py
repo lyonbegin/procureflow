@@ -240,20 +240,10 @@ def main():
             logging.info("G2B_EXACT_10YR_OUTCOME_JOB=%s",jid)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
-    # The user selected exactly one current G2B tender and a ten-year
-    # category-only historical window. Never select other cases automatically.
-    with session() as db:
-        marker="g2b-single-case-81111599-seed-20261024-v3"
-        claim=db.execute("""INSERT INTO procureflow.settings(key,value)
-             VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
-             """,(marker,'{"bid_no":"R26BK01787028","category8":"81111599","years":10}')).fetchone()
-        if claim:
-            jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
-              VALUES ('g2b_single_case_10y',%s::jsonb,%s) RETURNING id
-              """,(json.dumps({"bid_no":"R26BK01787028","category":"81111599",
-                                "limit":13}),
-                  "User-selected G2B notice: 10-year exact 81111599 category historical seed")).fetchone()["id"]
-            logging.info("G2B_SINGLE_CASE_10Y_SEED_JOB job=%s",jid)
+    # Legacy 8-digit historical notice seed was explicitly superseded by the
+    # selected bid's exact 10-digit ORIGINAL verification and official
+    # WebSquare per-notice opening/final-award lookup. Do not autoqueue it.
+    logging.info("G2B_LEGACY_8DIGIT_HISTORICAL_SEED_DISABLED exact_10_only")
     # User-requested one-time category backfill for existing historical G2B
     # notices. Separate from the stopped tender-agent reassignment service.
     with session() as db:
@@ -732,19 +722,16 @@ def main():
                                                 result['results'].items()}},
                                                  ensure_ascii=False))
                     elif job['source']=='g2b_single_case_10y':
-                        import g2b_case_10y
-                        cfg=job.get('config') or {}
-                        observed=g2b_case_10y.ingest_observed_secondary_sources()
-                        result=g2b_case_10y.ingest_known_secondary(
-                            limit=cfg.get('limit',13))
-                        result['historical_indexed']=observed['inserted_or_refreshed']
-                        update(job['id'],checked=result['attempted'],
-                               added=result['saved']+observed['inserted_or_refreshed'],
-                               message=json.dumps(result,ensure_ascii=False)[:450])
-                        done(job['id'],'completed' if result['saved'] else 'completed_partial',
-                             json.dumps(result,ensure_ascii=False))
-                        logging.info("G2B_SINGLE_CASE_10Y_RESULT %s",
-                                     json.dumps(result,ensure_ascii=False)[:5400])
+                        # Stale queued jobs must never start the superseded
+                        # 8-digit parent-category history ingestion.
+                        cancelled={"status":"cancelled_obsolete_8digit_history",
+                          "reason":"USE_VERIFIED_ORIGINAL_10DIGIT_WEB_SQUARE_FILTERED_JOB",
+                          "source":"legacy_g2b_single_case_10y","actual_requests":0,
+                          "bid_submitted":False}
+                        done(job['id'],'cancelled',
+                             json.dumps(cancelled,ensure_ascii=False))
+                        logging.info("G2B_OBSOLETE_8DIGIT_JOB_SKIPPED job=%s",
+                                     job['id'])
                     elif job['source']=='g2b_category_secondary':
                         import g2b_secondary_category
                         cfg=job.get('config') or {}
