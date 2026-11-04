@@ -5,6 +5,7 @@
 // Never prints notice payloads or personal bidder information.
 const fs=require('node:fs');
 function jsonObjects(text){
+  const out=[];
   let depth=0,start=-1,inString=false,escaped=false;
   for(let i=0;i<text.length;i++){
     const c=text[i];
@@ -21,14 +22,13 @@ function jsonObjects(text){
     else if(c==='}'){
       depth--;
       if(!depth){
-        try{yieldParsed.push(JSON.parse(text.slice(start,i+1)))}catch{}
+        try{out.push(JSON.parse(text.slice(start,i+1)))}catch{}
         start=-1;
       }
     }
   }
-  return yieldParsed;
+  return out;
 }
-const yieldParsed=[];
 function findCliRun(raw){
   const candidates=jsonObjects(raw);
   return candidates.reverse().find(c=>c?.data?.resultData?.runData && typeof c.data.resultData.runData==='object')||null;
