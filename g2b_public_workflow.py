@@ -133,7 +133,7 @@ def run_actual_public_case(job_id,config):
     from g2b_bid_package import evaluate_eligibility,documented_price_scenarios,proposal_contents,draft_docx
     from g2b_case_engine import cost_summary
     elig=run(3,lambda: _elig(evaluate_eligibility()))
-    hist=run(4,lambda: _history(search_stored(f)))
+    hist=run(4,lambda: _history(_bounded_existing_websquare_search(f)))
     strategy=run(5,lambda: _strategy(analyze_competition(
           f.start,f.end,f.agency,case=case)))
     cost=run(6,lambda: _cost(cost_summary()))
@@ -200,13 +200,49 @@ def _elig(e):
                   "evidence_present":e.get("requirements_evidence_present",False)}
 
 
+def _bounded_existing_websquare_search(f):
+    """Real selected-bid 9-stage: original-proven exact10 -> G2B WebSquare.
+
+    The existing worker calls the existing direct opening and explicit
+    final-award adapters for at most two previously verified notice IDs.
+    This is not an exhaustive website-wide 10-year category discovery.
+    """
+    from g2b_search_first import collect_filtered_gaps
+    enriched=collect_filtered_gaps(f,max_notices=2)
+    prior=search_stored(f)
+    prior["websquare_enrichment"]={
+        "status":enriched.get("status"),
+        "exact_detail10":enriched.get("exact_detail10"),
+        "verified_notice_ids_queried":enriched.get("selected",0),
+        "opening_notice_ids_queried":enriched.get("opening_notice_ids_queried",0),
+        "final_award_notice_ids_queried":enriched.get("final_award_notice_ids_queried",0),
+        "explicit_final_awards":enriched.get("explicit_final_awards",0),
+        "errors":enriched.get("errors",[]),
+        "website_10digit_server_search_verified":False,
+        "ten_year_history_complete":False,
+        "source":enriched.get("source")}
+    return prior
+
+
 def _history(h):
     n=h.get("summary",{}).get("opening_rows",0)
-    return h,"verified" if n else "partial",{
+    enrichment=h.get("websquare_enrichment") or {}
+    # Some official records do not prove historical category completeness.
+    # Never mark a ten-year stage verified just because one bidder row exists.
+    return h,"partial",{
        "source":h.get("source"),"verified_detail10":h.get("exact_detail10"),
        "actual_opening_rows":n,
        "verified_notice_rounds":h.get("summary",{}).get("source_notice_rounds",0),
-       "ten_year_full_collection_required":False}
+       "real_websquare_opening_lookups":enrichment.get("opening_notice_ids_queried",0),
+       "real_websquare_final_award_lookups":enrichment.get("final_award_notice_ids_queried",0),
+       "explicit_final_awards":enrichment.get("explicit_final_awards",0),
+       "websquare_source":enrichment.get("source"),
+       "websquare_status":enrichment.get("status","not_run"),
+       "websquare_errors":enrichment.get("errors",[]),
+       "official_10digit_website_search_verified":False,
+       "ten_year_search_complete":False,
+       "ten_year_full_collection_required":False,
+       "reason":"10자리 원본 검증 공고만 WebSquare 조회. 전체 세부종목 사이트 검색과 10년 완전성은 별도 검증 필요"}
 
 
 def _strategy(a):
