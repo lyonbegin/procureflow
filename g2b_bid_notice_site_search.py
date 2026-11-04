@@ -382,6 +382,26 @@ def _dismiss_public_notices(page):
     page.wait_for_timeout(650)
     for frame in _frames(page):
         try:
+            result=frame.evaluate(r"""() => {
+              const pending=[...document.querySelectorAll('.w2popup_window')]
+                .filter(e=>e.getClientRects().length>0 &&
+                  (e.innerText||'').includes('나라장터 공지사항'));
+              const layer=document.getElementById('_modal');
+              if(pending.length || !layer || !layer.getClientRects().length)
+                return {pending:pending.length,handled:false};
+              const api=window.$p;
+              if(api && typeof api.hideModal==='function') {
+                api.hideModal();
+                return {pending:0,handled:true};
+              }
+              return {pending:0,handled:false};
+            }""")
+            logging.warning("FRESH_G2B_MODAL_RELEASE %s",
+                            json.dumps(result,ensure_ascii=False))
+        except Exception:
+            pass
+    for frame in _frames(page):
+        try:
             close=frame.locator('[id$="btnSitemapClose"]:visible')
             if close.count():close.first.click(force=True,timeout=1800)
         except Exception:
