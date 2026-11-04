@@ -133,7 +133,7 @@ def run_actual_public_case(job_id,config):
     from g2b_bid_package import evaluate_eligibility,documented_price_scenarios,proposal_contents,draft_docx
     from g2b_case_engine import cost_summary
     elig=run(3,lambda: _elig(evaluate_eligibility()))
-    hist=run(4,lambda: _history(search_stored(f)))
+    hist=run(4,lambda: _history(_live_filtered_history(f)))
     strategy=run(5,lambda: _strategy(analyze_competition(
           f.start,f.end,f.agency,case=case)))
     cost=run(6,lambda: _cost(cost_summary()))
@@ -200,13 +200,42 @@ def _elig(e):
                   "evidence_present":e.get("requirements_evidence_present",False)}
 
 
+def _live_filtered_history(f):
+    """Stage 04: exact 10-digit official-search FIRST, then existing results.
+
+    One official filtered month/page per invocation. Never scan 8-digit parents,
+    start an implicit 121-month crawl, or mark an incomplete range as verified.
+    """
+    from g2b_detail10_search import search_one_page
+    official=search_one_page(detail10=f.detail10,
+              start=f.start.isoformat(),end=f.end.isoformat(),page_size=100,
+              agency=f.agency)
+    stored=search_stored(f)
+    stored["official_filtered_search"]=official
+    stored["search_source"]="official_g2b_server_side_10digit_plus_existing_original_outcomes"
+    stored["source_filter_requested"]=official["filter_field"]
+    stored["official_history_search_complete"]=False
+    return stored
+
+
 def _history(h):
     n=h.get("summary",{}).get("opening_rows",0)
-    return h,"verified" if n else "partial",{
+    search=h.get("official_filtered_search") or {}
+    return h,"partial",{
        "source":h.get("source"),"verified_detail10":h.get("exact_detail10"),
        "actual_opening_rows":n,
        "verified_notice_rounds":h.get("summary",{}).get("source_notice_rounds",0),
-       "ten_year_full_collection_required":False}
+       "official_search_state":search.get("status","not_attempted"),
+       "official_search_filter_field":search.get("filter_field"),
+       "official_search_exact_detail10":search.get("exact_detail10"),
+       "official_search_current_window":search.get("request_window"),
+       "official_search_official_total":search.get("official_total"),
+       "official_search_page_matched":len(search.get("matched") or []),
+       "official_search_page_unverified":len(search.get("unverified_candidates") or []),
+       "official_search_has_more":bool(search.get("next")),
+       "ten_year_full_collection_required":False,
+       "ten_year_search_completed":False,
+       "reason":"검색은 10자리 서버 필터·기간별 페이지 방식이며 전체 완료/개찰·낙찰 수집 완료가 아님"}
 
 
 def _strategy(a):
