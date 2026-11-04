@@ -373,6 +373,12 @@ def _click_notice_search(page):
     }"""
     for frame in _frames(page):
         try:
+            choices=frame.evaluate("""() => [...document.querySelectorAll('input[type=button],button,a,[role=button]')]
+                .filter(e=>e.getClientRects().length>0 && /검색|조회/.test((e.value||e.innerText||e.title||'')))
+                .slice(0,35).map(e=>({id:(e.id||'').slice(0,100),label:(e.value||e.innerText||e.title||'').trim().slice(0,35),
+                    parent:(e.closest('[id*="tacBidPbancLst"]')?.id||'').slice(0,100)}))""")
+            import logging
+            logging.warning("FRESH_G2B_SEARCH_BUTTON_CHOICES %s",json.dumps(choices,ensure_ascii=False)[:3400])
             if frame.evaluate(script):
                 return True
         except Exception:
