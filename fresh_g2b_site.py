@@ -6,7 +6,7 @@ project. Never invoke their collect / save_batch / session functions or legacy D
 from __future__ import annotations
 from datetime import date
 from hashlib import sha256
-from urllib.parse import urljoin,urlparse,urlencode,parse_qs
+from urllib.parse import urljoin,urlparse,urlencode,parse_qs,unquote
 from urllib.request import Request,urlopen
 import json
 import re
@@ -174,7 +174,7 @@ def download_original_file(url,max_bytes=18*1024*1024):
             cd=str(r.headers.get("content-disposition") or "")
             m=re.search(r'filename="?([^";]+)"?',cd,re.I)
             if m:name=m.group(1)
-        name=str(name or urlparse(r.url).path.rsplit("/",1)[-1] or "unknown")[:240]
+        name=unquote(str(name or urlparse(r.url).path.rsplit("/",1)[-1] or "unknown"))[:240]
         raw=r.read(max_bytes+1)
     if len(raw)>max_bytes:raise ValueError("FILE_EXCEEDS_18MB_LIMIT")
     # WebSquare downloadFile.do often has no filename extension at all.
