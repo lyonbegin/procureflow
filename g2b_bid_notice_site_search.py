@@ -395,7 +395,7 @@ def _safe_search_screen_diagnostic(tab):
               return {title:(document.title||'').slice(0,90),
                 bodyText:(document.body?.innerText||'').slice(-550),
                 fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,8),
-                targetRows:[...document.querySelectorAll('label,th,span,td')].filter(e=>(e.textContent||'').replace(/\\s+/g,'').trim()==='세부품명번호').slice(0,4).map(e=>{
+                targetRows:[...document.querySelectorAll('label,th,span,td')].filter(e=>(e.textContent||'').replace(/\s+/g,'').trim()==='세부품명번호').slice(0,4).map(e=>{
                    const root=e.closest('tr')||e.parentElement?.parentElement;
                    const xs=root?[...root.querySelectorAll('input')].slice(0,7):[];
                    return {tag:e.tagName,htmlFor:e.htmlFor||'',parent:e.parentElement?.tagName||'',inputCount:xs.length,
