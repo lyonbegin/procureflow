@@ -11,7 +11,7 @@ class FreshTest(unittest.TestCase):
         src=(Path(__file__).parent/"fresh_g2b_api.py").read_text()
         self.assertEqual(src.count("procureflow.tenders"),1)  # intentional safety guard only
         self.assertNotIn("bid_results",src)
-        self.assertNotIn("229",src)
+        self.assertNotIn("FROM procureflow.",src)
         self.assertNotIn("g2b_search_first",src)
 
     def test_store_has_only_legacy_safety_guard(self):
@@ -59,7 +59,7 @@ class FreshTest(unittest.TestCase):
         html=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn("section=public_nodes",html)
         self.assertIn("api/fresh/search",html)
-        self.assertNotIn("229건",html)
+        self.assertIn("기존 229건",html)  # explicitly says NOT imported
 
     def test_fresh_only_env_var(self):
         self.assertIn("FRESH_DATABASE_URL",
