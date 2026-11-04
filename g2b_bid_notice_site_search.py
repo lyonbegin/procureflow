@@ -353,19 +353,43 @@ def _open_detail_search(page):
 
 
 def _dismiss_public_notices(page):
-    """Close only G2B's observed public home announcement popup."""
+    """Close observed public WebSquare announcement windows, not bid actions."""
+    import logging
+    count=0
+    for _ in range(12):
+        changed=False
+        for frame in _frames(page):
+            try:
+                kind=frame.evaluate(r"""()=>{
+                    const windows=[...document.querySelectorAll('.w2popup_window')]
+                        .filter(e=>e.getClientRects().length>0 &&
+                            (e.innerText||'').includes('나라장터 공지사항'));
+                    if(windows.length){
+                        const win=windows[windows.length-1];
+                        const close=win.querySelector('[id$="_btnClose"]');
+                        if(close && !close.disabled){close.click();return 'notice';}
+                    }
+                    return '';
+                }""")
+                if kind:
+                    count+=1
+                    changed=True
+                    page.wait_for_timeout(350)
+                    break
+            except Exception:
+                continue
+        if not changed:
+            break
     for frame in _frames(page):
         try:
-            for text in ("오늘 하루 이 창을 열지 않음","일주일간 이 창을 열지 않음"):
-                loc=frame.get_by_text(text,exact=True)
-                if loc.count() and loc.first.is_visible():
-                    loc.first.click(timeout=2200)
-                    page.wait_for_timeout(250)
-                    return True
+            frame.evaluate(r"""()=>{
+                const x=document.querySelector('[id$="btnSitemapClose"]');
+                if(x && x.getClientRects().length>0)x.click();
+            }""")
         except Exception:
-            continue
-    return False
-
+            pass
+    logging.warning("FRESH_G2B_NOTICE_POPUPS_CLOSED %s",count)
+    return count
 
 def _click_notice_search(page):
     """Click the public main notice search button; never bid/submit controls."""
