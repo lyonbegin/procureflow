@@ -159,9 +159,15 @@ def _field_from_label(page,labels):
       const nodes=[...document.querySelectorAll('label,th,td,span,strong,div')];
       for(const node of nodes){
         if(!wanted.some(w=>norm(node.textContent)===w))continue;
+        if(node.tagName==='LABEL' && node.htmlFor){
+          const linked=document.getElementById(node.htmlFor);
+          if(linked && linked.id && !linked.disabled && !linked.readOnly &&
+              !['button','hidden','submit','checkbox','radio'].includes(linked.type))
+            return linked.id;
+        }
         const candidates=[node,node.nextElementSibling,node.parentElement,
           node.parentElement?.nextElementSibling,node.parentElement?.parentElement,
-          node.parentElement?.parentElement?.nextElementSibling];
+          node.parentElement?.parentElement?.nextElementSibling,node.closest('tr')];
         for(const parent of candidates){
           if(!parent)continue;
           const matches=[...parent.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
