@@ -18,7 +18,7 @@ import re
 
 G2B_HOME="https://www.g2b.go.kr/"
 DETAIL_CODE="8111159901"
-ID_RE=re.compile(r"^(?:R\d{2}BK\d{8}|\d{11})$")
+ID_RE=re.compile(r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
 ORD_RE=re.compile(r"^\d{1,3}$")
 MONTH_RE=re.compile(r"^(20\d{2})-(0[1-9]|1[0-2])$")
 CODE_RE=re.compile(r"^\d{10}$")
