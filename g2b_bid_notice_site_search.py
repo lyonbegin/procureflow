@@ -274,6 +274,17 @@ def _navigate(page):
         page.wait_for_timeout(800)
         if _field_from_label(page,DETAIL_LABELS)[1] is not None:
             return
+    # Publicly observed G2B bid-notice link family; candidate only.
+    # All results must still pass the exact-10 request verification.
+    if _field_from_label(page,DETAIL_LABELS)[1] is None:
+        try:
+            page.goto("https://www.g2b.go.kr/link/PNPE027_01/",
+                      wait_until="domcontentloaded",timeout=30000)
+            _wait_for_site_rendered(page,16000)
+            if _field_from_label(page,DETAIL_LABELS)[1] is not None:
+                return
+        except Exception:
+            pass
     _click_label(page,("상세조건","상세검색","검색조건","상세조건 검색"),action="click")
     if _field_from_label(page,DETAIL_LABELS)[1] is None:
         try:
