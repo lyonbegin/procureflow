@@ -47,6 +47,12 @@ footer{font-size:11px;color:#778ba0;margin:25px 0}.actions{display:flex;gap:6px;
   <button class="primary" id="startSearch" type="submit">실제 나라장터 검색 실행</button>
   <button type="button" id="prevMonth">이전 월 검색</button>
  </form>
+ <form id="fileForm" style="border-top:1px solid #e5ebf3;padding-top:10px">
+  <div class="field" style="flex:1;min-width:240px"><label for="officialFile">공식 나라장터 공고문 URL 직접 수집 (홈페이지 검색 차단 시 검증 경로)</label>
+  <input id="officialFile" type="url" placeholder="https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do?..." /></div>
+  <button type="submit">공식 파일 다운로드·10자리 검증</button>
+ </form>
+ <p class="muted">공식 파일 URL은 실제 나라장터 문서 서버에서 다운로드합니다. 이 경로는 검색창에서 찾은 공고로 계산하지 않습니다.</p>
  <div id="searchMsg" class="hint">실제 사이트 입찰공고 검색 XHR에 정확한 10자리와 기간이 담겼는지 검증합니다. 검색 실패를 0건으로 표시하지 않습니다.</div>
  <div class="cards" style="margin-top:12px">
   <div class="metric"><span>새 DB 공고 후보</span><b id="mNotice">—</b></div>
@@ -188,6 +194,8 @@ async function searchRuns(){try{
   "<div>"+esc(x.code10)+" / "+esc(x.cursor)+" / "+esc(x.status)+" / 서버필터확인: "+
   (x.request_verified?"예":"아니오")+" / 확인 "+x.confirmed_count+" 후보 "+x.pending_count+"</div>").join(""):"실사이트 검색 요청 기록 없음";
  }catch(e){$("searchRuns").textContent=e.message}}
+$("fileForm").addEventListener("submit",e=>{e.preventDefault();post("official-file",{
+ url:$("officialFile").value.trim(),detail10:$("code").value.trim()})});
 $("searchForm").addEventListener("submit",e=>{e.preventDefault();post("search",{
  detail10:$("code").value,start:$("start").value,end:$("end").value,month:$("month").value,page:1})});
 $("prevMonth").addEventListener("click",()=>{
