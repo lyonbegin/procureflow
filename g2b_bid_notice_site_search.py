@@ -394,8 +394,14 @@ def _safe_search_screen_diagnostic(tab):
               const xs=[...document.querySelectorAll('a,button,input,label,[role=link],[role=button]')];
               return {title:(document.title||'').slice(0,90),
                 bodyText:(document.body?.innerText||'').slice(-550),
-                fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,18),
-                controls:xs.filter(e=>e.tagName==='INPUT'||e.tagName==='LABEL'||e.tagName==='BUTTON').slice(0,55).map(e=>({
+                fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,8),
+                targetRows:[...document.querySelectorAll('label,th,span,td')].filter(e=>(e.textContent||'').replace(/\\s+/g,'').trim()==='세부품명번호').slice(0,4).map(e=>{
+                   const root=e.closest('tr')||e.parentElement?.parentElement;
+                   const xs=root?[...root.querySelectorAll('input')].slice(0,7):[];
+                   return {tag:e.tagName,htmlFor:e.htmlFor||'',parent:e.parentElement?.tagName||'',inputCount:xs.length,
+                     inputs:xs.map(x=>({id:x.id||'',type:x.type||'',name:x.name||'',visible:!!x.getClientRects().length,disabled:x.disabled}))};
+                }),
+                controls:xs.filter(e=>e.tagName==='INPUT'||e.tagName==='LABEL'||e.tagName==='BUTTON').slice(0,8).map(e=>({
                     tag:e.tagName,
                     text:(e.tagName==='INPUT'?'':(e.innerText||e.title||'')).trim().slice(0,55),
                     type:e.getAttribute('type')||'',
@@ -408,6 +414,7 @@ def _safe_search_screen_diagnostic(tab):
                             "title":nodes.get("title"),
                             "body":nodes.get("bodyText"),
                             "fieldNames":nodes.get("fieldNames",[]),
+                            "targetRows":nodes.get("targetRows",[]),
                             "controls":nodes.get("controls",[])})
         except Exception as exc:
             # Only public page path and single-line exception category/message;
