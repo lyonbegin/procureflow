@@ -36,6 +36,8 @@ class FakeDB:
         self.sql=[]
     def execute(self,sql,args=()):
         self.sql.append((sql,args))
+        if "to_regclass(" in sql:
+            return FakeCursor([{"tenders":True,"categories":True,"history":True,"results":True}])
         if "FROM procureflow.tenders" in sql and "WHERE source='g2b' AND external_id=%s" in sql:
             return FakeCursor([{"bid_no":BID,"title":"선택 입찰","agency":"기관",
               "category":"정보화","notice_date":"2026-10-22","deadline":"2026-10-29",
