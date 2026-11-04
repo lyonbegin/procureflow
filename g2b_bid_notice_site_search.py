@@ -353,43 +353,44 @@ def _open_detail_search(page):
 
 
 def _dismiss_public_notices(page):
-    """Close observed public WebSquare announcement windows, not bid actions."""
+    """Dismiss actual G2B public popups by native WebSquare button click."""
     import logging
-    count=0
-    for _ in range(12):
+    done=0
+    for _ in range(10):
         changed=False
         for frame in _frames(page):
             try:
-                kind=frame.evaluate(r"""()=>{
-                    const windows=[...document.querySelectorAll('.w2popup_window')]
-                        .filter(e=>e.getClientRects().length>0 &&
-                            (e.innerText||'').includes('나라장터 공지사항'));
-                    if(windows.length){
-                        const win=windows[windows.length-1];
-                        const close=win.querySelector('[id$="_btnClose"]');
-                        if(close && !close.disabled){close.click();return 'notice';}
-                    }
-                    return '';
-                }""")
-                if kind:
-                    count+=1
+                confirmations=frame.locator('[id*="alert"][id$="btnConfirm"]:visible')
+                if confirmations.count():
+                    confirmations.last.click(force=True,timeout=2000)
+                    page.wait_for_timeout(250)
                     changed=True
-                    page.wait_for_timeout(350)
+                    done+=1
                     break
-            except Exception:
-                continue
+                closers=frame.locator('[id*="poupR"][id$="btnClose"]:visible')
+                prior=closers.count()
+                if prior:
+                    closers.last.click(force=True,timeout=2000)
+                    page.wait_for_timeout(350)
+                    remaining=frame.locator('[id*="poupR"][id$="btnClose"]:visible').count()
+                    logging.warning("FRESH_G2B_POPUP_CLOSE prior=%s remaining=%s",prior,remaining)
+                    if remaining<prior:
+                        changed=True
+                        done+=1
+                        break
+            except Exception as exc:
+                logging.warning("FRESH_G2B_POPUP_CLOSE_ERROR %s",type(exc).__name__)
         if not changed:
             break
     for frame in _frames(page):
         try:
-            frame.evaluate(r"""()=>{
-                const x=document.querySelector('[id$="btnSitemapClose"]');
-                if(x && x.getClientRects().length>0)x.click();
-            }""")
+            close=frame.locator('[id$="btnSitemapClose"]:visible')
+            if close.count():
+                close.first.click(force=True,timeout=1800)
         except Exception:
             pass
-    logging.warning("FRESH_G2B_NOTICE_POPUPS_CLOSED %s",count)
-    return count
+    logging.warning("FRESH_G2B_NOTICE_POPUPS_CLOSED %s",done)
+    return done
 
 def _click_notice_search(page):
     """Click the public main notice search button; never bid/submit controls."""
