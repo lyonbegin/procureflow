@@ -225,8 +225,10 @@ def _date_field_group(page):
 
 
 def _fill_date(locator,day):
-    current=locator.get_attribute("value") or ""
-    value=day.replace("-","") if re.fullmatch(r"\d{8}",current) else day
+    # Official G2B WebSquare validates yyyyMMdd, even when input starts blank.
+    value=day.replace("-","")
+    if not re.fullmatch(r"\d{8}",value):
+        raise SearchBlocked("OFFICIAL_DATE_MUST_BE_YYYYMMDD")
     locator.fill(value,timeout=2200)
     locator.press("Tab",timeout=1500)
     return value
