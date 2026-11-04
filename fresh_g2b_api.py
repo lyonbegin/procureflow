@@ -124,14 +124,14 @@ def boot():
     # The same startup probe is never repeated across redeploys.
     with store.conn() as con:
         exists=con.execute("""SELECT id FROM freshg2b.jobs
-          WHERE args->>'origin'='startup_probe_v9' LIMIT 1""").fetchone()
+          WHERE args->>'origin'='startup_probe_v10' LIMIT 1""").fetchone()
     if exists:return
     today=date.today()
     try:begin=today.replace(year=today.year-10)
     except ValueError:begin=today.replace(year=today.year-10,day=28)
     args={"detail10":"8111159901","first":begin.isoformat(),
       "last":today.isoformat(),"month":today.strftime("%Y-%m"),
-      "page":1,"origin":"startup_probe_v9"}
+      "page":1,"origin":"startup_probe_v10"}
     id_=store.create_job("search",args)
     Thread(target=_run,args=(id_,"search",args),daemon=True).start()
 
