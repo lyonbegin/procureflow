@@ -369,3 +369,82 @@ def read_jobs(limit=25):
         return cx.execute("""SELECT id,kind,params,status,result,error,created_at,
                   started_at,completed_at FROM fresh_g2b.site_jobs
                   ORDER BY id DESC LIMIT %s""",(limit,)).fetchall()
+
+
+def store_official_notice_file(no,ord_,url,expected10,file,job_id):
+    """Commit fresh original G2B PDF ONLY when its actual text proves detail10.
+
+    The official download was obtained in THIS job. No existing row is
+    consulted as source evidence; existing fresh rows are used only for
+    version equality and conflict detection.
+    """
+    if not BID.fullmatch(no) or not ORD.fullmatch(ord_):
+        raise ValueError("INVALID_OFFICIAL_FILE_NOTICE")
+    if not TEN.fullmatch(expected10):
+        raise ValueError("INVALID_EXPECTED_DETAIL10")
+    from fresh_g2b_site import explicit_detail10
+    content=file["content"]
+    text_value=str(file.get("text") or "")
+    digest=signature(content)
+    if not text_value or not explicit_detail10(text_value,expected10):
+        audit(job_id,"www.g2b.go.kr",no+"-"+ord_,"blocked_no_explicit_code",
+              {"file_sha256":digest,"extraction_state":file.get("state")})
+        return {"status":"blocked","reason":"OFFICIAL_FILE_DOES_NOT_PROVE_EXACT_DETAIL10",
+                "file_sha256":digest,"stored":False}
+    # Titles and institutions must be visible in the newly downloaded PDF.
+    title=""
+    agency=""
+    for pattern,target in (
+      (r"(?:용\s*역\s*명|입찰\s*건명|사\s*업\s*명)\s*[:：]\s*([^\r\n]{5,150})","title"),
+      (r"(?:수요기관|발주기관)\s*[:：]\s*([^\r\n]{2,130})","agency")):
+        m=re.search(pattern,text_value,re.I)
+        if m:
+            candidate=" ".join(m.group(1).split())
+            if target=="title":title=candidate[:300]
+            else:agency=candidate[:220]
+    with db() as cx:
+        prev=cx.execute("""SELECT detail10,original_verified,original_sha256
+            FROM fresh_g2b.site_notices WHERE bid_no=%s AND bid_ord=%s""",
+            (no,ord_)).fetchone()
+        if prev and prev["original_verified"] and prev["detail10"]!=expected10:
+            raise ValueError("CONFLICTING_OFFICIAL_ORIGINAL_DETAIL10")
+        unchanged=bool(prev and prev["original_sha256"]==digest)
+        cx.execute("""INSERT INTO fresh_g2b.site_notices(
+          bid_no,bid_ord,detail10,title,agency,original_url,original_verified,
+          original_sha256,verification_reason)
+          VALUES(%s,%s,%s,%s,%s,%s,true,%s,
+                  'official_g2b_downloaded_pdf_explicit10')
+          ON CONFLICT(bid_no,bid_ord) DO UPDATE SET
+             detail10=excluded.detail10,
+             title=CASE WHEN fresh_g2b.site_notices.title='' THEN excluded.title
+                        ELSE fresh_g2b.site_notices.title END,
+             agency=CASE WHEN fresh_g2b.site_notices.agency='' THEN excluded.agency
+                        ELSE fresh_g2b.site_notices.agency END,
+             original_url=excluded.original_url,
+             original_verified=true,
+             original_sha256=excluded.original_sha256,
+             verification_reason=excluded.verification_reason,updated_at=now()""",
+            (no,ord_,expected10,title,agency,url,digest))
+        cx.execute("""INSERT INTO fresh_g2b.site_notice_versions(
+             bid_no,bid_ord,sha256,content,source_url)
+             VALUES(%s,%s,%s,%s,%s)
+             ON CONFLICT DO NOTHING""",
+             (no,ord_,digest,text_value[:800000],url))
+        cx.execute("""INSERT INTO fresh_g2b.site_attachments(
+             bid_no,bid_ord,file_url,filename,sha256,mime,
+             data,extracted_text,extraction_state)
+             VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             ON CONFLICT(bid_no,bid_ord,file_url) DO UPDATE SET
+                filename=excluded.filename,sha256=excluded.sha256,
+                mime=excluded.mime,data=excluded.data,
+                extracted_text=excluded.extracted_text,
+                extraction_state=excluded.extraction_state,last_checked_at=now()""",
+             (no,ord_,url,file["filename"][:250],digest,file["mime"][:120],
+              content,text_value[:800000],file["state"]))
+    audit(job_id,"www.g2b.go.kr",no+"-"+ord_,"official_file_exact10_verified",
+         {"file_sha256":digest,"detail10":expected10,"unchanged":unchanged,
+          "discovery_method":"direct_official_file_url_not_g2b_search"})
+    return {"status":"completed","stored":True,"original_verified":True,
+            "detail10":expected10,"file_sha256":digest,
+            "filename":file["filename"],"unchanged":unchanged,
+            "discovery_method":"direct_official_file_url_not_g2b_search"}
