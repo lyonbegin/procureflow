@@ -1,258 +1,1511 @@
 {
-  "id": "PROCURE_STRATEGY_A01",
-  "name": "A · 공공 낙찰정보 기반 수주전략·제안서",
+  "id": "PROCURE_STRATEGY_PUBLIC_SELECTED_104",
+  "name": "[공공] 선택한 입찰 1건 → 원본 104기능·43블록 → 낙찰전략·제안서·입찰준비",
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
   "nodes": [
     {
-      "id": "a01-01",
-      "name": "01 · 선택 입찰·가상 입력 시작",
+      "id": "public-N01",
+      "name": "N01 · 신규공고 발견",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        180,
-        240
+        240,
+        210
       ],
       "parameters": {
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node01",
-          "code_version": "procure-three-markets-public-01-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N01-v1",
           "node_character": "manual_collection_start"
         }
       },
-      "notes": "사용자 명시적 버튼 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 1,2 / 입력: query.window / 출력: tender_candidates[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결:  → N01 → N02\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-02",
-      "name": "02 · 정확한 세부품명·평가방식 검토",
+      "id": "public-N04",
+      "name": "N04 · 정정·취소·버전 비교",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        490,
-        305
+        240,
+        490
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node02",
-          "code_version": "procure-three-markets-public-02-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N04-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 12,13,14 / 입력: official_notice+previous_revision / 출력: change_set / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결:  → N04 → O04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-03",
-      "name": "03 · 10년 분석을 위한 가상 낙찰정보 비교",
+      "id": "public-O02",
+      "name": "O02 · 작업큐·Worker·재시도",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        800,
-        240
+        240,
+        770
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node03",
-          "code_version": "procure-three-markets-public-03-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-O02-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 97,98,101,102 / 입력: queue_jobs+resource_policy / 출력: job_state+worker_recovery / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결:  → O02 → O03\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-04",
-      "name": "04 · 기관·경쟁환경 분석",
+      "id": "public-N02",
+      "name": "N02 · 공고번호·차수 식별",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1110,
-        305
+        610,
+        210
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node04",
-          "code_version": "procure-three-markets-public-04-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N02-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 3,4,11,15 / 입력: tender_candidates[] / 출력: tender_identifiers[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N01 → N02 → N05, O01\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-05",
-      "name": "05 · 가격·원가 시나리오 계산",
+      "id": "public-O03",
+      "name": "O03 · 증빙 결합·감사 추적",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1420,
-        240
+        610,
+        490
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node05",
-          "code_version": "procure-three-markets-public-05-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-O03-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 100 / 입력: all_evidence_refs+node_outputs / 출력: provenance_graph+audit_findings / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: O02 → O03 → O04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-06",
-      "name": "06 · 수주전략 선택",
+      "id": "public-N05",
+      "name": "N05 · 공식 공고 상세",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1730,
-        305
+        980,
+        210
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node06",
-          "code_version": "procure-three-markets-public-06-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N05-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 17,18 / 입력: tender_identifiers[] / 출력: official_notice / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N02 → N05 → N03, N08\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-07",
-      "name": "07 · 전략별 기술제안서 설계",
+      "id": "public-O01",
+      "name": "O01 · 발주별 작업 소유·상태",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2040,
-        240
+        980,
+        490
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node07",
-          "code_version": "procure-three-markets-public-07-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-O01-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 16,95,96,99 / 입력: tender_identifiers[] / 출력: case_context+assignment / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N02 → O01 → \n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
       "notesInFlow": true
     },
     {
-      "id": "a01-08",
-      "name": "08 · 독립 감사 및 최종 판단",
+      "id": "public-N03",
+      "name": "N03 · 공고 속성 정규화",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2350,
-        305
+        1350,
+        210
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "throw new Error('MOCK_ONLY: This original n8n JSON is a protected Studio Python-adapter test; live n8n execution requires a separately approved native business adapter.');",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
         "studioPython": {
           "python_module": "procurement_node_adapter",
-          "python_function": "execute_node08",
-          "code_version": "procure-three-markets-public-08-v1",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N03-v1",
           "node_character": "business_operation"
         }
       },
-      "notes": "앞 노드가 성공한 경우에만 실행, 주식 자동화와 동일한 공용 Studio 노드 설정·입출력·이력. 가상 입력만 허용, G2B/고용24/투찰/고객 접촉 금지.",
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 5,6,7,8,9,10 / 입력: N05.official_notice / 출력: tender_context / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N05 → N03 → N06, N07\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-N08",
+      "name": "N08 · 첨부목록",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1350,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N08-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 28 / 입력: official_notice / 출력: attachment_manifest[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N05 → N08 → N09\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-N06",
+      "name": "N06 · 공식 세부코드·기관",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N06-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 19,20 / 입력: official_notice / 출력: verified_detail10+agency_code / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N03 → N06 → H01, Q01\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-N07",
+      "name": "N07 · 계약조건·마감·금액",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N07-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 21,22,23,24,25,26,27 / 입력: official_notice / 출력: contract_terms / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N03 → N07 → Q01, P01\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-N09",
+      "name": "N09 · 문서 원본·무결성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        770
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N09-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 29,30 / 입력: attachment_manifest[] / 출력: artifact_refs[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N08 → N09 → N10\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H01",
+      "name": "H01 · 정확한 10자리 세부종목",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2090,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H01-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 49 / 입력: N06.verified_detail10 / 출력: validated_detail10 / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N06 → H01 → H02\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-N10",
+      "name": "N10 · 문서 추출·원본 대조",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2090,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-N10-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 31,32 / 입력: artifact_refs[] / 출력: requirements+specification+conflicts / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N09 → N10 → Q01, S01, P01\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H02",
+      "name": "H02 · 10년 기간 분할",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 53 / 입력: validated_detail10+window / 출력: search_windows[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H01 → H02 → H03\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-Q01",
+      "name": "Q01 · 자격·증빙 요건 추출",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-Q01-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 61,69 / 입력: contract_terms+requirements / 출력: eligibility_requirements / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N06, N07, N10 → Q01 → Q02, Q03\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-S01",
+      "name": "S01 · 공급업체·수행가능성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        770
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-S01-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 71,72,73 / 입력: specification+supplier_registry / 출력: supplier_candidates[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N10 → S01 → S02\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P01",
+      "name": "P01 · 공식 금액·내역서",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2460,
+        1050
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P01-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 77,78,79 / 입력: contract_terms+specification / 출력: amounts+quantities / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N07, N10 → P01 → P02, P05\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H03",
+      "name": "H03 · 과거 공고 후보",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 33,44,45,47 / 입력: search_windows[] / 출력: historical_notice_candidates[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H02 → H03 → H04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-Q02",
+      "name": "Q02 · 회사 등록·인증 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-Q02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 62,63,64,65 / 입력: company_evidence+eligibility_requirements / 출력: verified_company_evidence / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: Q01 → Q02 → Q04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-Q03",
+      "name": "Q03 · 공동수급·보증 조건",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        770
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-Q03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 67,68 / 입력: contract_terms+eligibility_requirements / 출력: joint_and_bond_terms / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: Q01 → Q03 → Q04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-S02",
+      "name": "S02 · 견적요청 초안",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        1050
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-S02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 74 / 입력: supplier_candidates[]+specification / 출력: quote_request_drafts[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: S01 → S02 → S03\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P05",
+      "name": "P05 · 계약별 가격결정 규칙",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        1330
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P05-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 88 / 입력: contract_terms+amounts / 출력: applicable_price_rules / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: P01 → P05 → P06\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H04",
+      "name": "H04 · 구형·신형 공고 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 52 / 입력: historical_notice_candidates[] / 출력: verified_historical_notices[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H03 → H04 → H05, H06\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-Q04",
+      "name": "Q04 · 요구·보유 증빙 대조",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-Q04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 70 / 입력: eligibility_requirements+verified_company_evidence / 출력: eligibility_gaps / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: Q02, Q03 → Q04 → Q05\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-S03",
+      "name": "S03 · 회신 견적 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        770
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-S03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 75 / 입력: supplier_quote_artifacts[] / 출력: verified_quotes[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: S02 → S03 → S04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H05",
+      "name": "H05 · 실제 개찰·투찰 상세",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3570,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H05-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 34,35,36,37,40,41,42,43,55 / 입력: verified_historical_notices[] / 출력: opening_records[]+bidder_records[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H04 → H05 → H07\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H06",
+      "name": "H06 · 확정 낙찰결과",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3570,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H06-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 38,39,51,56 / 입력: verified_historical_notices[] / 출력: award_records[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H04 → H06 → H07\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-Q05",
+      "name": "Q05 · 참가자격 적격성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3570,
+        770
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-Q05-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 66 / 입력: eligibility_gaps+joint_and_bond_terms / 출력: eligibility_verdict / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: Q04 → Q05 → P07\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-S04",
+      "name": "S04 · 견적 비교·최소 유효수",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3570,
+        1050
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-S04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 76 / 입력: verified_quotes[]+specification / 출력: cost_quotes+quote_quorum / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: S03 → S04 → P02\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H07",
+      "name": "H07 · 10년 개찰·낙찰 완전성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4690,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H07-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 46,50,54 / 입력: opening_records[]+award_records[]+search_windows[] / 출력: coverage_verdict / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H05, H06 → H07 → H08\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P02",
+      "name": "P02 · 직접원가",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4690,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 80,81,82 / 입력: amounts+quantities+cost_quotes / 출력: direct_cost / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: S04, P01 → P02 → P03\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H08",
+      "name": "H08 · 현재 발주·이력 연결",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5060,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H08-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 48 / 입력: coverage_verdict+case_id / 출력: history_dataset_ref / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H07 → H08 → H09, H10\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P03",
+      "name": "P03 · 총원가",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5060,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P03-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 83,84,85 / 입력: direct_cost+tax_rules / 출력: total_cost / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: P02 → P03 → P06\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H09",
+      "name": "H09 · 동일 발주기관 분석",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5430,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H09-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 57,58 / 입력: history_dataset_ref+agency_code / 출력: agency_stats / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H08 → H09 → H11\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H10",
+      "name": "H10 · 반복 참가업체 분석",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5430,
+        490
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H10-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 59 / 입력: history_dataset_ref / 출력: competitors_stats / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H08 → H10 → H11\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H11",
+      "name": "H11 · 10년 근거 보고서",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5800,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-H11-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 60 / 입력: agency_stats+competitors_stats+coverage_verdict / 출력: verified_history_report / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H09, H10 → H11 → P04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P04",
+      "name": "P04 · 낙찰가격·투찰률 통계",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6170,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 86,87 / 입력: verified_history_report / 출력: historical_price_stats / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: H11 → P04 → P06\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P06",
+      "name": "P06 · 가격 시나리오",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6540,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P06-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 89,90 / 입력: total_cost+historical_price_stats+applicable_price_rules / 출력: price_scenarios[] / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: P03, P04, P05 → P06 → P07\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-P07",
+      "name": "P07 · 최종 가격 검토",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6910,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-P07-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 91 / 입력: price_scenarios[]+eligibility_verdict / 출력: approved_price_or_block / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: Q05, P06 → P07 → R01\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-R01",
+      "name": "R01 · 제안서·제출서류",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7280,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-R01-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 92,93 / 입력: specification+verified_history_report+approved_price_or_block / 출력: draft_package / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: P07 → R01 → R02\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-R02",
+      "name": "R02 · 최종 패키지 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7650,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-R02-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 94 / 입력: draft_package+eligibility_verdict+conflicts / 출력: package_validation / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: R01 → R02 → O04\n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-O04",
+      "name": "O04 · 사람 승인 전 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8020,
+        210
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "throw new Error('PUBLIC_104_MOCK_ONLY: official n8n live execution is disabled; run the validated shared Studio Python adapter with fictional evidence only.');",
+        "studioPython": {
+          "python_module": "procurement_node_adapter",
+          "python_function": "execute_public_block",
+          "code_version": "procure-original-104-O04-v1",
+          "node_character": "business_operation"
+        }
+      },
+      "notes": "기존 2026-10-28 43블록·104기능 계약 / 103,104 / 입력: eligibility_verdict+package_validation+approved_price_or_block+audit_findings / 출력: READY/HOLD/NO_BID/REVIEW / 실제 G2B 미호출, 증빙 검증 결과는 별도\n연결: N04, R02, O03 → O04 → \n이 파일은 공유 Studio 모의 노드 편집용이며 실제 G2B 수집·Worker/n8n 실행과 연결되지 않음.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H07-native-merge",
+      "name": "H07 기술합류 · H05+H06 두 입력 대기",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3950,
+        350
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "notes": "n8n native Merge: H05 output port 0 and H06 output port 1. A01 remains a fixture preview; official execution is not connected.",
+      "notesInFlow": true
+    },
+    {
+      "id": "public-H07-input-gate",
+      "name": "H07 입력검사 · 서로 다른 공고·누락 차단",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4250,
+        350
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const all=$input.all().map(x=>x.json);if(all.length!==2)throw Error('H07_TWO_INPUTS_REQUIRED');const byId=new Map();let caseId=null,flowId=null;for(const item of all){const id=item?.last_block||item?.previous_block?.block_id;if(!['H05','H06'].includes(id)||byId.has(id))throw Error('H07_DUPLICATE_OR_MISSING_BRANCH');const bid=item.case_id||item.bid_no;if(!bid||typeof bid!=='string')throw Error('H07_MISSING_CASE');if(caseId!==null&&caseId!==bid)throw Error('H07_CROSS_CASE');if(flowId!==null&&flowId!==item.flow_id)throw Error('H07_CROSS_FLOW');caseId=bid;flowId=item.flow_id;const record=item.workflow_trace?.findLast(r=>r?.block_id===id);if(!record||!Object.prototype.hasOwnProperty.call(record,'output'))throw Error('H07_MISSING_SOURCE_OUTPUT');byId.set(id,{item,record});}if(!byId.has('H05')||!byId.has('H06'))throw Error('H07_REQUIRED_BRANCH_MISSING');const left=byId.get('H05'),right=byId.get('H06');const h02=left.item.workflow_trace.find(r=>r.block_id==='H02');if(!h02)throw Error('H07_SEARCH_WINDOWS_MISSING');const input={H05:left.record.output,H06:right.record.output,H02:h02.output};return [{json:{...left.item,dependency_inputs:input,dependency_join_complete:true,dependency_evidence_verified:false,actual_job_executed:false,bid_submitted:false}}];"
+      },
+      "notes": "Checks two distinct upstream IDs and same bid. Does NOT verify award evidence, execute Worker, or submit a bid. Operational PF05 has corresponding native gate.",
       "notesInFlow": true
     }
   ],
   "connections": {
-    "01 · 선택 입찰·가상 입력 시작": {
+    "N01 · 신규공고 발견": {
       "main": [
         [
           {
-            "node": "02 · 정확한 세부품명·평가방식 검토",
+            "node": "N02 · 공고번호·차수 식별",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "02 · 정확한 세부품명·평가방식 검토": {
+    "N02 · 공고번호·차수 식별": {
       "main": [
         [
           {
-            "node": "03 · 10년 분석을 위한 가상 낙찰정보 비교",
+            "node": "N05 · 공식 공고 상세",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "O01 · 발주별 작업 소유·상태",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "03 · 10년 분석을 위한 가상 낙찰정보 비교": {
+    "N03 · 공고 속성 정규화": {
       "main": [
         [
           {
-            "node": "04 · 기관·경쟁환경 분석",
+            "node": "N06 · 공식 세부코드·기관",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "N07 · 계약조건·마감·금액",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "04 · 기관·경쟁환경 분석": {
+    "N04 · 정정·취소·버전 비교": {
       "main": [
         [
           {
-            "node": "05 · 가격·원가 시나리오 계산",
+            "node": "O04 · 사람 승인 전 검증",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "05 · 가격·원가 시나리오 계산": {
+    "N05 · 공식 공고 상세": {
       "main": [
         [
           {
-            "node": "06 · 수주전략 선택",
+            "node": "N03 · 공고 속성 정규화",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "N08 · 첨부목록",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "06 · 수주전략 선택": {
+    "N06 · 공식 세부코드·기관": {
       "main": [
         [
           {
-            "node": "07 · 전략별 기술제안서 설계",
+            "node": "H01 · 정확한 10자리 세부종목",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Q01 · 자격·증빙 요건 추출",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "07 · 전략별 기술제안서 설계": {
+    "N07 · 계약조건·마감·금액": {
       "main": [
         [
           {
-            "node": "08 · 독립 감사 및 최종 판단",
+            "node": "Q01 · 자격·증빙 요건 추출",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "P01 · 공식 금액·내역서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N08 · 첨부목록": {
+      "main": [
+        [
+          {
+            "node": "N09 · 문서 원본·무결성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N09 · 문서 원본·무결성": {
+      "main": [
+        [
+          {
+            "node": "N10 · 문서 추출·원본 대조",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N10 · 문서 추출·원본 대조": {
+      "main": [
+        [
+          {
+            "node": "Q01 · 자격·증빙 요건 추출",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "S01 · 공급업체·수행가능성",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "P01 · 공식 금액·내역서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H01 · 정확한 10자리 세부종목": {
+      "main": [
+        [
+          {
+            "node": "H02 · 10년 기간 분할",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H02 · 10년 기간 분할": {
+      "main": [
+        [
+          {
+            "node": "H03 · 과거 공고 후보",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H03 · 과거 공고 후보": {
+      "main": [
+        [
+          {
+            "node": "H04 · 구형·신형 공고 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H04 · 구형·신형 공고 검증": {
+      "main": [
+        [
+          {
+            "node": "H05 · 실제 개찰·투찰 상세",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "H06 · 확정 낙찰결과",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H05 · 실제 개찰·투찰 상세": {
+      "main": [
+        [
+          {
+            "node": "H07 기술합류 · H05+H06 두 입력 대기",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H06 · 확정 낙찰결과": {
+      "main": [
+        [
+          {
+            "node": "H07 기술합류 · H05+H06 두 입력 대기",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "H07 · 10년 개찰·낙찰 완전성": {
+      "main": [
+        [
+          {
+            "node": "H08 · 현재 발주·이력 연결",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H08 · 현재 발주·이력 연결": {
+      "main": [
+        [
+          {
+            "node": "H09 · 동일 발주기관 분석",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "H10 · 반복 참가업체 분석",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H09 · 동일 발주기관 분석": {
+      "main": [
+        [
+          {
+            "node": "H11 · 10년 근거 보고서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H10 · 반복 참가업체 분석": {
+      "main": [
+        [
+          {
+            "node": "H11 · 10년 근거 보고서",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H11 · 10년 근거 보고서": {
+      "main": [
+        [
+          {
+            "node": "P04 · 낙찰가격·투찰률 통계",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q01 · 자격·증빙 요건 추출": {
+      "main": [
+        [
+          {
+            "node": "Q02 · 회사 등록·인증 검증",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Q03 · 공동수급·보증 조건",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q02 · 회사 등록·인증 검증": {
+      "main": [
+        [
+          {
+            "node": "Q04 · 요구·보유 증빙 대조",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q03 · 공동수급·보증 조건": {
+      "main": [
+        [
+          {
+            "node": "Q04 · 요구·보유 증빙 대조",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q04 · 요구·보유 증빙 대조": {
+      "main": [
+        [
+          {
+            "node": "Q05 · 참가자격 적격성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Q05 · 참가자격 적격성": {
+      "main": [
+        [
+          {
+            "node": "P07 · 최종 가격 검토",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S01 · 공급업체·수행가능성": {
+      "main": [
+        [
+          {
+            "node": "S02 · 견적요청 초안",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S02 · 견적요청 초안": {
+      "main": [
+        [
+          {
+            "node": "S03 · 회신 견적 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S03 · 회신 견적 검증": {
+      "main": [
+        [
+          {
+            "node": "S04 · 견적 비교·최소 유효수",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S04 · 견적 비교·최소 유효수": {
+      "main": [
+        [
+          {
+            "node": "P02 · 직접원가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P01 · 공식 금액·내역서": {
+      "main": [
+        [
+          {
+            "node": "P02 · 직접원가",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "P05 · 계약별 가격결정 규칙",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P02 · 직접원가": {
+      "main": [
+        [
+          {
+            "node": "P03 · 총원가",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P03 · 총원가": {
+      "main": [
+        [
+          {
+            "node": "P06 · 가격 시나리오",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P04 · 낙찰가격·투찰률 통계": {
+      "main": [
+        [
+          {
+            "node": "P06 · 가격 시나리오",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P05 · 계약별 가격결정 규칙": {
+      "main": [
+        [
+          {
+            "node": "P06 · 가격 시나리오",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P06 · 가격 시나리오": {
+      "main": [
+        [
+          {
+            "node": "P07 · 최종 가격 검토",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "P07 · 최종 가격 검토": {
+      "main": [
+        [
+          {
+            "node": "R01 · 제안서·제출서류",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "R01 · 제안서·제출서류": {
+      "main": [
+        [
+          {
+            "node": "R02 · 최종 패키지 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "R02 · 최종 패키지 검증": {
+      "main": [
+        [
+          {
+            "node": "O04 · 사람 승인 전 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "O02 · 작업큐·Worker·재시도": {
+      "main": [
+        [
+          {
+            "node": "O03 · 증빙 결합·감사 추적",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "O03 · 증빙 결합·감사 추적": {
+      "main": [
+        [
+          {
+            "node": "O04 · 사람 승인 전 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H07 기술합류 · H05+H06 두 입력 대기": {
+      "main": [
+        [
+          {
+            "node": "H07 입력검사 · 서로 다른 공고·누락 차단",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "H07 입력검사 · 서로 다른 공고·누락 차단": {
+      "main": [
+        [
+          {
+            "node": "H07 · 10년 개찰·낙찰 완전성",
             "type": "main",
             "index": 0
           }
@@ -262,16 +1515,30 @@
   },
   "meta": {
     "studioDefaultInput": {
-      "fixture_kind": "public",
-      "scenario": "DEMO_PUBLIC_001",
+      "bid_no": "R26BK01787028",
+      "bid_ord": "000",
+      "detail10": "8111159901",
+      "fixture_id": "PUBLIC_CASE_R26BK01787028",
       "strategy_preference": "balanced"
     },
     "market": "public",
+    "selected_tender": "R26BK01787028",
+    "case_ord": "000",
     "source_provenance": "fictional_test_fixture",
     "simulation_only": true,
     "never_calls_official_api": true,
     "never_submits_bid": true,
-    "uses_shared_studio_python_adapter": true
+    "original_manifest": "n8n/operational_manifest.json",
+    "business_contracts": 104,
+    "original_business_blocks": 43,
+    "graph_mode": "manifest_directed_acyclic_dependency_edges_not_linear_fixture_sequence",
+    "uses_shared_studio_python_adapter": true,
+    "graph_source": "operational_manifest.blocks[].to (transitive-reduction of 43 business blocks)",
+    "linearly_played_by_studio_runtime": false,
+    "native_n8n_execution_verified": false,
+    "official_business_execution_enabled": false,
+    "native_technical_join_nodes": 2,
+    "join_preview": "H05+H06 -> n8n Merge(append,2) -> input validation -> H07; A01 still fixture-only"
   },
   "tags": []
 }

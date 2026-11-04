@@ -37,8 +37,17 @@ for name,verdict in zip(names,expected):
         assert r["workflow_run_id"]==workflow_run_id
         upstream=r["run_id"]
         res=r
-    assert res["output_json"]["decision"]==verdict
-    assert res["output_json"]["source_provenance"]=="fictional_test_fixture"
+    output=res["output_json"]
+    assert (output.get("strategy_decision") if name.startswith("A01") else output.get("decision"))==verdict
+    assert output["source_provenance"]=="fictional_test_fixture"
+    if name.startswith("A01"):
+        assert len(steps)==43
+        assert len(output["feature_results"])==104
+        assert len(output["completed_blocks"])==43
+        assert output["results"]["H07"]["mock_windows_processed"]==121
+        assert not output["results"]["H07"]["official_10_year_coverage_complete"]
+        assert output["results"]["P07"]["selected"]["name"]=="balanced"
+        assert output["results"]["O04"]["official_verified_features"]==0
     assert res["output_json"]["bid_submitted"] is False
     _,history=request("GET","/api/studio/nodes/history?"+urlencode({"workflow":path,"node_id":steps[-1]["id"]}))
     assert history["executions"],history
@@ -48,8 +57,8 @@ for name,verdict in zip(names,expected):
 _,dashboard=request("GET","/api/procurement/console/status")
 assert dashboard["status"]=="ok" and dashboard["scope"]=="this_browser_session"
 assert dashboard["metrics"]["workflow_runs"]==3,dashboard
-assert dashboard["metrics"]["node_runs"]==22,dashboard
-assert dashboard["metrics"]["edge_transfers"]==19,dashboard
+assert dashboard["metrics"]["node_runs"]==57,dashboard
+assert dashboard["metrics"]["edge_transfers"]==54,dashboard
 assert len(dashboard["recent_runs"])==3,dashboard
 for run_id in run_ids:
     _,trace=request("GET","/api/procurement/console/run?workflow_run_id="+run_id)
@@ -57,4 +66,4 @@ for run_id in run_ids:
     assert not trace["actual_n8n_execution"]
     assert all(x["input_json"] and x["output_json"] for x in trace["nodes"])
 print("PROCUREMENT_CONSOLE_SQLITE_COUNTS_AND_THREE_RUN_TRACES_PASS")
-print("MARKETS_3_NODES_22_HTTP_TEST_PASS / NO LIVE CRAWL, n8n RUN OR BID")
+print("PUBLIC_ORIGINAL_43_AND_UNCHANGED_BC_7_7_HTTP_PASS_57_NODES_NO_CRAWL")

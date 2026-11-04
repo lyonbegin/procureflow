@@ -7,9 +7,10 @@ All values are conspicuously fictional test fixtures, NOT an empirical predictio
 from __future__ import annotations
 import copy
 import statistics
+import public_case_runtime as public_case
 
 WF01_MODES = {
-    "operations/A01-public-win-strategy.json": "public",
+    "operations/A01-public-win-strategy.json": "public_case",
     "operations/B01-private-software-proposal.json": "private_dev",
     "operations/C01-staffing-service-proposal.json": "staffing",
 }
@@ -30,7 +31,13 @@ ROOT_DEFAULTS = {
 }
 TYPE = "n8n-nodes-base.code"
 
+def execute_public_block(value, *, workflow_kind=None):
+    # Actual block selection is enforced by project_adapter_runtime and execute_node.
+    raise ValueError("PUBLIC_BLOCK_ID_REQUIRED")
+
 def node_binding(workflow_path, node_id):
+    if workflow_path==public_case.PATH:
+        return public_case.node_binding(workflow_path,node_id)
     kind = WF01_MODES.get(workflow_path)
     if not kind: return None
     prefix=PREFIX[kind]
@@ -44,6 +51,9 @@ def node_binding(workflow_path, node_id):
             "node_character":"manual_collection_start" if num==1 else "business_operation"}
 
 def node_type(workflow_path,node_id):
+    if workflow_path==public_case.PATH:
+        block=node_id.removeprefix("public-") if isinstance(node_id,str) else ""
+        return "n8n-nodes-base.manualTrigger" if block=="N01" else TYPE if public_case.node_binding(workflow_path,node_id) else None
     binding=node_binding(workflow_path,node_id)
     if not binding:return None
     return "n8n-nodes-base.manualTrigger" if node_id.endswith("-01") else TYPE
@@ -226,6 +236,10 @@ def execute_node07(value, *,workflow_kind=None):return _stage(value,7,workflow_k
 def execute_node08(value, *,workflow_kind=None):return _stage(value,8,workflow_kind)
 
 def execute_node(workflow_path,node_id,input_json):
+    if workflow_path==public_case.PATH:
+        if not public_case.node_binding(workflow_path,node_id):
+            raise ValueError("UNREGISTERED_PUBLIC_104_BLOCK")
+        return public_case.run_block(node_id.removeprefix("public-"),input_json)
     kind=WF01_MODES.get(workflow_path)
     if not kind or not node_binding(workflow_path,node_id):
         raise ValueError("UNREGISTERED_PROCUREMENT_NODE")

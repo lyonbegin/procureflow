@@ -68,4 +68,8 @@ if [ "${PROCUREFLOW_SMOKE_ALL_SCENARIOS:-0}" = 1 ]; then
   done
   echo "[procureflow scenario QA] TOTAL pass=${pass} fail=${fail} of 10"
 fi
+# Existing isolated n8n candidate only. No prod DB, Worker, or manual login changes.
+if [ "${PROCUREFLOW_SMOKE_PF05_CANARY:-0}" = 1 ]; then
+  /usr/local/bin/procureflow-pf05-canary
+fi
 exec n8n start

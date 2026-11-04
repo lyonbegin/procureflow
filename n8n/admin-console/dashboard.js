@@ -24,7 +24,8 @@ const MARKETS={
 const M=[
  ['overview','종합 관제센터','사업기회·전략·실행·DB 총괄','◫','platform'],
  ['opportunities','사업기회·접수센터','발주·개발 의뢰·인력 수요의 구분','⌕','platform'],
- ['public','공공조달 수주전략','과거 낙찰 → 경쟁·가격 → 제안서','▣','markets'],
+ ['public','공공입찰 통합 실행센터','최신 공고 → 한 건 선택 → 실데이터 9단계 실행','▣','markets'],
+ ['public_nodes','공공입찰 9노드 관리','동일 공고·실제 실행 단계·공용 Studio 편집','⤴','operations'],
  ['private_dev','민간 SW 개발 외주','기술설계·공수·견적·영업제안','⌘','markets'],
  ['staffing','민간 인력·단순 용역','수급·노무·운영·단가','♙','markets'],
  ['strategy','수주전략·제안서','가격·마진·제안서·판단 근거','◈','operations'],
@@ -205,7 +206,7 @@ function workflowsPage(){
  const flows=flowCatalog().filter(f=>(f.title+' '+f.path).toLowerCase().includes(state.flowSearch.toLowerCase()));
  return sectionHero('OPERATIONS / 29 WORKFLOWS','실제 운영 설계와 시험 실행을 구분하는 워크플로 관제',
   '공용 Studio와 완전히 동일한 노드 카드에서 설정·이력·실행을 조작합니다. PF00~PF15 및 S01~S10은 보존되며, A/B/C 3개 노드 플로우는 Python 모의 실행이 연결돼 있습니다.')+
- '<div class="metric-grid">'+metric('전략 전문 워크플로','3','A 8 / B 7 / C 7 노드')+metric('기존 운영 워크플로','16','PF00~PF15')+
+ '<div class="metric-grid">'+metric('전략 전문 워크플로','3','공공 원본 43 / B 7 / C 7')+metric('기존 운영 워크플로','16','PF00~PF15')+
  metric('기존 합성 시나리오','10','S01~S10')+metric('등록된 전체','29','복원 가능한 JSON')+'</div>'+
  '<section class="panel"><div class="flow-row"><h3>워크플로 목록</h3><input id="flow-search" class="input" style="max-width:280px" placeholder="워크플로 검색" value="'+esc(state.flowSearch)+'" aria-label="워크플로 검색"></div>'+
  '<div class="table-wrap"><table><thead><tr><th>구분</th><th>워크플로</th><th>실행 상태</th><th>조작</th></tr></thead><tbody>'+
@@ -340,13 +341,21 @@ function infraPage(){
 function render(){
  menu();header();
  const content={
- overview:renderOverview,opportunities:opportunities,public:()=>marketPage('public'),
+ overview:()=>window.Public9.render(),
+ opportunities:()=>window.Public9.render(),
+ public:()=>window.Public9.render(),
+ public_nodes:()=>window.Public9.renderNodes(),
  private_dev:()=>marketPage('private_dev'),staffing:()=>marketPage('staffing'),
- strategy:strategyPage,workflows:workflowsPage,tests:testsPage,features:featuresPage,
- audit:auditPage,infra:infraPage
+ strategy:()=>state.market==='public'?window.Public9.render():strategyPage(),
+ workflows:()=>state.market==='public'?window.Public9.renderNodes():workflowsPage(),
+ tests:()=>state.market==='public'?window.Public9.renderNodes():testsPage(),
+ features:()=>window.PublicCase.renderFeatures(),
+ audit:()=>state.market==='public'?window.Public9.renderNodes():auditPage(),
+ infra:infraPage
  };
  el('content').innerHTML=(content[state.page]||renderOverview)();
 }
+window.Public9.requestRender=render;
 async function loadHealth(){
  try{state.health=await api('/api/studio/health');}
  catch(e){state.health={status:'error',error:e.message};}
@@ -447,7 +456,7 @@ document.addEventListener('click',async e=>{
  if(a==='goto-audit')return gotoPage('audit');
  if(a==='choose-market'){
   state.market=btn.dataset.market||'public';state.run=null;state.selectedNode=null;
-  return gotoPage('tests');
+  return gotoPage(state.market==='public'?'public':'tests');
  }
  if(a==='inspect-node'){state.selectedNode=btn.dataset.node;render();return;}
  if(a==='load-run')return loadPastRun(btn.dataset.run);
@@ -475,6 +484,7 @@ document.addEventListener('input',e=>{
   const input=el('flow-search');input?.focus();try{input?.setSelectionRange(pos,pos);}catch{}
  }
 });
-el('refresh-all').addEventListener('click',()=>reload().then(()=>popup('SQLite·Studio 상태 확인 완료')));
+window.addEventListener('public-case-changed',()=>render());
+el('refresh-all').addEventListener('click',()=>Promise.all([reload(),window.Public9.load()]).then(()=>popup('최신 입찰공고·실제 Worker 이력 갱신 완료')));
 reload();
 })();

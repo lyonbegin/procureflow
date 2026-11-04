@@ -10,8 +10,15 @@ on:
       - 'n8n/source-build/**'
       - 'n8n/strategy-workflows/**'
       - 'n8n/strategy-runtime/**'
+      - 'g2b_feature_registry.py'
+      - 'g2b_feature_contract_core.py'
+      - 'g2b_feature_api.py'
       - 'n8n/admin-console/**'
       - 'tests/test_procurement_console_e2e.mjs'
+      - 'tests/test_public9_console_e2e.mjs'
+      - 'tests/test_public9_control.py'
+      - 'tests/test_public_original_104_bridge.py'
+      - 'tests/test_public_real_records.py'
       - 'tests/test_three_market_*'
       - '.github/workflows/procureflow-shared-studio.yml'
   workflow_dispatch:
@@ -27,15 +34,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F 'SHARED_STUDIO_COMMIT=9748e1159b107dbbb2c2fc0cbc67206939fbfdaf' n8n/Dockerfile.shared-studio-editor
+          grep -F 'SHARED_STUDIO_COMMIT=4bc637c4dd2a7adc4e99cedddca95f3d55649be2' n8n/Dockerfile.shared-studio-editor
           grep -F 'VITE_EDITOR_PROJECT=procurement' n8n/Dockerfile.shared-studio-editor
           grep -F 'STUDIO_WORKFLOW_DIR=procure-workflows' n8n/Dockerfile.shared-studio-editor
           grep -F 'python3 -u /app/studio_server.py' n8n/Dockerfile.shared-studio-editor
           if grep -E '(^FROM n8nio/n8n| n8n start|owner/setup|n8n import:workflow|user-management:reset|DB_POSTGRESDB)' n8n/Dockerfile.shared-studio-editor; then
             echo 'A n8n server or owner/DB mutation must not be included'; exit 1
           fi
+      - name: Validate public case manager JavaScript syntax
+        run: |
+          node --check n8n/admin-console/public-case.js
+          node --check n8n/admin-console/dashboard.js
+          node --check n8n/admin-console/public9.js
+      - name: Verify actual 9-node G2B workflow and scoped administrator-only real API proxy
+        run: python3 tests/test_public9_control.py
       - name: Three market Python adapter and exact native binding contracts (offline)
         run: python3 tests/test_three_market_strategy.py
+      - name: Verify original 104 production API actions and read-only PostgreSQL bridge offline
+        run: python3 tests/test_public_original_104_bridge.py
+      - name: Reject fake public source records and verify real opening/attachment read-only adapter
+        run: python3 tests/test_public_real_records.py
       - name: Build ONLY the same shared Vue Flow Studio used by investment
         shell: bash
         run: |
@@ -47,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/lyonbegin/shared-n8n-studio.git /tmp/shared-n8n-studio
-          git -C /tmp/shared-n8n-studio checkout --detach 9748e1159b107dbbb2c2fc0cbc67206939fbfdaf
+          git -C /tmp/shared-n8n-studio checkout --detach 4bc637c4dd2a7adc4e99cedddca95f3d55649be2
           container_id=$(docker create pf-shared-studio-only)
           mkdir -p /tmp/pf-workflows
           docker cp "$container_id:/app/dist/procure-workflows/." /tmp/pf-workflows/
@@ -67,11 +85,14 @@ jobs:
           curl -fsS http://127.0.0.1:3031/admin/index.html | grep -F '종합 운영 관제센터'
           curl -fsS http://127.0.0.1:3031/procure-manifest.json | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const m=JSON.parse(s);if(m.blocks.length!==43||m.engine!=="n8n_only")process.exit(1)})'
           curl -fsS http://127.0.0.1:3031/procure-workflows/fixture-scenarios.json | node -e 'let b="";process.stdin.on("data",x=>b+=x).on("end",()=>{const d=JSON.parse(b);if(!d.never_calls_official_api||d.scenarios.length!==10)process.exit(1)})'
+          curl -fsS http://127.0.0.1:3031/api/procurement/public9/catalog | python3 -c 'import json,sys;j=json.load(sys.stdin);assert j["business_nodes"]==9 and j["native_n8n_execution_connected"] is False'
+          curl -fsSI http://127.0.0.1:3031/ | grep -Fi 'X-Frame-Options: SAMEORIGIN'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/api/procurement/public9/prepare)" = 415
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3031/rest/owner/setup)" = 405
           # The shared Studio is an SPA: unknown GET routes render index.html, not n8n REST JSON.
           curl -fsS http://127.0.0.1:3031/rest/settings | grep -F '<div id="app"></div>'
           ! curl -fsS http://127.0.0.1:3031/rest/settings | grep -q 'showSetupOnFirstLoad'
-      - name: HTTP test all 22 market nodes via Python and SQLite transfers
+      - name: HTTP test original 43 public blocks plus B/C regression via Python and SQLite transfers
         shell: bash
         run: |
           set -euo pipefail
@@ -131,11 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           node tests/shared_studio_fixture_ui_e2e.mjs
-      - name: Chrome procurement full administration, market E2E and 104-feature coverage
+      - name: Chrome latest real G2B tender listing, 9-node editor, source DB job continuity
         shell: bash
         run: |
           set -euo pipefail
-          STUDIO_BASE=http://127.0.0.1:3031 node tests/test_procurement_console_e2e.mjs
+          STUDIO_BASE=http://127.0.0.1:3031 node tests/test_public9_console_e2e.mjs
       - name: Chrome investor-parity three market canvas + node actions
         shell: bash
         run: |

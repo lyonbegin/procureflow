@@ -1,0 +1,312 @@
+{
+  "name": "[1단계] 실공고 N01→N02 데이터 전달·조건분기 (실행 검증 전)",
+  "nodes": [
+    {
+      "id": "stage1-trigger",
+      "name": "▶ N01·N02 선택 공고 확인",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        300,
+        400
+      ],
+      "parameters": {},
+      "notes": "Studio의 편집용 원본입니다. n8n 엔진 배포·실행은 검증되지 않았으며 수집기나 Worker를 새로 실행하지 않습니다.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-n01",
+      "name": "N01 · 실제 PostgreSQL 공고 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        400
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://procureflow-n8n-native-canvas-production.up.railway.app/api/procurement/public9/stage1?status=all&limit=30&offset=0",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "notes": "실제 API JSON을 조회. 새로운 나라장터 크롤링이 아님. 선택 공고별 분기는 관리페이지의 selected_bid_no로 검증.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-n02",
+      "name": "N02 · 공식 식별 결과 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first().json;if(r.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(r.nodes)||r.nodes.length!==3)throw Error('ACTUAL_STAGE1_SOURCE_REQUIRED');const n01=r.nodes.find(x=>x.id==='N01'),n02=r.nodes.find(x=>x.id==='N02');if(!n01||!n02||JSON.stringify(n01.output.records)!==JSON.stringify(n02.input.records))throw Error('N01_N02_INPUT_OUTPUT_MISMATCH');return n02.output.tender_identifiers.map(x=>({json:{...x,origin:r.source,actual_collection_executed:r.crawler_executed,branch_verified:x.branch!=='unknown_unverified'}}));"
+      },
+      "notes": "원본 N01.output.records와 N02.input.records의 동등성 검사. 선택한 공고가 여러 개면 각 공고를 개별 분기.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-switch",
+      "name": "N02 조건 판단 · 실제 원본 상태",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1400,
+        400
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "new",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "amended",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "amended"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "cancelled",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancelled"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "notes": "new/amended/cancelled 각 출력 0/1/2, 미확인 기본 출력 3. 실제 데이터로 결정하지 못한 경우 임의 신규 판단 금지.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-new-detail",
+      "name": "N05 준비 · 상세 조회 후보",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,stage1_routed_to:\"N05_pending\",downstream_executed:false,manual_review_required:true}};"
+      },
+      "notes": "이 노드는 후속 작업을 실행하지 않고 분기된 입력을 기록함. 다음 단계 구현 범위 외.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-new-owner",
+      "name": "O01 준비 · 작업 소유 후보",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        170
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,stage1_routed_to:\"O01_pending\",downstream_executed:false,manual_review_required:true}};"
+      },
+      "notes": "이 노드는 후속 작업을 실행하지 않고 분기된 입력을 기록함. 다음 단계 구현 범위 외.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-amended",
+      "name": "PF13 · 정정 재검증 대기",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        360
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,stage1_routed_to:\"PF13_pending\",downstream_executed:false,manual_review_required:true}};"
+      },
+      "notes": "이 노드는 후속 작업을 실행하지 않고 분기된 입력을 기록함. 다음 단계 구현 범위 외.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-cancelled",
+      "name": "취소 · NO_BID 검토",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        540
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,stage1_routed_to:\"cancelled_hold\",downstream_executed:false,manual_review_required:true}};"
+      },
+      "notes": "이 노드는 후속 작업을 실행하지 않고 분기된 입력을 기록함. 다음 단계 구현 범위 외.",
+      "notesInFlow": true
+    },
+    {
+      "id": "stage1-unknown",
+      "name": "미확인 · HOLD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        720
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{...$json,stage1_routed_to:\"unverified_hold\",downstream_executed:false,manual_review_required:true}};"
+      },
+      "notes": "이 노드는 후속 작업을 실행하지 않고 분기된 입력을 기록함. 다음 단계 구현 범위 외.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "▶ N01·N02 선택 공고 확인": {
+      "main": [
+        [
+          {
+            "node": "N01 · 실제 PostgreSQL 공고 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N01 · 실제 PostgreSQL 공고 조회": {
+      "main": [
+        [
+          {
+            "node": "N02 · 공식 식별 결과 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N02 · 공식 식별 결과 검증": {
+      "main": [
+        [
+          {
+            "node": "N02 조건 판단 · 실제 원본 상태",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "N02 조건 판단 · 실제 원본 상태": {
+      "main": [
+        [
+          {
+            "node": "N05 준비 · 상세 조회 후보",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "O01 준비 · 작업 소유 후보",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PF13 · 정정 재검증 대기",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "취소 · NO_BID 검토",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "미확인 · HOLD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "real_data_only": true,
+    "requires_live_n8n_import": true,
+    "native_n8n_execution_verified": false,
+    "crawler_execution": false,
+    "worker_execution": false,
+    "scope": "PF01 stage 1 only",
+    "source": "existing PostgreSQL notice API"
+  }
+}

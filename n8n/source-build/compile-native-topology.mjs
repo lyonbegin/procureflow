@@ -54,16 +54,46 @@ function sortedAcyclic(ids,edges,label) {
   if(order.length!==ids.length)throw Error(label+': cyclic dependency');
   return order;
 }
-function combineCode(expectedIds,requiredInputs) {
-  const expected=JSON.stringify(expectedIds);
-  return "const all=$input.all().map(x=>x.json);"
-    +"if(all.length!=="+requiredInputs+")throw Error('Missing required dependency branch');"
-    +"const expected="+expected+";"
-    +"const records=new Map();"
-    +"for(const item of all){for(const rec of item.workflow_trace||[])records.set(rec.block_id,rec)}"
-    +"const base=all[0];const trace=[...records.values()].sort((a,b)=>expected.indexOf(a.block_id)-expected.indexOf(b.block_id));"
-    +"return [{json:{...base,workflow_trace:trace,previous_block:trace.at(-1)||null,dependency_join_verified:true}}];";
+function combineCode(orderedIds, upstreamIds) {
+  // n8n Merge/append only guarantees the number of incoming items.
+  // Reject two items from the SAME branch or a different bid/flow. Never
+  // translate "inputs joined" into "official evidence verified".
+  const order=JSON.stringify(orderedIds);
+  const needed=JSON.stringify(upstreamIds);
+  return [
+    "const all=$input.all().map(x=>x.json);",
+    "const expected="+needed+";const order="+order+";",
+    "if(all.length!==expected.length)throw Error('JOIN_MISSING_DEPENDENCY_ITEM');",
+    "const paths=new Map();let identity=null,flow=null;",
+    "for(const item of all){",
+    "if(!item||!Array.isArray(item.workflow_trace))throw Error('JOIN_INVALID_PROVENANCE');",
+    "const source=item.last_block||item.previous_block?.block_id;",
+    "if(!expected.includes(source)||paths.has(source))throw Error('JOIN_DUPLICATE_OR_UNEXPECTED_BRANCH');",
+    "const bid=item.case_id||item.bid_no;",
+    "if(typeof bid!=='string'||!bid)throw Error('JOIN_MISSING_CASE_ID');",
+    "const itemFlow=item.flow_id;",
+    "if(typeof itemFlow!=='string'||!itemFlow)throw Error('JOIN_MISSING_FLOW_ID');",
+    "if(identity!==null&&identity!==bid)throw Error('JOIN_CROSS_CASE');",
+    "if(flow!==null&&flow!==itemFlow)throw Error('JOIN_CROSS_FLOW');",
+    "identity=bid;flow=itemFlow;",
+    "const current=item.workflow_trace.findLast(r=>r?.block_id===source);",
+    "if(!current||!Object.prototype.hasOwnProperty.call(current,'output'))throw Error('JOIN_MISSING_BLOCK_OUTPUT');",
+    "paths.set(source,{item,record:current});",
+    "}",
+    "for(const id of expected)if(!paths.has(id))throw Error('JOIN_MISSING_REQUIRED_BRANCH_'+id);",
+    "const records=new Map();",
+    "for(const {item} of paths.values())for(const r of item.workflow_trace){",
+    "if(!r||typeof r.block_id!=='string')throw Error('JOIN_INVALID_BLOCK_TRACE');",
+    "if(records.has(r.block_id)&&JSON.stringify(records.get(r.block_id))!==JSON.stringify(r))throw Error('JOIN_INCONSISTENT_SHARED_ANCESTRY');",
+    "records.set(r.block_id,r);",
+    "}",
+    "const base=paths.get(expected[0]).item;",
+    "const trace=[...records.values()].sort((a,b)=>order.indexOf(a.block_id)-order.indexOf(b.block_id));",
+    "const inputs=Object.fromEntries(expected.map(id=>[id,paths.get(id).record.output]));",
+    "return [{json:{...base,workflow_trace:trace,previous_block:null,last_block:null,dependency_inputs:inputs,dependency_source_blocks:expected,dependency_input_case_id:identity,dependency_input_flow_id:flow,dependency_join_complete:true,dependency_evidence_verified:false}}];"
+  ].join('');
 }
+
 function enhanceFlow(w,f) {
   const ids=f.owned_blocks;
   if(!ids.length) {
@@ -105,7 +135,7 @@ function enhanceFlow(w,f) {
     const mergeName='합류 '+id+' · 모든 선행 분기';
     const aggName='검증 '+id+' · 분기 결과 합치기';
     const merge=mergeNode(mergeName,incoming[id].length,1760+idx*450,670);
-    const agg=codeNode(aggName,combineCode(ids,incoming[id].length),1920+idx*450,670);
+    const agg=codeNode(aggName,combineCode(ids,incoming[id]),1920+idx*450,670);
     w.nodes.push(merge,agg);
     incoming[id].forEach((from,n)=>link(old,nameOf[from],mergeName,0,n));
     link(old,mergeName,aggName);
@@ -115,11 +145,28 @@ function enhanceFlow(w,f) {
   else {
     joins++;
     const m=mergeNode('합류 종료 · 모든 업무 블록 완료',terminals.length,4700,660);
-    const a=codeNode('검증 종료 · 분기 기록 병합',combineCode(ids,terminals.length),4940,660);
+    const a=codeNode('검증 종료 · 분기 기록 병합',combineCode(ids,terminals),4940,660);
     w.nodes.push(m,a);
     terminals.forEach((id,i)=>link(old,nameOf[id],m.name,0,i));
     link(old,m.name,a.name);
     link(old,a.name,final);
+  }
+  if(f.id==='PF05') {
+    // H07 must consume the two real upstream output objects plus the H02
+    // search window. A single previous_block is NOT a valid H07 input.
+    const h07=w.nodes.find(n=>n.name.startsWith('H07 · '));
+    if(!h07)throw Error('PF05 H07 block not found');
+    h07.parameters.jsCode=[
+      "const prev=$input.first().json;",
+      "const inputs=prev.dependency_inputs;",
+      "if(!prev.dependency_join_complete||!inputs||!Object.prototype.hasOwnProperty.call(inputs,'H05')||!Object.prototype.hasOwnProperty.call(inputs,'H06'))throw Error('H07_REQUIRED_INPUTS_MISSING');",
+      "if(prev.dependency_input_case_id!==(prev.case_id||prev.bid_no))throw Error('H07_CASE_ID_MISMATCH');",
+      "const windows=prev.workflow_trace.find(r=>r.block_id==='H02');",
+      "if(!windows||!Object.prototype.hasOwnProperty.call(windows,'output'))throw Error('H07_SEARCH_WINDOWS_MISSING');",
+      "const block=prev.blocks.find(b=>b.id==='H07');if(!block)throw Error('H07_CONTRACT_MISSING');",
+      "const record={block_id:'H07',name:block.name,input:{contract:block.input,upstream:{opening_and_bidders:inputs.H05,awards:inputs.H06,search_windows:windows.output},official_bid_no:prev.case_id||prev.bid_no},output:block.output_value,downstream:block.next_blocks,features:block.features.map(f=>({no:f.feature_no,state:f.acceptance,missing:f.missing_gates})),business_status:block.status,actual_job_executed:false,source_block_ids:['H05','H06','H02']};",
+      "return [{json:{...prev,workflow_trace:[...prev.workflow_trace,record],previous_block:record,last_block:'H07',dependency_join_complete:true,dependency_evidence_verified:false}}];"
+    ].join('');
   }
   // Two entry points, manual and true n8n parent Execute Sub-workflow Trigger.
   const init=w.nodes.find(n=>n.name.startsWith('01 · 발주번호'));
