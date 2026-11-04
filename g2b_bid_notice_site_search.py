@@ -412,7 +412,8 @@ def _dismiss_public_notices(page):
                 const safe=active.length===0 && modal &&
                     modal.classList.contains('w2modal_popup');
                 if(safe)modal.style.pointerEvents='none';
-                return {windows:active.length,release:!!safe};
+                return {windows:active.length,release:!!safe,
+                  titles:active.slice(0,5).map(e=>(e.innerText||'').trim().slice(0,90))};
             }""")
             logging.warning("FRESH_G2B_RESIDUAL_MODAL %s",
                 json.dumps(status,ensure_ascii=False))
@@ -664,6 +665,8 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 raise
             stage="fill_code_and_dates"
             _fill_search_fields(tab,w)
+            _dismiss_public_notices(tab)
+            tab.wait_for_timeout(1600)
             _dismiss_public_notices(tab)
             stage="submit_search"
             # Require an actual site search button and form submission.
