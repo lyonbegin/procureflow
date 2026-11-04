@@ -163,7 +163,7 @@ def search_one_page(detail10: str, start: str, end: str, cursor: str | None = No
                 pending.append(row)
         else:
             rejected[reason]=rejected.get(reason,0)+1
-    if len(items)>page_size or page*page_size-len(items)>total:
+    if len(items)>page_size or (page-1)*page_size+len(items)>total:
         return {**metadata,"status":"blocked_inconsistent_official_pagination",
             "api_requests":1,"matched":[],"unverified_candidates":[],
             "official_total":total,"next":None}
