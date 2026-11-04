@@ -62,8 +62,8 @@ class FreshTest(unittest.TestCase):
         self.assertNotIn("229건",html)
 
     def test_fresh_only_env_var(self):
-        self.assertEqual(store.dsn.__code__.co_consts[-1],"FRESH_DATABASE_URL_MISSING"
-                         if False else store.dsn.__code__.co_consts[-1]) # no secret logging
-        self.assertIn("FRESH_DATABASE_URL",(Path(__file__).parent/"fresh_g2b_store.py").read_text())
+        self.assertIn("FRESH_DATABASE_URL",
+            (Path(__file__).parent/"fresh_g2b_store.py").read_text())
+
 
 if __name__=="__main__":unittest.main(verbosity=2)
