@@ -37,7 +37,9 @@ def _official_response(document):
     if str(header.get("resultCode", "")) not in ("00", "0"):
         # Do not persist a raw message; it may contain request data.
         raise ValueError("OFFICIAL_SEARCH_REJECTED_CODE_" + str(header.get("resultCode", ""))[:8])
-    body = envelope.get("body") or {}
+    body = envelope.get("body")
+    if not isinstance(body,dict) or "totalCount" not in body:
+        raise ValueError("OFFICIAL_SEARCH_BODY_OR_TOTAL_MISSING")
     raw = body.get("items") or []
     if isinstance(raw, dict):
         raw = raw.get("item") or []
@@ -163,6 +165,14 @@ def search_one_page(detail10: str, start: str, end: str, cursor: str | None = No
                 pending.append(row)
         else:
             rejected[reason]=rejected.get(reason,0)+1
+    # A returned record with another explicit 10-digit category proves
+    # the upstream API did not honor the requested exact detail filter.
+    # Reject the response instead of silently client-filtering a broad crawl.
+    if rejected.get("rejected_wrong_detail10",0):
+        return {**metadata,"status":"blocked_official_filter_not_respected",
+            "api_requests":1,"matched":[],"unverified_candidates":[],
+            "official_total":total,"next":None,
+            "reason":"OFFICIAL_RESPONSE_HAS_DIFFERENT_DETAIL10"}
     if len(items)>page_size or (page-1)*page_size+len(items)>total:
         return {**metadata,"status":"blocked_inconsistent_official_pagination",
             "api_requests":1,"matched":[],"unverified_candidates":[],
