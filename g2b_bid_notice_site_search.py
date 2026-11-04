@@ -145,7 +145,15 @@ def _click_label(page,labels,action="click"):
 
 
 def _field_from_label(page,labels):
-    """Discover input by its ACTUAL adjacent label/ID rather than guessing."""
+    """Prefer the actual observed G2B detail-number input in the visible tab."""
+    if "세부품명번호" in labels:
+        for frame in _frames(page):
+            try:
+                shown=frame.locator('input[id*="dtlsPrnmNo"]:visible:not([disabled]):not([readonly])')
+                if shown.count():
+                    return frame,shown.first
+            except Exception:
+                pass
     js=r"""(labels)=>{
       const norm=s=>(s||'').replace(/\s+/g,'').replace(/[:：]/g,'').trim();
       const wanted=labels.map(norm);
@@ -395,6 +403,11 @@ def _safe_search_screen_diagnostic(tab):
               return {title:(document.title||'').slice(0,90),
                 bodyText:(document.body?.innerText||'').slice(-550),
                 fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,8),
+                inputOptions:[...document.querySelectorAll('input[id*="dtlsPrnmNo"]')].slice(0,18)
+                  .map(e=>({id:e.id,visible:!!e.getClientRects().length,disabled:e.disabled,readonly:e.readOnly})),
+                detailControls:[...document.querySelectorAll('a,button,input[type=button],[role=button]')]
+                  .filter(e=>/상세|검색조건|펼침/.test((e.innerText||'')+' '+(e.title||'')+' '+(e.value||'')))
+                  .slice(0,14).map(e=>({id:e.id||'',tag:e.tagName,text:((e.innerText||e.title||e.value||'')+'').slice(0,45),visible:!!e.getClientRects().length})),
                 targetRows:[...document.querySelectorAll('label,th,span,td')].filter(e=>(e.textContent||'').replace(/\s+/g,'').trim()==='세부품명번호').slice(0,4).map(e=>{
                    const root=e.closest('tr')||e.parentElement?.parentElement;
                    const xs=root?[...root.querySelectorAll('input')].slice(0,7):[];
@@ -414,6 +427,8 @@ def _safe_search_screen_diagnostic(tab):
                             "title":nodes.get("title"),
                             "body":nodes.get("bodyText"),
                             "fieldNames":nodes.get("fieldNames",[]),
+                            "inputOptions":nodes.get("inputOptions",[]),
+                            "detailControls":nodes.get("detailControls",[]),
                             "targetRows":nodes.get("targetRows",[]),
                             "controls":nodes.get("controls",[])})
         except Exception as exc:
