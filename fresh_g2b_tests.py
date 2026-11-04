@@ -128,6 +128,20 @@ class FreshTest(unittest.TestCase):
         self.assertTrue(rows[0]["official_filter_verified"])
         self.assertEqual(rows[0]["posted_on"],"2026-10-27")
 
+    def test_server_rendered_public_notice_page_shows_real_db_items(self):
+        from fresh_g2b_api import live_notices
+        fake=[{"bid_no":"R26BM01022088","bid_ord":"000",
+               "title":"원격교육연수 이수자 정보관리시스템 고도화",
+               "agency":"조달청 대구지방조달청","category_verified":False,
+               "posted_on":None}]
+        with patch.object(store,"recent_notices",return_value=fake):
+            page=live_notices()
+        html=page.body.decode("utf-8")
+        self.assertIn("신규 DB 1건",html)
+        self.assertIn("R26BM01022088",html)
+        self.assertIn("원격교육연수",html)
+        self.assertIn("상세 분류 확인 대기",html)
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
