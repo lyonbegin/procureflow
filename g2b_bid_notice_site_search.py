@@ -377,7 +377,19 @@ def _click_notice_search(page):
                 try:
                     button.first.click(timeout=2500)
                 except Exception as exc:
-                    logging.warning("FRESH_G2B_MAIN_SEARCH_POINTER %s",type(exc).__name__)
+                    diagnostic=frame.evaluate("""() => {
+                      const b=[...document.querySelectorAll('input[id$="btnS0004"]')]
+                        .find(e=>e.getClientRects().length>0);
+                      if(!b)return {button_missing:true};
+                      const r=b.getBoundingClientRect();
+                      const top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                      return {button:b.id,topId:(top?.id||'').slice(0,110),
+                        topTag:top?.tagName||'',topClass:(""+(top?.className||'')).slice(0,110),
+                        topText:(top?.innerText||top?.title||'').slice(0,110),
+                        overlay:top!==b};
+                    }""")
+                    logging.warning("FRESH_G2B_MAIN_SEARCH_POINTER %s %s",
+                      type(exc).__name__,json.dumps(diagnostic,ensure_ascii=False))
                     button.first.click(force=True,timeout=2500)
                 return True
         except Exception as exc:
