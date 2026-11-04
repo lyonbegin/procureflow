@@ -120,6 +120,39 @@ def request_has_filter(post, detail10, start, end):
     return all(d in compact for d in dates)
 
 
+def _verified_date_replay(original, detail10, start, end):
+    """Patch only dates in an observed official bid-list POST.
+
+    Never manufacture a search endpoint, replace the category code, or replay
+    if the originating WebSquare request fails identity validation.
+    """
+    url=urlparse(original.url)
+    if (url.scheme!="https" or url.hostname!=G2B_HOST or
+        url.path!="/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do" or
+        original.method!="POST"):
+        raise SearchBlocked("OFFICIAL_POST_ENDPOINT_NOT_OBSERVED")
+    try:
+        envelope=json.loads(original.post_data)
+        original_fields=envelope["dlBidPbancLstM"]
+    except (ValueError,TypeError,KeyError):
+        raise SearchBlocked("OFFICIAL_POST_JSON_SCHEMA_NOT_OBSERVED") from None
+    if not isinstance(original_fields,dict):
+        raise SearchBlocked("OFFICIAL_POST_FIELDS_INVALID")
+    if str(original_fields.get("dtlsPrnmNo") or "")!=detail10:
+        raise SearchBlocked("OFFICIAL_POST_EXACT10_NOT_VERIFIED")
+    if not all(re.fullmatch(r"20[0-9]{6}",str(original_fields.get(key) or ""))
+               for key in ("fromBidDt","toBidDt")):
+        raise SearchBlocked("OFFICIAL_POST_DATE_KEYS_NOT_VERIFIED")
+    patched=json.loads(json.dumps(envelope))
+    fields=patched["dlBidPbancLstM"]
+    fields["fromBidDt"]=start.replace("-","")
+    fields["toBidDt"]=end.replace("-","")
+    payload=json.dumps(patched,ensure_ascii=False,separators=(",",":"))
+    if not request_has_filter(payload,detail10,start,end):
+        raise SearchBlocked("OFFICIAL_POST_DATE_PATCH_NOT_VERIFIED")
+    return payload
+
+
 def _frames(page):
     # Site may use WebSquare iframes or a root document.
     return [f for f in page.frames if not f.is_detached()]
@@ -622,6 +655,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             requests=[]
             responses=[]
             observed_posts=[]
+            date_replay_candidates=[]
             def on_request(req):
                 parsed=urlparse(req.url)
                 if (parsed.hostname==G2B_HOST and req.method=="POST"
@@ -653,6 +687,9 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                         "has_start":w["start"].replace("-","") in re.sub(r"[^0-9]","",raw),
                         "has_end":w["end"].replace("-","") in re.sub(r"[^0-9]","",raw),
                         "date_fields":date_evidence[:16]})
+                    if (parsed.path=="/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+                            and detail10 in raw):
+                        date_replay_candidates.append(req)
                     if request_has_filter(req.post_data,detail10,w["start"],w["end"]):
                         requests.append({"url":req.url.split("?")[0],"request":req})
             def on_response(r):
@@ -698,7 +735,23 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 raise SearchBlocked("BID_NOTICE_SEARCH_BUTTON_NOT_FOUND")
             stage="await_verified_request"
             tab.wait_for_timeout(2500)
-            if not requests:
+            corrected_response=None
+            if not requests and date_replay_candidates:
+                original=date_replay_candidates[-1]
+                payload=_verified_date_replay(original,detail10,w["start"],w["end"])
+                # Browser navigation supplied the authentic submission headers.
+                # Playwright APIRequestContext shares this browser's cookie jar.
+                allowed={"accept","content-type","menu-info","submissionid",
+                         "usr-id","referer","x-requested-with"}
+                headers={k:v for k,v in original.headers.items()
+                         if k.lower() in allowed}
+                headers["Content-Type"]="application/json;charset=UTF-8"
+                corrected_response=context.request.post(
+                    original.url.split("?")[0],data=payload,
+                    headers=headers,timeout=35000)
+                if corrected_response.status!=200:
+                    raise SearchBlocked("OFFICIAL_DATE_REPLAY_HTTP_"+str(corrected_response.status))
+            if not requests and corrected_response is None:
                 import logging
                 logging.warning("FRESH_G2B_SEARCH_DIALOGS %s",json.dumps(dialogs[-8:],ensure_ascii=False))
                 logging.warning("FRESH_G2B_SEARCH_POST_DIAG %s",
@@ -713,10 +766,10 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             # Only the selected window + page may be accepted.
             matched_responses=[r for r in responses if request_has_filter(
                 r.request.post_data,detail10,w["start"],w["end"])]
-            if not matched_responses:
+            if not matched_responses and corrected_response is None:
                 raise SearchBlocked("BID_NOTICE_SEARCH_RESPONSE_NOT_CAPTURED")
             stage="verify_response"
-            last=matched_responses[-1]
+            last=corrected_response if corrected_response is not None else matched_responses[-1]
             if last.status!=200:
                 raise SearchBlocked("BID_NOTICE_SEARCH_HTTP_"+str(last.status))
             try:
