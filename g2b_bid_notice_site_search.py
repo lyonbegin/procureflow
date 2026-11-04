@@ -132,11 +132,12 @@ def _click_label(page,labels,action="click"):
                             frame.get_by_role("button",name=label,exact=True),
                             frame.get_by_text(label,exact=True)):
                 try:
-                    if locator.count():
-                        loc=locator.first
+                    for index in range(min(locator.count(),10)):
+                        loc=locator.nth(index)
+                        if not loc.is_visible():continue
                         if action=="hover":loc.hover(timeout=1200)
                         else:loc.click(timeout=1400)
-                        page.wait_for_timeout(550)
+                        page.wait_for_timeout(750)
                         return True
                 except Exception:
                     continue
@@ -148,7 +149,7 @@ def _field_from_label(page,labels):
     js=r"""(labels)=>{
       const norm=s=>(s||'').replace(/\s+/g,'').replace(/[:：]/g,'').trim();
       const wanted=labels.map(norm);
-      const inputs=[...document.querySelectorAll('input:not([type=hidden]),textarea')];
+      const inputs=[...document.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea')];
       for(const input of inputs){
         if(!input.id || input.disabled || input.readOnly)continue;
         const name=[input.getAttribute('aria-label'),input.getAttribute('title'),
@@ -158,12 +159,18 @@ def _field_from_label(page,labels):
       const nodes=[...document.querySelectorAll('label,th,td,span,strong,div')];
       for(const node of nodes){
         if(!wanted.some(w=>norm(node.textContent)===w))continue;
+        if(node.tagName==='LABEL' && node.htmlFor){
+          const linked=document.getElementById(node.htmlFor);
+          if(linked && linked.id && !linked.disabled && !linked.readOnly &&
+              !['button','hidden','submit','checkbox','radio'].includes(linked.type))
+            return linked.id;
+        }
         const candidates=[node,node.nextElementSibling,node.parentElement,
           node.parentElement?.nextElementSibling,node.parentElement?.parentElement,
-          node.parentElement?.parentElement?.nextElementSibling];
+          node.parentElement?.parentElement?.nextElementSibling,node.closest('tr')];
         for(const parent of candidates){
           if(!parent)continue;
-          const matches=[...parent.querySelectorAll('input:not([type=hidden]),textarea')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
+          const matches=[...parent.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
           if(matches.length===1)return matches[0].id;
         }
       }
@@ -183,7 +190,7 @@ def _date_field_group(page):
     """Identify two date inputs belonging to the G2B notice-posted-date row."""
     js=r"""()=>{
        const norm=s=>(s||'').replace(/\s+/g,'').trim();
-       const keys=['공고게시일','공고일자','공고게시일자','공고게시기간'];
+       const keys=['공고게시일','공고일자','공고게시일자','공고게시기간','공고/개찰일자','공고·개찰일자'];
        const els=[...document.querySelectorAll('th,td,label,span')];
        for(const el of els){
           if(!keys.some(k=>norm(el.textContent)===k))continue;
@@ -191,7 +198,7 @@ def _date_field_group(page):
                        el.parentElement?.nextElementSibling];
           for(const root of roots){
              if(!root)continue;
-             const inputs=[...root.querySelectorAll('input:not([type=hidden])')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
+             const inputs=[...root.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio])')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
              if(inputs.length>=2 && inputs.length<=4)return inputs.slice(0,2).map(e=>e.id);
           }
        }
@@ -232,34 +239,96 @@ def _fill_search_fields(page,w):
     return True
 
 
-def _navigate(page):
-    # No hardcoded fake bid-list endpoint. A real, visible input is mandatory.
-    if _field_from_label(page,DETAIL_LABELS)[1] is not None:
-        return
-    for names in (("입찰",),("입찰공고",),("입찰공고목록","입찰공고 목록"),
-                  ("입찰공고 검색","입찰공고조회","공고현황")):
-        _click_label(page,names,action="hover")
-        _click_label(page,names,action="click")
-        page.wait_for_timeout(800)
-        if _field_from_label(page,DETAIL_LABELS)[1] is not None:
-            return
-    _click_label(page,("상세조건","상세검색","검색조건","상세조건 검색"),action="click")
-    if _field_from_label(page,DETAIL_LABELS)[1] is None:
+def _wait_for_site_rendered(page, timeout_ms=16000):
+    """Allow slow official WebSquare boot before menu discovery.
+
+    Rendering is NOT proof of a valid search: all exact-10 request/response
+    validations remain mandatory. No response payload or secrets are logged.
+    """
+    elapsed=0
+    while elapsed<=timeout_ms:
         try:
-            # Official homepage can return a valid page title but empty
-            # WebSquare body in the Railway headless environment.
-            empty=page.evaluate("""() => {
-              const body=(document.body?.innerText||'').trim();
-              const controls=document.querySelectorAll('input,button,a').length;
-              return !body && controls===0;
-            }""")
-            if empty:
-                raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY")
-        except SearchBlocked:
-            raise
+            for frame in _frames(page):
+                if urlparse(frame.url).hostname not in (G2B_HOST,"g2b.go.kr"):
+                    continue
+                ready=frame.evaluate("""() => ({
+                    state: document.readyState,
+                    text: (document.body?.innerText || '').trim().length,
+                    controls: document.querySelectorAll('input,button,a,[role=button],[role=link]').length
+                })""")
+                if ready.get("state") in ("interactive","complete") and (
+                    ready.get("text",0)>0 or ready.get("controls",0)>0
+                ):
+                    return True
         except Exception:
+            # Frame navigation during WebSquare boot is transient.
             pass
-        raise SearchBlocked("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND")
+        if elapsed>=timeout_ms:
+            break
+        page.wait_for_timeout(min(500,timeout_ms-elapsed))
+        elapsed+=min(500,timeout_ms-elapsed)
+    return False
+
+
+def _wait_for_exact10_field(page, timeout_ms=12000):
+    elapsed=0
+    while elapsed<=timeout_ms:
+        if _field_from_label(page,DETAIL_LABELS)[1] is not None:
+            return True
+        if elapsed>=timeout_ms:
+            break
+        page.wait_for_timeout(600)
+        elapsed+=600
+    return False
+
+
+def _official_menu_click(page, labels):
+    """Use the observed G2B GNB DOM ids; never guess a request endpoint."""
+    script=r"""(target)=>{
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const els=[...document.querySelectorAll('a,button,[role="button"]')];
+      const hits=els.filter(e=>norm(e.textContent)===target);
+      const sorted=hits.map(e=>{
+        const id=e.id||'';
+        const visible=e.getClientRects().length>0;
+        const score=(id.includes('gnbMenu')?50:0)+(id.includes('genMenu')?25:0)
+          +(visible?15:0)+(id.includes('btn_menuLvl')?10:0);
+        return {e,score};
+      }).sort((a,b)=>b.score-a.score);
+      if(!sorted.length)return false;
+      sorted[0].e.click();
+      return true;
+    }"""
+    for retry in range(16):
+        for frame in _frames(page):
+            for label in labels:
+                try:
+                    if frame.evaluate(script,label):
+                        page.wait_for_timeout(950)
+                        return True
+                except Exception:
+                    continue
+        if retry==7:
+            _click_label(page,("사이트맵","전체메뉴"))
+        page.wait_for_timeout(350)
+    return False
+
+
+def _navigate(page):
+    """Reach the real public notice list, then open advanced 10-digit criteria."""
+    if _wait_for_exact10_field(page,1500):
+        return
+    for names in (("입찰",),("입찰공고",),("입찰공고목록", "입찰공고 목록")):
+        if not _official_menu_click(page,names):
+            raise SearchBlocked("G2B_NOTICE_MENU_MISSING_"+str(len(names)))
+    if _wait_for_exact10_field(page,2500):
+        return
+    if not (_click_label(page,("상세조건","상세검색","상세조건 펼침")) or
+            _official_menu_click(page,("상세조건",))):
+        raise SearchBlocked("G2B_NOTICE_DETAIL_TOGGLE_NOT_FOUND")
+    if not _wait_for_exact10_field(page,12000):
+        raise SearchBlocked("G2B_NOTICE_EXACT10_FIELD_NOT_RENDERED")
+
 
 
 def _response_records(document):
@@ -324,8 +393,15 @@ def _safe_search_screen_diagnostic(tab):
             nodes=frame.evaluate(r"""()=>{
               const xs=[...document.querySelectorAll('a,button,input,label,[role=link],[role=button]')];
               return {title:(document.title||'').slice(0,90),
-                bodyText:(document.body?.innerText||'').slice(0,230),
-                controls:xs.slice(0,65).map(e=>({
+                bodyText:(document.body?.innerText||'').slice(-550),
+                fieldNames:[...document.querySelectorAll('label,th,span')].map(e=>(e.innerText||'').trim()).filter(s=>/세부품명|상세조건|공고.개찰일자/.test(s)).slice(0,8),
+                targetRows:[...document.querySelectorAll('label,th,span,td')].filter(e=>(e.textContent||'').replace(/\s+/g,'').trim()==='세부품명번호').slice(0,4).map(e=>{
+                   const root=e.closest('tr')||e.parentElement?.parentElement;
+                   const xs=root?[...root.querySelectorAll('input')].slice(0,7):[];
+                   return {tag:e.tagName,htmlFor:e.htmlFor||'',parent:e.parentElement?.tagName||'',inputCount:xs.length,
+                     inputs:xs.map(x=>({id:x.id||'',type:x.type||'',name:x.name||'',visible:!!x.getClientRects().length,disabled:x.disabled}))};
+                }),
+                controls:xs.filter(e=>e.tagName==='INPUT'||e.tagName==='LABEL'||e.tagName==='BUTTON').slice(0,8).map(e=>({
                     tag:e.tagName,
                     text:(e.tagName==='INPUT'?'':(e.innerText||e.title||'')).trim().slice(0,55),
                     type:e.getAttribute('type')||'',
@@ -337,6 +413,8 @@ def _safe_search_screen_diagnostic(tab):
             details.append({"path":urlparse(frame.url).path[:130],
                             "title":nodes.get("title"),
                             "body":nodes.get("bodyText"),
+                            "fieldNames":nodes.get("fieldNames",[]),
+                            "targetRows":nodes.get("targetRows",[]),
                             "controls":nodes.get("controls",[])})
         except Exception as exc:
             # Only public page path and single-line exception category/message;
@@ -386,6 +464,12 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.on("response",on_response)
             tab=context.new_page()
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
+            if not _wait_for_site_rendered(tab):
+                import logging
+                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN_LIVE %s",
+                  json.dumps(_safe_search_screen_diagnostic(tab),
+                    ensure_ascii=False,default=str)[:5500])
+                raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT")
             try:
                 _navigate(tab)
             except SearchBlocked:
@@ -446,15 +530,6 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
     except SearchBlocked as exc:
         output["reason"]=exc.reason
         output["search_request_verified"]=False
-        if exc.reason in ("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND",
-                          "BID_NOTICE_EXACT10_FIELD_NOT_FOUND"):
-            try:
-                import logging
-                diagnostic=_safe_search_screen_diagnostic(tab)
-                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN %s",
-                    json.dumps(diagnostic,ensure_ascii=False)[:5500])
-            except Exception:
-                pass
     except Exception as exc:
         output["reason"]="G2B_UI_RUNTIME_"+type(exc).__name__
         output["search_request_verified"]=False
