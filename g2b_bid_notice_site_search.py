@@ -299,6 +299,35 @@ def _response_records(document):
     return out,total
 
 
+def _safe_search_screen_diagnostic(tab):
+    """Read PUBLIC DOM structure only, never credentials/cookies/input values."""
+    details=[]
+    for frame in list(tab.frames)[:8]:
+        if frame.is_detached():continue
+        try:
+            host=urlparse(frame.url).hostname
+            if host not in (G2B_HOST,"g2b.go.kr"):continue
+            nodes=frame.evaluate(r"""()=>{
+              const xs=[...document.querySelectorAll('a,button,input,label,[role=link],[role=button]')];
+              return {title:(document.title||'').slice(0,90),
+                bodyText:(document.body?.innerText||'').slice(0,230),
+                controls:xs.slice(0,65).map(e=>({
+                    tag:e.tagName,
+                    text:(e.tagName==='INPUT'?'':(e.innerText||e.title||'')).trim().slice(0,55),
+                    type:e.getAttribute('type')||'',
+                    aria:e.getAttribute('aria-label')||'',
+                    placeholder:e.getAttribute('placeholder')||''
+                  }))
+              }
+            }""")
+            details.append({"path":urlparse(frame.url).path[:130],
+                            "title":nodes.get("title"),
+                            "body":nodes.get("bodyText"),
+                            "controls":nodes.get("controls",[])})
+        except Exception as exc:
+            details.append({"error_type":type(exc).__name__})
+    return details
+
 def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
     """One PUBLIC real website search. No external result data is fabricated."""
     w=search_window(detail10,start,end,cursor,page)
@@ -385,6 +414,15 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
     except SearchBlocked as exc:
         output["reason"]=exc.reason
         output["search_request_verified"]=False
+        if exc.reason in ("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND",
+                          "BID_NOTICE_EXACT10_FIELD_NOT_FOUND"):
+            try:
+                import logging
+                diagnostic=_safe_search_screen_diagnostic(tab)
+                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN %s",
+                    json.dumps(diagnostic,ensure_ascii=False)[:5500])
+            except Exception:
+                pass
     except Exception as exc:
         output["reason"]="G2B_UI_RUNTIME_"+type(exc).__name__
         output["search_request_verified"]=False
