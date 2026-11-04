@@ -208,3 +208,67 @@ def explicitly_confirmed_winner(data):
     return {"status":"explicit_final_confirmed","company":name,"amount":amount,
             "source_sha256":sha256(json.dumps({"info":info,"etc":etc,"offer":offer},
                         sort_keys=True,ensure_ascii=False,default=str).encode()).hexdigest()}
+
+
+def probe_public_ui():
+    """Capture only non-secret, public UI labels to diagnose G2B navigation.
+
+    Records no cookies, form values, headers, identities or login state.
+    Does NOT infer that a search or 10-digit field was verified.
+    """
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+        cx=browser.new_context(locale="ko-KR",timezone_id="Asia/Seoul")
+        tab=cx.new_page()
+        try:
+            r=tab.goto(G2B,wait_until="domcontentloaded",timeout=35000)
+            tab.wait_for_timeout(2200)
+            def snapshot(label):
+                fdata=[]
+                for fr in tab.frames[:14]:
+                    host=urlparse(fr.url).hostname or ""
+                    if host and not host.endswith("g2b.go.kr"):continue
+                    try:
+                        safe=fr.evaluate(r"""()=>{
+                          const visible=e=>!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length);
+                          const items=[...document.querySelectorAll('a,button,[role=button],label,input,select')];
+                          return {
+                            title:document.title,
+                            body_excerpt:(document.body?.innerText||'').slice(0,900),
+                            links:items.filter(e=>visible(e)&&e.tagName!=='INPUT'&&e.tagName!=='SELECT')
+                              .slice(0,150).map(e=>({tag:e.tagName,text:(e.innerText||e.getAttribute('aria-label')||
+                                    e.getAttribute('title')||'').trim().slice(0,60)}))
+                              .filter(e=>e.text),
+                            fields:items.filter(e=>visible(e)&&(e.tagName==='INPUT'||e.tagName==='SELECT'))
+                              .slice(0,35).map(e=>({tag:e.tagName,id:e.id.slice(0,60),
+                                name:(e.getAttribute('name')||'').slice(0,60),
+                                placeholder:(e.getAttribute('placeholder')||'').slice(0,60)}))
+                          }
+                        }""")
+                    except Exception as ex:
+                        safe={"reason":type(ex).__name__}
+                    fdata.append({"path":urlparse(fr.url).path[:100],"data":safe})
+                return {"step":label,"http_status":r.status if r else None,
+                        "page_path":urlparse(tab.url).path[:100],"frames":fdata}
+            before=snapshot("homepage")
+            clicked=[]
+            for names in (("전체메뉴 열기","전체메뉴","전체 메뉴","전체메뉴보기"),
+                          ("입찰공고 목록","입찰공고목록","입찰공고 조회","입찰공고")):
+                ok=False
+                for name in names:
+                    for fr in tab.frames[:14]:
+                        try:
+                            loc=fr.get_by_text(name,exact=True)
+                            if loc.count():
+                                loc.first.click(timeout=1600)
+                                ok=True;break
+                        except Exception:continue
+                    if ok:break
+                clicked.append({"candidates":names,"clicked":ok})
+                if ok:tab.wait_for_timeout(1200)
+            after=snapshot("after_menu_navigation")
+            return {"website":"www.g2b.go.kr","stages":[before,after],
+                    "attempts":clicked,"search_verified":False}
+        finally:
+            cx.close();browser.close()
