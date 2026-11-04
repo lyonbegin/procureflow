@@ -232,6 +232,37 @@ def _fill_search_fields(page,w):
     return True
 
 
+def _wait_for_site_rendered(page, timeout_ms=16000):
+    """Allow slow official WebSquare boot before menu discovery.
+
+    Rendering is NOT proof of a valid search: all exact-10 request/response
+    validations remain mandatory. No response payload or secrets are logged.
+    """
+    elapsed=0
+    while elapsed<=timeout_ms:
+        try:
+            for frame in _frames(page):
+                if urlparse(frame.url).hostname not in (G2B_HOST,"g2b.go.kr"):
+                    continue
+                ready=frame.evaluate("""() => ({
+                    state: document.readyState,
+                    text: (document.body?.innerText || '').trim().length,
+                    controls: document.querySelectorAll('input,button,a,[role=button],[role=link]').length
+                })""")
+                if ready.get("state") in ("interactive","complete") and (
+                    ready.get("text",0)>0 or ready.get("controls",0)>0
+                ):
+                    return True
+        except Exception:
+            # Frame navigation during WebSquare boot is transient.
+            pass
+        if elapsed>=timeout_ms:
+            break
+        page.wait_for_timeout(min(500,timeout_ms-elapsed))
+        elapsed+=min(500,timeout_ms-elapsed)
+    return False
+
+
 def _navigate(page):
     # No hardcoded fake bid-list endpoint. A real, visible input is mandatory.
     if _field_from_label(page,DETAIL_LABELS)[1] is not None:
@@ -386,6 +417,12 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.on("response",on_response)
             tab=context.new_page()
             tab.goto(G2B_HOME,wait_until="domcontentloaded",timeout=30000)
+            if not _wait_for_site_rendered(tab):
+                import logging
+                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN_LIVE %s",
+                  json.dumps(_safe_search_screen_diagnostic(tab),
+                    ensure_ascii=False,default=str)[:5500])
+                raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT")
             try:
                 _navigate(tab)
             except SearchBlocked:
@@ -446,15 +483,6 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
     except SearchBlocked as exc:
         output["reason"]=exc.reason
         output["search_request_verified"]=False
-        if exc.reason in ("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND",
-                          "BID_NOTICE_EXACT10_FIELD_NOT_FOUND"):
-            try:
-                import logging
-                diagnostic=_safe_search_screen_diagnostic(tab)
-                logging.warning("FRESH_G2B_PUBLIC_SEARCH_SCREEN %s",
-                    json.dumps(diagnostic,ensure_ascii=False)[:5500])
-            except Exception:
-                pass
     except Exception as exc:
         output["reason"]="G2B_UI_RUNTIME_"+type(exc).__name__
         output["search_request_verified"]=False
