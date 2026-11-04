@@ -361,6 +361,11 @@ def _navigate(page):
             raise SearchBlocked("G2B_NOTICE_MENU_MISSING_"+str(len(names)))
     if _wait_for_exact10_field(page,2500):
         return
+    # The original G2B DOM shows the detail-number input inside tab2.
+    # Activate its public goods tab before opening advanced search.
+    _official_menu_click(page,("물품",))
+    if _wait_for_exact10_field(page,2500):
+        return
     if not _open_detail_search(page):
         raise SearchBlocked("G2B_NOTICE_DETAIL_TOGGLE_NOT_FOUND")
     if not _wait_for_exact10_field(page,12000):
