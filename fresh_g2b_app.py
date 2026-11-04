@@ -61,6 +61,20 @@ async def lifespan(app):
                            daemon=True).start()
             except ValueError:
                 logging.warning("FRESH_CANARY_DOCUMENT_IDENTITY_REJECTED")
+    opening_canary=os.environ.get("FRESH_CANARY_OPENING_BID","").strip()
+    if store.BID.fullmatch(opening_canary):
+        with store.db() as cx:
+            notice=cx.execute("""SELECT original_verified FROM fresh_g2b.site_notices
+                     WHERE bid_no=%s AND bid_ord='000'""",
+                     (opening_canary,)).fetchone()
+            attempts=cx.execute("""SELECT count(*) AS n FROM fresh_g2b.site_jobs
+                    WHERE kind='opening' AND params->>'bid_no'=%s""",
+                    (opening_canary,)).fetchone()["n"]
+        if notice and notice["original_verified"] and attempts==0:
+            from threading import Thread
+            args={"bid_no":opening_canary,"bid_ord":"000"}
+            job_id=store.create_job("opening",args)
+            Thread(target=_execute,args=(job_id,"opening",args),daemon=True).start()
     yield
 
 app=FastAPI(title="나라장터 실사이트 신규 수집센터",lifespan=lifespan,
@@ -268,6 +282,9 @@ def _execute(job_id,kind,params):
     except Exception as exc:
         # No credentials, URLs with query tokens or response body dumped to logs.
         reason=type(exc).__name__
+        safe_message=str(exc)
+        if re.fullmatch(r"[A-Za-z0-9_:-]{3,110}",safe_message):
+            reason+=":"+safe_message
         logging.warning("FRESH_G2B_JOB_FAILURE kind=%s job=%s exception=%s",
                         kind,job_id,reason)
         store.job_update(job_id,"error",error=reason)
