@@ -402,6 +402,24 @@ def _dismiss_public_notices(page):
             pass
     for frame in _frames(page):
         try:
+            status=frame.evaluate(r"""() => {
+                const windows=[...document.querySelectorAll('.w2popup_window')]
+                    .filter(e=>e.getClientRects().length>0 &&
+                        getComputedStyle(e).visibility!=='hidden' &&
+                        getComputedStyle(e).display!=='none');
+                const active=windows.filter(e=>(e.innerText||'').trim().length>0);
+                const modal=document.getElementById('_modal');
+                const safe=active.length===0 && modal &&
+                    modal.classList.contains('w2modal_popup');
+                if(safe)modal.style.pointerEvents='none';
+                return {windows:active.length,release:!!safe};
+            }""")
+            logging.warning("FRESH_G2B_RESIDUAL_MODAL %s",
+                json.dumps(status,ensure_ascii=False))
+        except Exception:
+            pass
+    for frame in _frames(page):
+        try:
             close=frame.locator('[id$="btnSitemapClose"]:visible')
             if close.count():close.first.click(force=True,timeout=1800)
         except Exception:
