@@ -236,16 +236,24 @@ def _fill_search_fields(page,w):
     frame,code=_field_from_label(page,DETAIL_LABELS)
     if code is None:
         raise SearchBlocked("BID_NOTICE_EXACT10_FIELD_NOT_FOUND")
-    code.fill(w["detail10"],timeout=2200)
-    code.press("Tab",timeout=1400)
-    if w["detail10"] not in (code.input_value() or ""):
-        raise SearchBlocked("BID_NOTICE_EXACT10_INPUT_REJECTED")
+    try:
+        code.fill(w["detail10"],timeout=2500)
+        code.press("Tab",timeout=1500)
+        if w["detail10"] not in (code.input_value() or ""):
+            raise SearchBlocked("BID_NOTICE_EXACT10_INPUT_REJECTED")
+    except SearchBlocked:
+        raise
+    except Exception as exc:
+        raise SearchBlocked("G2B_DETAIL10_INPUT_NOT_EDITABLE_"+type(exc).__name__) from None
     date_frame,dates=_date_field_group(page)
     if dates is None:
         # It is unsafe to issue a 10-year unbounded request. Do not search.
         raise SearchBlocked("BID_NOTICE_POSTED_DATE_FIELDS_NOT_FOUND")
-    _fill_date(dates[0],w["start"])
-    _fill_date(dates[1],w["end"])
+    try:
+        _fill_date(dates[0],w["start"])
+        _fill_date(dates[1],w["end"])
+    except Exception as exc:
+        raise SearchBlocked("G2B_NOTICE_DATES_NOT_EDITABLE_"+type(exc).__name__) from None
     return True
 
 
