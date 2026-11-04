@@ -70,7 +70,9 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <label>결과 유형<select id="kind"><option value="all">개찰 + 확정 낙찰</option><option value="opening">실제 개찰·투찰</option><option value="award">공식 확정 낙찰</option></select></label>
 <label>발주기관 (선택)<input id="agency" maxlength="100" placeholder="전체 기관"></label>
 </div>
-<div class="actions"><button id="search" type="button">실제 DB에서 조건 검색</button><button id="next" type="button" class="secondary" disabled>다음 결과 페이지</button>
+<div class="actions"><button id="previewWebsquare" type="button" class="secondary">10자리 검증 공고 · WebSquare 대상 미리보기</button><span id="previewWebsquareStatus" class="muted">원본 검증 공고를 확인하세요.</span></div>
+<div id="websquarePreview" class="note">실제 나라장터 입찰공고 화면의 10자리 서버 검색 필드명은 아직 확인되지 않았습니다. 기존에 공식 원본 10자리로 검증된 공고번호만 선별해 WebSquare 개찰·낙찰 조회에 전달합니다. 미리보기는 외부 요청 없이 동작합니다.</div>
+<div class="actions"><button id="search" type="button">저장된 10자리 검증 개찰·낙찰 결과 검색</button><button id="next" type="button" class="secondary" disabled>다음 결과 페이지</button>
 <span class="muted" id="rangeState">검색 페이지 1</span></div>
 <div class="note">10년은 검색 범위입니다. 121개월을 모두 다운로드하지 않습니다. 기존 DB의 원본 10자리 검증 결과부터 사용하며, 이후 입찰공고일에 공개되지 않았던 미래 결과는 제외합니다.</div>
 <div class="scroll"><table><thead><tr><th>공고일</th><th>공고번호/차수</th><th>업체</th><th>실제 투찰·낙찰 금액</th><th>순위</th><th>구분</th><th>원본</th></tr></thead><tbody id="historyRows"><tr><td colspan="7">실제 DB 검색 중…</td></tr></tbody></table></div>
@@ -89,11 +91,11 @@ footer{padding:20px 25px;border-top:1px solid #30435c;color:#7f9db8;font-size:11
 <a class="btn" href="/api/g2b/public/selected/proposal.docx" target="_blank" rel="noopener">기존 실제 원본 기반 입찰 준비 초안 (.docx)</a>
 <a class="btn secondary" href="/api/g2b/public/selected/proposal" target="_blank" rel="noopener">원본 근거 JSON ↗</a>
 </div><div id="proposal" class="muted">기존 업무 엔진의 초안·필수자료 확인 중</div><div class="note">요청된 제출서류 여부는 실제 공고·첨부별로 판단해야 합니다. 원본에 없는 제안서 양식이나 증빙을 완성했다고 표시하지 않습니다.</div></section>
-<section class="panel"><h2>필요한 공고만 추가 실제 개찰 조회 (관리자 승인)</h2>
+<section class="panel"><h2>정확 10자리 공고 → 실제 WebSquare 개찰·확정 낙찰 조회 (관리자 승인)</h2>
 <p class="muted">필터에 일치하고 원본 10자리 세부품명이 공식 확인된 공고 중 최대 3건만 기존 G2B 공개 개찰 수집기에 넘깁니다. 현재 작업 중복 방지·원본 상태 검증 후 실제 Worker에 등록합니다. 10년 전체 일괄 수집은 실행하지 않습니다.</p>
 <div class="fields"><label>기존 관리자 토큰 (이번 요청에만 사용)<input type="password" id="adminToken" autocomplete="off" placeholder="기존 ADMIN_TOKEN"></label>
 <label>이번 검색에서 최대 처리 공고<select id="batch"><option value="1">1건</option><option selected value="2">2건</option><option value="3">3건</option></select></label></div>
-<div class="actions"><button type="button" id="collect" class="secondary">선택 필터로 실제 G2B 수집 작업 등록</button>
+<div class="actions"><button type="button" id="collect" class="secondary">검증된 공고번호로 개찰·낙찰 실제 조회 등록</button>
 <span id="collectResult" class="muted">관리자 승인 없이는 실행하지 않습니다.</span></div></section>
 <section class="panel"><h2>기존 Worker의 실데이터 9단계 실행 · 실제 작업 ID</h2>
 <p class="muted">현재 선택한 공고 하나의 기존 원본·문서·개찰·경쟁·회사 자격·원가·제안서 생성까지 실제 업무코드를 실행하고, 각 단계의 원래 PostgreSQL 실행 ID를 저장합니다. 공식 n8n 실행 ID를 꾸며내지 않습니다.</p>
@@ -265,6 +267,27 @@ async function loadPreparation(){
    el("finalStatus").textContent="실제 증빙 조회가 실패해 제출 준비 완료라고 판단할 수 없습니다.";
  }
 }
+async function previewWebsquare(){
+ const button=el("previewWebsquare");button.disabled=true;
+ try{
+  const f=filters();
+  const q=new URLSearchParams({start:f.start,end:f.end,detail10:f.detail10,
+     agency:f.agency,max_notices:el("batch").value});
+  const r=await fetchJSON("/api/g2b/public/selected/search/websquare-preview?"+q);
+  if(r.exact_detail10!=="8111159901"||
+     r.official_webside_10digit_search_verified!==false||
+     r.external_requests!==0) throw Error("원본 10자리 후보 근거 확인 실패");
+  const ids=r.candidate_ids||[];
+  el("previewWebsquareStatus").textContent="정확 10자리 원본 검증 공고 "+ids.length+"건 · 외부 요청 0건";
+  el("websquarePreview").innerHTML="<b>조회 대상 공고번호/차수</b> ("+esc(r.exact_detail10)+") "+
+    (ids.length?ids.map(x=>"<code>"+esc(x.bid_no+"-"+x.bid_ord)+"</code>").join(", "):
+      "현재 필터에서 추가 조회 가능한 원본 검증 공고가 없습니다.")+
+    '<p class="muted">미리보기는 기존 PostgreSQL 필터입니다. 실제 나라장터 WebSquare 사이트의 세부품명 직접 검색 성공 또는 10년 전수검색 완료를 뜻하지 않습니다.</p>';
+ }catch(e){
+  el("previewWebsquareStatus").textContent="검증 대상 미리보기 실패";
+  el("websquarePreview").textContent=String(e.message||e);
+ }finally{button.disabled=false;}
+}
 async function collectFiltered(){
  const token=el("adminToken").value.trim();
  if(!token){el("collectResult").textContent="기존 ADMIN_TOKEN 필요";return;}
@@ -275,7 +298,7 @@ async function collectFiltered(){
     method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
     body:JSON.stringify({start:f.start,end:f.end,detail10:f.detail10,
                          agency:f.agency,max_notices:Number(el("batch").value)})});
-  el("collectResult").textContent="기존 Worker에 실제 수집 작업 "+data.job_id+"번 등록됨. 상태는 기존 Jobs 화면에서 확인.";
+  el("collectResult").textContent="Worker 작업 "+data.job_id+"번 등록됨 · 정확 10자리 검증 공고를 기존 WebSquare 개찰·확정낙찰 조회에 연결 (실제 성공 여부는 작업 종료 후 확인)";
  }catch(e){el("collectResult").textContent="수집 요청 실패: "+e.message}
  finally{el("adminToken").value="";el("collect").disabled=false}
 }
@@ -359,6 +382,7 @@ async function startRealPreparation(){
 }
 el("prepare").addEventListener("click",startRealPreparation);
 el("loadLatestRealJob").addEventListener("click",loadLatestRealJob);
+el("previewWebsquare").addEventListener("click",previewWebsquare);
 el("search").addEventListener("click",()=>loadHistory(true));
 el("next").addEventListener("click",()=>{lastOffset+=50;loadHistory(false)});
 el("collect").addEventListener("click",collectFiltered);
