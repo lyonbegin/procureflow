@@ -66,6 +66,20 @@ class FreshTest(unittest.TestCase):
                 pass
         self.assertFalse(__import__("g2b_bid_notice_site_search")._wait_for_site_rendered(Page(),1000))
 
+    def test_official_date_input_is_yyyymmdd_even_when_blank(self):
+        class Input:
+            def __init__(self):
+                self.entered=None
+            def fill(self, value, timeout=None):
+                self.entered=value
+            def press(self, key, timeout=None):
+                self.key=key
+        field=Input()
+        from g2b_bid_notice_site_search import _fill_date
+        self.assertEqual(_fill_date(field,"2026-11-04"),"20261104")
+        self.assertEqual(field.entered,"20261104")
+        self.assertEqual(field.key,"Tab")
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
