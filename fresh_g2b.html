@@ -81,6 +81,9 @@ async function loadList(){
       '<button class="item '+(state.selected?.bid_no===r.bid_no?"selected":"")+
       '" data-no="'+esc(r.bid_no)+'" data-ord="'+esc(r.bid_ord)+'">'+
       '<div class="name">'+esc(r.title||"공고명 원본 확인")+'</div>'+
+      '<div class="meta">'+(r.category_verified?
+       '<span class="badge">원본 10자리 확인</span>':
+       '<span class="badge grey">공식 필터 검색 · 세부품명 상세 확인 대기</span>')+'</div>'+
       '<div class="meta">'+esc(r.bid_no)+"-"+esc(r.bid_ord)+" · "+esc(r.detail10)+
       ' · '+esc(r.agency||"기관 미확인")+'<br>게시일 '+esc(r.posted_on||"미확인")+
       ' · 개찰집행 '+esc(r.opening_executions||0)+' · 첨부 '+esc(r.files||0)+'</div></button>').join(""):
@@ -92,7 +95,8 @@ async function select(no,ord){
     const d=await req("/api/fresh/notices/"+encodeURIComponent(no)+"/"+encodeURIComponent(ord));
     state.selected=d.notice;
     $("selectionBadge").textContent=d.notice.detail10;
-    $("selectedBlock").innerHTML='<strong>'+esc(d.notice.title)+'</strong><div class="meta">'+esc(no)+"-"+esc(ord)+
+    $("selectedBlock").innerHTML='<strong>'+esc(d.notice.title)+'</strong><div class="meta">'+
+      (d.notice.category_verified?'원본 10자리 확인':'공식 검색에서 조회됨 · 상세 세부품명 검증 대기')+'</div><div class="meta">'+esc(no)+"-"+esc(ord)+
       ' · '+esc(d.notice.agency)+' · '+esc(d.notice.detail10)+' · 공고일 '+esc(d.notice.posted_on||"미확인")+'</div>';
     $("selectedActions").hidden=false;
     const url="https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo="+encodeURIComponent(no)+"&bidPbancOrd="+encodeURIComponent(ord);
