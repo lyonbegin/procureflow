@@ -264,6 +264,18 @@ def _wait_for_site_rendered(page, timeout_ms=16000):
     return False
 
 
+def _wait_for_exact10_field(page, timeout_ms=12000):
+    elapsed=0
+    while elapsed<=timeout_ms:
+        if _field_from_label(page,DETAIL_LABELS)[1] is not None:
+            return True
+        if elapsed>=timeout_ms:
+            break
+        page.wait_for_timeout(600)
+        elapsed+=600
+    return False
+
+
 def _navigate(page):
     # No hardcoded fake bid-list endpoint. A real, visible input is mandatory.
     if _field_from_label(page,DETAIL_LABELS)[1] is not None:
@@ -282,13 +294,16 @@ def _navigate(page):
             page.goto("https://www.g2b.go.kr/link/PNPE027_01/",
                       wait_until="domcontentloaded",timeout=30000)
             _wait_for_site_rendered(page,16000)
-            _click_label(page,("입찰공고목록",))
-            if _field_from_label(page,DETAIL_LABELS)[1] is not None:
+            _click_label(page,("입찰공고목록","입찰공고 목록"))
+            if _wait_for_exact10_field(page,3000):
+                return
+            _click_label(page,("상세조건","상세검색","상세조건 펼침"))
+            if _wait_for_exact10_field(page,12000):
                 return
         except Exception:
             pass
     _click_label(page,("상세조건","상세검색","검색조건","상세조건 검색"),action="click")
-    if _field_from_label(page,DETAIL_LABELS)[1] is None:
+    if not _wait_for_exact10_field(page,4500):
         try:
             # Official homepage can return a valid page title but empty
             # WebSquare body in the Railway headless environment.
