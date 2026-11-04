@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>조달청 자동화 · 동일 세부종목 과거 입찰 분석</title>
+<style>
+:root{--navy:#10243b;--blue:#1766bd;--bg:#f3f6fb;--border:#dde5ef;--text:#14283c;--muted:#627488;--green:#14785d;--amber:#946011;--white:#fff}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.55 "Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,Arial,sans-serif;background:var(--bg);color:var(--text)}
+button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.44;cursor:not-allowed}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+.shell{max-width:1470px;margin:0 auto;padding:0 24px 55px}
+header{background:var(--navy);color:white}
+.bar{display:flex;gap:14px;align-items:center;justify-content:space-between;max-width:1470px;padding:17px 24px;margin:auto}
+.brand{display:flex;gap:13px;align-items:center}.brand b{display:block;font-size:17px}.brand small{display:block;color:#adbed1;font-size:11px}
+.logo{display:grid;place-items:center;background:#28609b;color:#fff;font-weight:850;font-size:20px;width:43px;height:43px;border-radius:11px}
+.links{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.links a{color:white;border:1px solid #607388;border-radius:8px;padding:8px 12px;font-weight:650;font-size:12px}
+.toprow{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:25px 0 18px}
+h1{font-size:25px;line-height:1.3;margin:0 0 3px;letter-spacing:-.6px}h2{font-size:16px;margin:0}h3{font-size:14px;margin:0}
+.subtitle{color:var(--muted);font-size:12px;margin:4px 0 0}.pill{border:1px solid #d4dfeb;background:#eaf0f7;padding:6px 10px;border-radius:30px;font-size:11px;color:#43566d;font-weight:650;white-space:nowrap}
+.grid{display:grid;grid-template-columns:420px minmax(0,1fr);gap:18px}
+.panel{background:white;border:1px solid var(--border);border-radius:14px;box-shadow:0 4px 15px #1d38520a;overflow:hidden}
+.head{padding:19px 20px 15px;border-bottom:1px solid var(--border)}.head .row{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.body{padding:20px}.inputs{display:flex;gap:7px;margin-top:14px}input{border:1px solid #ced9e8;border-radius:8px;padding:10px 12px;min-width:0;width:100%;outline-color:#1766bd}
+.btn{padding:10px 13px;border-radius:8px;border:1px solid #c8d6e5;background:#fff;color:#184a7c;font-size:12px;font-weight:760;white-space:nowrap}
+.btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}.btn.soft{background:#eef4fc}.btn.small{padding:7px 11px}
+.list{max-height:520px;overflow:auto}.item{width:100%;display:block;background:white;text-align:left;border:0;border-bottom:1px solid #e7eef5;padding:14px 19px;color:var(--text)}
+.item:hover,.item.active{background:#eef5fd}.item.active{box-shadow:inset 3px 0 #1766bd}
+.itemTitle{font-weight:730;font-size:13px;line-height:1.4}.meta{font-size:11px;color:var(--muted);margin-top:7px;display:flex;gap:8px;flex-wrap:wrap}
+.panel p{margin:0}.stat{padding:9px 12px;background:#f5f8fc;border-radius:8px;display:flex;align-items:center;gap:7px;font-size:11px;color:#47607a}
+.right{display:flex;flex-direction:column;gap:17px}.kv{display:grid;grid-template-columns:120px 1fr;gap:11px 16px;margin-top:14px;font-size:12px}
+.kv .k{color:var(--muted)}.kv .v{font-weight:690;overflow-wrap:anywhere}
+.code{font:700 15px ui-monospace,Menlo,Consolas,monospace;color:#104d91}
+.tag{font-size:11px;border-radius:5px;padding:3px 7px;background:#e7f3ed;color:var(--green);font-weight:700}
+.tag.warn{background:#fff2de;color:var(--amber)}.tag.neutral{background:#edf2f8;color:#647890}
+.alert{padding:11px 13px;border-radius:8px;background:#f8f4e9;color:#845b1b;border:1px solid #e8dcc1;font-size:12px;margin-top:12px}
+.alert.info{background:#f0f6fd;border-color:#d6e6f6;color:#355e87}
+.actionbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.steps{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}.step{display:flex;gap:7px;align-items:center;padding:7px 10px;border-radius:7px;background:#f0f4fa;color:#536b85;font-size:11px;font-weight:730}.step b{color:#1c5d9b}
+.section{margin-top:20px}.resultGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.metric{background:#f5f8fc;border:1px solid #e5edf5;padding:12px;border-radius:10px}.metric small{display:block;color:#6d8298;font-size:11px}.metric strong{display:block;font-size:22px;margin-top:4px}
+.tableWrap{overflow:auto;border:1px solid #e1e9f2;border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:680px}th,td{padding:10px 12px;border-bottom:1px solid #e9eef5;text-align:left;vertical-align:top}th{background:#f5f8fc;font-size:11px;color:#667d96;font-weight:760}td{font-size:12px}tr:last-child td{border-bottom:0}tr[data-row]{cursor:pointer}tr[data-row]:hover{background:#f0f6fe}
+.empty{padding:26px;text-align:center;color:#788ba0;font-size:12px}.bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:13px}
+details{margin-top:13px;border:1px solid #e0e9f2;border-radius:9px;padding:10px 13px}summary{cursor:pointer;font-weight:740;font-size:12px}
+.detail{padding:13px;background:#f9fbfe;border-radius:9px;margin-top:12px}.detail h3{margin:0 0 8px}.detail table{min-width:550px}.detailNote{font-size:11px;color:#72859b}
+.footer{border-top:1px solid #dce5ef;color:#718399;font-size:11px;margin-top:24px;padding-top:15px}
+@media(max-width:950px){.grid{grid-template-columns:1fr}.list{max-height:350px}.resultGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.bar{flex-wrap:wrap}.toprow{align-items:flex-start}.shell{padding:0 12px 40px}}
+@media(max-width:520px){.kv{grid-template-columns:93px 1fr}.resultGrid{grid-template-columns:repeat(2,minmax(0,1fr))}h1{font-size:20px}.links a{font-size:11px}.head,.body{padding:14px}}
+</style>
+</head>
+<body>
+<header>
+ <div class="bar">
+  <div class="brand"><div class="logo">PF</div><div><b>조달청 자동화 · 단일 실행센터</b><small>최신 공고 선택 → 동일 세부종목 10년 입찰·개찰·낙찰 분석</small></div></div>
+  <div class="links">
+   <a id="nodeManager" target="_blank" rel="noopener" href="https://procureflow-n8n-native-canvas-production.up.railway.app/admin/index.html?section=public_nodes">기존 노드 관리화면 ↗</a>
+   <a target="_blank" rel="noopener" href="https://procureflow-n8n-native-canvas-production.up.railway.app/?workflow=operations%2FA01-public-win-strategy.json">기존 전체 노드 그래프 ↗</a>
+  </div>
+ </div>
+</header>
+<main class="shell">
+ <div class="toprow"><div><h1>동일 세부종목 과거 입찰·개찰·낙찰 분석</h1><p class="subtitle">선택 공고의 원본 10자리 세부품명번호가 정확히 같은 과거 공고만 분석합니다. 발주기관은 전체를 포함합니다.</p></div><span class="pill">기존 데이터 읽기 전용 · 자동투찰 없음</span></div>
+ <div class="steps"><span class="step"><b>01</b> 최신 공고 선택</span><span class="step"><b>02</b> 원본 10자리 확인</span><span class="step"><b>03</b> 동일 종목 검색</span><span class="step"><b>04</b> 개찰·투찰 비교</span><span class="step"><b>05</b> 확정 낙찰 확인</span></div>
+ <div class="grid">
+  <section class="panel">
+   <div class="head"><div class="row"><h2>① 전체 최신 공고</h2><button class="btn small" id="refresh" type="button">새로고침</button></div>
+    <div class="inputs"><input id="searchText" type="search" placeholder="공고명·발주기관·공고번호 검색" aria-label="공고 검색"><button class="btn primary" id="find" type="button">검색</button></div>
+    <p class="subtitle">기존 PostgreSQL의 실제 G2B 수집 목록. 정렬은 공고 게시일 최신순입니다.</p></div>
+   <div id="noticeList" class="list"><div class="empty">실제 공고 목록 조회 전입니다.</div></div>
+   <div class="body" style="border-top:1px solid var(--border)"><div class="bottom" style="margin-top:0"><span id="listStatus" class="subtitle">조회 대기</span><button class="btn small" id="loadMore" type="button" disabled>다음 40건</button></div></div>
+  </section>
+  <div class="right">
+   <section class="panel">
+    <div class="head"><div class="row"><h2>② 선택 공고 · 세부종목 원본 확인</h2><span class="tag neutral" id="proofBadge">공고 선택 전</span></div></div>
+    <div class="body"><div id="selectedEmpty" class="empty">왼쪽에서 최신 공고 1건을 선택하세요.</div>
+     <div id="selectedInfo" hidden>
+       <h3 id="selectedTitle" style="font-size:16px"></h3>
+       <div class="kv">
+        <span class="k">공고번호</span><span class="v" id="selectedNo"></span>
+        <span class="k">발주기관</span><span class="v" id="selectedAgency"></span>
+        <span class="k">공고 게시일</span><span class="v" id="selectedDate"></span>
+        <span class="k">입찰 마감일</span><span class="v" id="selectedDeadline"></span>
+        <span class="k">세부품명번호</span><span class="v code" id="selectedCode">미확인</span>
+        <span class="k">원본 출처</span><span class="v" id="sourceProof"></span>
+       </div>
+       <div id="verificationText" class="alert"></div>
+       <div class="actionbar"><button class="btn primary" id="loadHistory" type="button">동일 세부종목 과거 입찰 분석</button><button class="btn soft" id="liveSiteSearch" type="button">나라장터 원본 검색 (해당 월 1회)</button><a id="originalLink" class="btn" target="_blank" rel="noopener">공고 원문 ↗</a></div>
+      </div>
+    </div>
+   </section>
+   <section class="panel">
+    <div class="head"><div class="row"><h2>③ 동일 10자리 과거 입찰·개찰·낙찰</h2><span class="tag neutral" id="historyBadge">미조회</span></div>
+     <p class="subtitle" id="filterLabel">선택한 공고의 세부종목으로만 필터링하며 다른 종목은 제외합니다.</p></div>
+    <div class="body">
+     <div id="historyEmpty" class="empty">공고를 선택한 후 '동일 세부종목 과거 입찰 분석'을 누르세요.</div>
+     <div id="historyContent" hidden>
+      <div class="resultGrid">
+       <div class="metric"><small>동일 10자리 확인 공고</small><strong id="histCount">—</strong></div>
+       <div class="metric"><small>현재 페이지 개찰기록</small><strong id="openingCount">—</strong></div>
+       <div class="metric"><small>현재 페이지 낙찰기록</small><strong id="awardCount">—</strong></div>
+       <div class="metric"><small>전체 10년 검색 완료 여부</small><strong id="coverage" style="font-size:15px">미검증</strong></div>
+      </div>
+      <div class="tableWrap"><table><thead><tr><th>공고번호·차수</th><th>동일 세부종목</th><th>과거 공고명 / 기관</th><th>개찰 참여 기록</th><th>낙찰 기록</th></tr></thead><tbody id="historyRows"></tbody></table></div>
+      <div class="bottom"><span class="subtitle" id="historyPageState"></span><div style="display:flex;gap:7px"><button class="btn small" id="previousHistory" disabled>이전</button><button class="btn small" id="nextHistory" disabled>다음</button></div></div>
+      <div id="bidDetail" class="detail" hidden></div>
+      <div class="alert info">표의 '낙찰 기록'은 DB에 저장된 공개 결과입니다. 개찰 1순위를 낙찰 확정으로 자동 취급하지 않으며, 확정 증빙이 없으면 미확정 상태로 표시합니다.</div>
+     </div>
+     <details><summary>실제 나라장터 사이트의 10자리 필터 검색 결과 확인</summary>
+       <div class="actionbar"><button class="btn small" id="siteAgain" disabled>첫 기간 재검색</button><button class="btn small" id="siteNext" disabled>이전 월 검색</button></div>
+       <p class="subtitle" style="margin:12px 0">사이트 요청에 세부품명번호·날짜 필터가 실제 전송됐는지 검사합니다. 요청 또는 응답 확인에 실패하면 검색 건수가 0이라고 표시하지 않습니다.</p>
+       <div id="siteStatus" class="alert info">나라장터 외부 검색 전. 원본 확인된 공고를 선택해야 실행할 수 있습니다.</div>
+       <div id="siteRows"></div>
+     </details>
+    </div>
+   </section>
+  </div>
+ </div>
+ <div class="footer">ProcureFlow 신규 단일 목적 관리화면 · 기존 노드 관리 화면 유지 · 기존 운영 서비스와 DB 삭제 없음 · 10년은 검색기간 조건이며 전체 수집 완료를 뜻하지 않습니다.</div>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=value=>String(value==null?"":value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const state={items:[],selected:null,offset:0,selectedId:"",history:null,historyOffset:0,siteMonth:null,loading:false};
+function text(id,value){$(id).textContent=String(value==null?"":value)}
+async function api(url,options={}){
+ const res=await fetch(url,{cache:"no-store",...options});
+ let data;try{data=await res.json()}catch{throw Error("HTTP "+res.status+" / JSON 응답 없음")}
+ if(!res.ok)throw Error(data.detail||data.reason||"HTTP "+res.status);
+ return data;
+}
+function val(x){return x||"—"}
+function safeUrl(u){try{const x=new URL(u);return x.protocol==="https:"?x.href:null}catch{return null}}
+async function list(reset=true){
+ if(state.loading)return;state.loading=true;
+ $("refresh").disabled=true;$("find").disabled=true;
+ if(reset){state.offset=0;state.items=[]}
+ text("listStatus","기존 DB 조회 중…");
+ try{
+  const q=new URLSearchParams({q:$("searchText").value.trim(),offset:state.offset,limit:40});
+  const r=await api("/api/notices?"+q);
+  state.items.push(...r.items);
+  $("noticeList").innerHTML=state.items.length?state.items.map(x=>
+    '<button type="button" class="item '+(x.bid_no===state.selectedId?"active":"")+'" data-bid="'+esc(x.bid_no)+'">'+
+    '<div class="itemTitle">'+esc(x.title||"(공고명 미확인)")+'</div><div class="meta"><span>'+esc(x.bid_no)+'</span><span>'+esc(x.agency)+'</span></div>'+
+    '<div class="meta"><span>게시 '+esc(val(x.notice_date))+'</span><span>마감 '+esc(val(x.deadline))+'</span>'+
+    '<span>'+(x.exact_detail10?"원본 10자리 "+esc(x.exact_detail10):"10자리 원본 미확인")+'</span></div></button>').join(""):
+    '<div class="empty">현재 저장된 G2B 검색 조건에 맞는 공고가 없습니다. 외부 나라장터 검색 결과가 0건이라는 뜻은 아닙니다.</div>';
+  text("listStatus","기존 DB "+state.items.length+"건 표시");
+  state.offset+=r.items.length;
+  $("loadMore").disabled=r.items.length<40;
+ }catch(e){text("listStatus","조회 실패: "+e.message);$("noticeList").innerHTML='<div class="alert">DB 연결 오류. 가상 공고를 대신 표시하지 않습니다.</div>'}
+ finally{state.loading=false;$("refresh").disabled=false;$("find").disabled=false;}
+}
+async function choose(bid){
+ if(!/^(R\d{2}BK\d{8}|\d{11})$/.test(bid))return;
+ state.selectedId=bid;state.history=null;state.historyOffset=0;state.siteMonth=null;
+ $("selectedEmpty").hidden=true;$("selectedInfo").hidden=false;
+ $("historyEmpty").hidden=false;$("historyContent").hidden=true;
+ $("loadHistory").disabled=true;$("liveSiteSearch").disabled=true;
+ text("selectedTitle","공고 원본 확인 중…");text("historyBadge","미조회");
+ for(const el of document.querySelectorAll(".item"))el.classList.toggle("active",el.dataset.bid===bid);
+ try{
+  const r=await api("/api/case?"+new URLSearchParams({bid_no:bid}));
+  if(state.selectedId!==bid)return;
+  state.selected=r;
+  text("selectedTitle",r.title||"공고명 미확인");
+  text("selectedNo",r.bid_no);text("selectedAgency",r.agency||"—");
+  text("selectedDate",r.notice_date||"—");text("selectedDeadline",r.deadline||"—");
+  text("selectedCode",r.original_detail10||"원본 미확인");
+  text("proofBadge",r.source_verified?"원본 검증":"HOLD");
+  $("proofBadge").className="tag "+(r.source_verified?"":"warn");
+  text("sourceProof",r.original_sources?.[0]?.source_uri||"원본 확인 기록 없음");
+  text("verificationText",r.source_verified?
+   "원본 증빙에서 10자리 세부품명번호가 확인됐습니다. 같은 10자리만 분석하고 발주기관은 제한하지 않습니다.":
+   "원본 10자리 증빙이 없어 분석을 차단합니다. 8자리 분류나 공고명 유사도로 대체하지 않습니다.");
+  $("loadHistory").disabled=!r.source_verified;
+  $("liveSiteSearch").disabled=!r.source_verified;
+  $("siteAgain").disabled=!r.source_verified;
+  const url=safeUrl(r.source_url||"");
+  if(url){$("originalLink").href=url;$("originalLink").hidden=false}else{$("originalLink").hidden=true}
+  text("filterLabel",r.source_verified?"동일 세부종목 "+r.original_detail10+" · 공고일 기준 과거 10년 · 발주기관 전체":"원본 검증된 10자리 코드가 없어 과거 분석 보류");
+ }catch(e){
+  text("selectedTitle","공고 조회 실패");
+  text("verificationText",e.message);
+  text("proofBadge","오류");
+  $("proofBadge").className="tag warn";
+ }
+}
+async function history(offset=0){
+ if(!state.selected?.source_verified)return;
+ const bid=state.selected.bid_no;
+ $("loadHistory").disabled=true;text("historyBadge","실제 DB 조회 중");
+ try{
+  const data=await api("/api/history?"+new URLSearchParams({bid_no:bid,offset,limit:20}));
+  if(state.selectedId!==bid)return;
+  if(data.status==="HOLD")throw Error("동일 세부종목 원본 확인이 필요합니다: "+data.reason);
+  state.history=data;state.historyOffset=offset;
+  $("historyEmpty").hidden=true;$("historyContent").hidden=false;
+  text("historyBadge","DB 원본 검증 결과");
+  text("histCount",data.matching_notice_count_in_verified_db);
+  text("openingCount",data.items.reduce((s,x)=>s+x.opening_count,0));
+  text("awardCount",data.items.reduce((s,x)=>s+x.award_count,0));
+  text("coverage","미검증");
+  text("historyPageState","원본 검증 DB 공고 "+offset+"~"+Math.min(offset+20,data.matching_notice_count_in_verified_db)+" / "+data.matching_notice_count_in_verified_db);
+  $("previousHistory").disabled=offset===0;
+  $("nextHistory").disabled=offset+20>=data.matching_notice_count_in_verified_db;
+  $("bidDetail").hidden=true;
+  $("historyRows").innerHTML=data.items.length?data.items.map((x,i)=>
+    '<tr data-row="'+i+'" title="눌러서 실제 투찰·낙찰 기록 보기"><td><b>'+esc(x.bid_no+"-"+x.bid_ord)+'</b><div class="detailNote">'+esc(x.published)+'</div></td>'+
+    '<td><span class="tag">'+esc(x.detail10)+'</span></td><td>'+esc(val(x.title))+'<div class="detailNote">'+esc(x.agency)+'</div></td>'+
+    '<td>'+esc(x.opening_count)+"건"+'</td><td>'+(x.award_count?esc(x.award_count)+"건 기록 · 확정 근거 확인 필요":"미확인")+'</td></tr>').join(""):
+    '<tr><td colspan="5" class="empty">이 기간에 기존 DB에서 원본 10자리가 확인된 과거 공고가 없습니다. 나라장터 전체 검색 결과가 없다는 뜻은 아닙니다.</td></tr>';
+ }catch(e){text("historyBadge","조회 실패");$("historyEmpty").hidden=false;text("historyEmpty",e.message)}
+ finally{$("loadHistory").disabled=false}
+}
+function recordRow(x){
+ return '<tr><td>'+esc(val(x.company))+'</td><td>'+esc(val(x.amount))+'</td><td>'+esc(val(x.rate))+'</td><td>'+esc(val(x.rank))+'</td><td>'+esc(val(x.result_status))+'</td></tr>';
+}
+function showDetail(i){
+ const item=state.history?.items?.[i];if(!item)return;
+ const area=$("bidDetail");area.hidden=false;
+ let content='<h3>'+esc(item.bid_no+"-"+item.bid_ord)+" · "+esc(item.title)+'</h3>'+
+  '<div class="detailNote">세부품명번호 '+esc(item.detail10)+' · 원본 10자리 확인 · 발주기관 '+esc(val(item.agency))+'</div>';
+ for(const [label,list] of [["개찰·투찰업체",item.opening_records],["낙찰 원본 기록",item.award_records]]){
+  content+='<h3 style="margin-top:15px">'+esc(label)+" ("+list.length+"건)</h3>";
+  content+=list.length?'<div class="tableWrap"><table><thead><tr><th>업체명</th><th>금액</th><th>투찰률</th><th>순위</th><th>상태</th></tr></thead><tbody>'+
+   list.map(recordRow).join("")+'</tbody></table></div>':
+   '<div class="alert">기존 DB에 해당 기록이 없습니다. 미개찰·미공개·수집 누락은 구분 검증이 필요합니다.</div>';
+ }
+ content+='<div class="alert info">낙찰 원본 기록이 있어도 확정 판정에 필요한 별도 증빙은 확인해야 합니다. 개찰 1순위는 낙찰 확정과 다릅니다.</div>';
+ area.innerHTML=content;area.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+async function site(month=null,page=1){
+ if(!state.selected?.source_verified)return;
+ const bid=state.selected.bid_no;const button=$("liveSiteSearch");
+ button.disabled=true;$("siteAgain").disabled=true;$("siteNext").disabled=true;
+ text("siteStatus","나라장터 실제 검색창 접근·10자리 필터 요청 검증 중… 한 달씩 조회합니다.");
+ text("siteRows","");
+ try{
+  const q=new URLSearchParams({bid_no:bid,page});
+  if(month)q.set("month",month);
+  const r=await api("/api/official-search?"+q,{method:"POST"});
+  if(bid!==state.selectedId)return;
+  if(r.status!=="partial_filtered_result"||!r.website_search_verified){
+    text("siteStatus","실제 나라장터 필터 검색이 확인되지 않았습니다: "+(r.reason||r.status)+
+    ". 따라서 검색 결과를 0건으로 표시하지 않습니다.");
+    return;
+  }
+  const good=r.official_verified_rows_only||[],pending=r.unverified_candidates||[];
+  state.siteMonth=r.next_month;
+  text("siteStatus","실제 나라장터 검색 요청 확인 · 기간 "+r.request_window.start+
+    " ~ "+r.request_window.end+" · 원본에 10자리 확인 "+good.length+"건 · 미검증 후보 "+pending.length+"건");
+  $("siteRows").innerHTML='<div class="alert info">검색된 공고는 원본 10자리 확인 후 개찰·낙찰 결과와 결합합니다. 미검증 후보는 분석에 포함하지 않습니다.</div>'+
+    (good.length?'<div class="tableWrap"><table><thead><tr><th>공고번호·차수</th><th>공고명</th><th>10자리</th></tr></thead><tbody>'+
+       good.map(x=>'<tr><td>'+esc(x.bid_no+"-"+x.bid_ord)+'</td><td>'+esc(x.title)+'</td><td>'+esc(x.direct_category_codes.join(", "))+'</td></tr>').join("")+
+       '</tbody></table></div>':"");
+  $("siteNext").disabled=!r.next_month;
+ }catch(e){text("siteStatus","나라장터 검색 오류 · "+e.message+" · 검색 결과 건수는 미확정")}
+ finally{$("liveSiteSearch").disabled=false;$("siteAgain").disabled=false;}
+}
+$("refresh").addEventListener("click",()=>list(true));
+$("find").addEventListener("click",()=>list(true));
+$("searchText").addEventListener("keydown",e=>{if(e.key==="Enter")list(true)});
+$("loadMore").addEventListener("click",()=>list(false));
+$("noticeList").addEventListener("click",e=>{const n=e.target.closest("[data-bid]");if(n)choose(n.dataset.bid)});
+$("loadHistory").addEventListener("click",()=>history(0));
+$("previousHistory").addEventListener("click",()=>history(Math.max(0,state.historyOffset-20)));
+$("nextHistory").addEventListener("click",()=>history(state.historyOffset+20));
+$("historyRows").addEventListener("click",e=>{const n=e.target.closest("[data-row]");if(n)showDetail(Number(n.dataset.row))});
+$("liveSiteSearch").addEventListener("click",()=>site(null));
+$("siteAgain").addEventListener("click",()=>site(null));
+$("siteNext").addEventListener("click",()=>site(state.siteMonth));
+list(true);
+</script>
+</body>
+</html>
