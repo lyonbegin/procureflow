@@ -352,6 +352,34 @@ def _open_detail_search(page):
     return False
 
 
+def _click_notice_search(page):
+    """Click a visible public notice-list search control, never a bid action."""
+    script=r"""()=>{
+      const nodes=[...document.querySelectorAll(
+        'input[type=button],input[type=submit],button,a,[role=button]')];
+      const norm=v=>(v||'').replace(/\s+/g,'').trim();
+      const matches=nodes.filter(e=>{
+        if(e.disabled || !e.getClientRects().length)return false;
+        const id=e.id||'';
+        if(/BidSubmit|Bidding|BidApply|btnSearchToggle/i.test(id))return false;
+        const label=norm(e.value||e.innerText||e.textContent||e.title||e.getAttribute('aria-label'));
+        return label==='검색' || label==='조회';
+      });
+      matches.sort((a,b)=>
+        (Number((b.id||'').includes('mf_wfm_container'))-Number((a.id||'').includes('mf_wfm_container'))));
+      if(!matches.length)return false;
+      matches[0].click();
+      return true;
+    }"""
+    for frame in _frames(page):
+        try:
+            if frame.evaluate(script):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _navigate(page):
     """Reach the real public notice list, then open advanced 10-digit criteria."""
     if _wait_for_exact10_field(page,1500):
@@ -534,7 +562,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             _fill_search_fields(tab,w)
             stage="submit_search"
             # Require an actual site search button and form submission.
-            if not _click_label(tab,("검색",),"click"):
+            if not _click_notice_search(tab):
                 raise SearchBlocked("BID_NOTICE_SEARCH_BUTTON_NOT_FOUND")
             stage="await_verified_request"
             tab.wait_for_timeout(2500)
