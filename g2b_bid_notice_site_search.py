@@ -184,7 +184,7 @@ def _date_field_group(page):
     """Identify two date inputs belonging to the G2B notice-posted-date row."""
     js=r"""()=>{
        const norm=s=>(s||'').replace(/\s+/g,'').trim();
-       const keys=['공고게시일','공고일자','공고게시일자','공고게시기간'];
+       const keys=['공고게시일','공고일자','공고게시일자','공고게시기간','공고/개찰일자','공고·개찰일자'];
        const els=[...document.querySelectorAll('th,td,label,span')];
        for(const el of els){
           if(!keys.some(k=>norm(el.textContent)===k))continue;
