@@ -5,7 +5,8 @@ HTTP POST queues one real site operation; GET endpoints only read newly acquired
 records from the new independent PostgreSQL instance.
 """
 from __future__ import annotations
-import logging,re
+import logging,re,os
+from threading import Thread
 from datetime import date
 from pathlib import Path
 from fastapi import FastAPI,BackgroundTasks,HTTPException
@@ -109,6 +110,23 @@ def _run(job_id,kind,args):
 @app.on_event("startup")
 def boot():
     store.initialize()
+    if os.getenv("FRESH_SMOKE_ON_START")!="1":
+        return
+    # One and ONLY one bounded real search request in the independent DB.
+    # The same startup probe is never repeated across redeploys.
+    with store.conn() as con:
+        exists=con.execute("""SELECT id FROM freshg2b.jobs
+          WHERE args->>'origin'='startup_smoke' LIMIT 1""").fetchone()
+    if exists:return
+    today=date.today()
+    try:begin=today.replace(year=today.year-10)
+    except ValueError:begin=today.replace(year=today.year-10,day=28)
+    args={"detail10":"8111159901","first":begin.isoformat(),
+      "last":today.isoformat(),"month":today.strftime("%Y-%m"),
+      "page":1,"origin":"startup_smoke"}
+    id_=store.create_job("search",args)
+    Thread(target=_run,args=(id_,"search",args),daemon=True).start()
+
 
 @app.get("/",response_class=HTMLResponse)
 def home():
