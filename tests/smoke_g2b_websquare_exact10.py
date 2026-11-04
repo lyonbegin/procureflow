@@ -109,6 +109,15 @@ class WebSquareReuseTest(unittest.TestCase):
         self.assertEqual(state,"partial")
         self.assertFalse(summary["ten_year_search_complete"])
         self.assertEqual(summary["real_websquare_final_award_lookups"],2)
+    def test_obsolete_eight_digit_legacy_seed_disabled(self):
+        from pathlib import Path
+        src=(Path(__file__).resolve().parents[1]/"worker.py").read_text(encoding="utf-8")
+        self.assertIn("G2B_LEGACY_8DIGIT_HISTORICAL_SEED_DISABLED",src)
+        self.assertIn("cancelled_obsolete_8digit_history",src)
+        self.assertNotIn("ingest_known_secondary(",src)
+        self.assertNotIn("VALUES ('g2b_single_case_10y'",src)
+        self.assertIn("elif job['source']=='g2b_filtered'",src)
+
     def test_existing_sql_has_official_exact_match_before_remote_lookup(self):
         class SQLCapture:
             def execute(self,sql,params):
