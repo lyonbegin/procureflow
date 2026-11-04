@@ -21,8 +21,6 @@ def test_exact_server_side_filter_and_source_code_provenance():
             {"bidNtceNo":"R26BK01234567","bidNtceOrd":"000",
              "bidNtceNm":"정보시스템","dtilPrdctClsfcNo":CODE,
              "ntceInsttNm":"기관A","bidNtceDt":"2026-10-12"},
-            {"bidNtceNo":"R26BK01234568","bidNtceOrd":"000",
-             "dtilPrdctClsfcNo":"8111159902"},
             {"bidNtceNo":"R26BK01234569","bidNtceOrd":"000",
              "prdctClsfcNo":"81111599"},
         ])
@@ -34,7 +32,7 @@ def test_exact_server_side_filter_and_source_code_provenance():
     assert requested[0]["inqryEndDt"]==["202610222359"]
     assert len(r["matched"])==1 and r["matched"][0]["bid_no"]=="R26BK01234567"
     assert len(r["unverified_candidates"])==1
-    assert r["rejected"]["rejected_wrong_detail10"]==1
+    assert r["rejected"].get("rejected_wrong_detail10",0)==0
     assert r["next"]=={"cursor":"2026-09","page":1}
     assert r["outcome_collection_executed"] is False
     assert r["bulk_8digit_discovery"] is False
@@ -74,6 +72,22 @@ def test_no_key_is_explicit_blocker_without_real_call(monkeypatch):
     r=m.search_one_page(CODE,START,END,request_fn=lambda _:1)
     assert r["api_requests"]==0
     assert r["status"]=="blocked_missing_official_api_credential"
+    assert r["matched"]==[]
+
+
+def test_reject_api_that_ignores_detail10_server_filter():
+    r=search_one_page(CODE,START,END,key="fixture",
+        request_fn=lambda _: _fake([
+            {"bidNtceNo":"R26BK01234567","dtilPrdctClsfcNo":CODE},
+            {"bidNtceNo":"R26BK01234568","dtilPrdctClsfcNo":"8111159902"}]))
+    assert r["status"]=="blocked_official_filter_not_respected"
+    assert r["matched"]==[]
+
+
+def test_missing_official_response_body_does_not_mean_zero_matches():
+    r=search_one_page(CODE,START,END,key="fixture",
+       request_fn=lambda _:{"response":{"header":{"resultCode":"00"}}})
+    assert r["status"]=="source_error"
     assert r["matched"]==[]
 
 
