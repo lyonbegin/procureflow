@@ -529,10 +529,16 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             context.set_default_timeout(2800)
             requests=[]
             responses=[]
+            observed_posts=[]
             def on_request(req):
                 parsed=urlparse(req.url)
                 if (parsed.hostname==G2B_HOST and req.method=="POST"
                         and parsed.path.endswith(".do")):
+                    raw=_flatten_post(req.post_data)
+                    observed_posts.append({"path":parsed.path[:130],
+                        "has_code":detail10 in raw,
+                        "has_start":w["start"].replace("-","") in re.sub(r"[^0-9]","",raw),
+                        "has_end":w["end"].replace("-","") in re.sub(r"[^0-9]","",raw)})
                     if request_has_filter(req.post_data,detail10,w["start"],w["end"]):
                         requests.append({"url":req.url.split("?")[0],"request":req})
             def on_response(r):
@@ -567,6 +573,9 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             stage="await_verified_request"
             tab.wait_for_timeout(2500)
             if not requests:
+                import logging
+                logging.warning("FRESH_G2B_SEARCH_POST_DIAG %s",
+                    json.dumps(observed_posts[-16:],ensure_ascii=False))
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
             if page>1:
                 # Every page request must repeat the same 10-digit filter.
