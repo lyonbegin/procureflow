@@ -1,0 +1,13 @@
+# Isolated focused G2B UI. No existing API, Worker or n8n process is replaced.
+FROM python:3.12-slim-bookworm
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8000
+WORKDIR /app
+RUN pip install --no-cache-dir fastapi==0.115.12 "uvicorn[standard]==0.34.2" "psycopg[binary]==3.2.9" playwright==1.52.0 \
+    && python -m playwright install --with-deps chromium
+COPY focused_g2b.py focused_g2b.html focused_g2b_tests.py g2b_bid_notice_site_search.py /app/
+RUN python -m py_compile focused_g2b.py g2b_bid_notice_site_search.py focused_g2b_tests.py \
+    && python -m unittest -v focused_g2b_tests \
+    && test -s /app/focused_g2b.html \
+    && grep -q 'section=public_nodes' /app/focused_g2b.html
+EXPOSE 8000
+CMD ["sh","-c","exec uvicorn focused_g2b:app --host 0.0.0.0 --port $PORT"]
