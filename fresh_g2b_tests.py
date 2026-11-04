@@ -80,6 +80,28 @@ class FreshTest(unittest.TestCase):
         self.assertEqual(field.entered,"20261104")
         self.assertEqual(field.key,"Tab")
 
+    def test_official_date_replay_preserves_10digit_and_other_fields(self):
+        from g2b_bid_notice_site_search import _verified_date_replay,SearchBlocked
+        from types import SimpleNamespace
+        import json
+        url="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+        original={"dlBidPbancLstM":{"dtlsPrnmNo":"8111159901",
+                  "fromBidDt":"20261006","toBidDt":"20261104",
+                  "recordCountPerPage":"10","page":1}}
+        req=SimpleNamespace(url=url,method="POST",post_data=json.dumps(original))
+        payload=json.loads(_verified_date_replay(req,"8111159901","2026-11-01","2026-11-04"))
+        row=payload["dlBidPbancLstM"]
+        self.assertEqual(row["fromBidDt"],"20261101")
+        self.assertEqual(row["toBidDt"],"20261104")
+        self.assertEqual(row["dtlsPrnmNo"],"8111159901")
+        self.assertEqual(row["recordCountPerPage"],"10")
+        self.assertEqual(original["dlBidPbancLstM"]["fromBidDt"],"20261006")
+        with self.assertRaises(SearchBlocked):
+            _verified_date_replay(req,"8111159902","2026-11-01","2026-11-04")
+        req.url="https://example.com/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+        with self.assertRaises(SearchBlocked):
+            _verified_date_replay(req,"8111159901","2026-11-01","2026-11-04")
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
