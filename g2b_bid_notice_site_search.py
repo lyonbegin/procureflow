@@ -188,7 +188,9 @@ def _field_from_label(page,labels):
         try:
             identity=frame.evaluate(js,list(labels))
             if identity:
-                return frame,frame.locator("[id="+json.dumps(identity)+"]")
+                locator=frame.locator("[id="+json.dumps(identity)+"]")
+                if locator.count() and locator.first.is_visible() and locator.first.is_enabled():
+                    return frame,locator.first
         except Exception:
             continue
     return None,None
@@ -206,7 +208,7 @@ def _date_field_group(page):
                        el.parentElement?.nextElementSibling];
           for(const root of roots){
              if(!root)continue;
-             const inputs=[...root.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio])')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
+             const inputs=[...root.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio])')].filter(e=>e.id&&!e.disabled&&!e.readOnly&&e.getClientRects().length>0);
              if(inputs.length>=2 && inputs.length<=4)return inputs.slice(0,2).map(e=>e.id);
           }
        }
