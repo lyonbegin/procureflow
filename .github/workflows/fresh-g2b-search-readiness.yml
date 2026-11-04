@@ -1,0 +1,21 @@
+name: Fresh G2B search readiness regression
+on:
+  pull_request:
+    branches:
+      - feature/fresh-g2b-official-crawl-isolated-20261104
+    paths:
+      - g2b_bid_notice_site_search.py
+      - fresh_g2b_tests.py
+      - .github/workflows/fresh-g2b-search-readiness.yml
+  workflow_dispatch:
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.52.0 "psycopg[binary]==3.2.9"
+      - run: python -m py_compile g2b_bid_notice_site_search.py fresh_g2b_site.py fresh_g2b_store.py fresh_g2b_api.py
+      - run: python -m unittest -v fresh_g2b_tests
