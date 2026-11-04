@@ -6,6 +6,7 @@ mock figures. DB transactions are READ ONLY. Site search is one filtered
 """
 import os
 import re
+import logging
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -34,6 +35,10 @@ def readonly():
             con.execute("SET TRANSACTION READ ONLY")
             yield con
     except psycopg.Error as err:
+        # Log only exception CLASS and SQLSTATE, never connection URLs,
+        # credentials, SQL parameters or raw database error text.
+        logging.error("FOCUSED_G2B_DB_READ_FAILED type=%s sqlstate=%s",
+                      type(err).__name__,getattr(err,"sqlstate",None))
         raise HTTPException(503, "EXISTING_G2B_DATABASE_UNAVAILABLE") from None
 
 
