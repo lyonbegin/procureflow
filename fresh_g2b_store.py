@@ -122,6 +122,11 @@ def public(row):
 
 def create_job(kind,args):
     with conn() as c:
+        if not c.execute("SELECT pg_try_advisory_xact_lock(66770119) AS ok").fetchone()["ok"]:
+            raise RuntimeError("FRESH_CRAWLER_ALREADY_QUEUING")
+        busy=c.execute("""SELECT EXISTS(SELECT 1 FROM freshg2b.jobs
+          WHERE status IN ('queued','running')) AS busy""").fetchone()["busy"]
+        if busy:raise RuntimeError("FRESH_CRAWLER_ALREADY_RUNNING")
         r=c.execute("INSERT INTO freshg2b.jobs(kind,args) VALUES (%s,%s::jsonb) RETURNING id",
                     (kind,dump(args))).fetchone()
         return r["id"]
