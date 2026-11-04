@@ -149,7 +149,7 @@ def _field_from_label(page,labels):
     js=r"""(labels)=>{
       const norm=s=>(s||'').replace(/\s+/g,'').replace(/[:：]/g,'').trim();
       const wanted=labels.map(norm);
-      const inputs=[...document.querySelectorAll('input:not([type=hidden]),textarea')];
+      const inputs=[...document.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea')];
       for(const input of inputs){
         if(!input.id || input.disabled || input.readOnly)continue;
         const name=[input.getAttribute('aria-label'),input.getAttribute('title'),
@@ -164,7 +164,7 @@ def _field_from_label(page,labels):
           node.parentElement?.parentElement?.nextElementSibling];
         for(const parent of candidates){
           if(!parent)continue;
-          const matches=[...parent.querySelectorAll('input:not([type=hidden]),textarea')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
+          const matches=[...parent.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
           if(matches.length===1)return matches[0].id;
         }
       }
@@ -192,7 +192,7 @@ def _date_field_group(page):
                        el.parentElement?.nextElementSibling];
           for(const root of roots){
              if(!root)continue;
-             const inputs=[...root.querySelectorAll('input:not([type=hidden])')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
+             const inputs=[...root.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio])')].filter(e=>e.id&&!e.disabled&&!e.readOnly);
              if(inputs.length>=2 && inputs.length<=4)return inputs.slice(0,2).map(e=>e.id);
           }
        }
