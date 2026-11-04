@@ -279,7 +279,7 @@ def _wait_for_exact10_field(page, timeout_ms=12000):
 def _official_menu_click(page, labels):
     """Use the observed G2B GNB DOM ids; never guess a request endpoint."""
     script=r"""(target)=>{
-      const norm=s=>(s||'').replace(/\\s+/g,' ').trim();
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
       const els=[...document.querySelectorAll('a,button,[role="button"]')];
       const hits=els.filter(e=>norm(e.textContent)===target);
       const sorted=hits.map(e=>{
