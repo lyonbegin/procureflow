@@ -82,8 +82,18 @@ def home():
 
 @app.get("/health")
 def health():
+    # Real DB probe, not just "DATABASE_URL exists". Railway health checks must
+    # fail closed if actual G2B tables are unavailable.
+    with readonly() as con:
+        row=con.execute("""SELECT EXISTS(SELECT 1 FROM procureflow.tenders
+                       WHERE source='g2b') AS has_g2b,
+                    EXISTS(SELECT 1 FROM procureflow.g2b_notice_categories
+                       WHERE code_type='detail10'
+                         AND evidence_level='official_direct') AS has_verified_categories""").fetchone()
     return {"status":"ok","scope":"single_g2b_original_exact10_readonly",
-            "database_configured":bool(os.getenv("DATABASE_URL")),
+            "database_connected":True,
+            "has_g2b_notice_rows":bool(row["has_g2b"]),
+            "has_original_verified_category_rows":bool(row["has_verified_categories"]),
             "site_search_verified":False,"bid_submitted":False}
 
 
