@@ -627,10 +627,32 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                 if (parsed.hostname==G2B_HOST and req.method=="POST"
                         and parsed.path.endswith(".do")):
                     raw=_flatten_post(req.post_data)
+                    # Diagnose dates only: never log raw body, company data,
+                    # session keys or unrelated input fields.
+                    date_evidence=[]
+                    if detail10 in raw:
+                        try:
+                            decoded=json.loads(req.post_data)
+                            def date_fields(obj,prefix=""):
+                                if isinstance(obj,dict):
+                                    for k,v in obj.items():
+                                        key=(prefix+"."+str(k))[-110:]
+                                        if isinstance(v,(dict,list)):date_fields(v,key)
+                                        elif isinstance(v,(str,int)) and re.search(
+                                            r"date|ymd|dt|from|to|str|end|begin|start|pbanc|onbs",str(k),re.I):
+                                            value=str(v).strip()
+                                            if re.fullmatch(r"20[0-9]{6}",value):
+                                                date_evidence.append({"key":key,"date":value})
+                                elif isinstance(obj,list):
+                                    for x in obj[:10]:date_fields(x,prefix)
+                            date_fields(decoded)
+                        except (ValueError,TypeError):
+                            pass
                     observed_posts.append({"path":parsed.path[:130],
                         "has_code":detail10 in raw,
                         "has_start":w["start"].replace("-","") in re.sub(r"[^0-9]","",raw),
-                        "has_end":w["end"].replace("-","") in re.sub(r"[^0-9]","",raw)})
+                        "has_end":w["end"].replace("-","") in re.sub(r"[^0-9]","",raw),
+                        "date_fields":date_evidence[:16]})
                     if request_has_filter(req.post_data,detail10,w["start"],w["end"]):
                         requests.append({"url":req.url.split("?")[0],"request":req})
             def on_response(r):
