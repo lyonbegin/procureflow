@@ -1,7 +1,7 @@
 """Read only from REAL official G2B web pages; no calls to historical DB.
 
 Only pure external-fetch/extraction primitives are imported from the existing
-project. Never invoke their collect(), save_batch(), session(), or legacy code.
+project. Never invoke their collect / save_batch / session functions or legacy DB code.
 """
 from __future__ import annotations
 from datetime import date
