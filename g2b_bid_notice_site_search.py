@@ -276,49 +276,53 @@ def _wait_for_exact10_field(page, timeout_ms=12000):
     return False
 
 
+def _official_menu_click(page, labels):
+    """Use the observed G2B GNB DOM ids; never guess a request endpoint."""
+    script=r"""(target)=>{
+      const norm=s=>(s||'').replace(/\\s+/g,' ').trim();
+      const els=[...document.querySelectorAll('a,button,[role="button"]')];
+      const hits=els.filter(e=>norm(e.textContent)===target);
+      const sorted=hits.map(e=>{
+        const id=e.id||'';
+        const visible=e.getClientRects().length>0;
+        const score=(id.includes('gnbMenu')?50:0)+(id.includes('genMenu')?25:0)
+          +(visible?15:0)+(id.includes('btn_menuLvl')?10:0);
+        return {e,score};
+      }).sort((a,b)=>b.score-a.score);
+      if(!sorted.length)return false;
+      sorted[0].e.click();
+      return true;
+    }"""
+    for retry in range(16):
+        for frame in _frames(page):
+            for label in labels:
+                try:
+                    if frame.evaluate(script,label):
+                        page.wait_for_timeout(950)
+                        return True
+                except Exception:
+                    continue
+        if retry==7:
+            _click_label(page,("사이트맵","전체메뉴"))
+        page.wait_for_timeout(350)
+    return False
+
+
 def _navigate(page):
-    # No hardcoded fake bid-list endpoint. A real, visible input is mandatory.
-    if _field_from_label(page,DETAIL_LABELS)[1] is not None:
+    """Reach the real public notice list, then open advanced 10-digit criteria."""
+    if _wait_for_exact10_field(page,1500):
         return
-    for names in (("입찰",),("입찰공고",),("입찰공고목록","입찰공고 목록"),
-                  ("입찰공고 검색","입찰공고조회","공고현황")):
-        _click_label(page,names,action="hover")
-        _click_label(page,names,action="click")
-        page.wait_for_timeout(800)
-        if _field_from_label(page,DETAIL_LABELS)[1] is not None:
-            return
-    # Publicly observed G2B bid-notice link family; candidate only.
-    # All results must still pass the exact-10 request verification.
-    if _field_from_label(page,DETAIL_LABELS)[1] is None:
-        try:
-            page.goto("https://www.g2b.go.kr/link/PNPE027_01/",
-                      wait_until="domcontentloaded",timeout=30000)
-            _wait_for_site_rendered(page,16000)
-            _click_label(page,("입찰공고목록","입찰공고 목록"))
-            if _wait_for_exact10_field(page,3000):
-                return
-            _click_label(page,("상세조건","상세검색","상세조건 펼침"))
-            if _wait_for_exact10_field(page,12000):
-                return
-        except Exception:
-            pass
-    _click_label(page,("상세조건","상세검색","검색조건","상세조건 검색"),action="click")
-    if not _wait_for_exact10_field(page,4500):
-        try:
-            # Official homepage can return a valid page title but empty
-            # WebSquare body in the Railway headless environment.
-            empty=page.evaluate("""() => {
-              const body=(document.body?.innerText||'').trim();
-              const controls=document.querySelectorAll('input,button,a').length;
-              return !body && controls===0;
-            }""")
-            if empty:
-                raise SearchBlocked("G2B_OFFICIAL_SITE_RENDERED_EMPTY")
-        except SearchBlocked:
-            raise
-        except Exception:
-            pass
-        raise SearchBlocked("BID_NOTICE_SEARCH_SCREEN_OR_10DIGIT_FILTER_NOT_FOUND")
+    for names in (("입찰",),("입찰공고",),("입찰공고목록", "입찰공고 목록")):
+        if not _official_menu_click(page,names):
+            raise SearchBlocked("G2B_NOTICE_MENU_MISSING_"+str(len(names)))
+    if _wait_for_exact10_field(page,2500):
+        return
+    if not (_click_label(page,("상세조건","상세검색","상세조건 펼침")) or
+            _official_menu_click(page,("상세조건",))):
+        raise SearchBlocked("G2B_NOTICE_DETAIL_TOGGLE_NOT_FOUND")
+    if not _wait_for_exact10_field(page,12000):
+        raise SearchBlocked("G2B_NOTICE_EXACT10_FIELD_NOT_RENDERED")
+
 
 
 def _response_records(document):
@@ -397,6 +401,7 @@ def _safe_search_screen_diagnostic(tab):
             details.append({"path":urlparse(frame.url).path[:130],
                             "title":nodes.get("title"),
                             "body":nodes.get("bodyText"),
+                            "fieldNames":nodes.get("fieldNames",[]),
                             "controls":nodes.get("controls",[])})
         except Exception as exc:
             # Only public page path and single-line exception category/message;
