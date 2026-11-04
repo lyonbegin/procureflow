@@ -333,15 +333,19 @@ def _official_menu_click(page, labels):
 
 
 def _open_detail_search(page):
-    """Click the observed active WebSquare advanced-filter toggle."""
+    """Invoke only the visible observed G2B WebSquare advanced-search control."""
+    script=r"""()=>{
+       const matches=[...document.querySelectorAll('input[type=button]')]
+         .filter(e=>e.id.endsWith('btnSearchToggle') &&
+                    e.getClientRects().length>0 && !e.disabled);
+       if(!matches.length)return false;
+       matches[0].click();
+       return true;
+    }"""
     for frame in _frames(page):
         try:
-            buttons=frame.locator('input[id$="btnSearchToggle"]:visible')
-            for index in range(min(buttons.count(),8)):
-                button=buttons.nth(index)
-                if not button.is_enabled():continue
-                button.click(timeout=3500)
-                page.wait_for_timeout(800)
+            if frame.evaluate(script):
+                page.wait_for_timeout(1000)
                 return True
         except Exception:
             continue
