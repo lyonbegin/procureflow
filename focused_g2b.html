@@ -85,7 +85,7 @@ details{margin-top:13px;border:1px solid #e0e9f2;border-radius:9px;padding:10px 
         <span class="k">원본 출처</span><span class="v" id="sourceProof"></span>
        </div>
        <div id="verificationText" class="alert"></div>
-       <div class="actionbar"><button class="btn primary" id="loadHistory" type="button">동일 세부종목 과거 입찰 분석</button><button class="btn soft" id="liveSiteSearch" type="button">나라장터 원본 검색 (해당 월 1회)</button><a id="originalLink" class="btn" target="_blank" rel="noopener">공고 원문 ↗</a></div>
+       <div class="actionbar"><button class="btn primary" id="loadHistory" type="button">동일 세부종목 과거 입찰 분석</button><button class="btn soft" id="liveSiteSearch" type="button">나라장터 원본 검색 (해당 월 1회)</button><a id="originalLink" class="btn" target="_blank" rel="noopener">공고 원본 증빙 ↗</a></div>
       </div>
     </div>
    </section>
@@ -154,7 +154,7 @@ async function list(reset=true){
  finally{state.loading=false;$("refresh").disabled=false;$("find").disabled=false;}
 }
 async function choose(bid){
- if(!/^(R\d{2}BK\d{8}|\d{11})$/.test(bid))return;
+ if(!/^(R\d{2}[A-Z]{2}\d{8}|\d{11})$/.test(bid))return;
  state.selectedId=bid;state.history=null;state.historyOffset=0;state.siteMonth=null;
  $("selectedEmpty").hidden=true;$("selectedInfo").hidden=false;
  $("historyEmpty").hidden=false;$("historyContent").hidden=true;
@@ -178,7 +178,7 @@ async function choose(bid){
   $("loadHistory").disabled=!r.source_verified;
   $("liveSiteSearch").disabled=!r.source_verified;
   $("siteAgain").disabled=!r.source_verified;
-  const url=safeUrl(r.source_url||"");
+  const url=safeUrl(r.original_sources?.[0]?.source_uri||r.source_url||"");
   if(url){$("originalLink").href=url;$("originalLink").hidden=false}else{$("originalLink").hidden=true}
   text("filterLabel",r.source_verified?"동일 세부종목 "+r.original_detail10+" · 공고일 기준 과거 10년 · 발주기관 전체":"원본 검증된 10자리 코드가 없어 과거 분석 보류");
  }catch(e){
