@@ -95,6 +95,25 @@ class SiteFirstTest(TestCase):
         self.assertIn("bidPbancNo=R26BK01787028",u)
         self.assertIn("bidPbancOrd=000",u)
 
+    def test_real_official_g2b_document_identity(self):
+        u=("https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do"
+           "?bidPbancNo=R26BK01355326&bidPbancOrd=000&fileSeq=2"
+           "&fileType=&prcmBsneSeCd=03")
+        self.assertEqual(site.official_file_identity(u),
+                         ("R26BK01355326","000"))
+        action=app._validate_action("official-file",
+                    {"url":u,"detail10":"8111159901"})
+        self.assertEqual(action["bid_no"],"R26BK01355326")
+        self.assertEqual(action["detail10"],"8111159901")
+
+    def test_reject_arbitrary_document_paths_even_on_g2b(self):
+        with self.assertRaises(ValueError):
+            site.official_file_identity("https://www.g2b.go.kr/login?bidPbancNo=R26BK01355326")
+        with self.assertRaises(ValueError):
+            app._validate_action("official-file",{
+                "url":"https://evil.test/pn/pnp/pnpe/UntyAtchFile/downloadFile.do",
+                "detail10":"8111159901"})
+
     def test_rank_one_never_award(self):
         data={"bid_info":{"bidPgstCd":"개찰완료"},"etc_data":{},
               "bidders":[{"grpNm":"가상 A","onbsRnkg":"1","bdngAmt":"120000"}]}
