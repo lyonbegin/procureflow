@@ -132,11 +132,12 @@ def _click_label(page,labels,action="click"):
                             frame.get_by_role("button",name=label,exact=True),
                             frame.get_by_text(label,exact=True)):
                 try:
-                    if locator.count():
-                        loc=locator.first
+                    for index in range(min(locator.count(),10)):
+                        loc=locator.nth(index)
+                        if not loc.is_visible():continue
                         if action=="hover":loc.hover(timeout=1200)
                         else:loc.click(timeout=1400)
-                        page.wait_for_timeout(550)
+                        page.wait_for_timeout(750)
                         return True
                 except Exception:
                     continue
