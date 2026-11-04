@@ -100,7 +100,7 @@ class PageTest(unittest.TestCase):
         @contextmanager
         def db():yield d
         with patch.object(app,"readonly",db):
-            result=app.history(BID)
+            result=app.history(BID,offset=0,limit=20)
         self.assertEqual(result["filter"]["start"],"2016-10-22")
         self.assertEqual(result["filter"]["end"],"2026-10-22")
         self.assertEqual(result["filter"]["agency"],"ALL_AGENCIES")
@@ -110,7 +110,7 @@ class PageTest(unittest.TestCase):
         @contextmanager
         def db():yield d
         with patch.object(app,"readonly",db):
-            result=app.history(BID)
+            result=app.history(BID,offset=0,limit=20)
         self.assertEqual(result["status"],"HOLD")
         self.assertEqual(result["items"],[])
 
@@ -120,7 +120,7 @@ class PageTest(unittest.TestCase):
         def db():yield d
         with patch.object(app,"readonly",db):
             with patch.object(app,"run_search",side_effect=AssertionError("website called")):
-                result=app.official_search(BID)
+                result=app.official_search(BID,month=None,page=1)
         self.assertEqual(result["status"],"HOLD")
 
     def test_actual_site_search_one_month_and_fail_closed(self):
@@ -134,7 +134,7 @@ class PageTest(unittest.TestCase):
                 "search_request_verified":False,
                 "matched_explicit_detail10":[]}
         with patch.object(app,"readonly",db),patch.object(app,"run_search",side_effect=site):
-            result=app.official_search(BID)
+            result=app.official_search(BID,month=None,page=1)
         self.assertEqual(len(args),1)
         self.assertEqual(args[0][0][0],CODE)
         self.assertFalse(result["website_search_verified"])
