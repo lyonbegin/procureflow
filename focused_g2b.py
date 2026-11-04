@@ -118,18 +118,16 @@ def notices(q:str=Query("",max_length=100),
             offset:int=Query(0,ge=0,le=5000)):
     pat="%"+q.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%"
     with readonly() as con:
-        rows=con.execute("""SELECT t.external_id AS bid_no,t.title,t.agency,
+        flags=table_flags(con)
+        if not flags["tenders"]:
+            raise HTTPException(503,"ACTUAL_G2B_TENDERS_TABLE_UNAVAILABLE")
+        join = ("          LEFT JOIN LATERAL (\n             SELECT code,source_uri\n               FROM procureflow.g2b_notice_categories c\n              WHERE c.bid_no=t.external_id AND c.code_type='detail10'\n                AND c.evidence_level='official_direct'\n                AND c.code ~ '^[0-9]{10}$'\n              ORDER BY created_at DESC LIMIT 1\n          ) c ON true\n" if flags["categories"] else
+            " LEFT JOIN LATERAL (SELECT NULL::text AS code,NULL::text AS source_uri) c ON true ")
+        rows=con.execute(f"""SELECT t.external_id AS bid_no,t.title,t.agency,
             t.category,t.notice_date,t.deadline,t.status,t.source_url,
             c.code AS exact_detail10,c.source_uri AS exact_code_source
           FROM procureflow.tenders t
-          LEFT JOIN LATERAL (
-             SELECT code,source_uri
-               FROM procureflow.g2b_notice_categories c
-              WHERE c.bid_no=t.external_id AND c.code_type='detail10'
-                AND c.evidence_level='official_direct'
-                AND c.code ~ '^[0-9]{10}$'
-              ORDER BY created_at DESC LIMIT 1
-          ) c ON true
+          {join}
           WHERE t.source='g2b' AND t.external_id ~ '^R[0-9]{2}BK[0-9]{8}$'
             AND (t.title ILIKE %s OR t.agency ILIKE %s OR t.external_id ILIKE %s)
           ORDER BY t.notice_date DESC,t.last_seen DESC,t.external_id DESC
