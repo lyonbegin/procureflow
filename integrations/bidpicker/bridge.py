@@ -253,6 +253,13 @@ class SyncRequest(BaseModel):
 app = FastAPI(title="BidPicker isolated discovery bridge", version="0.1")
 
 
+@app.on_event("startup")
+def initialize_existing_database_schema():
+    """Use existing project's PostgreSQL, initialize ONLY the new bidpicker_feed schema."""
+    with connect_isolated() as connection:
+        ensure_schema(connection)
+
+
 def require_auth(authorization: str | None):
     expected = os.getenv("BIDPICKER_BRIDGE_TOKEN", "")
     if not expected or not authorization or not secrets.compare_digest(authorization, "Bearer " + expected):
@@ -261,7 +268,12 @@ def require_auth(authorization: str | None):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "source": "bidpicker_third_party",
+    try:
+        with connect_isolated() as connection:
+            connection.execute("SELECT 1")
+    except Exception as exc:
+        raise HTTPException(503, "Existing PostgreSQL unavailable: " + type(exc).__name__) from None
+    return {"status": "ok", "database": "connected", "source": "bidpicker_third_party",
             "integration_live_verified": False}
 
 
