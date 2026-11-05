@@ -66,7 +66,22 @@ def _run(job_id,kind,args):
             page_count=0
             while month>=first[:7]:
                 for page in range(1,11):
-                    w,result,records=search_one("",first,last,month,page)
+                    for retry in range(3):
+                        try:
+                            w,result,records=search_one("",first,last,month,page)
+                            break
+                        except SourceBlocked as exc:
+                            # Retry transient G2B modal/search-render failures only.
+                            reason=str(exc)
+                            if retry>=2 or not any(x in reason for x in (
+                                    "BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST",
+                                    "BID_NOTICE_SEARCH_BUTTON_NOT_FOUND",
+                                    "G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT",
+                                    "G2B_UI_RUNTIME")):
+                                raise
+                            store.attempt(job_id,"latest_one","transient_site_retry",
+                                error_kind=reason[:120])
+
                     count=int(result.get("returned_bid_ids") or 0)
                     total_seen+=count
                     page_count+=1
@@ -162,7 +177,7 @@ def boot():
     store.initialize()
     if os.getenv("FRESH_SMOKE_ON_START")=="1":
         # Exactly one independently identifiable smoke job for this version.
-        marker="startup_latest_one_v2"
+        marker="startup_latest_one_v3"
         with store.conn() as c:
             old=c.execute("""SELECT id FROM freshg2b.jobs
                  WHERE args->>'origin'=%s LIMIT 1""",(marker,)).fetchone()
