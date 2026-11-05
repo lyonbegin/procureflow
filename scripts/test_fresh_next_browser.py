@@ -120,7 +120,8 @@ try:
         assert not page_errors, "Browser JavaScript errors: " + repr(page_errors)
         report["status"] = "passed"
         audit("PASS", job_id=job_id, db_before=before, db_after=after,
-              new_bid_no=report.get("new_bid_no"), new_title=report.get("new_title"),\n              browser_errors=len(page_errors))
+              new_bid_no=report.get("new_bid_no"), new_title=report.get("new_title"),
+              browser_errors=len(page_errors))
         browser.close()
 except Exception as exc:
     report["status"] = "failed"
