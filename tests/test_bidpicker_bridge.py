@@ -115,6 +115,23 @@ class BridgeTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 409)
                 sync.assert_not_called()
 
+    def test_detail_uses_read_only_id(self):
+        with patch.dict(os.environ, {"BIDPICKER_BRIDGE_TOKEN": "good"}):
+            with patch.object(b, "fetch_json", return_value=SAMPLE) as read:
+                response = TestClient(b.app).get("/api/bidpicker/detail/abc-123",
+                    headers={"Authorization": "Bearer good"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(read.call_args.args[0], "api/bids/abc-123")
+                self.assertFalse(response.json()["official_evidence_verified"])
+
+    def test_detail_rejects_untrusted_id(self):
+        with patch.dict(os.environ, {"BIDPICKER_BRIDGE_TOKEN": "good"}):
+            with patch.object(b, "fetch_json") as read:
+                response = TestClient(b.app).get("/api/bidpicker/detail/bad%20id",
+                    headers={"Authorization": "Bearer good"})
+                self.assertEqual(response.status_code, 422)
+                read.assert_not_called()
+
     def test_no_legacy_import(self):
         import inspect
         source = inspect.getsource(b)
