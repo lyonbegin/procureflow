@@ -236,7 +236,7 @@ class FreshTest(unittest.TestCase):
     def test_latest_ui_is_one_click_not_manual_bulk(self):
         source=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn('method="post" action="/run-next"',source)
-        self.assertIn("최신 신규 공고 1건",source)
+        self.assertIn("다음 신규 공고 1건",source)
         self.assertNotIn('id="code"',source)
         self.assertNotIn('id="first"',source)
 
