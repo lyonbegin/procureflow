@@ -197,6 +197,9 @@ def boot():
 @app.get("/",response_class=HTMLResponse)
 def home():
     markup=(ROOT/"fresh_g2b.html").read_text(encoding="utf-8")
+    total=store.notice_count()
+    markup=markup.replace('id="noticeCount">0</strong>',
+                          'id="noticeCount">'+str(total)+'</strong>')
     latest=store.recent_notices(1)
     if latest:
         item=latest[0]
@@ -212,8 +215,7 @@ def home():
         markup=markup.replace(
             '<div class="list" id="noticeList"><div class="alert">최초 DB는 비어 있습니다.</div></div>',
             '<div class="list" id="noticeList">'+snippet+'</div>')
-        markup=markup.replace('id="noticeCount">0</strong>',
-                               'id="noticeCount">1</strong>')
+
     return HTMLResponse(markup,headers={"Cache-Control":"no-store"})
 
 @app.get("/live-notices",response_class=HTMLResponse)
