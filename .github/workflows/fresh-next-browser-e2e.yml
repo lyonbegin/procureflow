@@ -21,6 +21,15 @@ jobs:
         run: |
           pip install playwright==1.52.0
           python -m playwright install --with-deps chromium
+      - name: Reject broken inline JavaScript before browser E2E
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html=Path("fresh_g2b.html").read_text(encoding="utf-8")
+          code=html.split("<script>",1)[1].split("</script>",1)[0]
+          Path("/tmp/fresh-g2b-inline.js").write_text(code,encoding="utf-8")
+          PY
+          node --check /tmp/fresh-g2b-inline.js
       - name: Open live UI, click button and prove one real notice
         env:
           FRESH_TEST_BASE: https://fresh-g2b-site-center-production.up.railway.app
