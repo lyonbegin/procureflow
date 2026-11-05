@@ -1,0 +1,28 @@
+name: Fresh G2B running job diagnostic
+on:
+  push:
+    branches: [feat/latest-one-notice-20261105]
+    paths: [.github/workflows/fresh-active-job-diagnostic.yml]
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect live fresh job states without starting a search
+        run: |
+          python - <<'PY'
+          import json,urllib.request
+          base="https://fresh-g2b-site-center-production.up.railway.app"
+          for path in ("/health","/api/fresh/recent-jobs"):
+              with urllib.request.urlopen(base+path,timeout=35) as resp:
+                  data=json.load(resp)
+              if path.endswith("recent-jobs"):
+                  items=data.get("items",[])
+                  print("ACTIVE_JOBS",[{
+                    "id":x.get("id"),"kind":x.get("kind"),"status":x.get("status"),
+                    "created":x.get("created_at"),"started":x.get("started_at"),
+                    "finished":x.get("finished_at"),"saved":x.get("rows_saved"),
+                    "error":x.get("error")
+                    } for x in items[:12]])
+              else:
+                  print("HEALTH",json.dumps(data,ensure_ascii=False))
+          PY
