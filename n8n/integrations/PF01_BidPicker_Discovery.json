@@ -31,7 +31,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const x=$input.first()?.json??{};const page=Number(x.page??1),size=Number(x.size??10);if(!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>30)throw new Error('Invalid bounded page/size');return [{json:{keyword:String(x.keyword??'').slice(0,160),region:String(x.region??'').slice(0,160),category:String(x.category??'').slice(0,160),task_type:String(x.task_type??'').slice(0,160),page,size,source:'bidpicker_third_party',bid_submitted:false}}];"
+        "jsCode": "const x=$input.first()?.json??{};const page=Number(x.page??1),size=Number(x.size??10);if(!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>30)throw new Error('Invalid bounded page/size');return [{json:{keyword:String(x.keyword??'').slice(0,160),region:String(x.region??'').slice(0,160),category:String(x.category??'').slice(0,160),task_type:String(x.task_type??'').slice(0,160),page,size,deadline_soon:x.deadline_soon===true,include_closed:x.include_closed===true,source:'bidpicker_third_party',bid_submitted:false}}];"
       },
       "notes": "API 입력 형식; 마감·지역·키워드 검색. 서드파티 공고만 발견, 실제 나라장터 공식 증빙은 PF04에서 별도 확보",
       "notesInFlow": true
@@ -76,6 +76,14 @@
             {
               "name": "size",
               "value": "={{ $json.size }}"
+            },
+            {
+              "name": "deadline_soon",
+              "value": "={{ $json.deadline_soon ?? false }}"
+            },
+            {
+              "name": "include_closed",
+              "value": "={{ $json.include_closed ?? false }}"
             }
           ]
         },
