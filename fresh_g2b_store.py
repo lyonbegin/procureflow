@@ -310,7 +310,7 @@ def recent_notices(limit=40):
           LEFT JOIN freshg2b.executions e ON e.bid_no=n.bid_no AND e.bid_ord=n.bid_ord
           LEFT JOIN freshg2b.attachments a ON a.bid_no=n.bid_no AND a.bid_ord=n.bid_ord
           GROUP BY n.bid_no,n.bid_ord
-          ORDER BY n.posted_on DESC NULLS LAST,n.first_seen DESC LIMIT %s""",
+          ORDER BY n.first_seen DESC,n.posted_on DESC NULLS LAST LIMIT %s""",
           (min(max(1,limit),100),)).fetchall()
     return [public(r) for r in rows]
 
