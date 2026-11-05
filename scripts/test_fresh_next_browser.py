@@ -70,6 +70,25 @@ try:
         page.locator("body").wait_for(state="visible", timeout=15000)
         page.screenshot(path=str(OUT / "02-job-started.png"), full_page=True)
 
+        # Reproduce user's fast second click WHILE the first job is active.
+        # It must go to the SAME job, never create a second job and never
+        # show {"detail":"FRESH_CRAWLER_ALREADY_RUNNING"}.
+        page.goto(BASE + "/", wait_until="domcontentloaded", timeout=35000)
+        with page.expect_navigation(url=re.compile(r".*/run-status/\\d+\\?already_running=1$"), timeout=35000):
+            page.locator("#searchButton").click(timeout=20000)
+        existing_url=page.url
+        assert f"/run-status/{job_id}?already_running=1" in existing_url, (
+            f"Duplicate click created or redirected to wrong job: {existing_url}")
+        page.locator("body").wait_for(state="visible")
+        duplicate_text=page.locator("body").inner_text()
+        assert "이미 실행 중인 작업" in duplicate_text, duplicate_text[:400]
+        assert "중복 수집을 시작하지 않았습니다" in duplicate_text, duplicate_text[:400]
+        assert "FRESH_CRAWLER_ALREADY_RUNNING" not in duplicate_text
+        page.screenshot(path=str(OUT / "02b-second-click-reuses-active-job.png"), full_page=True)
+        report["duplicate_click_job_id"]=job_id
+        report["click_count"]=2
+        audit("second_browser_click_reused_active_job", job_id=job_id)
+
         deadline = time.monotonic() + 245
         job = None
         while time.monotonic() < deadline:
