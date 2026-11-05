@@ -1,0 +1,52 @@
+name: Fresh G2B one-button POST end-to-end
+on:
+  push:
+    branches: [feat/latest-one-notice-20261105]
+    paths: [.github/workflows/fresh-next-button-e2e.yml]
+  workflow_dispatch:
+jobs:
+  click-submit-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Browser form POST, job completion, and database integrity
+        run: |
+          python - <<'PY'
+          import http.client,json,re,time,urllib.request
+          host="fresh-g2b-site-center-production.up.railway.app"
+          base="https://"+host
+          def get(path):
+              with urllib.request.urlopen(base+path,timeout=35) as r:
+                  return r.read().decode("utf-8")
+          home=get("/")
+          assert 'method="post" action="/run-next"' in home,"Native browser submit form not deployed"
+          before=json.loads(get("/health"))["new_db_notices"]
+          con=http.client.HTTPSConnection(host,timeout=40)
+          con.request("POST","/run-next",body="",headers={"Content-Length":"0"})
+          res=con.getresponse()
+          location=res.getheader("Location")
+          print("POST_HTTP",res.status,"REDIRECT_TO",location)
+          assert res.status==303 and re.fullmatch(r"/run-status/\d+",location or ""),("POST failed",res.status,location)
+          jobid=int(location.rsplit("/",1)[-1])
+          print("JOB_ID",jobid,"BEFORE_DB",before)
+          active=get(location)
+          assert "다음 신규 공고 1건" in active
+          job=None
+          for _ in range(75):
+              time.sleep(3)
+              job=json.loads(get("/api/fresh/jobs/"+str(jobid)))
+              if job["status"] in ("completed","blocked","error"):
+                  break
+          assert job and job["status"] in ("completed","blocked","error"),"Job stuck without terminal status"
+          after=json.loads(get("/health"))["new_db_notices"]
+          statuspage=get(location)
+          print("TERMINAL",json.dumps({"job_id":jobid,"status":job["status"],"seen":job["rows_seen"],
+             "saved":job["rows_saved"],"error":job["error"],"db_before":before,
+             "db_after":after},ensure_ascii=False))
+          assert job["rows_saved"] in (0,1),"More than one new notice was saved"
+          assert after-before==job["rows_saved"],"DB delta does not match saved count"
+          assert "다음 신규 공고 1건" in statuspage
+          if job["status"]!="completed":
+              raise SystemExit("Live website search was blocked: "+str(job["error"]))
+          print("PASS: browser-form POST created job and one-or-zero new DB records")
+          PY
