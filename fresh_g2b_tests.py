@@ -226,12 +226,13 @@ class FreshTest(unittest.TestCase):
         item={"bid_no":"R26BM01032440","bid_ord":"000",
               "title":"황새울보도교 보수공사",
               "agency":"경기도 성남시","category_verified":False}
-        with patch.object(store,"recent_notices",return_value=[item]) as getter:
+        with patch.object(store,"recent_notices",return_value=[item]) as getter, \
+             patch.object(store,"notice_count",return_value=17):
             html=api.home().body.decode("utf-8")
         getter.assert_called_once_with(1)
         self.assertIn("황새울보도교 보수공사",html)
         self.assertIn("R26BM01032440",html)
-        self.assertIn('id="noticeCount">1</strong>',html)
+        self.assertIn('id="noticeCount">17</strong>',html)
 
     def test_latest_ui_is_one_click_not_manual_bulk(self):
         source=(Path(__file__).parent/"fresh_g2b.html").read_text()
