@@ -53,6 +53,9 @@ try:
         assert "다음 신규 공고 1건 가져오기" in label, f"Wrong button: {label!r}"
         assert page.locator('form#searchForm[method="post"][action="/run-next"]').count() == 1, "Form not a native POST"
         assert button.is_enabled(), "Button is disabled before clicking"
+        displayed_before=page.locator("#noticeCount").inner_text().strip()
+        assert displayed_before==str(before), (
+            f"Main DB total wrong before click: {displayed_before} != {before}")
         page.screenshot(path=str(OUT / "01-before-click.png"), full_page=True)
         audit("main_page_loaded", button_label=label, db_before=before, main_title=page.title())
 
@@ -108,6 +111,9 @@ try:
             visible = page.locator("#noticeList .item").first.inner_text()
             page.screenshot(path=str(OUT / "04-main-after-save.png"), full_page=True)
             assert no in visible and title in visible, "Main page did not refresh to newly saved notice"
+            displayed_after=page.locator("#noticeCount").inner_text().strip()
+            assert displayed_after==str(after), (
+                f"Main DB total wrong after click: {displayed_after} != {after}")
             audit("main_list_verified", bid=no, title=title)
         else:
             assert "새 공고가 없습니다" in status_text, "No-new case not explained visibly"
