@@ -14,7 +14,7 @@ from pathlib import Path
 from html import escape
 from urllib.parse import urlencode
 from fastapi import FastAPI,BackgroundTasks,HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel,Field
 import fresh_g2b_store as store
 from fresh_g2b_site import (
@@ -284,6 +284,63 @@ def job(job_id:int):
     data=store.job_detail(job_id)
     if not data:raise HTTPException(404,"UNKNOWN_JOB")
     return data
+
+def _status_page(job):
+    state=job["status"]
+    done=state in ("completed","blocked","error")
+    meta="" if done else '<meta http-equiv="refresh" content="3">'
+    notice_html=""
+    if state=="completed" and int(job.get("rows_saved") or 0)==1:
+        event=next((e for e in job.get("events",[])
+                    if e.get("status")=="new_notice_saved"),None)
+        if event:
+            no,ord_=event["bid_no"],event["bid_ord"]
+            current=store.notice_detail(no,ord_)
+            title=escape(str((current or {}).get("notice",{}).get("title") or "공고명 미확인"))
+            notice_html=("<h2>신규 공고 1건 저장 완료</h2><p><strong>"+
+                         title+"</strong></p><p>"+escape(no+"-"+ord_)+"</p>")
+    elif state=="completed":
+        notice_html="<h2>최근 1개월에 추가할 새 공고가 없습니다.</h2><p>이미 저장된 공고는 건너뛰었습니다.</p>"
+    elif state in ("blocked","error"):
+        notice_html="<h2>검색 실패 · 새 공고 저장 없음</h2><p>"+escape(str(job.get("error") or state))+"</p>"
+    else:
+        notice_html="<h2>나라장터 최신 공고 확인 중</h2><p>작업 완료 여부를 자동으로 갱신합니다.</p>"
+    return HTMLResponse(
+        "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"+
+        meta+"<title>공고 1건 수집 상태</title>"
+        "<style>body{font:16px/1.65 system-ui,sans-serif;margin:35px auto;padding:0 20px;"
+        "max-width:760px;color:#142b44}button{padding:14px 22px;background:#1463b7;color:#fff;"
+        "border:0;border-radius:8px;cursor:pointer;font-size:16px}"
+        "a{color:#1463b7}p{margin:12px 0}</style></head><body>"
+        "<h1>나라장터 최신 공고 · 1건씩 수집</h1><p>작업 번호 #"+
+        str(job["id"])+" · 상태 "+escape(state)+" · 확인 "+
+        str(job.get("rows_seen") or 0)+"건 · 신규 저장 "+
+        str(job.get("rows_saved") or 0)+"건</p>"+
+        notice_html+
+        "<form method='post' action='/run-next'><button type='submit'>다음 신규 공고 1건 가져오기</button></form>"
+        "<p><a href='/'>메인 화면으로</a> · <a href='/live-notices'>저장된 공고 전체 보기</a></p>"
+        "</body></html>",headers={"Cache-Control":"no-store"})
+
+
+@app.post("/run-next")
+def run_next_from_browser(background:BackgroundTasks):
+    """Native HTML submit: works even with JavaScript disabled or broken."""
+    first,last=latest_default_period()
+    args={"first":first,"last":last,"detail10":"",
+          "scope":"all_official_notices","limit_new":1}
+    job_id=_create_job_or_409("latest_one",args)
+    background.add_task(_run,job_id,"latest_one",args)
+    return RedirectResponse("/run-status/"+str(job_id),status_code=303)
+
+
+@app.get("/run-status/{job_id}",response_class=HTMLResponse)
+def run_status(job_id:int):
+    if job_id<1:raise HTTPException(400,"BAD_JOB_ID")
+    job=store.job_detail(job_id)
+    if not job:raise HTTPException(404,"UNKNOWN_JOB")
+    return _status_page(job)
+
 
 @app.post("/api/fresh/next")
 def collect_one_new_notice(background:BackgroundTasks):
