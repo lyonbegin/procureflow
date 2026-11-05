@@ -47,7 +47,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add g2b_quick_capture/*.json g2b_quick_capture/*.png g2b_quick_capture/error.txt 2>/dev/null || true
+          git add -A g2b_quick_capture/
           if ! git diff --cached --quiet; then
             git commit -m "test: record quick G2B browser screenshots [skip ci]"
             git push origin HEAD:investigate/g2b-webview-capture-20261105
