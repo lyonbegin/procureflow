@@ -120,6 +120,14 @@ def public(row):
     return {k:(v.isoformat() if isinstance(v,(datetime,date)) else v)
             for k,v in dict(row).items()}
 
+def active_job_id():
+    """Read the one already-queued/running Fresh job; never start a second one."""
+    with conn() as c:
+        row=c.execute("""SELECT id FROM freshg2b.jobs
+          WHERE status IN ('queued','running') ORDER BY id DESC LIMIT 1""").fetchone()
+    return int(row["id"]) if row else None
+
+
 def create_job(kind,args):
     with conn() as c:
         if not c.execute("SELECT pg_try_advisory_xact_lock(66770119) AS ok").fetchone()["ok"]:
