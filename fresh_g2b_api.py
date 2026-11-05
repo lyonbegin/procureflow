@@ -287,11 +287,13 @@ def job(job_id:int):
     if not data:raise HTTPException(404,"UNKNOWN_JOB")
     return data
 
-def _status_page(job):
+def _status_page(job, *, already_running=False):
     state=job["status"]
     done=state in ("completed","blocked","error")
     meta="" if done else '<meta http-equiv="refresh" content="3">'
-    notice_html=""
+    notice_html=("<p style='color:#175da5;font-weight:700'>"
+                 "이미 실행 중인 작업이 있어 해당 작업 화면을 표시합니다. "
+                 "중복 수집을 시작하지 않았습니다.</p>" if already_running else "")
     if state=="completed" and int(job.get("rows_saved") or 0)==1:
         event=next((e for e in job.get("events",[])
                     if e.get("status")=="new_notice_saved"),None)
@@ -306,7 +308,7 @@ def _status_page(job):
     elif state in ("blocked","error"):
         notice_html="<h2>검색 실패 · 새 공고 저장 없음</h2><p>"+escape(str(job.get("error") or state))+"</p>"
     else:
-        notice_html="<h2>나라장터 최신 공고 확인 중</h2><p>작업 완료 여부를 자동으로 갱신합니다.</p>"
+        notice_html+="<h2>나라장터 최신 공고 확인 중</h2><p>작업 완료 여부를 자동으로 갱신합니다.</p>"
     return HTMLResponse(
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"+
@@ -320,39 +322,57 @@ def _status_page(job):
         str(job.get("rows_seen") or 0)+"건 · 신규 저장 "+
         str(job.get("rows_saved") or 0)+"건</p>"+
         notice_html+
-        "<form method='post' action='/run-next'><button type='submit'>다음 신규 공고 1건 가져오기</button></form>"
+        ("<form method='post' action='/run-next'><button type='submit'>다음 신규 공고 1건 가져오기</button></form>"
+         if done else "<p>현재 수집이 끝나면 다음 공고 1건을 시작할 수 있습니다.</p>")
         "<p><a href='/'>메인 화면으로</a> · <a href='/live-notices'>저장된 공고 전체 보기</a></p>"
         "</body></html>",headers={"Cache-Control":"no-store"})
 
 
+def _latest_job_args():
+    first,last=latest_default_period()
+    return {"first":first,"last":last,"detail10":"",
+            "scope":"all_official_notices","limit_new":1}
+
+
+def _latest_start_or_watch(background,args):
+    """Create one task or reuse the current one without a raw JSON 409."""
+    try:
+        job_id=_create_job_or_409("latest_one",args)
+    except HTTPException as exc:
+        if exc.status_code!=409:
+            raise
+        active=store.active_job_id()
+        if active is None:
+            raise HTTPException(503,"작업 상태가 변경됐습니다. 화면을 갱신해 다시 실행하세요.") from None
+        return active,False
+    background.add_task(_run,job_id,"latest_one",args)
+    return job_id,True
+
+
 @app.post("/run-next")
 def run_next_from_browser(background:BackgroundTasks):
-    """Native HTML submit: works even with JavaScript disabled or broken."""
-    first,last=latest_default_period()
-    args={"first":first,"last":last,"detail10":"",
-          "scope":"all_official_notices","limit_new":1}
-    job_id=_create_job_or_409("latest_one",args)
-    background.add_task(_run,job_id,"latest_one",args)
-    return RedirectResponse("/run-status/"+str(job_id),status_code=303)
+    """Native browser POST redirects to the new or existing active job."""
+    args=_latest_job_args()
+    job_id,created=_latest_start_or_watch(background,args)
+    suffix="" if created else "?already_running=1"
+    return RedirectResponse("/run-status/"+str(job_id)+suffix,status_code=303)
 
 
 @app.get("/run-status/{job_id}",response_class=HTMLResponse)
-def run_status(job_id:int):
+def run_status(job_id:int,already_running:bool=False):
     if job_id<1:raise HTTPException(400,"BAD_JOB_ID")
     job=store.job_detail(job_id)
     if not job:raise HTTPException(404,"UNKNOWN_JOB")
-    return _status_page(job)
+    return _status_page(job,already_running=already_running)
 
 
 @app.post("/api/fresh/next")
 def collect_one_new_notice(background:BackgroundTasks):
-    first,last=latest_default_period()
-    args={"first":first,"last":last,"detail10":"",
-          "scope":"all_official_notices","limit_new":1}
-    job_id=_create_job_or_409("latest_one",args)
-    background.add_task(_run,job_id,"latest_one",args)
-    return {"job_id":job_id,"status":"queued","limit_new":1,
-            "first":first,"last":last,"order":"latest_first",
+    args=_latest_job_args()
+    job_id,created=_latest_start_or_watch(background,args)
+    return {"job_id":job_id,"status":"queued" if created else "already_running",
+            "already_running":not created,"limit_new":1,
+            "first":args["first"],"last":args["last"],"order":"latest_first",
             "skip_existing":True}
 
 
