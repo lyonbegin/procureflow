@@ -162,7 +162,7 @@ def boot():
     store.initialize()
     if os.getenv("FRESH_SMOKE_ON_START")=="1":
         # Exactly one independently identifiable smoke job for this version.
-        marker="startup_latest_one_v1"
+        marker="startup_latest_one_v2"
         with store.conn() as c:
             old=c.execute("""SELECT id FROM freshg2b.jobs
                  WHERE args->>'origin'=%s LIMIT 1""",(marker,)).fetchone()
