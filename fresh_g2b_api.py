@@ -7,7 +7,9 @@ records from the new independent PostgreSQL instance.
 from __future__ import annotations
 import logging,re,os
 from threading import Thread
-from datetime import date
+from datetime import date,datetime,timedelta
+from zoneinfo import ZoneInfo
+from calendar import monthrange
 from pathlib import Path
 from html import escape
 from urllib.parse import urlencode
@@ -36,6 +38,14 @@ class BidBody(BaseModel):
     bid_no:str=Field(pattern=r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
     bid_ord:str=Field(default="000",pattern=r"^\d{3}$")
 
+def latest_default_period():
+    today=datetime.now(ZoneInfo("Asia/Seoul")).date()
+    y,m=today.year,today.month-1
+    if m==0:y,m=y-1,12
+    start=date(y,m,min(today.day,monthrange(y,m)[1]))
+    return start.isoformat(),today.isoformat()
+
+
 def _create_job_or_409(kind,args):
     try:
         return store.create_job(kind,args)
@@ -49,7 +59,37 @@ def _run(job_id,kind,args):
         store.change_job(job_id,"running")
         store.attempt(job_id,kind,"started",
             args.get("bid_no",""),args.get("bid_ord",""))
-        if kind=="search":
+        if kind=="latest_one":
+            first,last=args["first"],args["last"]
+            month=last[:7]
+            total_seen=0
+            page_count=0
+            while month>=first[:7]:
+                for page in range(1,11):
+                    w,result,records=search_one("",first,last,month,page)
+                    count=int(result.get("returned_bid_ids") or 0)
+                    total_seen+=count
+                    page_count+=1
+                    found=store.save_first_unseen(
+                        job_id,w,result.get("live_search_endpoint",""),
+                        result.get("response_sha",""),records,
+                        result.get("official_total"))
+                    if found["saved"]==1:
+                        store.attempt(job_id,"latest_one","new_notice_saved",
+                            *(found["notice"].rsplit("-",1)),
+                            source_url=result.get("live_search_endpoint",""))
+                        store.change_job(job_id,"completed",
+                            seen=total_seen,saved=1)
+                        return
+                    store.attempt(job_id,"latest_one","all_on_page_already_stored",
+                        source_url=result.get("live_search_endpoint",""))
+                    if count<10:
+                        break
+                y,m=map(int,month.split("-"))
+                month=(f"{y-1:04d}-12" if m==1 else f"{y:04d}-{m-1:02d}")
+            store.change_job(job_id,"completed",seen=total_seen,saved=0,
+                             error="NO_NEW_NOTICE_IN_LAST_MONTH")
+        elif kind=="search":
             w,result,records=search_one(args["detail10"],args["first"],
                 args["last"],args.get("month"),args["page"])
             # ONLY records whose live search response itself carries exact
@@ -120,22 +160,8 @@ def _run(job_id,kind,args):
 @app.on_event("startup")
 def boot():
     store.initialize()
-    if os.getenv("FRESH_SMOKE_ON_START")!="1":
-        return
-    # One and ONLY one bounded real search request in the independent DB.
-    # The same startup probe is never repeated across redeploys.
-    with store.conn() as con:
-        exists=con.execute("""SELECT id FROM freshg2b.jobs
-          WHERE args->>'origin'='startup_probe_v33' LIMIT 1""").fetchone()
-    if exists:return
-    today=date.today()
-    try:begin=today.replace(year=today.year-10)
-    except ValueError:begin=today.replace(year=today.year-10,day=28)
-    args={"detail10":"8111159901","first":begin.isoformat(),
-      "last":today.isoformat(),"month":"2026-10",
-      "page":1,"origin":"startup_probe_v33"}
-    id_=store.create_job("search",args)
-    Thread(target=_run,args=(id_,"search",args),daemon=True).start()
+    # Do not run an obsolete fixed-category smoke search on every deployment.
+    # User-triggered /api/fresh/next fetches exactly one unseen public notice.
 
 
 @app.get("/",response_class=HTMLResponse)
@@ -211,6 +237,18 @@ def job(job_id:int):
     data=store.job_detail(job_id)
     if not data:raise HTTPException(404,"UNKNOWN_JOB")
     return data
+
+@app.post("/api/fresh/next")
+def collect_one_new_notice(background:BackgroundTasks):
+    first,last=latest_default_period()
+    args={"first":first,"last":last,"detail10":"",
+          "scope":"all_official_notices","limit_new":1}
+    job_id=_create_job_or_409("latest_one",args)
+    background.add_task(_run,job_id,"latest_one",args)
+    return {"job_id":job_id,"status":"queued","limit_new":1,
+            "first":first,"last":last,"order":"latest_first",
+            "skip_existing":True}
+
 
 @app.post("/api/fresh/search")
 def search(body:SearchBody,background:BackgroundTasks):
