@@ -269,10 +269,31 @@ def health():
 def search(keyword: str = "", region: str = "", category: str = "", task_type: str = "",
            sort: str = "latest", page: int = Query(1, ge=1),
            size: int = Query(10, ge=1, le=30),
+           deadline_soon: bool = False, include_closed: bool = False,
            authorization: str | None = Header(None)):
     require_auth(authorization)
     try:
-        return search_notices(Search(keyword, region, category, task_type, sort, page, size))
+        return search_notices(Search(keyword, region, category, task_type, sort, page, size,
+                                     deadline_soon, include_closed))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except SourceUnavailable as exc:
+        raise HTTPException(502, str(exc)) from None
+
+
+@app.get("/api/bidpicker/detail/{bid_id}")
+def detail(bid_id: str, authorization: str | None = Header(None)):
+    require_auth(authorization)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", bid_id):
+        raise HTTPException(422, "Invalid bid ID")
+    try:
+        result = fetch_json("api/bids/" + bid_id)
+        if isinstance(result, dict) and isinstance(result.get("data"), dict):
+            result = result["data"]
+        if not isinstance(result, dict):
+            raise DataContractError("Unexpected detail response type")
+        return {"source": "bidpicker_third_party", "item": normalize_notice(result),
+                "official_evidence_verified": False}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     except SourceUnavailable as exc:
