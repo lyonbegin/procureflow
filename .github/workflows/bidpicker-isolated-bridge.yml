@@ -1,0 +1,56 @@
+name: BidPicker isolated bridge CI
+on:
+  push:
+    branches: [feature/bidpicker-isolated-discovery-20261106]
+    paths:
+      - integrations/bidpicker/**
+      - integrations/__init__.py
+      - tests/test_bidpicker_bridge.py
+      - n8n/integrations/PF01_BidPicker_Discovery.json
+      - .github/workflows/bidpicker-isolated-bridge.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bidpicker_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bidpicker_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BIDPICKER_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/bidpicker_ci
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/legacy_not_created
+      BIDPICKER_USERNAME: ""
+      BIDPICKER_PASSWORD: ""
+      BIDPICKER_SYNC_ENABLED: "0"
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated bridge dependencies
+        run: pip install -r integrations/bidpicker/requirements.txt httpx==0.28.1
+      - name: Unit tests and real isolated PostgreSQL duplicate/updates
+        run: python -m unittest discover -s tests -p 'test_bidpicker_bridge.py' -v
+      - name: Validate child n8n workflow JSON
+        run: |
+          python - <<'PY'
+          import json
+          f='n8n/integrations/PF01_BidPicker_Discovery.json'
+          x=json.load(open(f,encoding='utf8'))
+          assert x['active'] is False
+          assert len(x['nodes']) >= 4
+          assert all(n.get('type','').startswith('n8n-nodes-base.') for n in x['nodes'])
+          assert 'credentials' not in x
+          assert not any('password' in str(n).lower() or 'basic ' in str(n).lower() for n in x['nodes'])
+          print('N8N_READONLY_DISCOVERY_CONTRACT_PASS',len(x['nodes']))
+          PY
