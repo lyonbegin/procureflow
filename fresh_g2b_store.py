@@ -300,6 +300,13 @@ def save_attachment(no,ord_,file):
            file["sha256"],file["mime"],file["data"],file["extracted_text"],
            file["extract_state"]))
 
+def notice_count():
+    """Total unique notices in ONLY the isolated fresh database."""
+    with conn() as c:
+        row=c.execute("SELECT count(*) AS n FROM freshg2b.notices").fetchone()
+    return int(row["n"])
+
+
 def recent_notices(limit=40):
     with conn() as c:
         rows=c.execute("""SELECT n.bid_no,n.bid_ord,n.detail10,n.title,
