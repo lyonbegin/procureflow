@@ -181,6 +181,51 @@ def page_saved(job_id,w,endpoint,source_json,records,total):
             saved+=int(bool(result))
     return saved
 
+def save_first_unseen(job_id,w,endpoint,response_sha,records,total):
+    """Inspect newest first; commit at most ONE new public notice atomically.
+
+    A previously stored notice is never rewritten or counted as new.
+    The original official JSON is preserved, while detail10 remains empty
+    until its exact classification has been established from the source.
+    """
+    if not endpoint.startswith("/pn/pnp/pnpe/BidPbac/"):
+        raise RuntimeError("UNVERIFIED_BID_LIST_SOURCE")
+    seen=0
+    with conn() as c:
+        c.execute("""INSERT INTO freshg2b.search_pages
+          (job_id,detail10,date_from,date_to,page,endpoint,request_verified,response_sha,total_reported,row_count)
+          VALUES(%s,%s,%s,%s,%s,%s,true,%s,%s,%s)
+          ON CONFLICT DO NOTHING""",
+          (job_id,w["detail10"],w["start"],w["end"],w["page"],
+           endpoint,response_sha,total,len(records)))
+        for x in records:
+            seen+=1
+            bid,ord_=x["bid_no"],x["bid_ord"]
+            raw=x["raw"]
+            sha=digest(raw)
+            posted=x.get("posted_on")
+            if posted and isinstance(posted,str):
+                digits="".join(ch for ch in posted if ch.isdigit())
+                if len(digits)>=8:
+                    posted=digits[:4]+"-"+digits[4:6]+"-"+digits[6:8]
+            if not isinstance(posted,str) or len(posted)!=10:
+                posted=None
+            row=c.execute("""INSERT INTO freshg2b.notices
+              (bid_no,bid_ord,detail10,title,agency,posted_on,source_url,
+               category_verified,original_json,response_sha)
+              VALUES(%s,%s,'',%s,%s,%s,%s,false,%s::jsonb,%s)
+              ON CONFLICT (bid_no,bid_ord) DO NOTHING RETURNING bid_no""",
+              (bid,ord_,x.get("title",""),x.get("agency",""),
+               posted,endpoint,dump(raw),sha)).fetchone()
+            if row:
+                c.execute("""INSERT INTO freshg2b.notice_versions
+                  (bid_no,bid_ord,response_sha,original_json,source_url)
+                  VALUES(%s,%s,%s,%s::jsonb,%s)
+                  ON CONFLICT DO NOTHING""",(bid,ord_,sha,dump(raw),endpoint))
+                return {"saved":1,"checked":seen,"notice":bid+"-"+ord_}
+    return {"saved":0,"checked":seen,"notice":None}
+
+
 def save_opening(bid_no,bid_ord,listing,entry):
     from hashlib import sha256
     cl=str(listing.get("bid_clsfc_no") or "0")
