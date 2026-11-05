@@ -174,24 +174,9 @@ def _run(job_id,kind,args):
 
 @app.on_event("startup")
 def boot():
+    # Never start a background smoke crawl automatically on app boot:
+    # user-operated searches are the only source of latest_one jobs.
     store.initialize()
-    if os.getenv("FRESH_SMOKE_ON_START")=="1":
-        # Exactly one independently identifiable smoke job for this version.
-        marker="startup_latest_one_v3"
-        with store.conn() as c:
-            old=c.execute("""SELECT id FROM freshg2b.jobs
-                 WHERE args->>'origin'=%s LIMIT 1""",(marker,)).fetchone()
-        if not old:
-            first,last=latest_default_period()
-            args={"first":first,"last":last,"detail10":"",
-                  "scope":"all_official_notices","limit_new":1,"origin":marker}
-            try:
-                job_id=store.create_job("latest_one",args)
-            except RuntimeError as exc:
-                logging.warning("LATEST_ONE_SMOKE_SKIPPED %s",str(exc))
-            else:
-                Thread(target=_run,args=(job_id,"latest_one",args),
-                       daemon=True).start()
 
 
 @app.get("/",response_class=HTMLResponse)
