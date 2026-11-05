@@ -209,7 +209,7 @@ class FreshTest(unittest.TestCase):
     def test_ui_links_to_previous_node_management(self):
         html=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn("section=public_nodes",html)
-        self.assertIn("api/fresh/search",html)
+        self.assertIn("api/fresh/next",html)
         self.assertIn("기존 229건",html)  # explicitly says NOT imported
 
     def test_fresh_only_env_var(self):
