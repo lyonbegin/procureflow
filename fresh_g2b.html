@@ -87,7 +87,7 @@ async function loadList(){
       ' · '+esc(r.agency||"기관 미확인")+'<br>게시일 '+esc(r.posted_on||"미확인")+
       ' · 개찰집행 '+esc(r.opening_executions||0)+' · 첨부 '+esc(r.files||0)+'</div></button>').join(""):
       '<div class="alert warn">아직 신규 공고가 없습니다. 버튼을 누르면 최신 공고를 하나씩 확인합니다.</div>';
-  }catch(e){p("searchInfo","새 DB 공고 목록 조회 실패: "+e.message,"error")}}
+  }catch(e){p("searchInfo","새 DB 공고 목록 조회 실패: "+e.message,"error")}
 }
 async function select(no,ord){
  try{
