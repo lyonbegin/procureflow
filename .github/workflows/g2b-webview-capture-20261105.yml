@@ -1,0 +1,92 @@
+name: Inspect official G2B WebView public UI
+on:
+  push:
+    branches:
+      - investigate/g2b-webview-capture-20261105
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser
+        run: |
+          pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Inspect public pages without authentication
+        run: |
+          python - <<'PY'
+          import asyncio, json, re, os, pathlib, time, traceback
+          from urllib.parse import urlparse
+          from playwright.async_api import async_playwright
+          ROOT=pathlib.Path('g2b_public_capture')
+          ROOT.mkdir(exist_ok=True)
+          targets=[
+              ('desktop_home','https://www.g2b.go.kr/',False),
+              ('desktop_tm','https://www.g2b.go.kr/tm/index.do',False),
+              ('mobile_home','https://m.g2b.go.kr/',True),
+              ('mobile_tm','https://m.g2b.go.kr/tm/index.do',True),
+              ('desktop_help','https://www.g2b.go.kr/ehelpdesk',False),
+          ]
+          async def main():
+            results=[]
+            async with async_playwright() as p:
+              browser=await p.chromium.launch(headless=True, args=['--no-sandbox'])
+              for name,url,mobile in targets:
+                item={'name':name,'requested_url':url,'mobile_viewport':mobile}
+                c=None
+                try:
+                  context={'viewport':{'width':390 if mobile else 1365,'height':844 if mobile else 900},'locale':'ko-KR','timezone_id':'Asia/Seoul','ignore_https_errors':False}
+                  if mobile:
+                    context['is_mobile']=True
+                    context['has_touch']=True
+                    context['device_scale_factor']=2
+                  c=await browser.new_context(**context)
+                  page=await c.new_page()
+                  bad=[]
+                  page.on('requestfailed',lambda r: bad.append({'method':r.method,'url_host':urlparse(r.url).hostname,'error':str(r.failure)[:130]}) if len(bad)<15 else None)
+                  try:
+                    resp=await page.goto(url,wait_until='domcontentloaded',timeout=25000)
+                    item['http_status']=resp.status if resp else None
+                  except Exception as e: item['navigation_error']=str(e)[:350]
+                  try: await page.wait_for_timeout(2000)
+                  except Exception: pass
+                  item['final_host']=urlparse(page.url).hostname
+                  item['final_path']=urlparse(page.url).path
+                  item['title']=await page.title()
+                  body=(await page.locator('body').inner_text(timeout=7000)) if await page.locator('body').count() else ''
+                  item['visible_text']=body[:8000]
+                  item['links']=(await page.locator('a').evaluate_all("(links)=>links.slice(0,65).map(a=>({label:(a.innerText||'').trim().slice(0,90),href_path:(()=>{try{const u=new URL(a.href);return u.origin+u.pathname}catch(e){return ''}})()}))"))
+                  item['inputs']=(await page.locator('input').evaluate_all("(els)=>els.slice(0,50).map(x=>({type:x.type,placeholder:x.placeholder,ariaLabel:x.getAttribute('aria-label')}))"))
+                  item['buttons']=(await page.locator('button').evaluate_all("(els)=>els.slice(0,70).map(x=>(x.innerText||x.getAttribute('aria-label')||'').trim().slice(0,80))"))
+                  item['iframes']=await page.locator('iframe').count()
+                  item['request_failures']=bad
+                  await page.screenshot(path=str(ROOT/f'{name}.png'),full_page=True,timeout=10000)
+                  (ROOT/f'{name}.txt').write_text(body[:25000],encoding='utf-8')
+                except Exception as e:
+                  item['error']=str(e)[:400]
+                finally:
+                  if c: await c.close()
+                results.append(item)
+                print(json.dumps({k:v for k,v in item.items() if k not in ['visible_text','links','inputs','buttons']},ensure_ascii=False),flush=True)
+              await browser.close()
+            (ROOT/'results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
+            # Print compact summary to GitHub Actions log
+            for x in results:
+              print('UI_RESULT',x['name'],x.get('http_status'),x.get('final_host'),x.get('final_path'),x.get('title'),repr(x.get('visible_text','')[:210]),flush=True)
+          asyncio.run(main())
+          PY
+      - name: Upload screenshots and DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-g2b-public-webview
+          path: g2b_public_capture/
+          if-no-files-found: warn
+          retention-days: 7
