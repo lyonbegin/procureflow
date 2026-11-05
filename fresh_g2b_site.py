@@ -40,7 +40,7 @@ def search_one(detail10,first,last,cursor=None,page=1):
     for item in list(verified)+list(pending):
         codes=item.get("direct_category_codes") or []
         explicit=detail10 in codes
-        if codes and not explicit:
+        if detail10 and codes and not explicit:
             continue
         raw=item.get("raw")
         if not isinstance(raw,dict):
