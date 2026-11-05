@@ -74,7 +74,7 @@ try:
         # It must go to the SAME job, never create a second job and never
         # show {"detail":"FRESH_CRAWLER_ALREADY_RUNNING"}.
         page.goto(BASE + "/", wait_until="domcontentloaded", timeout=35000)
-        with page.expect_navigation(url=re.compile(r".*/run-status/\\d+\\?already_running=1$"), timeout=35000):
+        with page.expect_navigation(url=re.compile(r".*/run-status/\d+\?already_running=1$"), timeout=35000):
             page.locator("#searchButton").click(timeout=20000)
         existing_url=page.url
         assert f"/run-status/{job_id}?already_running=1" in existing_url, (
