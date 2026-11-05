@@ -194,6 +194,33 @@ class FreshTest(unittest.TestCase):
         self.assertEqual(search.call_count,2)
         self.assertEqual(change.call_args.kwargs["saved"],1)
 
+    def test_native_post_click_creates_latest_job_redirect(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",return_value=913) as create:
+            response=api.run_next_from_browser(background)
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers.get("location"),"/run-status/913")
+        self.assertEqual(len(background.tasks),1)
+        self.assertEqual(create.call_args.args[0],"latest_one")
+        self.assertEqual(create.call_args.args[1]["limit_new"],1)
+
+    def test_native_status_page_shows_new_record_and_next_button(self):
+        import fresh_g2b_api as api
+        fake={"id":913,"kind":"latest_one","status":"completed",
+              "rows_seen":10,"rows_saved":1,"error":"",
+              "events":[{"status":"new_notice_saved",
+                         "bid_no":"R26BM01032440","bid_ord":"000"}]}
+        with patch.object(api.store,"job_detail",return_value=fake), \
+             patch.object(api.store,"notice_detail",
+                 return_value={"notice":{"title":"황새울보도교 보수공사"}}):
+            response=api.run_status(913)
+        html=response.body.decode("utf-8")
+        self.assertIn("황새울보도교 보수공사",html)
+        self.assertIn("action='/run-next'",html)
+        self.assertIn("신규 공고 1건 저장 완료",html)
+
     def test_initial_html_shows_only_latest_one_saved_notice(self):
         import fresh_g2b_api as api
         item={"bid_no":"R26BM01032440","bid_ord":"000",
@@ -208,7 +235,7 @@ class FreshTest(unittest.TestCase):
 
     def test_latest_ui_is_one_click_not_manual_bulk(self):
         source=(Path(__file__).parent/"fresh_g2b.html").read_text()
-        self.assertIn('"/api/fresh/next"',source)
+        self.assertIn('method="post" action="/run-next"',source)
         self.assertIn("최신 신규 공고 1건",source)
         self.assertNotIn('id="code"',source)
         self.assertNotIn('id="first"',source)
@@ -239,7 +266,7 @@ class FreshTest(unittest.TestCase):
     def test_ui_links_to_previous_node_management(self):
         html=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn("section=public_nodes",html)
-        self.assertIn("api/fresh/next",html)
+        self.assertIn("action=\"/run-next\"",html)
         self.assertIn("기존 229건",html)  # explicitly says NOT imported
 
     def test_fresh_only_env_var(self):
