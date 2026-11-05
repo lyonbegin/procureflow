@@ -34,18 +34,16 @@ pre{white-space:pre-wrap;word-break:break-word;max-height:250px;overflow:auto;ba
 <div id="health" class="alert">신규 DB 연결 확인 중…</div>
 <div class="grid">
 <section class="panel">
-<div class="panel-head"><div class="row"><h2>① 실제 나라장터 검색</h2><span class="badge grey">신규 DB 전용</span></div><p>실제 입찰공고 검색화면에 10자리 조건을 전송한 경우에만 저장합니다.</p></div>
+<div class="panel-head"><div class="row"><h2>① 실제 나라장터 검색</h2><span class="badge grey">신규 DB 전용</span></div><p>실제 나라장터의 최신 발주를 조회하고 DB에 없는 공고 1건만 저장합니다.</p></div>
 <div class="panel-body">
-<form id="searchForm">
-<label for="code">세부품명번호 (10자리)</label><input id="code" value="8111159901" required pattern="[0-9]{10}">
-<div class="cols"><div><label for="first">시작일</label><input type="date" id="first" required></div><div><label for="last">종료일</label><input type="date" id="last" required></div></div>
-<div class="cols"><div><label for="month">검색 월 (빈칸 = 최근 월)</label><input type="month" id="month"></div><div><label for="page">월별 페이지</label><input type="number" min="1" max="10" value="1" id="page"></div></div>
-<div class="actions"><button class="primary" type="submit" id="searchButton">실제 사이트에서 검색 실행</button><button type="button" id="prevMonth">이전 월 지정</button></div>
+<form id="searchForm" method="post" action="/run-next">
+<div class="alert">기본 기간: 실행일 기준 과거 1개월부터 오늘까지 · 모든 입찰공고 검색 · 최신순 확인</div>
+<div class="actions"><button class="primary" type="submit" id="searchButton">수집 시작 · 다음 신규 공고 1건 가져오기</button></div>
 </form>
-<div id="searchInfo" class="alert">사이트 검색 전입니다. 첫 검색은 선택 기간의 마지막 월 1페이지를 조회합니다.</div>
-<div class="note">공식 10자리 검색 응답은 신규 DB에 저장하며, 원본 행에서 직접 세부품명을 확인하지 못한 공고는 별도로 '상세 확인 대기' 표시합니다. 차단·실패는 0건으로 판단하지 않습니다.</div>
+<div id="searchInfo" class="alert">실행할 때 현재 날짜로 지난 1개월을 자동 계산합니다. 최신 공고부터 DB 중복을 건너뜁니다.</div>
+<div class="note">공식 사이트 원본만 사용합니다. 매번 새 공고는 최대 1건, 이미 저장된 공고는 건너뜁니다. 분류번호는 공고 상세에서 검증합니다.</div>
 </div>
-<div class="panel-head"><div class="row"><h2>② 신규 수집 공고</h2><button id="refreshList">새로고침</button></div><p>새 독립 DB에 실제 수집된 공고만 나타납니다.</p></div>
+<div class="panel-head"><div class="row"><h2>② 신규 수집 공고</h2><button id="refreshList">저장 목록만 갱신</button></div><p>새 독립 DB에 실제 수집된 공고만 나타납니다.</p></div>
 <div class="list" id="noticeList"><div class="alert">최초 DB는 비어 있습니다.</div></div>
 </section>
 <div class="stack">
@@ -72,12 +70,13 @@ const p=(id,s,cls)=>{const el=$(id);el.textContent=s;if(cls)el.className="alert 
 async function req(url,opt={}){const r=await fetch(url,{cache:"no-store",...opt});let o;try{o=await r.json()}catch{throw Error("서버의 응답이 JSON이 아닙니다 (HTTP "+r.status+")")}
 if(!r.ok)throw Error(o.detail||o.reason||"HTTP "+r.status);return o}
 async function loadHealth(){try{const r=await req("/health");p("health",
-  "신규 DB 연결 정상 · 기존 DB 접근: "+(r.old_db_access?"차단 오류":"없음")+" · 신규 수집 공고 "+r.new_db_notices+"건","")}
+  "신규 DB 연결 정상 · 기존 DB 접근: "+(r.old_db_access?"차단 오류":"없음")+" · 신규 수집 공고 "+r.new_db_notices+"건","");
+  $("noticeCount").textContent=r.new_db_notices;}
   catch(e){p("health","신규 DB 확인 실패: "+e.message,"error")}}
 async function loadList(){
   try{
-    const data=await req("/api/fresh/notices");
-    $("noticeCount").textContent=data.items.length;
+    const data=await req("/api/fresh/notices?limit=1");
+    // List is intentionally one item; count metric is whole DB from /health.
     $("noticeList").innerHTML=data.items.length?data.items.map(r=>
       '<button class="item '+(state.selected?.bid_no===r.bid_no?"selected":"")+
       '" data-no="'+esc(r.bid_no)+'" data-ord="'+esc(r.bid_ord)+'">'+
@@ -88,8 +87,8 @@ async function loadList(){
       '<div class="meta">'+esc(r.bid_no)+"-"+esc(r.bid_ord)+" · "+esc(r.detail10)+
       ' · '+esc(r.agency||"기관 미확인")+'<br>게시일 '+esc(r.posted_on||"미확인")+
       ' · 개찰집행 '+esc(r.opening_executions||0)+' · 첨부 '+esc(r.files||0)+'</div></button>').join(""):
-      '<div class="alert warn">새 DB의 실제 수집 공고가 없습니다. 기존 데이터로 채우지 않습니다.</div>';
-  }catch(e){p("searchInfo","새 DB 공고 목록 조회 실패: "+e.message,"error")}}
+      '<div class="alert warn">아직 신규 공고가 없습니다. 버튼을 누르면 최신 공고를 하나씩 확인합니다.</div>';
+  }catch(e){p("searchInfo","새 DB 공고 목록 조회 실패: "+e.message,"error")}
 }
 async function select(no,ord){
  try{
@@ -153,18 +152,7 @@ async function jobs(){
    '<p>아직 신규 수집 작업이 없습니다.</p>';
  }catch(e){p("jobStatus","작업 이력 확인 실패: "+e.message,"error")}
 }
-$("searchForm").addEventListener("submit",async e=>{
- e.preventDefault();
- const payload={detail10:$("code").value.trim(),first:$("first").value,last:$("last").value,
-   month:$("month").value||null,page:Number($("page").value||1)};
- await launch("/api/fresh/search",payload)
-});
-$("prevMonth").addEventListener("click",()=>{
- const val=$("month").value||$("last").value.slice(0,7);
- if(!/^\d{4}-\d{2}$/.test(val))return;
- const [y,m]=val.split("-").map(Number);
- $("month").value=(m===1?y-1:y)+"-"+String(m===1?12:m-1).padStart(2,"0");
-});
+// The form uses native POST /run-next: independent of JavaScript.
 $("noticeList").addEventListener("click",e=>{
  const node=e.target.closest("[data-no]");if(node)select(node.dataset.no,node.dataset.ord)});
 $("fetchOpening").addEventListener("click",()=>state.selected&&launch("/api/fresh/opening",
@@ -173,7 +161,5 @@ $("fetchFiles").addEventListener("click",()=>state.selected&&launch("/api/fresh/
  {bid_no:state.selected.bid_no,bid_ord:state.selected.bid_ord}));
 $("refreshList").addEventListener("click",loadList);
 $("refreshJobs").addEventListener("click",jobs);
-const now=new Date();const iso=d=>d.toISOString().slice(0,10);
-$("last").value=iso(now);const from=new Date(now);from.setFullYear(from.getFullYear()-10);$("first").value=iso(from);
 loadHealth();loadList();jobs();
 </script></body></html>

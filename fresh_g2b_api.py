@@ -7,12 +7,14 @@ records from the new independent PostgreSQL instance.
 from __future__ import annotations
 import logging,re,os
 from threading import Thread
-from datetime import date
+from datetime import date,datetime,timedelta
+from zoneinfo import ZoneInfo
+from calendar import monthrange
 from pathlib import Path
 from html import escape
 from urllib.parse import urlencode
 from fastapi import FastAPI,BackgroundTasks,HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel,Field
 import fresh_g2b_store as store
 from fresh_g2b_site import (
@@ -36,6 +38,14 @@ class BidBody(BaseModel):
     bid_no:str=Field(pattern=r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
     bid_ord:str=Field(default="000",pattern=r"^\d{3}$")
 
+def latest_default_period():
+    today=datetime.now(ZoneInfo("Asia/Seoul")).date()
+    y,m=today.year,today.month-1
+    if m==0:y,m=y-1,12
+    start=date(y,m,min(today.day,monthrange(y,m)[1]))
+    return start.isoformat(),today.isoformat()
+
+
 def _create_job_or_409(kind,args):
     try:
         return store.create_job(kind,args)
@@ -49,7 +59,52 @@ def _run(job_id,kind,args):
         store.change_job(job_id,"running")
         store.attempt(job_id,kind,"started",
             args.get("bid_no",""),args.get("bid_ord",""))
-        if kind=="search":
+        if kind=="latest_one":
+            first,last=args["first"],args["last"]
+            month=last[:7]
+            total_seen=0
+            page_count=0
+            while month>=first[:7]:
+                for page in range(1,11):
+                    for retry in range(3):
+                        try:
+                            w,result,records=search_one("",first,last,month,page)
+                            break
+                        except SourceBlocked as exc:
+                            # Retry transient G2B modal/search-render failures only.
+                            reason=str(exc)
+                            if retry>=2 or not any(x in reason for x in (
+                                    "BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST",
+                                    "BID_NOTICE_SEARCH_BUTTON_NOT_FOUND",
+                                    "G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT",
+                                    "G2B_UI_RUNTIME")):
+                                raise
+                            store.attempt(job_id,"latest_one","transient_site_retry",
+                                error_kind=reason[:120])
+
+                    count=int(result.get("returned_bid_ids") or 0)
+                    total_seen+=count
+                    page_count+=1
+                    found=store.save_first_unseen(
+                        job_id,w,result.get("live_search_endpoint",""),
+                        result.get("response_sha",""),records,
+                        result.get("official_total"))
+                    if found["saved"]==1:
+                        store.attempt(job_id,"latest_one","new_notice_saved",
+                            *(found["notice"].rsplit("-",1)),
+                            source_url=result.get("live_search_endpoint",""))
+                        store.change_job(job_id,"completed",
+                            seen=total_seen,saved=1)
+                        return
+                    store.attempt(job_id,"latest_one","all_on_page_already_stored",
+                        source_url=result.get("live_search_endpoint",""))
+                    if count<10:
+                        break
+                y,m=map(int,month.split("-"))
+                month=(f"{y-1:04d}-12" if m==1 else f"{y:04d}-{m-1:02d}")
+            store.change_job(job_id,"completed",seen=total_seen,saved=0,
+                             error="NO_NEW_NOTICE_IN_LAST_MONTH")
+        elif kind=="search":
             w,result,records=search_one(args["detail10"],args["first"],
                 args["last"],args.get("month"),args["page"])
             # ONLY records whose live search response itself carries exact
@@ -119,29 +174,34 @@ def _run(job_id,kind,args):
 
 @app.on_event("startup")
 def boot():
+    # Never start a background smoke crawl automatically on app boot:
+    # user-operated searches are the only source of latest_one jobs.
     store.initialize()
-    if os.getenv("FRESH_SMOKE_ON_START")!="1":
-        return
-    # One and ONLY one bounded real search request in the independent DB.
-    # The same startup probe is never repeated across redeploys.
-    with store.conn() as con:
-        exists=con.execute("""SELECT id FROM freshg2b.jobs
-          WHERE args->>'origin'='startup_probe_v33' LIMIT 1""").fetchone()
-    if exists:return
-    today=date.today()
-    try:begin=today.replace(year=today.year-10)
-    except ValueError:begin=today.replace(year=today.year-10,day=28)
-    args={"detail10":"8111159901","first":begin.isoformat(),
-      "last":today.isoformat(),"month":"2026-10",
-      "page":1,"origin":"startup_probe_v33"}
-    id_=store.create_job("search",args)
-    Thread(target=_run,args=(id_,"search",args),daemon=True).start()
 
 
 @app.get("/",response_class=HTMLResponse)
 def home():
-    return HTMLResponse((ROOT/"fresh_g2b.html").read_text(encoding="utf-8"),
-                        headers={"Cache-Control":"no-store"})
+    markup=(ROOT/"fresh_g2b.html").read_text(encoding="utf-8")
+    total=store.notice_count()
+    markup=markup.replace('id="noticeCount">0</strong>',
+                          'id="noticeCount">'+str(total)+'</strong>')
+    latest=store.recent_notices(1)
+    if latest:
+        item=latest[0]
+        no=escape(str(item["bid_no"]),quote=True)
+        ord_=escape(str(item["bid_ord"]),quote=True)
+        title=escape(str(item.get("title") or "공고명 확인 대기"))
+        agency=escape(str(item.get("agency") or "기관 미확인"))
+        verified="세부품명 원본 확인" if item.get("category_verified") else "세부품명 확인 대기"
+        snippet=("<button class='item' data-no='"+no+"' data-ord='"+ord_+"'>"
+                 "<div class='name'>"+title+"</div><div class='meta'>"+
+                 no+"-"+ord_+" · "+agency+" · "+verified+
+                 "</div></button>")
+        markup=markup.replace(
+            '<div class="list" id="noticeList"><div class="alert">최초 DB는 비어 있습니다.</div></div>',
+            '<div class="list" id="noticeList">'+snippet+'</div>')
+
+    return HTMLResponse(markup,headers={"Cache-Control":"no-store"})
 
 @app.get("/live-notices",response_class=HTMLResponse)
 def live_notices():
@@ -211,6 +271,95 @@ def job(job_id:int):
     data=store.job_detail(job_id)
     if not data:raise HTTPException(404,"UNKNOWN_JOB")
     return data
+
+def _status_page(job, *, already_running=False):
+    state=job["status"]
+    done=state in ("completed","blocked","error")
+    meta="" if done else '<meta http-equiv="refresh" content="3">'
+    notice_html=("<p style='color:#175da5;font-weight:700'>"
+                 "이미 실행 중인 작업이 있어 해당 작업 화면을 표시합니다. "
+                 "중복 수집을 시작하지 않았습니다.</p>" if already_running else "")
+    if state=="completed" and int(job.get("rows_saved") or 0)==1:
+        event=next((e for e in job.get("events",[])
+                    if e.get("status")=="new_notice_saved"),None)
+        if event:
+            no,ord_=event["bid_no"],event["bid_ord"]
+            current=store.notice_detail(no,ord_)
+            title=escape(str((current or {}).get("notice",{}).get("title") or "공고명 미확인"))
+            notice_html=("<h2>신규 공고 1건 저장 완료</h2><p><strong>"+
+                         title+"</strong></p><p>"+escape(no+"-"+ord_)+"</p>")
+    elif state=="completed":
+        notice_html="<h2>최근 1개월에 추가할 새 공고가 없습니다.</h2><p>이미 저장된 공고는 건너뛰었습니다.</p>"
+    elif state in ("blocked","error"):
+        notice_html="<h2>검색 실패 · 새 공고 저장 없음</h2><p>"+escape(str(job.get("error") or state))+"</p>"
+    else:
+        notice_html+="<h2>나라장터 최신 공고 확인 중</h2><p>작업 완료 여부를 자동으로 갱신합니다.</p>"
+    return HTMLResponse(
+        "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"+
+        meta+"<title>공고 1건 수집 상태</title>"
+        "<style>body{font:16px/1.65 system-ui,sans-serif;margin:35px auto;padding:0 20px;"
+        "max-width:760px;color:#142b44}button{padding:14px 22px;background:#1463b7;color:#fff;"
+        "border:0;border-radius:8px;cursor:pointer;font-size:16px}"
+        "a{color:#1463b7}p{margin:12px 0}</style></head><body>"
+        "<h1>나라장터 최신 공고 · 1건씩 수집</h1><p>작업 번호 #"+
+        str(job["id"])+" · 상태 "+escape(state)+" · 확인 "+
+        str(job.get("rows_seen") or 0)+"건 · 신규 저장 "+
+        str(job.get("rows_saved") or 0)+"건</p>"+
+        notice_html+
+        ("<form method='post' action='/run-next'><button type='submit'>다음 신규 공고 1건 가져오기</button></form>"
+         if done else "<p>현재 수집이 끝나면 다음 공고 1건을 시작할 수 있습니다.</p>")+
+        "<p><a href='/'>메인 화면으로</a> · <a href='/live-notices'>저장된 공고 전체 보기</a></p>"
+        "</body></html>",headers={"Cache-Control":"no-store"})
+
+
+def _latest_job_args():
+    first,last=latest_default_period()
+    return {"first":first,"last":last,"detail10":"",
+            "scope":"all_official_notices","limit_new":1}
+
+
+def _latest_start_or_watch(background,args):
+    """Create one task or reuse the current one without a raw JSON 409."""
+    try:
+        job_id=_create_job_or_409("latest_one",args)
+    except HTTPException as exc:
+        if exc.status_code!=409:
+            raise
+        active=store.active_job_id()
+        if active is None:
+            raise HTTPException(503,"작업 상태가 변경됐습니다. 화면을 갱신해 다시 실행하세요.") from None
+        return active,False
+    background.add_task(_run,job_id,"latest_one",args)
+    return job_id,True
+
+
+@app.post("/run-next")
+def run_next_from_browser(background:BackgroundTasks):
+    """Native browser POST redirects to the new or existing active job."""
+    args=_latest_job_args()
+    job_id,created=_latest_start_or_watch(background,args)
+    suffix="" if created else "?already_running=1"
+    return RedirectResponse("/run-status/"+str(job_id)+suffix,status_code=303)
+
+
+@app.get("/run-status/{job_id}",response_class=HTMLResponse)
+def run_status(job_id:int,already_running:bool=False):
+    if job_id<1:raise HTTPException(400,"BAD_JOB_ID")
+    job=store.job_detail(job_id)
+    if not job:raise HTTPException(404,"UNKNOWN_JOB")
+    return _status_page(job,already_running=already_running)
+
+
+@app.post("/api/fresh/next")
+def collect_one_new_notice(background:BackgroundTasks):
+    args=_latest_job_args()
+    job_id,created=_latest_start_or_watch(background,args)
+    return {"job_id":job_id,"status":"queued" if created else "already_running",
+            "already_running":not created,"limit_new":1,
+            "first":args["first"],"last":args["last"],"order":"latest_first",
+            "skip_existing":True}
+
 
 @app.post("/api/fresh/search")
 def search(body:SearchBody,background:BackgroundTasks):

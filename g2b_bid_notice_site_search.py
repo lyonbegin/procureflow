@@ -45,7 +45,7 @@ def _month_before(month):
 
 def search_window(detail10,start,end,cursor=None,page=1):
     """Resolve 10-year boundary into ONE calendar-month search window."""
-    if not isinstance(detail10,str) or not CODE_RE.fullmatch(detail10):
+    if not isinstance(detail10,str) or (detail10!="" and not CODE_RE.fullmatch(detail10)):
         raise ValueError("OFFICIAL_SEARCH_EXACT_10_DIGITS_REQUIRED")
     if not isinstance(start,str) or not isinstance(end,str) or not DATE_RE.fullmatch(start) or not DATE_RE.fullmatch(end):
         raise ValueError("OFFICIAL_SEARCH_INVALID_DATE_FORMAT")
@@ -84,7 +84,7 @@ def request_has_filter(post, detail10, start, end):
     classification field. Unknown field names must not be treated as evidence.
     """
     raw=_flatten_post(post)
-    if not raw or detail10 not in raw:
+    if not raw or (detail10 and detail10 not in raw):
         return False
     try:
         body=json.loads(raw)
@@ -111,7 +111,18 @@ def request_has_filter(post, detail10, start, end):
                       "detailprdctclsfcno","prdlstdtlno"} or
                 ("detail" in k or "dtls" in k or "dtil" in k) and
                  ("prnm" in k or "prdct" in k or "prdlst" in k or "clsfc" in k))
-    exact=any(is_code_key(key) and value.strip()==detail10 for key,value in fields)
+    if detail10:
+        exact=any(is_code_key(key) and value.strip()==detail10 for key,value in fields)
+    else:
+        # Blank classification is the public, unfiltered "all latest notices" search.
+        # Require the actual official WebSquare bid-list envelope to avoid
+        # interpreting an unrelated network request as search proof.
+        try:
+            body=json.loads(raw)
+            detail=body.get("dlBidPbancLstM")
+            exact=isinstance(detail,dict) and not str(detail.get("dtlsPrnmNo") or "").strip()
+        except (ValueError,TypeError,AttributeError):
+            exact=False
     if not exact:
         return False
     dates=[start.replace("-",""),end.replace("-","")]
@@ -274,7 +285,7 @@ def _fill_search_fields(page,w):
     try:
         code.fill(w["detail10"],timeout=2500)
         code.press("Tab",timeout=1500)
-        if w["detail10"] not in (code.input_value() or ""):
+        if (code.input_value() or "").strip()!=w["detail10"]:
             raise SearchBlocked("BID_NOTICE_EXACT10_INPUT_REJECTED")
     except SearchBlocked:
         raise
@@ -691,7 +702,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                         "has_end":w["end"].replace("-","") in re.sub(r"[^0-9]","",raw),
                         "date_fields":date_evidence[:16]})
                     if (parsed.path=="/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
-                            and detail10 in raw):
+                            and (not detail10 or detail10 in raw)):
                         date_replay_candidates.append(req)
                     if request_has_filter(req.post_data,detail10,w["start"],w["end"]):
                         requests.append({"url":req.url.split("?")[0],"request":req})
@@ -761,7 +772,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                     json.dumps(observed_posts[-16:],ensure_ascii=False))
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
             if page>1:
-                # Every page request must repeat the same 10-digit filter.
+                # Pagination must retain the same official date/category criteria.
                 pg=str(page)
                 if not _click_label(tab,(pg,),"click"):
                     raise SearchBlocked("BID_NOTICE_PAGE_BUTTON_NOT_FOUND")
@@ -803,9 +814,9 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             confirmed=[]
             pending=[]
             for item in records:
-                if any(c!=detail10 for c in item["direct_category_codes"]):
+                if detail10 and any(c!=detail10 for c in item["direct_category_codes"]):
                     raise SearchBlocked("BID_NOTICE_RESPONSE_HAS_OTHER_EXPLICIT_DETAIL10")
-                if detail10 in item["direct_category_codes"]:
+                if detail10 and detail10 in item["direct_category_codes"]:
                     confirmed.append(item)
                 else:
                     pending.append(item)

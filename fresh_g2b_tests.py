@@ -142,6 +142,142 @@ class FreshTest(unittest.TestCase):
         self.assertIn("원격교육연수",html)
         self.assertIn("상세 분류 확인 대기",html)
 
+    def test_unfiltered_latest_search_requires_real_date_bound_post(self):
+        import json
+        from g2b_bid_notice_site_search import request_has_filter
+        post={"dlBidPbancLstM":{"dtlsPrnmNo":"",
+              "fromBidDt":"20261005","toBidDt":"20261105"}}
+        payload=json.dumps(post)
+        self.assertTrue(request_has_filter(payload,"","2026-10-05","2026-11-05"))
+        self.assertFalse(request_has_filter(payload,"","2026-10-04","2026-11-05"))
+        self.assertFalse(request_has_filter(json.dumps({"anything":post["dlBidPbancLstM"]}),
+                           "","2026-10-05","2026-11-05"))
+
+    def test_latest_default_is_past_one_calendar_month(self):
+        from fresh_g2b_api import latest_default_period
+        from datetime import date
+        a,b=latest_default_period()
+        first,last=date.fromisoformat(a),date.fromisoformat(b)
+        self.assertLessEqual((last-first).days,31)
+        self.assertGreaterEqual((last-first).days,28)
+
+    def test_latest_one_job_stops_after_first_new(self):
+        import fresh_g2b_api as api
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "returned_bid_ids":10,"response_sha":"hash",
+              "live_search_endpoint":"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"}
+        new={"saved":1,"checked":3,"notice":"R26BM01022088-000"}
+        with patch.object(api.store,"change_job") as change, \
+             patch.object(api.store,"attempt"), \
+             patch.object(api.store,"save_first_unseen",return_value=new) as save, \
+             patch.object(api,"search_one",return_value=({"detail10":"","start":"2026-11-01","end":"2026-11-05","page":1},fake,[{"bid_no":"R26BM01022088"}])) as search:
+            api._run(999,"latest_one",{"first":"2026-10-05","last":"2026-11-05"})
+        search.assert_called_once()
+        save.assert_called_once()
+        self.assertEqual(change.call_args.kwargs["saved"],1)
+
+    def test_latest_transient_g2b_modal_retries_then_one_save(self):
+        import fresh_g2b_api as api
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "returned_bid_ids":5,"response_sha":"hash",
+              "live_search_endpoint":"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"}
+        good=({"detail10":"","start":"2026-11-01","end":"2026-11-05","page":1},
+              fake,[{"bid_no":"R26BM01022088"}])
+        with patch.object(api.store,"change_job") as change, \
+             patch.object(api.store,"attempt"), \
+             patch.object(api.store,"save_first_unseen",
+                 return_value={"saved":1,"checked":2,"notice":"R26BM01022088-000"}), \
+             patch.object(api,"search_one",side_effect=[
+                 site.SourceBlocked("OFFICIAL_BID_SEARCH_UNVERIFIED_BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST"),
+                 good]) as search:
+            api._run(1001,"latest_one",{"first":"2026-10-05","last":"2026-11-05"})
+        self.assertEqual(search.call_count,2)
+        self.assertEqual(change.call_args.kwargs["saved"],1)
+
+    def test_native_post_click_creates_latest_job_redirect(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",return_value=913) as create:
+            response=api.run_next_from_browser(background)
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers.get("location"),"/run-status/913")
+        self.assertEqual(len(background.tasks),1)
+        self.assertEqual(create.call_args.args[0],"latest_one")
+        self.assertEqual(create.call_args.args[1]["limit_new"],1)
+
+    def test_duplicate_click_reuses_running_job_without_queueing(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks,HTTPException
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",
+                          side_effect=HTTPException(409,"FRESH_CRAWLER_ALREADY_RUNNING")), \
+             patch.object(api.store,"active_job_id",return_value=52):
+            response=api.run_next_from_browser(background)
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers.get("location"),
+                         "/run-status/52?already_running=1")
+        self.assertEqual(len(background.tasks),0)
+
+    def test_duplicate_api_next_returns_running_job_instead_of_raw_error(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks,HTTPException
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",
+                          side_effect=HTTPException(409,"FRESH_CRAWLER_ALREADY_RUNNING")), \
+             patch.object(api.store,"active_job_id",return_value=52):
+            response=api.collect_one_new_notice(background)
+        self.assertEqual(response["job_id"],52)
+        self.assertTrue(response["already_running"])
+        self.assertEqual(len(background.tasks),0)
+
+    def test_busy_progress_screen_explains_instead_of_showing_json_error(self):
+        import fresh_g2b_api as api
+        fake={"id":52,"kind":"latest_one","status":"running",
+              "rows_seen":0,"rows_saved":0,"error":"","events":[]}
+        with patch.object(api.store,"job_detail",return_value=fake):
+            result=api.run_status(52,already_running=True)
+        html=result.body.decode("utf-8")
+        self.assertIn("이미 실행 중인 작업",html)
+        self.assertIn("중복 수집을 시작하지 않았습니다",html)
+        self.assertIn("작업 번호 #52",html)
+        self.assertNotIn("action='/run-next'",html)
+
+    def test_native_status_page_shows_new_record_and_next_button(self):
+        import fresh_g2b_api as api
+        fake={"id":913,"kind":"latest_one","status":"completed",
+              "rows_seen":10,"rows_saved":1,"error":"",
+              "events":[{"status":"new_notice_saved",
+                         "bid_no":"R26BM01032440","bid_ord":"000"}]}
+        with patch.object(api.store,"job_detail",return_value=fake), \
+             patch.object(api.store,"notice_detail",
+                 return_value={"notice":{"title":"황새울보도교 보수공사"}}):
+            response=api.run_status(913)
+        html=response.body.decode("utf-8")
+        self.assertIn("황새울보도교 보수공사",html)
+        self.assertIn("action='/run-next'",html)
+        self.assertIn("신규 공고 1건 저장 완료",html)
+
+    def test_initial_html_shows_only_latest_one_saved_notice(self):
+        import fresh_g2b_api as api
+        item={"bid_no":"R26BM01032440","bid_ord":"000",
+              "title":"황새울보도교 보수공사",
+              "agency":"경기도 성남시","category_verified":False}
+        with patch.object(store,"recent_notices",return_value=[item]) as getter, \
+             patch.object(store,"notice_count",return_value=17):
+            html=api.home().body.decode("utf-8")
+        getter.assert_called_once_with(1)
+        self.assertIn("황새울보도교 보수공사",html)
+        self.assertIn("R26BM01032440",html)
+        self.assertIn('id="noticeCount">17</strong>',html)
+
+    def test_latest_ui_is_one_click_not_manual_bulk(self):
+        source=(Path(__file__).parent/"fresh_g2b.html").read_text()
+        self.assertIn('method="post" action="/run-next"',source)
+        self.assertIn("다음 신규 공고 1건",source)
+        self.assertNotIn('id="code"',source)
+        self.assertNotIn('id="first"',source)
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
@@ -168,7 +304,7 @@ class FreshTest(unittest.TestCase):
     def test_ui_links_to_previous_node_management(self):
         html=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn("section=public_nodes",html)
-        self.assertIn("api/fresh/search",html)
+        self.assertIn("action=\"/run-next\"",html)
         self.assertIn("기존 229건",html)  # explicitly says NOT imported
 
     def test_fresh_only_env_var(self):
