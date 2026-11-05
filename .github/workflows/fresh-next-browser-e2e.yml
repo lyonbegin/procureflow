@@ -1,0 +1,35 @@
+name: Fresh G2B REAL Chromium click and display
+on:
+  push:
+    branches:
+      - feat/latest-one-notice-20261105
+    paths:
+      - .github/workflows/fresh-next-browser-e2e.yml
+  workflow_dispatch:
+jobs:
+  chromium-click:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install actual Chromium and Playwright
+        run: |
+          pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Open live UI, click button and prove one real notice
+        env:
+          FRESH_TEST_BASE: https://fresh-g2b-site-center-production.up.railway.app
+        run: python -u scripts/test_fresh_next_browser.py
+      - name: Preserve screenshots and audit even if browser fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-g2b-chromium-screenshots-${{ github.run_id }}
+          path: browser-evidence/
+          retention-days: 14
+          if-no-files-found: warn
