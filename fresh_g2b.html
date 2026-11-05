@@ -70,12 +70,13 @@ const p=(id,s,cls)=>{const el=$(id);el.textContent=s;if(cls)el.className="alert 
 async function req(url,opt={}){const r=await fetch(url,{cache:"no-store",...opt});let o;try{o=await r.json()}catch{throw Error("서버의 응답이 JSON이 아닙니다 (HTTP "+r.status+")")}
 if(!r.ok)throw Error(o.detail||o.reason||"HTTP "+r.status);return o}
 async function loadHealth(){try{const r=await req("/health");p("health",
-  "신규 DB 연결 정상 · 기존 DB 접근: "+(r.old_db_access?"차단 오류":"없음")+" · 신규 수집 공고 "+r.new_db_notices+"건","")}
+  "신규 DB 연결 정상 · 기존 DB 접근: "+(r.old_db_access?"차단 오류":"없음")+" · 신규 수집 공고 "+r.new_db_notices+"건","");
+  $("noticeCount").textContent=r.new_db_notices;}
   catch(e){p("health","신규 DB 확인 실패: "+e.message,"error")}}
 async function loadList(){
   try{
     const data=await req("/api/fresh/notices?limit=1");
-    $("noticeCount").textContent=data.items.length;
+    // List is intentionally one item; count metric is whole DB from /health.
     $("noticeList").innerHTML=data.items.length?data.items.map(r=>
       '<button class="item '+(state.selected?.bid_no===r.bid_no?"selected":"")+
       '" data-no="'+esc(r.bid_no)+'" data-ord="'+esc(r.bid_ord)+'">'+
