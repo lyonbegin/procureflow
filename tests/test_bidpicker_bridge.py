@@ -94,10 +94,18 @@ class BridgeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Independent"):
                 b.connect_isolated()
 
-    def test_health_no_database(self):
-        response = TestClient(b.app).get("/health")
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.json()["integration_live_verified"])
+    def test_health_uses_existing_db(self):
+        with patch.object(b, "connect_isolated") as connect:
+            response = TestClient(b.app).get("/health")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["database"], "connected")
+            connect.return_value.__enter__.return_value.execute.assert_called_with("SELECT 1")
+            self.assertFalse(response.json()["integration_live_verified"])
+
+    def test_health_is_unavailable_without_database(self):
+        with patch.object(b, "connect_isolated", side_effect=RuntimeError("Missing database")):
+            response = TestClient(b.app).get("/health")
+            self.assertEqual(response.status_code, 503)
 
     def test_auth_required(self):
         with patch.dict(os.environ, {"BIDPICKER_BRIDGE_TOKEN": "good"}):
