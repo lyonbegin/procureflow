@@ -308,7 +308,7 @@ def _status_page(job, *, already_running=False):
         str(job.get("rows_saved") or 0)+"건</p>"+
         notice_html+
         ("<form method='post' action='/run-next'><button type='submit'>다음 신규 공고 1건 가져오기</button></form>"
-         if done else "<p>현재 수집이 끝나면 다음 공고 1건을 시작할 수 있습니다.</p>")
+         if done else "<p>현재 수집이 끝나면 다음 공고 1건을 시작할 수 있습니다.</p>")+
         "<p><a href='/'>메인 화면으로</a> · <a href='/live-notices'>저장된 공고 전체 보기</a></p>"
         "</body></html>",headers={"Cache-Control":"no-store"})
 
