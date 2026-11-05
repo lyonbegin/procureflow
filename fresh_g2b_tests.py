@@ -194,6 +194,18 @@ class FreshTest(unittest.TestCase):
         self.assertEqual(search.call_count,2)
         self.assertEqual(change.call_args.kwargs["saved"],1)
 
+    def test_initial_html_shows_only_latest_one_saved_notice(self):
+        import fresh_g2b_api as api
+        item={"bid_no":"R26BM01032440","bid_ord":"000",
+              "title":"황새울보도교 보수공사",
+              "agency":"경기도 성남시","category_verified":False}
+        with patch.object(store,"recent_notices",return_value=[item]) as getter:
+            html=api.home().body.decode("utf-8")
+        getter.assert_called_once_with(1)
+        self.assertIn("황새울보도교 보수공사",html)
+        self.assertIn("R26BM01032440",html)
+        self.assertIn('id="noticeCount">1</strong>',html)
+
     def test_latest_ui_is_one_click_not_manual_bulk(self):
         source=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn('"/api/fresh/next"',source)
