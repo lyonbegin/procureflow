@@ -176,6 +176,24 @@ class FreshTest(unittest.TestCase):
         save.assert_called_once()
         self.assertEqual(change.call_args.kwargs["saved"],1)
 
+    def test_latest_transient_g2b_modal_retries_then_one_save(self):
+        import fresh_g2b_api as api
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "returned_bid_ids":5,"response_sha":"hash",
+              "live_search_endpoint":"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"}
+        good=({"detail10":"","start":"2026-11-01","end":"2026-11-05","page":1},
+              fake,[{"bid_no":"R26BM01022088"}])
+        with patch.object(api.store,"change_job") as change, \
+             patch.object(api.store,"attempt"), \
+             patch.object(api.store,"save_first_unseen",
+                 return_value={"saved":1,"checked":2,"notice":"R26BM01022088-000"}), \
+             patch.object(api,"search_one",side_effect=[
+                 site.SourceBlocked("OFFICIAL_BID_SEARCH_UNVERIFIED_BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST"),
+                 good]) as search:
+            api._run(1001,"latest_one",{"first":"2026-10-05","last":"2026-11-05"})
+        self.assertEqual(search.call_count,2)
+        self.assertEqual(change.call_args.kwargs["saved"],1)
+
     def test_latest_ui_is_one_click_not_manual_bulk(self):
         source=(Path(__file__).parent/"fresh_g2b.html").read_text()
         self.assertIn('"/api/fresh/next"',source)
