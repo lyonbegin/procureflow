@@ -196,8 +196,25 @@ def boot():
 
 @app.get("/",response_class=HTMLResponse)
 def home():
-    return HTMLResponse((ROOT/"fresh_g2b.html").read_text(encoding="utf-8"),
-                        headers={"Cache-Control":"no-store"})
+    markup=(ROOT/"fresh_g2b.html").read_text(encoding="utf-8")
+    latest=store.recent_notices(1)
+    if latest:
+        item=latest[0]
+        no=escape(str(item["bid_no"]),quote=True)
+        ord_=escape(str(item["bid_ord"]),quote=True)
+        title=escape(str(item.get("title") or "공고명 확인 대기"))
+        agency=escape(str(item.get("agency") or "기관 미확인"))
+        verified="세부품명 원본 확인" if item.get("category_verified") else "세부품명 확인 대기"
+        snippet=("<button class='item' data-no='"+no+"' data-ord='"+ord_+"'>"
+                 "<div class='name'>"+title+"</div><div class='meta'>"+
+                 no+"-"+ord_+" · "+agency+" · "+verified+
+                 "</div></button>")
+        markup=markup.replace(
+            '<div class="list" id="noticeList"><div class="alert">최초 DB는 비어 있습니다.</div></div>',
+            '<div class="list" id="noticeList">'+snippet+'</div>')
+        markup=markup.replace('id="noticeCount">0</strong>',
+                               'id="noticeCount">1</strong>')
+    return HTMLResponse(markup,headers={"Cache-Control":"no-store"})
 
 @app.get("/live-notices",response_class=HTMLResponse)
 def live_notices():
