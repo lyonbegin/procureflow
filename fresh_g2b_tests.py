@@ -142,6 +142,47 @@ class FreshTest(unittest.TestCase):
         self.assertIn("원격교육연수",html)
         self.assertIn("상세 분류 확인 대기",html)
 
+    def test_unfiltered_latest_search_requires_real_date_bound_post(self):
+        import json
+        from g2b_bid_notice_site_search import request_has_filter
+        post={"dlBidPbancLstM":{"dtlsPrnmNo":"",
+              "fromBidDt":"20261005","toBidDt":"20261105"}}
+        payload=json.dumps(post)
+        self.assertTrue(request_has_filter(payload,"","2026-10-05","2026-11-05"))
+        self.assertFalse(request_has_filter(payload,"","2026-10-04","2026-11-05"))
+        self.assertFalse(request_has_filter(json.dumps({"anything":post["dlBidPbancLstM"]}),
+                           "","2026-10-05","2026-11-05"))
+
+    def test_latest_default_is_past_one_calendar_month(self):
+        from fresh_g2b_api import latest_default_period
+        from datetime import date
+        a,b=latest_default_period()
+        first,last=date.fromisoformat(a),date.fromisoformat(b)
+        self.assertLessEqual((last-first).days,31)
+        self.assertGreaterEqual((last-first).days,28)
+
+    def test_latest_one_job_stops_after_first_new(self):
+        import fresh_g2b_api as api
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "returned_bid_ids":10,"response_sha":"hash",
+              "live_search_endpoint":"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"}
+        new={"saved":1,"checked":3,"notice":"R26BM01022088-000"}
+        with patch.object(api.store,"change_job") as change, \
+             patch.object(api.store,"attempt"), \
+             patch.object(api.store,"save_first_unseen",return_value=new) as save, \
+             patch.object(api,"search_one",return_value=({"detail10":"","start":"2026-11-01","end":"2026-11-05","page":1},fake,[{"bid_no":"R26BM01022088"}])) as search:
+            api._run(999,"latest_one",{"first":"2026-10-05","last":"2026-11-05"})
+        search.assert_called_once()
+        save.assert_called_once()
+        self.assertEqual(change.call_args.kwargs["saved"],1)
+
+    def test_latest_ui_is_one_click_not_manual_bulk(self):
+        source=(Path(__file__).parent/"fresh_g2b.html").read_text()
+        self.assertIn('"/api/fresh/next"',source)
+        self.assertIn("최신 신규 공고 1건",source)
+        self.assertNotIn('id="code"',source)
+        self.assertNotIn('id="first"',source)
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))
