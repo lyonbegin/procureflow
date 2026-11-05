@@ -5,6 +5,7 @@ on:
       - feat/latest-one-notice-20261105
     paths:
       - .github/workflows/fresh-next-browser-e2e.yml
+      - scripts/test_fresh_next_browser.py
   workflow_dispatch:
 jobs:
   chromium-click:
