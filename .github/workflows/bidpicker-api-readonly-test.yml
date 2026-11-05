@@ -1,0 +1,67 @@
+name: BidPicker API read-only feasibility check
+on:
+  push:
+    branches:
+      - investigate/bidpicker-api-check-20261106
+    paths:
+      - .github/workflows/bidpicker-api-readonly-test.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test published APK API paths (read-only, no auth)
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error, socket, pathlib, datetime, urllib.parse
+          out=pathlib.Path('bidpicker_probe')
+          out.mkdir(exist_ok=True)
+          root='https://www.pickersoft.com/bidpicker-api/'
+          targets=[
+            ('bids_first_page','api/bids?page=1&size=1'),
+            ('trending_keywords','api/trending-keywords'),
+          ]
+          for name,path in targets:
+            url=urllib.parse.urljoin(root,path)
+            req=urllib.request.Request(url,headers={'Accept':'application/json','User-Agent':'ProcureFlow-Integration-Feasibility/1.0'})
+            result={'path':path,'tested_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            try:
+              with urllib.request.urlopen(req,timeout=12) as resp:
+                payload=resp.read(30000)
+                result.update(http_status=resp.status, content_type=resp.headers.get('Content-Type',''),body_size_sample=len(payload))
+                try:
+                  obj=json.loads(payload)
+                  if isinstance(obj,dict):
+                    result['response_keys']=list(obj.keys())[:25]
+                    for field in ['page','size','total','hasMore']:
+                      if field in obj: result[field]=obj[field]
+                    for field in ['items','data','results','bids']:
+                      if isinstance(obj.get(field),list):
+                        result['items_field']=field
+                        result['items_in_response']=len(obj[field])
+                        if obj[field] and isinstance(obj[field][0],dict):
+                          result['first_item_fields']=list(obj[field][0].keys())[:40]
+                          for f in ['bidNo','title','agencyName','originalUrl']:
+                            if f in obj[field][0]: result['example_'+f]=str(obj[field][0][f])[:120]
+                  elif isinstance(obj,list):
+                    result['response_type']='array'
+                    result['items_in_response']=len(obj)
+                except ValueError: result['is_json']=False
+            except urllib.error.HTTPError as e:
+              result.update(http_status=e.code,content_type=e.headers.get('Content-Type',''),reason=str(e.reason)[:130])
+            except Exception as e: result.update(error_type=type(e).__name__,error=str(e)[:300])
+            print('BIDPICKER_PROBE '+json.dumps(result,ensure_ascii=False),flush=True)
+            (out/(name+'.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bidpicker-api-readonly-summary
+          path: bidpicker_probe/
+          retention-days: 7
