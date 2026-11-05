@@ -206,6 +206,43 @@ class FreshTest(unittest.TestCase):
         self.assertEqual(create.call_args.args[0],"latest_one")
         self.assertEqual(create.call_args.args[1]["limit_new"],1)
 
+    def test_duplicate_click_reuses_running_job_without_queueing(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks,HTTPException
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",
+                          side_effect=HTTPException(409,"FRESH_CRAWLER_ALREADY_RUNNING")), \
+             patch.object(api.store,"active_job_id",return_value=52):
+            response=api.run_next_from_browser(background)
+        self.assertEqual(response.status_code,303)
+        self.assertEqual(response.headers.get("location"),
+                         "/run-status/52?already_running=1")
+        self.assertEqual(len(background.tasks),0)
+
+    def test_duplicate_api_next_returns_running_job_instead_of_raw_error(self):
+        import fresh_g2b_api as api
+        from fastapi import BackgroundTasks,HTTPException
+        background=BackgroundTasks()
+        with patch.object(api,"_create_job_or_409",
+                          side_effect=HTTPException(409,"FRESH_CRAWLER_ALREADY_RUNNING")), \
+             patch.object(api.store,"active_job_id",return_value=52):
+            response=api.collect_one_new_notice(background)
+        self.assertEqual(response["job_id"],52)
+        self.assertTrue(response["already_running"])
+        self.assertEqual(len(background.tasks),0)
+
+    def test_busy_progress_screen_explains_instead_of_showing_json_error(self):
+        import fresh_g2b_api as api
+        fake={"id":52,"kind":"latest_one","status":"running",
+              "rows_seen":0,"rows_saved":0,"error":"","events":[]}
+        with patch.object(api.store,"job_detail",return_value=fake):
+            result=api.run_status(52,already_running=True)
+        html=result.body.decode("utf-8")
+        self.assertIn("이미 실행 중인 작업",html)
+        self.assertIn("중복 수집을 시작하지 않았습니다",html)
+        self.assertIn("작업 번호 #52",html)
+        self.assertNotIn("action='/run-next'",html)
+
     def test_native_status_page_shows_new_record_and_next_button(self):
         import fresh_g2b_api as api
         fake={"id":913,"kind":"latest_one","status":"completed",
