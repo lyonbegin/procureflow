@@ -3,9 +3,11 @@ on:
   push:
     branches:
       - investigate/g2b-webview-capture-20261105
+    paths:
+      - .github/workflows/g2b-webview-capture-20261105.yml
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   inspect:
     runs-on: ubuntu-latest
@@ -90,3 +92,13 @@ jobs:
           path: g2b_public_capture/
           if-no-files-found: warn
           retention-days: 7
+      - name: Save evidence back to isolated investigation branch
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add g2b_public_capture/ || true
+          if ! git diff --cached --quiet; then
+            git commit -m "test: record G2B public browser evidence [skip ci]"
+            git push origin HEAD:investigate/g2b-webview-capture-20261105
+          fi
