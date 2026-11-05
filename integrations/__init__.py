@@ -1,0 +1,1 @@
+# Integration modules are isolated from legacy ProcureFlow collectors.\n
