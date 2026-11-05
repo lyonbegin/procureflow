@@ -31,6 +31,10 @@ jobs:
           Path("/tmp/fresh-g2b-inline.js").write_text(code,encoding="utf-8")
           PY
           node --check /tmp/fresh-g2b-inline.js
+      - name: Verify double-click fallback source and Python syntax
+        run: |
+          python -m py_compile scripts/test_fresh_next_browser.py fresh_g2b_api.py fresh_g2b_store.py
+          grep -q "active_job_id" fresh_g2b_api.py
       - name: Open live UI, click button and prove one real notice
         env:
           FRESH_TEST_BASE: https://fresh-g2b-site-center-production.up.railway.app
