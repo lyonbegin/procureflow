@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live Chromium E2E: only isolated browser cookie / fictional fixture actions.
 
-Never triggers G2B collection or actual bid. Fail closed when any UI or
+The explicit user click triggers bounded, live G2B collection but no bid. Fail closed when any UI or
 read-only API assertion fails. Store screenshots and JSON trace in artifact.
 """
 from playwright.sync_api import sync_playwright
@@ -42,16 +42,6 @@ with sync_playwright() as playwright:
         page.screenshot(path=str(OUT/"01_real_9_stage.png"),full_page=True)
         return {"node_count":page.locator(".vue-flow__node").count(),"selected":"PF00-public-nine-real"}
     record("actual_9_node_url",test_actual_graph)
-    def read_only_live_api():
-        path="/api/procurement/public9/stage1?q=&status=all&limit=30&offset=0&selected_bid_no=R26BK01787028"
-        r=context.request.get(BASE+path,timeout=35000)
-        result=r.json()
-        require(r.status==200,f"Read-only PostgreSQL stage1 returned HTTP {r.status}: {str(result)[:350]}")
-        require(result.get("source")=="actual_procureflow_postgresql_g2b_notices","PostgreSQL source provenance missing")
-        require(result.get("crawler_executed") is False and result.get("worker_executed") is False,"Read-only stage1 must never launch worker")
-        require(len(result.get("nodes",[]))==3,"Expected three read-only stage1 node inspections")
-        return {"http":r.status,"source":result.get("source"),"node_count":len(result["nodes"])}
-    record("read_only_real_postgres_stage1",read_only_live_api)
     def scenario_mock():
         page.locator('[data-stock-flow="scenarios/S01.json"]').click(timeout=20000)
         page.get_by_role("button",name="활동 기록").click()
@@ -101,25 +91,36 @@ with sync_playwright() as playwright:
         page.screenshot(path=str(OUT/"04_python_fixture_node.png"),full_page=True)
         return {"status":"SUCCESS","evidence":"fictional_test_fixture"}
     record("A01_mock_python_N01_and_SQLite",run_fixture_python)
-    def test_tokenless_selected_tender():
+    def test_live_nine_no_worker_no_database():
         page.goto(BASE+"/admin/index.html?section=public",wait_until="domcontentloaded",timeout=45000)
-        button=page.locator('[data-public9="run"]')
+        button=page.get_by_test_id("live-nine-run-all")
         button.wait_for(timeout=20000)
-        require(page.locator("#p9-token").count()==0,"Manual admin token field is still rendered")
-        require("자동 테스트" in button.inner_text(),"Automatic test label missing")
+        require(page.locator("#p9-token").count()==0,"Token prompt unexpectedly present")
+        require("전체 순차 실행" in button.inner_text(),"One-click 9-stage button missing")
+        seen=[]
+        def track_request(req):
+            if "/api/g2b/public/" in req.url:
+                seen.append(req.url)
+        page.on("request",track_request)
         button.click(timeout=20000)
-        page.get_by_text("자동 테스트 결과:",exact=False).wait_for(timeout=40000)
-        response=page.locator("section.item pre.log").filter(has_text='"mode": "read_only_automated_test"').first
-        response.wait_for(timeout=10000)
-        result=json.loads(response.inner_text())
-        require(result.get("test_passed") is True,"GET-only real-source verification was not successful")
-        require(result.get("worker_executed") is False and result.get("bid_submitted") is False,
-                "Danger: test triggered a Worker or bid submission")
-        require(len(result.get("verified_steps",[]))==3,"Expected only actual N01/N02/N04 read-only tests")
-        page.screenshot(path=str(OUT/"05_no_token_real_readonly_test.png"),full_page=True)
-        return {"status":result["status"],"steps":[x["node"] for x in result["verified_steps"]],
-                "no_token_input":True,"worker_executed":False}
-    record("selected_tender_auto_test_no_token",test_tokenless_selected_tender)
+        page.wait_for_function("() => document.body.innerText.includes('진행 9/9 단계')",timeout=240000)
+        response=context.request.get(BASE+"/api/procurement/public9/live-run",timeout=30000)
+        require(response.status==200,"Live-run endpoint HTTP "+str(response.status))
+        result=response.json()
+        require(result.get("mode")=="on_demand_live_no_database","Wrong execution mode")
+        require(len(result.get("steps",[]))==9,"Nine sequential stages not recorded")
+        require([x["node"] for x in result["steps"]]==["N%02d"%x for x in range(1,10)],"Wrong stage order")
+        require(result.get("db_reads")==0 and result.get("worker_calls")==0 and result.get("bid_submitted") is False,
+                "Unexpected DB, Worker or bidding side effect")
+        require(not seen,"Browser made legacy database requests during live tender test: "+str(seen[:3]))
+        status={s["node"]:s["status"] for s in result["steps"]}
+        page.screenshot(path=str(OUT/"05_real_live_g2b_nine.png"),full_page=True)
+        # A successful nine-stage orchestration is not automatically proof that
+        # the official site returned data; report exact source errors separately.
+        return {"status":result["status"],"stages":status,
+                "official_verified_count":sum(x["status"]=="verified" for x in result["steps"]),
+                "no_token":True,"db_reads":0,"worker_calls":0}
+    record("on_demand_live_9_steps_no_worker",test_live_nine_no_worker_no_database)
     record("javascript_runtime_errors",lambda: (require(not errors,f"JavaScript page exceptions: {errors[:5]}"),{"page_errors":[]})[1])
     (OUT/"results.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf8")
     context.close()
