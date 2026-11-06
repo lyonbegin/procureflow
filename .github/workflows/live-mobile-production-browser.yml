@@ -1,0 +1,30 @@
+name: Verify deployed mobile UI against REAL G2B website
+on:
+  push:
+    branches: [feature/g2b-mobile-live-source-20261106]
+    paths:
+      - tests/live_mobile_production_browser.mjs
+      - .github/workflows/live-mobile-production-browser.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  live-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.52.0
+          npx playwright install --with-deps chromium
+      - name: LIVE production UI - click search, verify real G2B tender cards
+        run: node tests/live_mobile_production_browser.mjs
+      - name: Preserve actual screenshot even after failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-g2b-mobile-screenshot
+          path: live-mobile-verification.png
+          if-no-files-found: ignore
