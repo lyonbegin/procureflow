@@ -45,26 +45,22 @@ def main():
            {"PORT": "3001"})
     database = bool(os.environ.get("DATABASE_URL"))
     fresh_db = bool(os.environ.get("FRESH_DATABASE_URL"))
-    if database:
+    if database and os.environ.get("PROCUREFLOW_EMBEDDED_API_ENABLED")=="1":
         launch("api", ["gosu", "studio", "uvicorn", "main:app",
                        "--host", "127.0.0.1", "--port", "8001"])
-        launch("history", ["gosu", "studio", "uvicorn", "focused_g2b:app",
-                           "--host", "127.0.0.1", "--port", "8003"])
+        if os.environ.get("PROCUREFLOW_EMBEDDED_HISTORY_ENABLED")=="1":
+            launch("history", ["gosu", "studio", "uvicorn", "focused_g2b:app",
+                               "--host", "127.0.0.1", "--port", "8003"])
     else:
-        print("UNIFIED_API_HOLD_DATABASE_URL_NOT_CONFIGURED", flush=True)
+        print("UNIFIED_API_HELD_DB_NOT_CONNECTED_OR_EMBEDDED_API_NOT_ENABLED", flush=True)
     if fresh_db:
         launch("fresh", ["gosu", "studio", "uvicorn", "fresh_g2b_app:app",
                          "--host", "127.0.0.1", "--port", "8002"])
     else:
         print("UNIFIED_FRESH_HOLD_ISOLATED_DATABASE_URL_NOT_CONFIGURED", flush=True)
-    if os.environ.get("PROCUREFLOW_EMBEDDED_WORKER_ENABLED", "0") == "1":
-        if not database:
-            raise SystemExit("WORKER_START_BLOCKED_DATABASE_URL_MISSING")
-        if os.environ.get("PROCUREFLOW_ORIGINAL_WORKER_STOPPED") != "1":
-            raise SystemExit("WORKER_START_BLOCKED_ORIGINAL_WORKER_NOT_CONFIRMED_STOPPED")
-        launch("worker", ["gosu", "studio", "python3", "-u", "worker.py"])
-    else:
-        print("UNIFIED_COLLECTOR_HOLD_DUPLICATE_WORKER_PREVENTED", flush=True)
+    # Absolutely no background collector/scheduler. Browser-initiated N01-N09
+    # uses direct_public9 on the Studio server only.
+    print("UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION", flush=True)
     launch("proxy", ["nginx", "-g", "daemon off;"])
     try:
         while not stopping:
