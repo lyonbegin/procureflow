@@ -208,3 +208,8 @@ a{text-decoration:none;color:inherit}
 .onboard-next{margin:20px}
 @media (min-width:500px){body{display:flex;align-items:center;justify-content:center}#root{height:100dvh;display:grid;place-items:center}.app-shell{height:min(900px,96dvh);border-radius:24px;box-shadow:0 20px 85px #0e273c30;border:1px solid #e8edef}}
 @media(max-width:360px){.app-page{padding-left:13px;padding-right:13px}.category-grid{gap:6px}.category-tile{min-height:82px}.category-tile>span:last-child{font-size:9px}.chip{padding:7px 8px;font-size:10px}}
+
+/* Original Google Play screenshot 2: plain top search, not a custom blue dashboard. */
+.home-search.prominent{margin:0 0 16px;width:100%;border-radius:12px;border:1px solid #eff1f3;background:#fff;padding:13px 14px;min-height:46px;box-shadow:0 3px 8px rgba(25,52,64,.04)}
+.home-search.prominent span{color:#a0afb6}
+.home-search.prominent+ .section-heading{margin-top:17px}
