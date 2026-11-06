@@ -52,3 +52,16 @@ jobs:
           docker logs proc-unified 2>&1 | grep 'UNIFIED_COLLECTOR_HOLD_DUPLICATE_WORKER_PREVENTED'
           docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HOLD_DATABASE_URL_NOT_CONFIGURED'
           docker stop proc-unified
+      - name: Install browser for real UI interaction checks
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Run real live website browser clicks and typing
+        run: python tests/e2e_procureflow_unified_live_ui.py
+      - name: Upload live UI screenshots and pass/fail JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procureflow-unified-live-ui-tests
+          path: artifacts/unified-live-ui/
+          if-no-files-found: warn
