@@ -37,6 +37,18 @@ export function makeProxyUrl(localPath,search=''){
  return url.toString();
 }
 
+export function buildUpstreamHeaders(target,credentials=process.env){
+ const headers={Accept:'application/json','User-Agent':'BidPicker-Mobile-UI/1.0'};
+ if(target.startsWith(BIDPICKER_ORIGINAL_ROOT)){
+   const user=credentials.BIDPICKER_UPSTREAM_USERNAME;
+   const password=credentials.BIDPICKER_UPSTREAM_PASSWORD;
+   if(user && password && !/[\r\n]/.test(user+password)){
+     headers.Authorization='Basic '+Buffer.from(user+':'+password,'utf8').toString('base64');
+   }
+ }
+ return headers;
+}
+
 export function normalizeUpstream(raw,httpStatus,contentType){
  // Never turn upstream 401 into the invented "credentials not connected" 503.
  if(httpStatus<200||httpStatus>=300){
@@ -62,7 +74,7 @@ async function handler(req,res){
       res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({detail:e.message}));return;
    }
    try{
-     const response=await fetch(target,{method:'GET',headers:{Accept:'application/json','User-Agent':'BidPicker-Mobile-UI/1.0'},
+     const response=await fetch(target,{method:'GET',headers:buildUpstreamHeaders(target),
        redirect:'manual',signal:AbortSignal.timeout(14000)});
      if(response.status>=300&&response.status<400){
        res.writeHead(502,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
@@ -74,7 +86,7 @@ async function handler(req,res){
         'Cache-Control':'no-store','X-Source':'bidpicker-original-api'});
      res.end(normalized.body);
      console.log(JSON.stringify({event:'source_request',path:requestUrl.pathname,
-       upstream_http_status:response.status,result_http_status:normalized.httpStatus,received_bytes:raw.length}));
+       upstream_http_status:response.status,result_http_status:normalized.httpStatus,received_bytes:raw.length,auth_challenge:response.status===401?response.headers.get('www-authenticate')||'not_provided':undefined}));
    }catch(e){
      res.writeHead(502,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
      res.end(JSON.stringify({detail:'원본 API 연결 중 네트워크 오류가 발생했습니다.',error_type:e?.name||'NetworkError'}));
