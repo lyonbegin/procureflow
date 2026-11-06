@@ -7,11 +7,14 @@ GET endpoints and an explicitly administrator-authorized POST can be called.
 from __future__ import annotations
 import json
 import re
+import os
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlencode
 from urllib.error import HTTPError
 
-API="https://procureflow-api-production.up.railway.app"
+API=os.environ.get("PROCUREFLOW_API_ORIGIN","https://procureflow-api-production.up.railway.app")
+if API not in ("http://127.0.0.1:8001","https://procureflow-api-production.up.railway.app"):
+    raise RuntimeError("UNAPPROVED_PROCUREFLOW_INTERNAL_ORIGIN")
 JOB_ID=re.compile(r"^[1-9][0-9]{0,11}$")
 PUBLIC_ID="R26BK01787028"
 MAX_REPLY=2_500_000
