@@ -39,7 +39,7 @@ class NoTokenAutoTest(unittest.TestCase):
                 calls.append((method,path))
                 if method!="GET" or "/selected/search?" not in path:
                     raise AssertionError("Write attempted")
-                return 200,{"mode":"real_one_tender_search_first","case":{"status":"found"}}
+                return 200,{"mode":"real_one_tender_search_first","source":"existing_procureflow_postgresql","no_simulated_records":True,"bid_submitted":False,"history":{"source":"existing_procureflow_original_verified_10digit_outcomes","real_records_only":True,"total":3,"rows":[{}]}}
             fake=types.SimpleNamespace(proxy_get=fake_get,_request=fake_request,
                                        start_real_case=lambda *x,**y:(_ for _ in ()).throw(AssertionError("Real worker called")))
             old=sys.modules.get("procurement_live_gateway")
