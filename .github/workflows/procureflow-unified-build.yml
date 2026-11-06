@@ -22,9 +22,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure no-token test cannot issue a Worker request and N04 filter is exact
+        run: python -m unittest discover -s tests -p 'test_procurement_unified_auto_test.py' -v
       - name: Compile all business servers, orchestration and adapters
         run: |
-          python -m py_compile n8n/unified/run.py main.py worker.py fresh_g2b_app.py \
+          python -m py_compile n8n/unified/run.py n8n/unified/patch-server.py n8n/unified/procurement_auto_test.py main.py worker.py fresh_g2b_app.py \
             fresh_g2b_store.py fresh_g2b_site.py focused_g2b.py g2b_bid_notice_site_search.py \
             n8n/strategy-runtime/procurement_live_gateway.py
       - name: Verify no legacy n8n engine is installed in unified image definition
