@@ -19,7 +19,7 @@ const STAGES=[
 ];
 const API='/api/procurement/public9/';
 const st={notices:null,stage1:null,selected:null,job:null,search:'',status:'all',
-  error:null,loading:false,submitting:false,token:'',selectedNode:0,
+  error:null,loading:false,submitting:false,autoTest:null,selectedNode:0,
   nodeTab:'result',lastReload:null,loadStarted:false};
 const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const at=()=>window.location.search.includes('section=public_nodes')?'nodes':'main';
@@ -155,10 +155,11 @@ function main(){
  '<section class="panel"><h3>② 선택 공고</h3>'+chosen+
  (selectedReady()?'<p class="muted smalltxt">실제 운영 엔진 대상 공고입니다. 다음 실행은 이 공고번호와 8111159901 분류를 사용합니다.</p>':
  '<div class="notice warn">이 공고는 목록에서 선택할 수 있지만 기존 단일공고 Worker가 아직 이 공고를 처리하도록 일반화되지 않았습니다. 잘못된 다른 공고로 고정 실행하지 않습니다.</div>')+
- '<div class="actions"><label class="label" style="min-width:210px">기존 관리자 토큰 (실행 시에만 사용)<input id="p9-token" class="input" type="password" autocomplete="off" placeholder="ADMIN_TOKEN"></label>'+
- '<button data-public9="run" class="btn primary" '+(!selectedReady()||st.submitting?'disabled':'')+'>▶ 선택 공고 전체 입찰 준비 실행</button>'+
+ '<div class="actions">'+
+ '<button data-public9="run" class="btn primary" '+(!selectedReady()||st.submitting?'disabled':'')+'>▶ 선택 공고 자동 테스트 (토큰 입력 없음)</button>'+
  '<button data-public9="latest" class="btn">최근 실제 실행 기록 조회</button></div>'+
- '<p class="muted smalltxt">관리센터의 실행 버튼은 공용 Studio에 저장된 04번 검색노드의 기간·기관 필터를 검증해 기존 Worker에 전달합니다. 다른 노드의 코드 변경은 Worker에 자동 반영되지 않습니다. 자동 투찰·전자서명·입찰참가 없음.</p></section>'+
+ '<p class="muted smalltxt">관리센터의 자동 테스트는 공용 Studio 04번 검색노드를 서버에서 검증하고 실제 PostgreSQL 공고·개찰 검색을 조회합니다. 토큰 입력 없이 동작하며 Worker 실행·투찰·전자서명·입찰참가는 수행하지 않습니다.</p>'+
+ (st.autoTest?'<section class="item"><strong>자동 테스트 결과: '+esc(st.autoTest.status)+'</strong><pre class="log">'+esc(JSON.stringify(st.autoTest,null,2))+'</pre></section>':'')+'</section>'+
  '<section class="panel"><h3>③ 동일 공고 9개 업무 노드</h3><div class="actions" style="gap:8px">'+cards+'</div>'+
  '<div class="actions"><button class="btn primary" data-page="public_nodes">선택 공고의 9노드 편집기 · 입력·출력 열기</button>'+
  '<button class="btn" data-public9="inspect">선택 단계의 실제 입력·출력 확인</button></div>'+
@@ -236,24 +237,15 @@ async function readApprovedNodeFilter(){
  return {start,end,agency};
 }
 async function execute(){
- if(!selectedReady())throw Error('현재 선택 공고의 실제 처리 Worker가 연결되지 않았습니다');
- const input=document.getElementById('p9-token');
- const token=input?.value.trim();
- if(!token)throw Error('기존 관리자 토큰을 입력해야 합니다');
- // The operator can change dates/agency via native Studio node 04,
- // SAVE the graph, and the actual Worker receives these validated filters.
- // Other JS/HTTP changes are never silently deployed to the Worker.
- const runFilter=await readApprovedNodeFilter();
- input.value='';
- st.submitting=true;refreshView();
+ if(!selectedReady())throw Error('현재 선택 공고는 자동 검증 대상으로 등록되지 않았습니다');
+ st.submitting=true;st.autoTest=null;refreshView();
  try{
-  const v=await request('prepare',{method:'POST',headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
-   body:JSON.stringify({bid_no:CASE,detail10:DETAIL,...runFilter})});
-  if(v.worker_source!=='g2b_public_prepare'||!v.job_id||v.bid_submitted!==false)
-   throw Error('실제 기존 Worker 작업을 확인할 수 없습니다');
-  st.job={job_id:v.job_id,case_bid_no:CASE,job_state:'queued',steps:[],actual_stages_recorded:0};
-  refreshView();
-  await poll();
+  const result=await request('test',{method:'POST',headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({bid_no:CASE,detail10:DETAIL})});
+  if(result.mode!=='read_only_automated_test'||result.worker_executed!==false||
+     result.bid_submitted!==false||!Array.isArray(result.verified_steps))
+    throw Error('자동 테스트 검증 응답 형식 오류');
+  st.autoTest=result;refreshView();
  }finally{st.submitting=false;refreshView();}
 }
 document.addEventListener('click',async event=>{
