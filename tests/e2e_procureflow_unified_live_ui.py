@@ -114,6 +114,14 @@ with sync_playwright() as playwright:
                 "Unexpected DB, Worker or bidding side effect")
         require(not seen,"Browser made legacy database requests during live tender test: "+str(seen[:3]))
         status={s["node"]:s["status"] for s in result["steps"]}
+        n01=next(x for x in result["steps"] if x["node"]=="N01")
+        n02=next(x for x in result["steps"] if x["node"]=="N02")
+        n04=next(x for x in result["steps"] if x["node"]=="N04")
+        print("LIVE_OFFICIAL_STAGE_DIAGNOSTICS",json.dumps({
+          "N01":n01["output"],
+          "N02_downloaded":n02["output"].get("downloaded"),
+          "N02_files":n02["output"].get("files",[]),
+          "N04":n04["output"]},ensure_ascii=False)[:5000],flush=True)
         page.screenshot(path=str(OUT/"05_real_live_g2b_nine.png"),full_page=True)
         # A successful nine-stage orchestration is not automatically proof that
         # the official site returned data; report exact source errors separately.
