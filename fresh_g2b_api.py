@@ -176,11 +176,26 @@ def _run(job_id,kind,args):
         store.attempt(job_id,kind,"failed",args.get("bid_no",""),
             args.get("bid_ord",""),error_kind=cause)
 
+# The live mobile G2B browser-search routes are independent of PostgreSQL.
+# A missing/retired database must NEVER take down public live search.
+_DB_BOOT_OK=False
+
 @app.on_event("startup")
 def boot():
-    # Never start a background smoke crawl automatically on app boot:
-    # user-operated searches are the only source of latest_one jobs.
-    store.initialize()
+    global _DB_BOOT_OK
+    # No smoke crawl is started; user-initiated live searches run independently.
+    if os.getenv("G2B_LIVE_ONLY_MODE","0")=="1":
+        logging.warning("FRESH_G2B_LIVE_ONLY_BOOT database_initialization=skipped")
+        _DB_BOOT_OK=False
+        return
+    try:
+        store.initialize()
+        _DB_BOOT_OK=True
+    except Exception as exc:
+        _DB_BOOT_OK=False
+        logging.warning("FRESH_G2B_DB_BOOT_UNAVAILABLE type=%s live_search_still_online=true",
+                        type(exc).__name__)
+
 
 
 @app.get("/",response_class=HTMLResponse)
@@ -249,13 +264,34 @@ def live_notices():
 
 @app.get("/health")
 def health():
-    with store.conn() as c:
-        old=c.execute("SELECT to_regclass('procureflow.tenders') IS NOT NULL AS old").fetchone()["old"]
-        count=c.execute("SELECT count(*) AS n FROM freshg2b.notices").fetchone()["n"]
-        confirmed=c.execute("SELECT count(*) AS n FROM freshg2b.search_pages WHERE request_verified=true").fetchone()["n"]
-    if old:raise HTTPException(503,"LEGACY_DB_PRESENT_BLOCKED")
-    return {"status":"ok","isolated_new_db":True,"old_db_access":False,
-            "new_db_notices":count,"official_site_search_live_proven":bool(confirmed)}
+    # Railway health MUST test whether the FastAPI live-search worker is online,
+    # not whether a separate optional PostgreSQL service happens to be online.
+    baseline={"status":"ok","live_search_service_online":True,
+              "live_search_path":"/api/mobile/live",
+              "source":"g2b_live_official_site","live_search_requires_db":False,
+              "db_connected":False,"old_db_access":False,
+              "new_db_notices":None,"official_site_search_live_proven":None}
+    if not _DB_BOOT_OK:
+        return baseline
+    try:
+        with store.conn() as connection:
+            old=connection.execute(
+                "SELECT to_regclass('procureflow.tenders') IS NOT NULL AS old"
+            ).fetchone()["old"]
+            count=connection.execute(
+                "SELECT count(*) AS n FROM freshg2b.notices"
+            ).fetchone()["n"]
+            confirmed=connection.execute(
+                "SELECT count(*) AS n FROM freshg2b.search_pages WHERE request_verified=true"
+            ).fetchone()["n"]
+        if old:
+            baseline["db_issue"]="LEGACY_DB_PRESENT_BLOCKED"
+            return baseline
+        baseline.update(db_connected=True,isolated_new_db=True,
+            new_db_notices=count,official_site_search_live_proven=bool(confirmed))
+    except Exception as exc:
+        baseline["db_error_type"]=type(exc).__name__
+    return baseline
 
 @app.get("/api/fresh/notices")
 def notices(limit:int=40):
