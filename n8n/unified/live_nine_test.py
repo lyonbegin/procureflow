@@ -276,81 +276,144 @@ def _record(run,index,status,inp,output):
     log.info("LIVE9_STAGE_END run_id=%s node=N%02d status=%s",run["run_id"],index,status)
 def _execute(run):
     global ACTIVE
-    opener=_client()
     state={}
     try:
-        # Each stage has its own bounded report. Fail-closed on unavailable source.
+        opener=_client()
         _once(opener)
-        preloaded_attachments={}
+        preload={}
+        _begin_stage(run,1)
         try:
-            state["notice"]=_live_notice(opener,preloaded_attachments)
-            _record(run,1,"partial" if state["notice"].get("verified_by")=="official_original_attachment" else "verified",{"bid_no":CASE,"source":"official_nuri_live"},
+            state["notice"]=_live_notice(opener,preload)
+            status=("partial" if state["notice"].get("verified_by")
+                    =="official_original_attachment" else "verified")
+            _record(run,1,status,{"bid_no":CASE,"source":"official_nuri_live"},
                     state["notice"])
-        except Exception as e:
+        except Exception as exc:
             state["notice"]=None
             _record(run,1,"source_error",{"bid_no":CASE},
-                    {"error":type(e).__name__+":"+str(e)[:180],"source":NURI_LIST})
-        docs,texts=_live_attachments(opener,preloaded_attachments)
-        state["docs"]=docs
-        _record(run,2,"verified" if any("sha256" in v for v in docs) else "source_error",
-                {"bid_no":CASE,"request":"official_attachments_1_2"},
-                {"files":docs,"downloaded":sum("sha256" in v for v in docs),
-                 "text_extracted_files":len(texts)})
-        joined="\n".join(texts)
-        found=[x for x in ("소프트웨어사업자","직접생산확인","입찰참가자격","중소기업","소기업","지역제한")
-               if x in joined]
-        state["elig"]={"source":"downloaded_official_attachment_text_only",
-             "requirement_keywords":found,"company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
-             "document_text_chars":len(joined)}
-        _record(run,3,"partial" if found else "blocked",
-                {"N02_downloaded_files":len(docs)},state["elig"])
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "source":NURI_LIST,
+                     "continue_to":"N02"})
+        _begin_stage(run,2)
+        try:
+            docs,texts=_live_attachments(opener,preload)
+            state["docs"]=docs
+            _record(run,2,"verified" if any("sha256" in v for v in docs)
+                    else "source_error",
+                    {"bid_no":CASE,"request":"official_attachments_1_2"},
+                    {"files":docs,"downloaded":sum("sha256" in v for v in docs),
+                     "text_extracted_files":len(texts)})
+        except Exception as exc:
+            docs,texts=[],[]
+            state["docs"]=docs
+            _record(run,2,"source_error",{"bid_no":CASE},
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "continue_to":"N03"})
+        _begin_stage(run,3)
+        try:
+            joined="\n".join(texts)
+            found=[x for x in ("소프트웨어사업자","직접생산확인",
+                "입찰참가자격","중소기업","소기업","지역제한") if x in joined]
+            state["elig"]={"source":"downloaded_official_attachment_text_only",
+                "requirement_keywords":found,
+                "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
+                "document_text_chars":len(joined)}
+            _record(run,3,"partial" if found else "blocked",
+                    {"N02_downloaded_files":len(docs)},state["elig"])
+        except Exception as exc:
+            state["elig"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,3,"source_error",{"source":"N02"},
+                    {**state["elig"],"continue_to":"N04"})
+        _begin_stage(run,4)
         try:
             state["history"]=_live_openings(opener)
-            _record(run,4,"partial",{"source":"live_official_opening_only","detail10":DETAIL},
-                state["history"])
-        except Exception as e:
+            _record(run,4,"partial",
+                    {"source":"live_official_opening_only","detail10":DETAIL},
+                    state["history"])
+        except Exception as exc:
             state["history"]=None
             _record(run,4,"source_error",{"detail10":DETAIL},
-                {"error":type(e).__name__+":"+str(e)[:180],"source":OPENINGS})
-        state["competition"]={"source":"N04_live_official_opening",
-             "raw_opening_rows":(state["history"] or {}).get("official_rows"),
-             "exact10_matched_competitors":None,
-             "confirmed_awards":None,
-             "status":"HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED"}
-        _record(run,5,"blocked",{"N04_status":"official_live_unfiltered"},
-                state["competition"])
-        state["cost"]={"status":"MISSING_COMPANY_COST_EVIDENCE",
-             "source":"official_tender_attachment_only",
-             "bid_budget":(state["notice"] or {}).get("budget"),
-             "verified_company_cost":None}
-        _record(run,6,"blocked",{"N02_docs":len(docs)},state["cost"])
-        state["price"]={"status":"NO_PRICE_RECOMMENDATION",
-            "bid_budget":(state["notice"] or {}).get("budget"),
-            "eligibility_verified":False,"cost_verified":False,"recommended_bid":None}
-        _record(run,7,"blocked",{"N03":state["elig"],"N06":state["cost"]},
-                state["price"])
-        raw=_document(state["notice"],docs,state["elig"],state["history"],
-                      state["competition"],state["cost"],state["price"])
-        with GUARD:run["_docx"]=raw
-        _record(run,8,"partial",{"source":"N01-N07 live results"},
-            {"draft_generated":True,"bytes":len(raw),"sha256":sha256(raw).hexdigest(),
-             "draft_only":True})
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "source":OPENINGS,"continue_to":"N05"})
+        _begin_stage(run,5)
+        try:
+            state["competition"]={"source":"N04_live_official_opening",
+                "raw_opening_rows":(state["history"] or {}).get("official_rows"),
+                "exact10_matched_competitors":None,
+                "confirmed_awards":None,
+                "status":"HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED"}
+            _record(run,5,"blocked",{"N04_status":"official_live_unfiltered"},
+                    state["competition"])
+        except Exception as exc:
+            state["competition"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,5,"source_error",{"source":"N04"},state["competition"])
+        _begin_stage(run,6)
+        try:
+            state["cost"]={"status":"MISSING_COMPANY_COST_EVIDENCE",
+                "source":"official_tender_attachment_only",
+                "bid_budget":(state["notice"] or {}).get("budget"),
+                "verified_company_cost":None}
+            _record(run,6,"blocked",{"N02_docs":len(docs)},state["cost"])
+        except Exception as exc:
+            state["cost"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,6,"source_error",{"source":"N02"},state["cost"])
+        _begin_stage(run,7)
+        try:
+            state["price"]={"status":"NO_PRICE_RECOMMENDATION",
+                "bid_budget":(state["notice"] or {}).get("budget"),
+                "eligibility_verified":False,"cost_verified":False,
+                "recommended_bid":None}
+            _record(run,7,"blocked",
+                    {"N03":state.get("elig"),"N06":state.get("cost")},
+                    state["price"])
+        except Exception as exc:
+            state["price"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,7,"source_error",{"source":"N03+N06"},state["price"])
+        _begin_stage(run,8)
+        try:
+            raw=_document(state.get("notice"),docs,state.get("elig"),
+                          state.get("history"),state.get("competition"),
+                          state.get("cost"),state.get("price"))
+            with GUARD:run["_docx"]=raw
+            _record(run,8,"partial",{"source":"N01-N07 live results"},
+                    {"draft_generated":True,"bytes":len(raw),
+                     "sha256":sha256(raw).hexdigest(),"draft_only":True})
+        except Exception as exc:
+            _record(run,8,"source_error",{"source":"N01-N07 live results"},
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "draft_generated":False,"continue_to":"N09"})
+        _begin_stage(run,9)
         _record(run,9,"partial",{"stage_count":8},
-            {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
-             "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
-             "live_official_sources":[NURI_LIST,ATTACH,OPENINGS],
-             "db_reads":0,"worker_calls":0,"browser_instances":0,
-             "bid_submitted":False,"final_bid_approval":False})
+                {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
+                 "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
+                 "source_errors":sum(s["status"]=="source_error" for s in run["steps"]),
+                 "live_official_sources":[NURI_LIST,ATTACH,OPENINGS],
+                 "db_reads":0,"worker_calls":0,"browser_instances":0,
+                 "bid_submitted":False,"final_bid_approval":False})
         with GUARD:run["status"]="completed_with_missing_evidence"
     except Exception as exc:
-        log.exception("LIVE_9_STAGE_UNEXPECTED_FAILURE")
+        log.exception("LIVE_9_STAGE_UNEXPECTED_FAILURE run_id=%s",run["run_id"])
+        # Ensure an interrupted stage has an explicit failure and the remaining
+        # stages have explicit skipped entries, never an indefinite RUNNING state.
+        msg=type(exc).__name__+":"+str(exc)[:180]
+        for index in range(run["completed_steps"]+1,10):
+            _record(run,index,"source_error" if index==run["completed_steps"]+1
+                    else "not_executed",
+                    {"reason":"UNEXPECTED_EXECUTOR_EXCEPTION"},
+                    {"error":msg if index==run["completed_steps"]+1
+                     else "PRIOR_STAGE_FAILED_UNEXPECTEDLY"})
         with GUARD:
             run["status"]="failed"
-            run["error"]=type(exc).__name__+":"+str(exc)[:210]
+            run["error"]=msg
     finally:
         with GUARD:
+            run["active_node"]=None
+            run["active_title"]=""
+            run["active_since"]=None
             run["finished_at"]=_now().isoformat()
             ACTIVE=None
+        log.info("LIVE9_FINISHED run_id=%s status=%s completed=%d",
+                 run["run_id"],run["status"],run["completed_steps"])
 def begin(sid,payload):
     global ACTIVE
     if not isinstance(payload,dict) or payload!={"bid_no":CASE,"detail10":DETAIL}:
