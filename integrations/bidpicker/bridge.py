@@ -7,6 +7,10 @@ import json
 import os
 import re
 import secrets
+import time
+from collections import deque
+from pathlib import Path
+from threading import Lock
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -14,6 +18,7 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 ROOT = "https://www.pickersoft.com/bidpicker-api/"
@@ -275,6 +280,63 @@ def health():
         raise HTTPException(503, "Existing PostgreSQL unavailable: " + type(exc).__name__) from None
     return {"status": "ok", "database": "connected", "source": "bidpicker_third_party",
             "integration_live_verified": False}
+
+
+# The human UI is public, but source requests are read-only, bounded and fail
+# closed without configured source credentials. Never expose backend secrets.
+DISCOVER_LIMIT = deque()
+DISCOVER_LOCK = Lock()
+
+
+def _throttle_discover():
+    now = time.monotonic()
+    with DISCOVER_LOCK:
+        while DISCOVER_LIMIT and now - DISCOVER_LIMIT[0] > 60:
+            DISCOVER_LIMIT.popleft()
+        if len(DISCOVER_LIMIT) >= 24:
+            raise HTTPException(429, "Read-only discovery rate limit reached")
+        DISCOVER_LIMIT.append(now)
+
+
+@app.get("/", include_in_schema=False)
+def mobile_ui():
+    return FileResponse(Path(__file__).with_name("ui.html"), media_type="text/html",
+                        headers={"Cache-Control": "no-store",
+                                 "X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/api/bidpicker/status")
+def public_status():
+    try:
+        with connect_isolated() as connection:
+            count = connection.execute("SELECT count(*) FROM bidpicker_feed.notices").fetchone()[0]
+    except Exception:
+        raise HTTPException(503, "PostgreSQL unavailable") from None
+    return {
+        "bridge_online": True, "database_connected": True,
+        "stored_count": count, "source_credentials_configured":
+        bool(os.getenv("BIDPICKER_USERNAME") and os.getenv("BIDPICKER_PASSWORD")),
+        "source_live_verified": False, "source": "bidpicker_third_party",
+        "original_notice_verified": False
+    }
+
+
+@app.get("/api/bidpicker/discover")
+def public_discover(keyword: str = "", region: str = "", category: str = "",
+                    task_type: str = "", sort: str = "latest",
+                    page: int = Query(1, ge=1, le=1000),
+                    size: int = Query(10, ge=1, le=10),
+                    deadline_soon: bool = False, include_closed: bool = False):
+    _throttle_discover()
+    if not (os.getenv("BIDPICKER_USERNAME") and os.getenv("BIDPICKER_PASSWORD")):
+        raise HTTPException(503, "BidPicker original search authentication is not configured")
+    try:
+        return search_notices(Search(keyword, region, category, task_type, sort,
+                                     page, size, deadline_soon, include_closed))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except (SourceUnavailable, DataContractError):
+        raise HTTPException(502, "BidPicker source search has not returned a verified result") from None
 
 
 @app.get("/api/bidpicker/search")
