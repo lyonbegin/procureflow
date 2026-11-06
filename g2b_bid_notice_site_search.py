@@ -177,8 +177,8 @@ def _verified_live_filter_replay(original,detail10,start,end,*,keyword="",region
             fields[key]=value
     if task_type:
         if "prcmBsneSeCd" not in fields:raise SearchBlocked("OFFICIAL_LIVE_TASK_FIELD_NOT_OBSERVED")
-        code={"GOODS":"조070001","SERVICE":"조070002",
-              "CONSTRUCTION":"조070003","FOREIGN":"조070004","ETC":"조070005"}
+        code={"GOODS":"조070001","CONSTRUCTION":"조070002",
+              "SERVICE":"조070003","FOREIGN":"조070004","ETC":"조070005"}
         if task_type not in code:raise SearchBlocked("OFFICIAL_LIVE_TASK_INVALID")
         fields["prcmBsneSeCd"]=code[task_type]
     for name in ("currentPage","recordCountPerPage","startIndex","endIndex"):
