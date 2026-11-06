@@ -678,6 +678,19 @@ def _click_notice_search(page):
                     }""")
                     logging.warning("FRESH_G2B_PUBLIC_SEARCH_CLICK_RETRY %s %s",
                         type(exc).__name__,json.dumps(diagnostics,ensure_ascii=False)[:900])
+                    # Playwright pointer clicks can be intercepted by a stale
+                    # WebSquare modal even after its actual popup is closed.
+                    # Invoke ONLY the observed public search button handler.
+                    # A DOM click is an attempt, NOT success: run_search still
+                    # requires capture of the genuine G2B POST and verified JSON.
+                    _dismiss_obstructing_public_popups(page)
+                    try:
+                        button.first.evaluate("(node)=>node.click()",timeout=1800)
+                        logging.warning("FRESH_G2B_PUBLIC_SEARCH_DOM_CLICK_ATTEMPT")
+                        return True
+                    except Exception as dom_exc:
+                        logging.warning("FRESH_G2B_PUBLIC_SEARCH_DOM_CLICK_FAILED %s",
+                                        type(dom_exc).__name__)
             except SearchBlocked:
                 raise
             except Exception as exc:
