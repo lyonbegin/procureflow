@@ -56,7 +56,9 @@ function normalizeBid(b){
   deadlineSoon:b.deadlineSoon===true,noticeKindName:asText(b.noticeKindName),
   bidMethodName:asText(b.bidMethodName),contractMethodName:asText(b.contractMethodName),
   summaryText:asText(b.summaryText),regionLimited:b.regionLimited===true,
-  originalUrl,originalUrlConfirmed:b.original_url_confirmed_format===true||!!originalUrl
+  originalUrl,originalUrlConfirmed:b.original_url_confirmed_format===true,
+  taskTypeBasis:asText(b.taskTypeBasis),regionBasis:asText(b.regionBasis),
+  categoryVerified:b.categoryVerified===true,capturedAt:asText(b.capturedAt),detail10:asText(b.detail10)
  };
 }
 function isSafeOriginalUrl(url){
@@ -321,7 +323,7 @@ function App(){
     {Icon:FileText,name:'추정가격',value:prettyPrice(actualDetail.budgetAmount)}
    ].map(({Icon,name,value})=><div className="info-row" key={name}><Icon size={16}/><div><span>{name}</span><b>{value}</b></div></div>)}</div>
    {actualDetail.matchedKeywords?.length>0&&<div className="overview"><b>매칭된 키워드</b><p>아래 키워드가 공고에 포함돼 추천됐어요.</p><div className="keyword-strip">{actualDetail.matchedKeywords.map(w=><span key={w}>{w}</span>)}</div></div>}
-   <InlineNotice>이 정보는 조달청 나라장터(공공데이터포털)에서 가져온 요약입니다. 참여 자격·서류·일정 등 정확한 내용은 반드시 원문 공고를 확인하세요. 공고 원문이 최종 기준입니다.</InlineNotice>
+   <InlineNotice>이 공고는 우리 FastAPI가 나라장터 공식 웹사이트에서 수집한 자료입니다. 미확인 날짜·분류·지역은 임의로 채우지 않았습니다. 참가 자격과 일정은 원문 공고를 확인하세요.</InlineNotice>
    {isSafeOriginalUrl(actualDetail.originalUrl)?<a className="detail-open" href={actualDetail.originalUrl} target="_blank" rel="noopener noreferrer">나라장터 원문 공고 보기 <ExternalLink size={18}/></a>:<button className="detail-open disabled" disabled>나라장터 원문 공고 보기 · 주소 미확인</button>}
   </div>:<EmptyState Icon={FileText} title="상세 정보를 불러오지 못했어요" body="검색 결과로 돌아가서 공고를 다시 선택해 주세요." action={()=>go('search')} actionText="검색으로 이동"/>}
  </>}
