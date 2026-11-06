@@ -14,7 +14,6 @@ DETAIL = "8111159901"
 FLOW = "operations/PF00-public-nine-real.json"
 
 def approved_filter(workflow):
-    import procurement_live_gateway as live
     if not isinstance(workflow,dict) or len(workflow.get("nodes",[]))!=10:
         raise ValueError("APPROVED_TEN_NODE_GRAPH_REQUIRED")
     nodes={n["id"]:n for n in workflow["nodes"] if isinstance(n,dict) and "id" in n}
