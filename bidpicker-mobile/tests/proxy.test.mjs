@@ -31,7 +31,7 @@ test('live source read query limits',()=>{
 test('FastAPI 202 and live 200 JSON survive proxy unmodified',()=>{
  const pending={status:'queued',jobId:'a'.repeat(32),source:'g2b_live_official_site',db_reads:0};
  const started=normalizeFreshResponse(JSON.stringify(pending),202,'application/json');
- assert.equal(started.httpStatus,200); // normalizeFreshResponse intentionally gives all 2xx HTTP 200; must be fixed below.
+ assert.equal(started.httpStatus,202);
  assert.equal(JSON.parse(started.body).jobId,pending.jobId);
  const result={status:'completed',items:[],db_reads:0,live_search_verified:true,source:'g2b_live_official_site'};
  assert.equal(JSON.parse(normalizeFreshResponse(JSON.stringify(result),200,'application/json').body).db_reads,0);
