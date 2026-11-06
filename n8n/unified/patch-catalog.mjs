@@ -17,3 +17,12 @@ if(!source.includes("length!==31")||!source.includes("size!==31")||!source.inclu
   throw Error('failed to patch procurement workflow catalog counts');
 writeFileSync(path,source);
 console.log('PROCUREFLOW_REAL_WORKFLOW_SELECTOR_REGISTERED=31');
+const appPath=process.argv[3];
+if(!appPath)throw Error('App.vue path required for project-safe N01 input defaults');
+let app=readFileSync(appPath,'utf8');
+const from="node01InputJson.value=JSON.stringify({ui_selection:node01Mode(),requested_detail_limit:1},null,2);";
+const to="node01InputJson.value=JSON.stringify(IS_PROCUREMENT?(stockOriginal.value?.meta?.studioDefaultInput||{}):{ui_selection:node01Mode(),requested_detail_limit:1},null,2);";
+if(!app.includes(from))throw Error("unexpected pinned shared App N01 defaults");
+app=app.replace(from,to);
+writeFileSync(appPath,app);
+console.log('PROCUREFLOW_N01_DEFAULTS_FROM_WORKFLOW_META_PATCHED');
