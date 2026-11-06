@@ -1,0 +1,42 @@
+name: BidPicker original API and app request fingerprint
+on:
+  push:
+    branches: [feature/bidpicker-mobile-original-ui-20261106]
+    paths: [.github/workflows/bidpicker-original-api-fingerprint.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  read-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Probe only two original GET routes and public HTTP auth challenge
+        run: |
+          python - <<'PY'
+          import urllib.request, urllib.error, json, hashlib
+          urls=[
+            "https://www.pickersoft.com/bidpicker-api/api/bids?keyword=%EC%B2%AD%EC%86%8C&page=1&size=1",
+            "https://www.pickersoft.com/bidpicker-api/api/trending-keywords?category=it"
+          ]
+          variants=[
+            ("normal_mobile_client",{"Accept":"application/json","User-Agent":"okhttp/4.12.0","Connection":"close"}),
+            ("standard_browser",{"Accept":"application/json","User-Agent":"Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/132 Mobile Safari/537.36"})
+          ]
+          for u in urls:
+            for label,h in variants:
+              try:
+                req=urllib.request.Request(u,headers=h,method="GET")
+                with urllib.request.urlopen(req,timeout=12) as r:
+                  data=r.read(1000)
+                  print("ORIGINAL_API_PROBE",json.dumps({"url_path":u.split(".com/")[-1].split("?")[0],"client":label,
+                    "status":r.status,"content_type":r.headers.get("content-type"),"sample_size":len(data),
+                    "www_authenticate":r.headers.get("WWW-Authenticate")},ensure_ascii=False))
+              except urllib.error.HTTPError as e:
+                print("ORIGINAL_API_PROBE",json.dumps({"url_path":u.split(".com/")[-1].split("?")[0],"client":label,
+                    "status":e.code,"content_type":e.headers.get("content-type"),
+                    "www_authenticate":e.headers.get("WWW-Authenticate"),"server":e.headers.get("Server")},ensure_ascii=False))
+              except Exception as e:
+                print("ORIGINAL_API_PROBE",json.dumps({"client":label,"error_type":type(e).__name__}))
+          PY
