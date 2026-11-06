@@ -1,0 +1,38 @@
+name: ProcureFlow unified live browser interaction E2E
+on:
+  push:
+    branches:
+      - feature/procureflow-unified-studio-20261107
+    paths:
+      - tests/e2e_procureflow_unified_live_ui.py
+      - .github/workflows/procureflow-unified-live-ui.yml
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tests/e2e_procureflow_unified_live_ui.py
+      - .github/workflows/procureflow-unified-live-ui.yml
+
+permissions:
+  contents: read
+jobs:
+  live-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install real headless Chromium and Playwright
+        run: |
+          python -m pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Operate live ProcureFlow via visible DOM interactions
+        run: python tests/e2e_procureflow_unified_live_ui.py
+      - name: Preserve screenshots and structured results even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procureflow-unified-live-ui-results
+          path: artifacts/unified-live-ui/
+          if-no-files-found: warn
