@@ -47,6 +47,41 @@ class OnDemandNineStageTests(unittest.TestCase):
         self.assertEqual(job["steps"][7]["output"]["draft_generated"],True)
         notice.assert_called_once();docs.assert_called_once();opening.assert_called_once()
         draft.assert_called_once()
+    def test_n01_and_n02_failure_must_still_reach_n09(self):
+        """Real site timeout or bad documents must not freeze the run at N01."""
+        job={"run_id":"8"*32,"status":"running","mode":"on_demand_live_no_database",
+             "case_bid_no":live.CASE,"completed_steps":0,"partial_steps":0,
+             "steps":[],"db_reads":0,"worker_calls":0,"bid_submitted":False}
+        with patch.object(live,"_client",return_value=None), \
+             patch.object(live,"_once"), \
+             patch.object(live,"_live_notice",side_effect=TimeoutError("NURI_TIMEOUT")), \
+             patch.object(live,"_live_attachments",side_effect=TimeoutError("FILE_TIMEOUT")), \
+             patch.object(live,"_live_openings",side_effect=TimeoutError("OPENING_TIMEOUT")), \
+             patch.object(live,"_document",side_effect=ValueError("DOCX_FAILED")):
+            live._execute(job)
+        self.assertEqual(job["completed_steps"],9)
+        self.assertEqual([s["node"] for s in job["steps"]],
+                         ["N%02d"%i for i in range(1,10)])
+        self.assertEqual(job["steps"][0]["status"],"source_error")
+        self.assertEqual(job["steps"][1]["status"],"source_error")
+        self.assertEqual(job["steps"][2]["status"],"blocked")
+        self.assertEqual(job["steps"][3]["status"],"source_error")
+        self.assertEqual(job["steps"][7]["status"],"source_error")
+        self.assertEqual(job["steps"][8]["status"],"partial")
+        self.assertEqual(job["status"],"completed_with_missing_evidence")
+        self.assertIsNone(job["active_node"])
+        self.assertFalse(job["bid_submitted"])
+    def test_fatal_unexpected_error_marks_remaining_nodes_and_releases_runner(self):
+        job={"run_id":"7"*32,"status":"running","mode":"on_demand_live_no_database",
+             "case_bid_no":live.CASE,"completed_steps":0,"partial_steps":0,
+             "steps":[],"db_reads":0,"worker_calls":0,"bid_submitted":False}
+        with patch.object(live,"_client",side_effect=RuntimeError("SESSION_START_FAILED")):
+            live._execute(job)
+        self.assertEqual(job["completed_steps"],9)
+        self.assertEqual(job["status"],"failed")
+        self.assertEqual(job["steps"][0]["status"],"source_error")
+        self.assertTrue(all(x["status"]=="not_executed" for x in job["steps"][1:]))
+        self.assertIn("finished_at",job)
     def test_official_urls_cannot_be_redirected_elsewhere(self):
         with self.assertRaises(ValueError):
             live._fetch(None,"https://www.evil.com/official")
