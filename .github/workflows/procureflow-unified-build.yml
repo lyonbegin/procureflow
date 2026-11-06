@@ -64,7 +64,7 @@ jobs:
             if docker exec proc-unified-e2e python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:3000/health",timeout=2).read()' >/dev/null 2>&1; then break; fi
             sleep 2
           done
-          docker exec -e PROCUREFLOW_UI_BASE=http://127.0.0.1:3000 \
+          docker exec -e PROCUREFLOW_UI_BASE=https://procureflow-unified-studio-candidate-production.up.railway.app \
             proc-unified-e2e python3 /app/tests/e2e_procureflow_unified_live_ui.py
           docker stop proc-unified-e2e
       - name: Upload live UI screenshots and pass/fail JSON
