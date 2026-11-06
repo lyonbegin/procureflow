@@ -73,6 +73,13 @@ def run(sid,db_path,fixture_path,body):
     search_status,search=live._request(url,method="GET")
     if search_status!=200 or not isinstance(search,dict):
         raise ValueError("REAL_HISTORY_SEARCH_UNAVAILABLE")
+    history=search.get("history") or {}
+    if (search.get("source")!="existing_procureflow_postgresql" or
+        search.get("no_simulated_records") is not True or
+        search.get("bid_submitted") is not False or
+        history.get("real_records_only") is not True or
+        history.get("source")!="existing_procureflow_original_verified_10digit_outcomes"):
+        raise ValueError("HISTORY_ORIGINAL_SOURCE_PROVENANCE_UNVERIFIED")
     # Never claim that read-only data retrieval constitutes all nine steps.
     steps=[
         {"node":"N01","status":"ACTUAL_DB_READ","source":"actual_procureflow_postgresql_g2b_notices"},
@@ -84,6 +91,8 @@ def run(sid,db_path,fixture_path,body):
         "search_filter":filters,"source":"actual_procureflow_postgresql_g2b_notices",
         "selected_route":stage1.get("selected_route",{}).get("route"),
         "search_result_keys":sorted(search.keys())[:20],
+        "history_total":history.get("total"),"history_rows_returned":len(history.get("rows",[])),
+        "historical_source":history.get("source"),
         "verified_steps":steps,"remaining_nodes":"NOT_EXECUTED",
         "worker_executed":False,"worker_job_created":False,"bid_submitted":False,
         "electronic_signature":False,
