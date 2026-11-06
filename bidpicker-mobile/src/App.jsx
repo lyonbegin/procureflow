@@ -219,9 +219,9 @@ function App(){
  {tab==='home'&&<>
   <PageHeader title="입찰공고 알리미" center actions={<button className="icon-button" aria-label="알림" onClick={()=>go('alerts')}><Bell size={20}/></button>}/>
   <div className="app-page home-page">
-   <div className="home-welcome"><div className="home-eyebrow">내 업종·지역에 맞는</div><h2>나라장터 입찰공고</h2><p>내게 맞는 공고를 쉽고 빠르게 찾아보세요.</p><button className="home-search" onClick={()=>go('search')}><Search size={17}/><span>공고명·키워드로 검색</span><ChevronRight size={16}/></button></div>
-   <SectionHeading title="오늘의 추천 공고" link="모두 보기" action={()=>go('search')}/>
-   {requestStarted&&results.length>0?<div className="home-list">{results.slice(0,2).map((b,i)=><BidCard key={keyOf(b)+i} bid={b} onOpen={openDetail} saved={isSaved(b)} onSave={toggleSave}/>)}</div>:<div className="home-empty"><Sparkles size={20}/><p>{searchError?'지금은 보여드릴 공고가 없어요':'관심 업종·지역을 고르면 홈에서 나에게 맞는 공고를 먼저 보여드려요.'}</p><button onClick={()=>go('interest_categories')}>관심 업종 설정하기 <ChevronRight size={14}/></button></div>}
+   <button type="button" className="home-search prominent" onClick={()=>go('search')}><Search size={17}/><span>공고명·키워드로 검색</span><ChevronRight size={16}/></button>
+   {(interestCats.length>0||interestRegion!=='전국')&&<><SectionHeading title="오늘의 추천 공고" link="모두 보기" action={()=>go('search')}/>
+   {requestStarted&&results.length>0?<div className="home-list">{results.slice(0,2).map((b,i)=><BidCard key={keyOf(b)+i} bid={b} onOpen={openDetail} saved={isSaved(b)} onSave={toggleSave}/>)}</div>:<div className="home-empty"><Sparkles size={20}/><p>{searchError?'지금은 보여드릴 공고가 없어요':'관심 업종·지역을 고르면 홈에서 나에게 맞는 공고를 먼저 보여드려요.'}</p><button onClick={()=>go('interest_categories')}>관심 업종 설정하기 <ChevronRight size={14}/></button></div>}</>}
    <SectionHeading title="업종으로 찾기"/>
    <p className="section-sub">내 업종을 누르면 관련 공고만 모아봐요</p>
    <div className="category-grid">{CATEGORIES.map(({id,text,Icon})=><button className="category-tile" key={id} onClick={()=>selectCategory(id)}><span className={'tile-icon '+id}><Icon size={20} strokeWidth={1.9}/></span><span>{text}</span></button>)}</div>
