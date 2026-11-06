@@ -611,6 +611,31 @@ def _dismiss_obstructing_public_popups(page, *, max_passes=5):
                   (w.innerText||'').includes('로그인 후 사용 가능합니다'));
             }""")
             if lingering:
+                import logging
+                details=frame.evaluate(r"""()=>{
+                  const w=[...document.querySelectorAll('.w2popup_window')]
+                    .find(x=>x.getClientRects().length &&
+                      (x.innerText||'').includes('로그인 후 사용 가능합니다'));
+                  if(!w)return {missing:true};
+                  const desc=e=>({
+                     tag:e.tagName,id:(e.id||'').slice(0,110),
+                     cls:(typeof e.className==='string'?e.className:'').slice(0,95),
+                     type:(e.type||'').slice(0,24),
+                     value:(e.value||'').slice(0,45),
+                     text:(e.innerText||e.textContent||'').trim().slice(0,55),
+                     title:(e.title||'').slice(0,55),
+                     visible:!!e.getClientRects().length
+                  });
+                  return {id:(w.id||'').slice(0,140),
+                    controls:[...w.querySelectorAll('input,button,a,[role=button]')].slice(0,34).map(desc),
+                    footer:[...w.querySelectorAll('div,span')].filter(e=>{
+                      const t=(e.innerText||e.textContent||'').trim();
+                      return /^(예|아니오|취소|확인|닫기|no|cancel|yes)$/.test(t)
+                         && e.getClientRects().length;
+                    }).slice(0,22).map(desc)};
+                }""")
+                logging.warning("FRESH_G2B_LOGIN_PROMPT_CONTROLS %s",
+                    json.dumps(details,ensure_ascii=False)[:3300])
                 raise SearchBlocked("OFFICIAL_SITE_LOGIN_PROMPT_STILL_BLOCKING")
         except SearchBlocked:
             raise
