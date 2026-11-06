@@ -22,7 +22,7 @@ class LiveOfficialTests(unittest.TestCase):
   self.assertEqual(q["bidPbancNm"],"정보시스템")
   self.assertEqual(q["odnLmtLgdngNm"],"서울특별시")
   self.assertEqual(q["dtlsPrnmNm"],"정보시스템")
-  self.assertEqual(q["prcmBsneSeCd"],"조070002")
+  self.assertEqual(q["prcmBsneSeCd"],"조070003")
   self.assertEqual(q["currentPage"],"2")
   self.assertEqual(q["startIndex"],11)
   self.assertEqual(q["endIndex"],20)
