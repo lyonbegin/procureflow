@@ -109,7 +109,7 @@ def _save_draft(job_id,raw):
             "draft_only":True,"bid_submitted":False}
 
 
-def run_actual_public_case(job_id,config):
+def run_actual_public_case(job_id,config,*,read_only_history=False,job_source="g2b_public_prepare"):
     """Run all nine real processing stages with actual worker/job and run IDs."""
     if type(job_id) is not int or job_id<=0 or not isinstance(config,dict):
         raise ValueError("VALID_EXISTING_WORKER_JOB_REQUIRED")
@@ -119,10 +119,10 @@ def run_actual_public_case(job_id,config):
     ensure_schema()
     with session() as con:
         job=con.execute("""SELECT id FROM procureflow.jobs
-            WHERE id=%s AND source='g2b_public_prepare' AND state='running'
-            LIMIT 1""",(job_id,)).fetchone()
+            WHERE id=%s AND source=%s AND state='running'
+            LIMIT 1""",(job_id,job_source)).fetchone()
     if not job:
-        raise ValueError("EXISTING_RUNNING_PUBLIC_PREPARE_JOB_NOT_FOUND")
+        raise ValueError("DIRECT_OR_WORKER_RUNNING_PUBLIC_PREPARE_JOB_NOT_FOUND")
     ids=[]
     def run(index,callback):
         value,state,stage_id=_stage(job_id,index,callback)
@@ -133,7 +133,7 @@ def run_actual_public_case(job_id,config):
     from g2b_bid_package import evaluate_eligibility,documented_price_scenarios,proposal_contents,draft_docx
     from g2b_case_engine import cost_summary
     elig=run(3,lambda: _elig(evaluate_eligibility()))
-    hist=run(4,lambda: _history(_bounded_existing_websquare_search(f)))
+    hist=run(4,lambda: _history(search_stored(f) if read_only_history else _bounded_existing_websquare_search(f)))
     strategy=run(5,lambda: _strategy(analyze_competition(
           f.start,f.end,f.agency,case=case)))
     cost=run(6,lambda: _cost(cost_summary()))
@@ -159,7 +159,7 @@ def run_actual_public_case(job_id,config):
              "manual_review":True}
     decision=run(9,manual_task)
     errors=[x for x in ids if x["state"]=="error"]
-    return {"source":"real_existing_procureflow_worker",
+    return {"source":"unified_inprocess_public9" if read_only_history else "real_existing_procureflow_worker",
         "job_id":job_id,"case_bid_no":CASE_BID,
         "state":"error" if errors else "completed_partial",
         "steps":ids,"actual_worker_stages":len(ids),
@@ -169,6 +169,8 @@ def run_actual_public_case(job_id,config):
         "draft_generated":bool(package),
         "errors":len(errors),"no_mock_sources":True,
         "official_n8n_execution_id":None,
+        "automatic_collection_started":not read_only_history,
+        "worker_executed":not read_only_history,
         "requires_human_approval":True,
         "bid_submitted":False}
 
@@ -271,9 +273,9 @@ def _price(p):
 def read_actual_job(job_id):
     if type(job_id) is not int or job_id<=0:raise ValueError("INVALID_JOB_ID")
     with session() as con:
-        j=con.execute("""SELECT id,state,checked,added,created_at,started_at,finished_at,
+        j=con.execute("""SELECT id,source,state,checked,added,created_at,started_at,finished_at,
                           message,last_error
-             FROM procureflow.jobs WHERE id=%s AND source='g2b_public_prepare'""",
+             FROM procureflow.jobs WHERE id=%s AND source IN ('g2b_public_prepare','g2b_public_direct')""",
              (job_id,)).fetchone()
         if not j:
             raise LookupError("PUBLIC_REAL_JOB_NOT_FOUND")
@@ -299,6 +301,7 @@ def read_actual_job(job_id):
             "draft":{"sha256":draft["original_sha256"],"bytes":draft["size_bytes"],
                      "state":draft["draft_status"]} if draft else None,
             "worker_job_id_is_not_n8n_execution_id":True,
+            "execution_source":"unified_direct" if j.get("source")=="g2b_public_direct" else "legacy_worker",
             "bid_submitted":False}
 
 
@@ -306,7 +309,7 @@ def latest_actual_job():
     """Resume real one-tender job monitoring after reloading public workbench."""
     with session() as con:
         row=con.execute("""SELECT id FROM procureflow.jobs
-             WHERE source='g2b_public_prepare' ORDER BY id DESC LIMIT 1""").fetchone()
+             WHERE source IN ('g2b_public_prepare','g2b_public_direct') ORDER BY id DESC LIMIT 1""").fetchone()
     if not row:
         return {"last_job_id":None,"case_bid_no":CASE_BID,
                 "actual_stages_recorded":0,"job_state":"not_run",
