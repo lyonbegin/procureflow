@@ -225,8 +225,8 @@ function App(){
  function openFilter(){setFilter({...query});setPopup('filters')}
  function clearFilter(){setFilter({keyword:query.keyword,category:'',region:'전국',taskType:'',deadlineSoon:false,includeClosed:false,sort:'latest',page:1,size:10})}
  function loadNext(){if(!resultsMeta?.hasMore||loading)return;const next={...query,page:query.page+1};setQuery(next);load(next,true)}
- function selectCategory(id){runSearch({category:id,...(tab==='home'?{keyword:'',region:'전국'}:{})})}
- function selectRegion(r){runSearch({region:r,...(tab==='home'?{keyword:'',category:''}:{})})}
+ function selectCategory(id){runSearch({category:id,...(tab==='home'?{keyword:'',region:'전국',taskType:'',deadlineSoon:false,includeClosed:false,sort:'latest'}:{})})}
+ function selectRegion(r){runSearch({region:r,...(tab==='home'?{keyword:'',category:'',taskType:'',deadlineSoon:false,includeClosed:false,sort:'latest'}:{})})}
  function saveRule(){
   const k=alertsForm.keyword.trim();if(!k&&!alertsForm.category&&!alertsForm.taskType&&(!alertsForm.region||alertsForm.region==='전국')){setPreviewNotice('키워드나 업종·지역·업무구분 중 하나 이상을 골라 주세요.');return}
   setAlertRules(prev=>[...prev,{...alertsForm,id:Date.now(),localOnly:true,label:alertsForm.label.trim()||alertsForm.keyword.trim()||'맞춤 조건'}]);setPopup('');setAlertsForm({label:'',keyword:'',category:'',region:'전국',taskType:''});setPreviewNotice('');
@@ -237,7 +237,7 @@ function App(){
  }
  const actualDetail=detailBid||saved.find(x=>x.id===decodeURIComponent(route.split('/').slice(1).join('/')||''))||null;
  const categoryName=(id)=>CATEGORIES.find(x=>x.id===id)?.text||'전체';
- const countText=(resultsMeta?.total??results.length)+'건';
+ const countText='이번 조회 '+(resultsMeta?.total??results.length)+'건';
  function Onboarding(){
   const slides=[
    {icon:LayoutGrid,title:'내 업종 공고만 쏙',description:'IT·청소·급식·인쇄·공사·교육·납품… 업종을 고르면 나라장터 공고 중 나에게 맞는 것만 모아서 보여드려요.'},
@@ -277,7 +277,8 @@ function App(){
    {requestStarted&&!loading&&!searchError&&resultsMeta?.filterNotes?.length>0&&<div className="inline-notice"><Info size={15}/><div>{(query.region!=='전국'||query.category||query.taskType||query.deadlineSoon)?resultsMeta.filterNotes.join(' '):'나라장터 공식 사이트를 조건에 맞춰 매번 새로 검색합니다. 공고별 상세 정보는 원문이 최종 기준입니다.'}</div></div>}
    {requestStarted&&loading&&!results.length&&<div className="loading-message"><RefreshCw className="spin" size={21}/>공고를 불러오는 중…</div>}
    {requestStarted&&searchError&&!loading&&<div className="error-panel"><AlertCircle size={25}/><h3>공고를 불러오지 못했어요</h3><p>{searchError}</p><button className="outline-btn" onClick={()=>load(query)}>다시 시도</button><small>실제 공고가 확인되지 않아 임의 데이터를 표시하지 않습니다.</small></div>}
-   {requestStarted&&!searchError&&results.length===0&&!loading&&<EmptyState Icon={Search} title="검색 결과가 없어요" body="키워드나 지역·업무구분 필터를 바꿔서 다시 찾아보세요."/>}
+   {requestStarted&&!searchError&&results.length===0&&!loading&&<EmptyState Icon={Search} title="이번 조회에서 일치하는 공고가 없어요" body={resultsMeta?.hasMore?'전체 공고가 0건인 것은 아닙니다. 다음 페이지에서도 계속 검색해 보세요.':'선택한 조건과 이번 검색 기간에서 확인된 공고가 없습니다. 다른 조건으로 다시 검색해 보세요.'}/>}
+   {requestStarted&&!searchError&&!loading&&results.length===0&&resultsMeta?.hasMore&&<button className="load-more" onClick={loadNext}>다음 페이지도 공식 사이트에서 검색 <ChevronDown size={15}/></button>}
    {results.length>0&&<div className="cards-list">{results.map((b,i)=><BidCard key={keyOf(b)+i} bid={b} onOpen={openDetail} saved={isSaved(b)} onSave={toggleSave}/>)}{resultsMeta?.hasMore&&<button className="load-more" onClick={loadNext} disabled={loading}>{loading?'불러오는 중…':'더 불러오기'} <ChevronDown size={15}/></button>}</div>}
    {!requestStarted&&<div className="search-empty"><Search size={26}/><h3>원하는 공고를 검색해 보세요</h3><p>공고명이나 키워드(예: 청소, 급식, 유지보수)로 찾을 수 있어요.<br/>위 필터 버튼으로 지역·업무구분도 좁힐 수 있어요.</p></div>}
   </div>
