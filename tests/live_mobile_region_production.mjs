@@ -45,12 +45,22 @@ try{
  assert.equal(result.status,'completed','Official region search did not complete');
  assert.equal(result.live_search_verified,true,'Official region filter not verified');
  assert.equal(result.db_reads,0,'Region search must never query database');
- assert.equal(result.appliedOfficialFilters?.region_restriction,'서울특별시');
- assert.ok(result.appliedOfficialFilters?.region_code_from_g2b_selector,
-   'Official region code missing in source POST');
+ assert.equal(result.appliedOfficialFilters?.bidPbancNm,'서울',
+   'Must search real G2B bid notice title rather than eligibility-only region');
+ assert.equal(result.appliedOfficialFilters?.source_region_eligibility_code,null,
+   'Do not mislabel 참가제한지역 as my locality');
+ assert.equal(result.regionMatchBasis,'notice_title_or_agency_name',
+   'Only geographically relevant verified records can be shown');
+ assert.ok(result.total>0,'Known live 서울 notice search must NOT pass with zero results');
+ assert.ok(result.items.every(b=>b.title.includes('서울')||b.agencyName.includes('서울')),
+   'Returned notices must have actual 서울 name evidence');
  assert.equal(errors.length,0,'Mobile JS runtime errors');
  await page.waitForTimeout(300);
- assert.equal(await page.locator('.error-panel').count(),0,'UI incorrectly renders error for zero verified results');
+ assert.equal(await page.locator('.error-panel').count(),0,'UI incorrectly renders an error');
+ const cards=page.locator('.cards-list .bid-card');
+ assert.ok(await cards.count()>0,'Actual 서울 tender cards missing from mobile UI');
+ console.log('LIVE_UI_REGION_VISIBLE',JSON.stringify({
+   count:await cards.count(),titles:(await page.locator('.cards-list .bid-card h3').allTextContents()).slice(0,6)}));
  console.log('LIVE_UI_REGION_PASS',JSON.stringify({total:result.total,request:queries.at(-1)}));
 }catch(e){
  console.error('LIVE_UI_REGION_FAILED',String(e));
