@@ -396,11 +396,12 @@ def _execute(run):
         # Ensure an interrupted stage has an explicit failure and the remaining
         # stages have explicit skipped entries, never an indefinite RUNNING state.
         msg=type(exc).__name__+":"+str(exc)[:180]
-        for index in range(run["completed_steps"]+1,10):
-            _record(run,index,"source_error" if index==run["completed_steps"]+1
+        first_failed=run["completed_steps"]+1
+        for index in range(first_failed,10):
+            _record(run,index,"source_error" if index==first_failed
                     else "not_executed",
                     {"reason":"UNEXPECTED_EXECUTOR_EXCEPTION"},
-                    {"error":msg if index==run["completed_steps"]+1
+                    {"error":msg if index==first_failed
                      else "PRIOR_STAGE_FAILED_UNEXPECTEDLY"})
         with GUARD:
             run["status"]="failed"
