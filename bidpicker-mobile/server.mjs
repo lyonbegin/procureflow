@@ -63,10 +63,53 @@ export function normalizeUpstream(raw,httpStatus,contentType){
  }catch{return {httpStatus:502,body:JSON.stringify({detail:'원본 API의 JSON 응답을 해석할 수 없습니다.',upstream_http_status:httpStatus})};}
 }
 
+// Fixed-source, read-only diagnostic. Cache prevents repeatedly probing the
+// private upstream when someone refreshes the page. Never logs credentials.
+let diagnosticCache={at:0,value:null};
+export async function diagnoseOriginalApi(now=Date.now(),fetcher=fetch,credentials=process.env){
+ if(diagnosticCache.value && now-diagnosticCache.at < 60000)return diagnosticCache.value;
+ const url=makeProxyUrl('/api/bidpicker/discover','?page=1&size=1');
+ const authConfigured=Boolean(credentials.BIDPICKER_UPSTREAM_USERNAME&&credentials.BIDPICKER_UPSTREAM_PASSWORD);
+ let result;
+ try{
+   const response=await fetcher(url,{method:'GET',headers:buildUpstreamHeaders(url,credentials),
+       redirect:'manual',signal:AbortSignal.timeout(10000)});
+   const challenge=response.headers.get('www-authenticate')||'';
+   const realmMatch=challenge.match(/Basic\s+realm="?([^",\s]+)"?/i);
+   result={
+     source:'original_bidpicker_api',
+     source_url_path:'/bidpicker-api/api/bids',
+     upstream_http_status:response.status,
+     content_type:response.headers.get('content-type')||null,
+     www_authenticate:challenge||null,
+     basic_realm:realmMatch?realmMatch[1]:null,
+     credentials_configured:authConfigured,
+     original_data_received:response.status===200,
+     root_cause:response.status===401&&realmMatch
+        ?'Origin server requires HTTP Basic authentication before providing JSON'
+        :response.status===200?'Original upstream responded 200; verify BidPageDto JSON next'
+        :'Check the upstream HTTP response'
+   };
+ }catch(e){
+   result={source:'original_bidpicker_api',source_url_path:'/bidpicker-api/api/bids',
+     upstream_http_status:null,credentials_configured:authConfigured,
+     original_data_received:false,network_error_type:e?.name||'NetworkError',
+     root_cause:'Unable to connect to original API from Railway'};
+ }
+ diagnosticCache={at:now,value:result};
+ return result;
+}
+
 async function handler(req,res){
  const requestUrl=new URL(req.url||'/','http://localhost:'+port);
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','no-referrer');
+ if(requestUrl.pathname==='/api/bidpicker/diagnostics'&&req.method==='GET'){
+   const data=await diagnoseOriginalApi();
+   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8',
+     'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+   res.end(JSON.stringify(data));return;
+ }
  if(requestUrl.pathname.startsWith('/api/')){
    if(req.method!=='GET'){res.writeHead(405,{'Content-Type':'application/json'});res.end(JSON.stringify({detail:'Only GET allowed'}));return;}
    let target;
