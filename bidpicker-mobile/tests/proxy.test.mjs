@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {makeProxyUrl,normalizeUpstream,buildUpstreamHeaders,BIDPICKER_ORIGINAL_ROOT} from '../server.mjs';
+import {makeProxyUrl,normalizeUpstream,buildUpstreamHeaders,diagnoseOriginalApi,BIDPICKER_ORIGINAL_ROOT} from '../server.mjs';
 
 test('source base URL matches original XAPK',()=>{
  assert.equal(BIDPICKER_ORIGINAL_ROOT,'https://www.pickersoft.com/bidpicker-api/');
@@ -63,4 +63,23 @@ test('authorization is never sent to the unrelated Bridge monitor',()=>{
  const h=buildUpstreamHeaders('https://bidpicker-discovery-bridge-production.up.railway.app/api/bidpicker/status',
   {BIDPICKER_UPSTREAM_USERNAME:'example',BIDPICKER_UPSTREAM_PASSWORD:'example'});
  assert.equal(h.Authorization,undefined);
+});
+
+test('root-cause probe reports real nginx Basic challenge, never guesses credential',async()=>{
+ let called=0;
+ const fake=async (url,options)=>{
+   called++;
+   assert.ok(url.includes('/bidpicker-api/api/bids?page=1&size=1'));
+   assert.equal(options.headers.Authorization,undefined);
+   return {status:401,headers:new Headers({'WWW-Authenticate':'Basic realm="bidpicker"','content-type':'text/html','server':'nginx/1.18.0'})};
+ };
+ const result=await diagnoseOriginalApi(1700000000000,fake,{});
+ assert.equal(result.upstream_http_status,401);
+ assert.equal(result.basic_realm,'bidpicker');
+ assert.equal(result.credentials_configured,false);
+ assert.equal(result.original_data_received,false);
+ assert.match(result.root_cause,/Basic authentication/);
+ const again=await diagnoseOriginalApi(1700000001000,fake,{});
+ assert.deepEqual(again,result);
+ assert.equal(called,1,'probe must be cached');
 });
