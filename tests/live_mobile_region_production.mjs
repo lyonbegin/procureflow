@@ -62,6 +62,42 @@ try{
  console.log('LIVE_UI_REGION_VISIBLE',JSON.stringify({
    count:await cards.count(),titles:(await page.locator('.cards-list .bid-card h3').allTextContents()).slice(0,6)}));
  console.log('LIVE_UI_REGION_PASS',JSON.stringify({total:result.total,request:queries.at(-1)}));
+ // A second ACTUAL mobile UI selection, no mocked G2B source:
+ // tapping the IT category tile must show authentic notices, not page 0.
+ await page.locator('.bottom-item').nth(0).click();
+ await page.waitForSelector('.category-tile');
+ const categoryCompleted=new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error('G2B_IT_CATEGORY_LIVE_TIMEOUT')),205000);
+  const onResponse=async r=>{
+   try{
+    const u=new URL(r.url());
+    if(!/^\/api\/bidpicker\/live\/jobs\/[a-f0-9]{32}$/.test(u.pathname))return;
+    const value=await r.json();
+    if(value.status==='completed'||value.status==='blocked'){
+      page.off('response',onResponse);clearTimeout(timer);resolve(value);
+    }
+   }catch{}
+  };
+  page.on('response',onResponse);
+ });
+ await page.locator('.category-tile').first().click();
+ const it=await categoryCompleted;
+ console.log('LIVE_UI_IT_RESULT',JSON.stringify({
+  status:it.status,verified:it.live_search_verified,total:it.total,
+  query:queries.at(-1),reason:it.reason,filters:it.appliedOfficialFilters,
+  first:it.items?.slice(0,3).map(x=>({no:x.bidNo,title:x.title}))}));
+ assert.equal(queries.at(-1).category,'it','IT tile did not send category');
+ assert.equal(queries.at(-1).region,'전국','Home IT tile retained stale Seoul region');
+ assert.equal(it.status,'completed','Actual G2B IT category search did not complete');
+ assert.equal(it.db_reads,0,'IT category fetched stale DB data');
+ assert.ok(it.total>0,'IT category returned zero despite known public systems tenders');
+ assert.equal(it.appliedOfficialFilters?.bidPbancNm,'시스템',
+  'IT search must use verified real G2B bid title query, not guessed exact classification');
+ await page.waitForTimeout(500);
+ assert.ok(await page.locator('.cards-list .bid-card').count()>0,
+  'Actual source IT tender cards missing from mobile screen');
+ console.log('LIVE_UI_IT_PASS',JSON.stringify({total:it.total,
+   visibleCards:await page.locator('.cards-list .bid-card').count()}));
 }catch(e){
  console.error('LIVE_UI_REGION_FAILED',String(e));
  console.error('LIVE_UI_REGION_CONTEXT',JSON.stringify({queries,error:result?.reason,errors}));
