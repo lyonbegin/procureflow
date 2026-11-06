@@ -81,4 +81,36 @@ with sync_playwright() as pw:
  if "dmstNm" in fields and "instSearchRangeYn" in fields:
   for value in ("Y","N","1"):
    probe("agency_name_range_"+value,{"dmstNm":"서울","instSearchRangeYn":value})
+ # Test a completely new official public HTTP session directly, without
+ # opening G2B search UI or clicking a login modal.
+ safe_form={k:v for k,v in fields.items() if isinstance(v,(str,int,bool)) and
+     len(str(v))<=120 and not any(secret in k.lower() for secret in
+      ("token","secret","passwd","password","session","auth","user","apikey"))}
+ print("G2B_PUBLIC_FORM_TEMPLATE",json.dumps(safe_form,ensure_ascii=False),flush=True)
+ direct_context=pw.request.new_context(timeout=18000)
+ direct_body=json.dumps(body,ensure_ascii=False,separators=(",",":"))
+ def direct_probe(tag):
+  try:
+   response=direct_context.post(endpoint,data=direct_body,
+      headers={"Content-Type":"application/json;charset=UTF-8",
+               "Accept":"application/json"},timeout=20000)
+   try:
+    rows,total=_response_records(response.json())
+    count=len(rows) if rows is not None else None
+    first=[x["bid_no"] for x in (rows or [])[:3]]
+   except Exception:count=None;first=[]
+   print("G2B_DIRECT_POST",json.dumps({"name":tag,
+     "http":response.status,"content_type":response.headers.get("content-type","")[:70],
+     "count":count,"first_public_bid_ids":first},ensure_ascii=False),flush=True)
+  except Exception as e:
+   print("G2B_DIRECT_POST",json.dumps({"name":tag,
+      "error_type":type(e).__name__},ensure_ascii=False),flush=True)
+ direct_probe("no_cookies")
+ try:
+  root=direct_context.get("https://www.g2b.go.kr/",timeout=18000)
+  print("G2B_DIRECT_HOME",json.dumps({"status":root.status,
+    "content_type":root.headers.get("content-type","")[:55]}),flush=True)
+ except Exception as e:print("G2B_DIRECT_HOME",type(e).__name__,flush=True)
+ direct_probe("public_home_initialized")
+ direct_context.dispose()
  ctx.close();browser.close()
