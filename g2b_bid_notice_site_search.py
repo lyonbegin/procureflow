@@ -164,6 +164,40 @@ def _verified_date_replay(original, detail10, start, end):
     return payload
 
 
+def _verified_live_filter_replay(original,detail10,start,end,*,keyword="",region="",
+                                  category="",task_type="",page=1,size=10):
+    """Replay only a genuine observed G2B WebSquare POST with user filters."""
+    payload=_verified_date_replay(original,detail10,start,end)
+    fields=json.loads(payload)["dlBidPbancLstM"]
+    options={"bidPbancNm":keyword,"odnLmtLgdngNm":region,
+             "dtlsPrnmNm":category}
+    for key,value in options.items():
+        if value:
+            if key not in fields:raise SearchBlocked("OFFICIAL_LIVE_FIELD_NOT_OBSERVED_"+key)
+            fields[key]=value
+    if task_type:
+        if "prcmBsneSeCd" not in fields:raise SearchBlocked("OFFICIAL_LIVE_TASK_FIELD_NOT_OBSERVED")
+        code={"GOODS":"조070001","SERVICE":"조070002",
+              "CONSTRUCTION":"조070003","FOREIGN":"조070004","ETC":"조070005"}
+        if task_type not in code:raise SearchBlocked("OFFICIAL_LIVE_TASK_INVALID")
+        fields["prcmBsneSeCd"]=code[task_type]
+    for name in ("currentPage","recordCountPerPage","startIndex","endIndex"):
+        if name not in fields:raise SearchBlocked("OFFICIAL_LIVE_PAGING_FIELD_NOT_OBSERVED_"+name)
+    fields["currentPage"]=str(page)
+    fields["recordCountPerPage"]=str(size)
+    fields["startIndex"]=(page-1)*size+1
+    fields["endIndex"]=page*size
+    data=json.loads(payload)
+    data["dlBidPbancLstM"]=fields
+    out=json.dumps(data,ensure_ascii=False,separators=(",",":"))
+    if not request_has_filter(out,detail10,start,end):
+        raise SearchBlocked("OFFICIAL_LIVE_FILTER_BODY_NOT_VERIFIED")
+    for key,value in options.items():
+        if value and json.loads(out)["dlBidPbancLstM"].get(key)!=value:
+            raise SearchBlocked("OFFICIAL_LIVE_FIELD_BODY_NOT_VERIFIED")
+    return out
+
+
 def _frames(page):
     # Site may use WebSquare iframes or a root document.
     return [f for f in page.frames if not f.is_detached()]
@@ -643,7 +677,8 @@ def _safe_search_screen_diagnostic(tab):
             except Exception:details.append({"error_type":type(exc).__name__})
     return details
 
-def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
+def run_search(detail10,start,end,cursor=None,page=1,*,keyword="",region="",category="",
+               task_type="",size=10,factory=None):
     """One PUBLIC real website search. No external result data is fabricated."""
     w=search_window(detail10,start,end,cursor,page)
     output={"status":"blocked","source":"g2b_public_bid_notice_search_ui",
@@ -750,28 +785,29 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             stage="await_verified_request"
             tab.wait_for_timeout(2500)
             corrected_response=None
-            if not requests and date_replay_candidates:
-                original=date_replay_candidates[-1]
-                payload=_verified_date_replay(original,detail10,w["start"],w["end"])
-                # Browser navigation supplied the authentic submission headers.
-                # Playwright APIRequestContext shares this browser's cookie jar.
-                allowed={"accept","content-type","menu-info","submissionid",
-                         "usr-id","referer","x-requested-with"}
-                headers={k:v for k,v in original.headers.items()
-                         if k.lower() in allowed}
-                headers["Content-Type"]="application/json;charset=UTF-8"
-                corrected_response=context.request.post(
-                    original.url.split("?")[0],data=payload,
-                    headers=headers,timeout=35000)
-                if corrected_response.status!=200:
-                    raise SearchBlocked("OFFICIAL_DATE_REPLAY_HTTP_"+str(corrected_response.status))
+            # Always submit a new verified G2B POST for every mobile query.
+            # Earlier unfiltered list responses are never used as search results.
+            if not date_replay_candidates:
+                raise SearchBlocked("OFFICIAL_LIVE_G2B_POST_NOT_CAPTURED")
+            original=date_replay_candidates[-1]
+            payload=_verified_live_filter_replay(original,detail10,w["start"],w["end"],
+                keyword=keyword,region=region,category=category,task_type=task_type,
+                page=page,size=size)
+            allowed={"accept","content-type","menu-info","submissionid",
+                     "usr-id","referer","x-requested-with","target-id"}
+            headers={k:v for k,v in original.headers.items() if k.lower() in allowed}
+            headers["Content-Type"]="application/json;charset=UTF-8"
+            corrected_response=context.request.post(
+                original.url.split("?")[0],data=payload,headers=headers,timeout=35000)
+            if corrected_response.status!=200:
+                raise SearchBlocked("OFFICIAL_LIVE_G2B_HTTP_"+str(corrected_response.status))
             if not requests and corrected_response is None:
                 import logging
                 logging.warning("FRESH_G2B_SEARCH_DIALOGS %s",json.dumps(dialogs[-8:],ensure_ascii=False))
                 logging.warning("FRESH_G2B_SEARCH_POST_DIAG %s",
                     json.dumps(observed_posts[-16:],ensure_ascii=False))
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
-            if page>1:
+            if page>1 and corrected_response is None:
                 # Pagination must retain the same official date/category criteria.
                 pg=str(page)
                 if not _click_label(tab,(pg,),"click"):
@@ -829,7 +865,11 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                     json.dumps(data,ensure_ascii=False,sort_keys=True,default=str).encode()).hexdigest(),
                 returned_bid_ids=len(records),official_total=total,
                 next_page=page+1 if len(records)>0 and len(records)>=10 else None,
-                search_source_status="live_post_with_exact_filter_and_window")
+                search_source_status="new_G2B_POST_with_user_filters",
+                 live_filter_verified=True,db_reads=0,
+                 live_filters={"keyword":keyword,"region_restriction":region,
+                               "category_name":category,"task_type":task_type,
+                               "page":page,"size":size})
             context.close()
             browser.close()
     except SearchBlocked as exc:
