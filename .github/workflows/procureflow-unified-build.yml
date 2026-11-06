@@ -53,8 +53,8 @@ jobs:
           python -c 'import json;w=json.load(open("/tmp/flow.json"));assert w["meta"]["business_node_count"]==9 and not w["meta"]["simulation_only"]'
           curl -fSs http://127.0.0.1:3000/api/studio/health >/tmp/studio-health.json
           cat /tmp/studio-health.json
-          docker logs proc-unified 2>&1 | grep 'UNIFIED_COLLECTOR_HOLD_DUPLICATE_WORKER_PREVENTED'
-          docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HOLD_DATABASE_URL_NOT_CONFIGURED'
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION'
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HELD_DB_NOT_CONNECTED_OR_EMBEDDED_API_NOT_ENABLED'
           docker stop proc-unified
       - name: Run real Chromium clicks INSIDE the tested unified Docker image
         run: |
