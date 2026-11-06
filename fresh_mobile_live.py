@@ -86,14 +86,42 @@ def _work(job_id,params):
     first=today.replace(day=1).isoformat()
     last=today.isoformat()
     try:
+        # UI "지역으로 찾기" means geographically relevant notices, NOT the
+        # much narrower WebSquare "참가제한지역" eligibility dropdown.
+        # Live evidence: G2B bidPbancNm='서울' returns matching fresh
+        # public notices; dmstNm='서울' was ignored by the server.
+        # Do not silently send the unrelated eligibility restriction.
+        area=params["region"] if params["region"]!="전국" else ""
+        keyword=params["keyword"]
+        query_term=keyword or area
         result=run_search("",first,last,
-           keyword=params["keyword"],
-           region=REGION_LABELS.get(params["region"],""),
+           keyword=query_term,region="",
            category=CATEGORY_LABELS.get(params["category"],""),
            task_type=params["task_type"],page=params["page"],size=params["size"])
         if not result.get("search_request_verified") or not result.get("live_filter_verified"):
             raise RuntimeError("G2B_LIVE_UNVERIFIED_"+str(result.get("reason") or result.get("status")))
         raw=(result.get("matched_explicit_detail10") or [])+(result.get("pending_original_detail10_verification") or [])
+        if area:
+            raw=[row for row in raw if area in (row.get("title") or "") or
+                 area in (row.get("agency") or "")]
+        if area and keyword:
+            # Two independent G2B live searches find keyword matches in
+            # locality-labelled notices and locality matches under keyword.
+            other=run_search("",first,last,keyword=area,region="",
+                category=CATEGORY_LABELS.get(params["category"],""),
+                task_type=params["task_type"],page=params["page"],size=params["size"])
+            if not other.get("search_request_verified") or not other.get("live_filter_verified"):
+                raise RuntimeError("G2B_LIVE_UNVERIFIED_SECOND_REGION_QUERY_"+
+                    str(other.get("reason") or other.get("status")))
+            raw.extend(row for row in
+                (other.get("matched_explicit_detail10") or [])+
+                (other.get("pending_original_detail10_verification") or [])
+                if keyword.lower() in ((row.get("title") or "")+" "+
+                      (row.get("agency") or "")).lower())
+            dedup={}
+            for row in raw:
+                dedup[(row["bid_no"],row["bid_ord"])]=row
+            raw=list(dedup.values())[:params["size"]]
         items=[_public(x,params) for x in raw]
         # Optional display constraints that are not verified as direct official
         # query fields (e.g. deadline) must be applied ONLY to this fresh response.
@@ -112,9 +140,19 @@ def _work(job_id,params):
            "officialEndpoint":result.get("live_search_endpoint"),
            "responseSha":result.get("response_sha"),
            "appliedOfficialFilters":result.get("live_filters"),
-           "filterNotes":["매 요청마다 나라장터 웹사이트에서 새로 검색합니다. DB 검색 결과를 사용하지 않습니다.",
-            "지역 선택은 나라장터 지역제한 필드를 사용하며, 개별 공고의 참가 가능 여부는 원문 확인이 필요합니다.",
-            "정확한 게시일·마감일·예산이 없는 경우 임의로 채우지 않습니다."]}
+           "regionMatchBasis":"notice_title_or_agency_name" if area else "none",
+           "searchScope":"official_current_month_limited_pages",
+           "appliedOfficialFilters":{"bidPbancNm":query_term,
+               "source_region_eligibility_code":None,
+               "area_match":area or None,"category_name":CATEGORY_LABELS.get(params["category"],""),
+               "task_type":params["task_type"],"page":params["page"],"size":params["size"]},
+           "filterNotes":[
+              "선택 조건으로 나라장터 공식 사이트에 매번 새로 검색합니다. DB 결과를 사용하지 않습니다.",
+              ("지역 '+area+'은 공고명·발주기관명에 지역명이 포함된 공고만 표시합니다. "
+               "참가제한지역과 다르며 검색 범위에 따라 누락될 수 있습니다.") if area else
+               "전국 공고를 검색합니다.",
+              "현재 검색은 이번 달 공고의 지정 페이지 기준이며 전체 공고 전수검색은 아닙니다.",
+              "게시일·마감일·예산 등 원문에서 확인되지 않은 값은 임의로 채우지 않습니다."]}
         with LOCK:
             JOBS[job_id]["result"]=out
             JOBS[job_id]["status"]="completed"
