@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Ensure no-token test cannot issue a Worker request and N04 filter is exact
         run: python -m unittest discover -s tests -p 'test_procurement_unified_auto_test.py' -v
+          python -m unittest discover -s tests -p 'test_procurement_live_nine_test.py' -v
       - name: Compile all business servers, orchestration and adapters
         run: |
           python -m py_compile n8n/unified/run.py n8n/unified/patch-server.py n8n/unified/procurement_auto_test.py main.py worker.py fresh_g2b_app.py \
