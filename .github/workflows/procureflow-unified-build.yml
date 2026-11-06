@@ -1,0 +1,54 @@
+name: ProcureFlow unified shared Studio container verification
+on:
+  push:
+    branches:
+      - feature/procureflow-unified-studio-20261107
+  pull_request:
+    paths:
+      - n8n/Dockerfile.procureflow-unified
+      - n8n/unified/**
+      - n8n/admin-console/**
+      - n8n/strategy-runtime/**
+      - fresh_g2b*
+      - focused_g2b*
+      - main.py
+      - worker.py
+
+jobs:
+  unified-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile all business servers, orchestration and adapters
+        run: |
+          python -m py_compile n8n/unified/run.py main.py worker.py fresh_g2b_app.py \
+            fresh_g2b_store.py fresh_g2b_site.py focused_g2b.py g2b_bid_notice_site_search.py \
+            n8n/strategy-runtime/procurement_live_gateway.py
+      - name: Verify no legacy n8n engine is installed in unified image definition
+        run: |
+          ! grep -E 'FROM n8nio/n8n|n8n worker --|redis-server' n8n/Dockerfile.procureflow-unified
+          grep -q 'PROCUREFLOW_ORIGINAL_WORKER_STOPPED' n8n/unified/run.py
+          grep -q 'PF00-public-nine-real.json' n8n/unified/patch-catalog.mjs
+      - name: Build the real common Studio and unified G2B container
+        run: docker build --progress=plain -f n8n/Dockerfile.procureflow-unified -t procureflow-unified:ci .
+      - name: Run isolated UI container without Railway credentials or Worker
+        run: |
+          docker run -d --rm -p 3000:3000 --name proc-unified -e PORT=3000 procureflow-unified:ci
+          for n in $(seq 1 40); do
+            if curl -fSs http://127.0.0.1:3000/health >/tmp/health.json; then break; fi
+            sleep 2
+          done
+          cat /tmp/health.json
+          curl -fSs http://127.0.0.1:3000/admin/index.html >/tmp/admin.html
+          grep -q '신규 공고' /tmp/admin.html
+          curl -fSs 'http://127.0.0.1:3000/?workflow=operations%2FPF00-public-nine-real.json' >/tmp/editor.html
+          curl -fSs http://127.0.0.1:3000/procure-workflows/operations/PF00-public-nine-real.json >/tmp/flow.json
+          python -c 'import json;w=json.load(open("/tmp/flow.json"));assert w["meta"]["business_node_count"]==9 and not w["meta"]["simulation_only"]'
+          curl -fSs http://127.0.0.1:3000/api/studio/health >/tmp/studio-health.json
+          cat /tmp/studio-health.json
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_COLLECTOR_HOLD_DUPLICATE_WORKER_PREVENTED'
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HOLD_DATABASE_URL_NOT_CONFIGURED'
+          docker stop proc-unified
