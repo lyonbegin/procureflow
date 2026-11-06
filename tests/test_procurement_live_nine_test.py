@@ -21,7 +21,7 @@ class OnDemandNineStageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 live.begin("f"*48,{"bid_no":"OTHER","detail10":live.DETAIL})
     def test_nine_steps_in_order_and_zero_db_reads(self):
-        fake_notice={"bid_no":live.CASE,"title":"원본 공고 TEST","agency":"공식기관","source":live.NURI_LIST}
+        fake_notice={"bid_no":live.CASE,"title":"철강·금속 인공지능전환(AX)실증센터 스마트 실증장비 모니터링 시스템용 소프트웨어 개발 용역","agency":"(재)전남테크노파크","source":live.NURI_LIST,"official_fields_verified":True}
         fake_docs=[{"file_seq":1,"bytes":100,"sha256":"0"*64,"source":live.ATTACH}]
         fake_history={"official_rows":3,"sample":[],"source":live.OPENINGS,"exact_detail10_verified":False}
         job={"run_id":"9"*32,"status":"running","mode":"on_demand_live_no_database",
@@ -82,6 +82,42 @@ class OnDemandNineStageTests(unittest.TestCase):
         self.assertEqual(job["steps"][0]["status"],"source_error")
         self.assertTrue(all(x["status"]=="not_executed" for x in job["steps"][1:]))
         self.assertIn("finished_at",job)
+    def test_official_original_must_contain_actual_tender_title_and_agency(self):
+        actual_text="""▪수요기관 : (재)전남테크노파크
+        소액 수의 전자견적서 제출 공고
+        < 철강·금속 인공지능전환(AX)실증센터 스마트 실증장비
+          모니터링 시스템용 소프트웨어 개발 용역 >
+        1. 사업명 : 철강·금속 인공지능전환(AX)실증센터 스마트 실증장비 모니터링 시스템용 소프트웨어 개발 용역
+        가. 기초금액 : 51,626,000 원, 사업기간 계약일로부터 25일 이내
+        """
+        with patch.object(live,"_extract",return_value=(actual_text,"hwp5_ole")):
+            fields=live._official_notice_fields(b"valid raw", "application/octet-stream")
+        self.assertTrue(fields["official_fields_verified"])
+        self.assertIn("철강·금속",fields["title"])
+        self.assertIn("소프트웨어 개발 용역",fields["title"])
+        self.assertIn("전남테크노파크",fields["agency"])
+        self.assertEqual(fields["budget"],"51626000")
+        self.assertEqual(fields["extracted_from"],"hwp5_ole")
+    def test_hwp_header_only_must_not_verify_n01(self):
+        with patch.object(live,"_extract",return_value=("A"*120,"hwp5_ole")):
+            with self.assertRaisesRegex(ValueError,"TITLE_OR_AGENCY"):
+                live._official_notice_fields(b"arbitrary valid HWP bytes","application/octet-stream")
+    def test_n01_download_only_without_title_is_source_error_not_partial(self):
+        job={"run_id":"6"*32,"status":"running","mode":"on_demand_live_no_database",
+             "case_bid_no":live.CASE,"completed_steps":0,"partial_steps":0,
+             "steps":[],"db_reads":0,"worker_calls":0,"bid_submitted":False}
+        with patch.object(live,"_client",return_value=None), \
+             patch.object(live,"_once"), \
+             patch.object(live,"_live_notice",return_value={
+                "verified_by":"official_original_attachment","title":None,"agency":None,
+                "source_file_bytes":105472}), \
+             patch.object(live,"_live_attachments",return_value=([],[])), \
+             patch.object(live,"_live_openings",return_value={"official_rows":0}), \
+             patch.object(live,"_document",return_value=b"review"):
+            live._execute(job)
+        self.assertEqual(job["steps"][0]["status"],"source_error")
+        self.assertIn("N01_TITLE_AND_AGENCY_REQUIRED",job["steps"][0]["output"]["error"])
+        self.assertEqual(job["completed_steps"],9)
     def test_official_urls_cannot_be_redirected_elsewhere(self):
         with self.assertRaises(ValueError):
             live._fetch(None,"https://www.evil.com/official")
