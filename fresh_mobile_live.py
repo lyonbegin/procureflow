@@ -77,6 +77,31 @@ def clean_filters(keyword="",region="전국",category="",task_type="",sort="late
         "task_type":task_type,"sort":sort,"page":page,"size":size,
         "deadline_soon":deadline_soon,"include_closed":include_closed}
 
+# The public WebSquare search page intermittently opens login-message modals.
+# Repeat only transient BROWSER-navigation failures in a completely new
+# public browser context; never hide an unsupported filter or use DB fallback.
+TRANSIENT_SITE_ERRORS=(
+ "BID_NOTICE_SEARCH_CLICK_BLOCKED",
+ "OFFICIAL_LIVE_G2B_POST_NOT_CAPTURED",
+ "OFFICIAL_SITE_LOGIN_PROMPT_STILL_BLOCKING",
+ "G2B_OFFICIAL_SITE_RENDERED_EMPTY_AFTER_WAIT",
+ "OFFICIAL_G2B_RETRY_SEARCH_CLICK_BLOCKED",
+)
+
+def verified_live_run(*args,**kwargs):
+    last=None
+    for attempt in range(2):
+        result=run_search(*args,**kwargs)
+        last=result
+        if result.get("search_request_verified") and result.get("live_filter_verified"):
+            return result
+        reason=str(result.get("reason") or result.get("status") or "")
+        if attempt==0 and any(code in reason for code in TRANSIENT_SITE_ERRORS):
+            logging.warning("G2B_FRESH_BROWSER_RETRY reason=%s",reason[:100])
+            continue
+        break
+    return last
+
 def _work(job_id,params):
     with LOCK:
         JOBS[job_id]["status"]="running"
@@ -94,7 +119,7 @@ def _work(job_id,params):
         area=params["region"] if params["region"]!="전국" else ""
         keyword=params["keyword"]
         query_term=keyword or area or CATEGORY_LABELS.get(params["category"],"")
-        result=run_search("",first,last,
+        result=verified_live_run("",first,last,
            keyword=query_term,region="",
            category="",
            task_type=params["task_type"],page=params["page"],size=params["size"])
@@ -112,7 +137,7 @@ def _work(job_id,params):
         if area and keyword:
             # Two independent G2B live searches find keyword matches in
             # locality-labelled notices and locality matches under keyword.
-            other=run_search("",first,last,keyword=area,region="",
+            other=verified_live_run("",first,last,keyword=area,region="",
                 category="",
                 task_type=params["task_type"],page=params["page"],size=params["size"])
             if not other.get("search_request_verified") or not other.get("live_filter_verified"):
