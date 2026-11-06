@@ -7,6 +7,12 @@ on:
       - tests/e2e_procureflow_unified_live_ui.py
       - .github/workflows/procureflow-unified-live-ui.yml
   workflow_dispatch:
+    inputs:
+      live_g2b:
+        description: 'One-shot real official G2B collection (never on automatic pushes)'
+        type: boolean
+        required: true
+        default: false
   pull_request:
     paths:
       - tests/e2e_procureflow_unified_live_ui.py
@@ -14,6 +20,9 @@ on:
 
 permissions:
   contents: read
+concurrency:
+  group: procureflow-live-ui-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   live-ui:
     runs-on: ubuntu-24.04
@@ -28,6 +37,8 @@ jobs:
           python -m pip install playwright==1.52.0
           python -m playwright install --with-deps chromium
       - name: Operate live ProcureFlow via visible DOM interactions
+        env:
+          PROCUREFLOW_ENABLE_ONE_SHOT_OFFICIAL_FETCH: ${{ github.event_name == 'workflow_dispatch' && inputs.live_g2b && '1' || '0' }}
         run: python tests/e2e_procureflow_unified_live_ui.py
       - name: Preserve screenshots and structured results even on failure
         if: always()
