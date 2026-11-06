@@ -46,11 +46,11 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("OFFICIAL_REDIRECT_BLOCKED")
 def _client():
     return build_opener(HTTPCookieProcessor(CookieJar()),NoRedirect())
-def _fetch(opener,url,body=None,headers=None):
+def _fetch(opener,url,body=None,headers=None,timeout=12):
     if not any(url.startswith(p) for p in (OFFICIAL+"/",NURI+"/")):
         raise ValueError("OFFICIAL_HOST_REQUIRED")
     req=Request(url,data=body,headers=headers or {},method="POST" if body is not None else "GET")
-    with opener.open(req,timeout=18) as response:
+    with opener.open(req,timeout=timeout) as response:
         if response.status!=200:raise ValueError("OFFICIAL_HTTP_"+str(response.status))
         ctype=response.headers.get("Content-Type","").lower()
         raw=response.read(MAX_BODY+1)
@@ -122,9 +122,9 @@ def _now():
     return datetime.now(ZoneInfo("Asia/Seoul"))
 def _once(opener):
     # One HTTPS public website session; never launch Chromium.
-    try:_fetch(opener,NURI+"/")
+    try:_fetch(opener,NURI+"/",timeout=3)
     except Exception:pass
-    try:_fetch(opener,OFFICIAL+"/")
+    try:_fetch(opener,OFFICIAL+"/",timeout=3)
     except Exception:pass
 def _live_notice(opener,preload=None):
     """Prefer direct official notice listing, with official-original fallback.
@@ -255,12 +255,25 @@ def _document(notice,files,assessment,openings,competition,cost,price):
         document.add_paragraph(json.dumps(item,ensure_ascii=False,default=str)[:4200])
     buf=BytesIO();document.save(buf)
     return buf.getvalue()
+def _begin_stage(run,index):
+    with GUARD:
+        run["active_node"]=f"N{index:02d}"
+        run["active_title"]=STAGES[index-1]
+        run["active_since"]=_now().isoformat()
+        run["last_activity"]=_now().isoformat()
+    log.info("LIVE9_STAGE_START run_id=%s node=N%02d",run["run_id"],index)
+
 def _record(run,index,status,inp,output):
     with GUARD:
         run["steps"].append({"node":f"N{index:02d}","title":STAGES[index-1],
             "status":status,"input":inp,"output":output,"at":_now().isoformat()})
         run["completed_steps"]=index
+        run["active_node"]=None
+        run["active_title"]=""
+        run["active_since"]=None
+        run["last_activity"]=_now().isoformat()
         if status!="verified":run["partial_steps"]+=1
+    log.info("LIVE9_STAGE_END run_id=%s node=N%02d status=%s",run["run_id"],index,status)
 def _execute(run):
     global ACTIVE
     opener=_client()
@@ -350,7 +363,13 @@ def begin(sid,payload):
             "completed_steps":0,"partial_steps":0,"steps":[],
             "db_reads":0,"worker_calls":0,"chromium_launched":False,
             "bid_submitted":False}
-        RUNS.clear()
+        # Preserve all other sessions while this one runs. Prior RUNS.clear()
+        # erased previous users' progress when a new test started.
+        if len(RUNS)>=24:
+            for key in list(RUNS):
+                if key!=sid and RUNS[key].get("status")!="running":
+                    del RUNS[key]
+                    if len(RUNS)<24:break
         RUNS[sid]=state
         ACTIVE=rid
         worker=Thread(target=_execute,args=(state,),daemon=True,name="one_shot_live9")
