@@ -18,28 +18,25 @@ const validator=/^\/api\/bidpicker\/detail\/(R\d{2}[A-Z]{2}\d{8}|\d{11})\/(\d{3}
 
 export function makeProxyUrl(localPath,search=''){
  let endpoint;
- if(localPath==='/api/bidpicker/status'||localPath==='/api/bidpicker/diagnostics')
-  endpoint='/health';
- else if(localPath==='/api/bidpicker/discover')endpoint='/api/mobile/notices';
+ if(localPath==='/api/bidpicker/discover')endpoint='/api/mobile/live';
  else{
-   const match=localPath.match(validator);
-   if(!match)throw Error('Not an approved official G2B read-only route');
-   endpoint='/api/mobile/notices/'+match[1]+'/'+match[2];
+   const m=localPath.match(/^\/api\/bidpicker\/live\/jobs\/([a-f0-9]{32})$/);
+   if(!m)throw Error('Not an approved official G2B live-search route');
+   endpoint='/api/mobile/live/jobs/'+m[1];
  }
- const target=new URL(endpoint,FRESH_G2B_FASTAPI_URL);
- if(endpoint==='/api/mobile/notices'){
-   for(const [key,val] of new URLSearchParams(search)){
+ const url=new URL(endpoint,FRESH_G2B_FASTAPI_URL);
+ if(endpoint==='/api/mobile/live'){
+   for(const [key,value] of new URLSearchParams(search)){
      if(allowed.has(key)){
-       if(val.length>160)throw Error('Search value too long');
-       target.searchParams.set(key,val);
+       if(value.length>160)throw Error('Search value too long');
+       url.searchParams.set(key,value);
      }
    }
-   const page=Number(target.searchParams.get('page')||1);
-   const size=Number(target.searchParams.get('size')||10);
-   if(!Number.isInteger(page)||page<1||page>200||!Number.isInteger(size)||size<1||size>50)
-     throw Error('Search page/size out of bounds');
+   const page=Number(url.searchParams.get('page')||1),size=Number(url.searchParams.get('size')||10);
+   if(!Number.isInteger(page)||page<1||page>10||!Number.isInteger(size)||size<1||size>10)
+     throw Error('Live search page/size out of bounds');
  }
- return target.toString();
+ return url.toString();
 }
 
 export function normalizeFreshResponse(raw,httpStatus,contentType){
@@ -64,6 +61,10 @@ async function handler(req,res){
  const requestUrl=new URL(req.url||'/','http://localhost:'+port);
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','no-referrer');
+ if(requestUrl.pathname==='/api/bidpicker/status'&&req.method==='GET'){
+   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+   res.end(JSON.stringify({status:'live_only',source:'g2b_official_site',db_reads:0}));return;
+ }
  if(requestUrl.pathname.startsWith('/api/')){
    if(req.method!=='GET'){res.writeHead(405,{'Content-Type':'application/json'});
      res.end(JSON.stringify({detail:'Only read-only GET requests allowed'}));return;}
