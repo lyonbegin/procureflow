@@ -252,7 +252,7 @@ function App(){
    <SectionHeading title="인기 검색어"/>
    <div className="plain-subtle">인기 검색어 순위는 아직 집계되지 않았습니다.</div>
    <SectionHeading title="마감 임박" link="모두 보기" action={()=>runSearch({deadlineSoon:true})}/>
-   <div className="home-empty compact"><Clock size={22}/><p>곧 마감돼요. 서두르세요!<br/>실제 공고를 불러오지 못했습니다.</p></div>
+   <div className="home-empty compact"><Clock size={22}/><p>마감일이 확인된 공고만 표시합니다.<br/>현재 수집분은 마감일 확인이 필요합니다.</p></div>
    <div className="source-line">자료: 나라장터 공식 웹사이트 자체 수집 · 공고일과 마감일 등 미확인 항목은 별도 검증이 필요합니다.</div>
   </div>
  </>}
