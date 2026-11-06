@@ -139,7 +139,7 @@ function main(){
   '<b>'+String(i+1).padStart(2,'0')+' · '+esc(name)+'</b><div class="muted smalltxt">'+esc(desc)+'</div>'+
   '<small>실제 상태: '+esc(stageStatus(i))+'</small></button>').join('');
  return (waiting||'')+
- '<section class="hero"><div class="kicker">PUBLIC · REAL ONE-TENDER COMMAND</div><h2>최신 공고 선택 → 전체 입찰 준비 실행 → 9개 노드·실제 이력·제출서류</h2>'+
+ '<section class="hero"><div class="kicker">PUBLIC · REAL ONE-TENDER COMMAND</div><h2>최신 공고 선택 → 실제 DB·검색 자동 테스트 → 기존 9노드 실행 이력 조회</h2>'+
  '<p>실제 PostgreSQL의 최신 나라장터 공고에서 선택합니다. 기존 Worker 실행 결과를 공유하며, 모의 완료율이나 가상의 낙찰가격을 표시하지 않습니다.</p></section>'+
  (st.error?'<div class="notice warn">실제 API 오류: '+esc(st.error)+' · 가상 목록으로 대체하지 않습니다.</div>':'')+
  '<section class="panel"><h3>① 나라장터 전체 최신 입찰공고 · 선택</h3>'+
@@ -153,7 +153,7 @@ function main(){
  (row||'<tr><td colspan="6">조건에 맞는 실제 수집 공고가 없습니다.</td></tr>')+
  '</tbody></table></div></section>'+
  '<section class="panel"><h3>② 선택 공고</h3>'+chosen+
- (selectedReady()?'<p class="muted smalltxt">실제 운영 엔진 대상 공고입니다. 다음 실행은 이 공고번호와 8111159901 분류를 사용합니다.</p>':
+ (selectedReady()?'<p class="muted smalltxt">자동 테스트 대상 공고입니다. 이 공고번호와 8111159901 분류의 실제 DB 조회·과거 검색을 검증합니다.</p>':
  '<div class="notice warn">이 공고는 목록에서 선택할 수 있지만 기존 단일공고 Worker가 아직 이 공고를 처리하도록 일반화되지 않았습니다. 잘못된 다른 공고로 고정 실행하지 않습니다.</div>')+
  '<div class="actions">'+
  '<button data-public9="run" class="btn primary" '+(!selectedReady()||st.submitting?'disabled':'')+'>▶ 선택 공고 자동 테스트 (토큰 입력 없음)</button>'+
@@ -201,41 +201,6 @@ function nodes(){
  '<iframe title="공공입찰 9개 업무 노드 공용 Studio 편집기" loading="lazy" src="'+path+
  '" style="display:block;width:100%;height:840px;border:1px solid #54708a;border-radius:12px;background:#0c1522"></iframe></section>';
 }
-async function readApprovedNodeFilter(){
- // Read the EXACT cookie-scoped saved original shared-Studio workflow.
- // Never treat arbitrary edited JS or URLs as executable backend code.
- const r=await fetch('/api/studio/workflows/'+FLOW,{credentials:'same-origin',cache:'no-store'});
- if(!r.ok)throw Error('저장된 노드 그래프 확인 실패: HTTP '+r.status);
- const body=await r.json(),w=body.workflow;
- if(!w||!Array.isArray(w.nodes)||w.nodes.length!==10)
-   throw Error('9개 업무노드 + 시작노드가 일치하지 않습니다');
- const ids=['public9-trigger',...Array.from({length:9},(_,i)=>'public9-'+String(i+1).padStart(2,'0'))];
- if(new Set(w.nodes.map(n=>n.id)).size!==10||ids.some(id=>!w.nodes.find(n=>n.id===id)))
-   throw Error('승인되지 않은 노드 변경이 있습니다. 9개 정규 업무노드를 유지해야 합니다');
- for(let i=0;i<ids.length-1;i++){
-  const from=w.nodes.find(n=>n.id===ids[i]),to=w.nodes.find(n=>n.id===ids[i+1]);
-  const next=w.connections?.[from.name]?.main?.[0]||[];
-  if(next.length!==1||next[0].node!==to.name)
-   throw Error('운영 9단계 연결선이 변경되었습니다. 먼저 원본 DAG를 검증해야 합니다');
- }
- const node=w.nodes.find(n=>n.id==='public9-04');
- if(node.type!=='n8n-nodes-base.httpRequest'||node.parameters?.method!=='GET')
-   throw Error('과거 검색 노드 유형이 원본에서 변경되었습니다');
- let url;try{url=new URL(node.parameters.url)}catch{throw Error('과거 검색 노드 API 주소 오류')}
- if(url.origin!=='https://procureflow-api-production.up.railway.app'||
-    url.pathname!=='/api/g2b/public/selected/search'||
-    url.searchParams.get('detail10')!==DETAIL||
-    url.searchParams.get('kind')!=='opening')
-    throw Error('실제 조달 검색으로 허가된 세부종목·API가 아닙니다');
- const start=url.searchParams.get('start'),end=url.searchParams.get('end');
- if(!/^\d{4}-\d\d-\d\d$/.test(start||'')||!/^\d{4}-\d\d-\d\d$/.test(end||'')||
-   start<'2016-10-24'||end>'2026-10-22'||start>end)
-    throw Error('노드 04의 기간 필터가 선택 공고의 과거 범위를 벗어납니다');
- const agency=url.searchParams.get('agency')||'';
- if(agency.length>100||/[\x00-\x1f]/.test(agency))
-   throw Error('원본 기관 필터가 유효하지 않습니다');
- return {start,end,agency};
-}
 async function execute(){
  if(!selectedReady())throw Error('현재 선택 공고는 자동 검증 대상으로 등록되지 않았습니다');
  st.submitting=true;st.autoTest=null;refreshView();
@@ -254,7 +219,7 @@ document.addEventListener('click',async event=>{
  event.preventDefault();event.stopPropagation();
  const a=hit.dataset.public9;
  try{
-  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;await refreshSelectedRoute();}
+  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;st.autoTest=null;await refreshSelectedRoute();}
   else if(a==='node'){st.selectedNode=Number(hit.dataset.index)||0;refreshView();}
   else if(a==='reload'){
    st.search=document.getElementById('p9-q')?.value||'';
