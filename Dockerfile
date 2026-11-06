@@ -74,6 +74,9 @@ RUN test -s /app/dist/admin/dashboard.js && test -s /app/dist/admin/dashboard.cs
     && test -s /app/dist/procure-manifest.json
 RUN python3 -c 'from pathlib import Path; p=Path("/app/dist/index.html");s=p.read_text();a="<a href=\"/admin/index.html?section=tests\" style=\"position:fixed;bottom:16px;right:16px;z-index:9999;background:#165e9b;color:white;text-decoration:none;padding:12px 16px;border-radius:9px;font:600 13px sans-serif\" aria-label=\"조달청 통합 테스트센터\">통합 테스트센터 ↗</a>";assert "</body>" in s;p.write_text(s.replace("</body>",a+"</body>"))'
 COPY --from=ui /app/shared/server/studio_server.py /app/studio_server.py
+COPY n8n/unified/patch-server.py /tmp/patch-server.py
+RUN python3 /tmp/patch-server.py /app/studio_server.py
+COPY n8n/unified/procurement_auto_test.py /app/procurement_auto_test.py
 COPY --from=ui /app/shared/server/node_run_store.py /app/node_run_store.py
 COPY --from=ui /app/shared/server/node_workspace_store.py /app/node_workspace_store.py
 COPY --from=ui /app/shared/server/project_adapter_runtime.py /app/project_adapter_runtime.py
@@ -85,7 +88,7 @@ COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readon
 COPY n8n/strategy-runtime/procurement_actual_records.py /app/procurement_actual_records.py
 COPY n8n/strategy-runtime/procurement_live_gateway.py /app/procurement_live_gateway.py
 COPY n8n/operational_manifest.json /app/operational_manifest.json
-RUN python3 -m py_compile /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py /app/procurement_live_gateway.py
+RUN python3 -m py_compile /app/procurement_auto_test.py /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py /app/procurement_live_gateway.py
 RUN python3 -c 'import json;w=json.load(open("/app/dist/procure-workflows/operations/PF00-public-nine-real.json"));assert w["meta"]["real_data_only"] is True and w["meta"]["business_node_count"]==9 and sum(n["id"].startswith("public9-0") for n in w["nodes"])==9 and w["meta"]["can_start_real_worker_from_this_graph"] is False'
 RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=="download_original_attachments"'
 RUN python3 -c 'import json,sys;sys.path.insert(0,"/app");import public_case_runtime as p;from g2b_feature_registry import FEATURES,FEATURE_GATES,GROUP_BOUNDS;rows=[{**f,"required_evidence":list(FEATURE_GATES[f["number"]]),"block_id":next(b["id"] for b in p.BLOCKS.values() if f["number"] in b["features"])} for f in FEATURES];open("/app/dist/public-case-feature-catalog.json","w").write(json.dumps({"case":p.summary_fixture(),"features":rows,"group_bounds":GROUP_BOUNDS,"block_order":p.ORDER,"manifest_blocks":list(p.BLOCKS.values()),"evidence_policy":"mock_is_never_official_verified"},ensure_ascii=False))'
