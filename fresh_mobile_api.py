@@ -28,8 +28,8 @@ CATEGORIES={
  "office":("사무용품","사무기기","복사용지","물품","구매","납품"),
  "etc":("기타",)
 }
-TASK_CODES={"GOODS":("조070001","01"),"SERVICE":("조070002","02"),
-            "CONSTRUCTION":("조070003","03")}
+TASK_CODES={"GOODS":("조070001","01"),"CONSTRUCTION":("조070002","02"),
+            "SERVICE":("조070003","03")}
 TASK_TITLE={"GOODS":("구매","납품","물품"),"SERVICE":("용역","유지보수","운영","관리"),
             "CONSTRUCTION":("공사","보수공사","설치공사")}
 DATE_KEYS=("bidClseDt","bidCloseDt","bidClseDate","bidClseDttm","bidClseYmd")
@@ -60,6 +60,9 @@ def agency_region(agency):
     return ""
 
 def task_from_notice(raw,title):
+    official_label=original_value(raw,("prcmBsneSeCdNm","bidPbancBsneClsfCdNm"))
+    for keyword,label in (("물품","GOODS"),("공사","CONSTRUCTION"),("용역","SERVICE")):
+        if keyword in official_label:return label,"official_label"
     code=original_value(raw,TYPE_KEYS)
     for label,vals in TASK_CODES.items():
         if code in vals:return label,"official_code"

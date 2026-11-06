@@ -1,0 +1,21 @@
+name: Probe original G2B official agency region search
+on:
+  push:
+    branches: [feature/g2b-mobile-live-source-20261106]
+    paths:
+      - tests/g2b_live_agency_region_probe.py
+      - .github/workflows/g2b-live-agency-region-probe.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: |
+          pip install playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - run: PYTHONPATH=. python tests/g2b_live_agency_region_probe.py

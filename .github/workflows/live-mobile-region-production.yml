@@ -1,0 +1,28 @@
+name: Verify real G2B mobile region selection (no DB)
+on:
+  push:
+    branches: [feature/g2b-mobile-live-source-20261106]
+    paths:
+      - tests/live_mobile_region_production.mjs
+      - .github/workflows/live-mobile-region-production.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  test-region:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: |
+          npm install --no-save --no-audit --no-fund playwright@1.52.0
+          npx playwright install --with-deps chromium
+      - name: Open LIVE mobile app, choose Seoul, assert official POST and screen state
+        run: node tests/live_mobile_region_production.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-mobile-region-screenshot
+          path: live-mobile-region.png
+          if-no-files-found: ignore

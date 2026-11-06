@@ -1,8 +1,11 @@
 name: Fresh G2B Mobile FastAPI Search Tests
 on:
   push:
-    branches: [feature/g2b-mobile-fastapi-search-20261106]
+    branches: [feature/g2b-mobile-live-source-20261106]
     paths:
+      - fresh_mobile_live.py
+      - fresh_mobile_live_tests.py
+      - g2b_bid_notice_site_search.py
       - fresh_mobile_api.py
       - fresh_mobile_tests.py
       - fresh_g2b_api.py
@@ -20,5 +23,5 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install --quiet fastapi==0.115.12 "psycopg[binary]==3.2.9" playwright==1.52.0 pypdf==5.7.0 olefile==0.47
-      - run: python -m py_compile fresh_mobile_api.py fresh_g2b_api.py fresh_g2b_store.py
-      - run: python -m unittest -v fresh_mobile_tests fresh_g2b_tests
+      - run: python -m py_compile fresh_mobile_live.py fresh_mobile_api.py fresh_g2b_api.py fresh_g2b_store.py
+      - run: python -m unittest -v fresh_mobile_tests fresh_mobile_live_tests fresh_g2b_tests

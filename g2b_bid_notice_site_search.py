@@ -164,6 +164,69 @@ def _verified_date_replay(original, detail10, start, end):
     return payload
 
 
+def _select_official_region_code(page,region):
+    """Choose a real region option in the public WebSquare select element.
+
+    The UI's sbxOdnLmtLgdngCd is a SELECT, not a free-form text field.
+    A name-only POST is silently ignored by the G2B site. Never guess a code.
+    """
+    if not region:return ""
+    for frame in _frames(page):
+        try:
+            selector=frame.locator('select[id$="sbxOdnLmtLgdngCd"]:visible')
+            if not selector.count():continue
+            field=selector.first
+            field.select_option(label=region,timeout=4000)
+            code=str(field.input_value() or "").strip()
+            if not code:
+                raise SearchBlocked("OFFICIAL_REGION_OPTION_SELECTED_WITHOUT_CODE")
+            page.wait_for_timeout(350)
+            return code
+        except SearchBlocked:
+            raise
+        except Exception:
+            continue
+    raise SearchBlocked("OFFICIAL_REGION_SELECT_OPTION_NOT_FOUND")
+
+
+def _verified_live_filter_replay(original,detail10,start,end,*,keyword="",region="",
+                                  category="",task_type="",page=1,size=10,region_code=""):
+    """Replay only a genuine observed G2B WebSquare POST with user filters."""
+    payload=_verified_date_replay(original,detail10,start,end)
+    fields=json.loads(payload)["dlBidPbancLstM"]
+    options={"bidPbancNm":keyword,"odnLmtLgdngNm":region,
+             "dtlsPrnmNm":category}
+    for key,value in options.items():
+        if value:
+            if key not in fields:raise SearchBlocked("OFFICIAL_LIVE_FIELD_NOT_OBSERVED_"+key)
+            fields[key]=value
+    if region:
+        if "odnLmtLgdngCd" not in fields or not region_code:
+            raise SearchBlocked("OFFICIAL_LIVE_REGION_CODE_NOT_VERIFIED")
+        fields["odnLmtLgdngCd"]=region_code
+    if task_type:
+        if "prcmBsneSeCd" not in fields:raise SearchBlocked("OFFICIAL_LIVE_TASK_FIELD_NOT_OBSERVED")
+        code={"GOODS":"조070001","CONSTRUCTION":"조070002",
+              "SERVICE":"조070003","FOREIGN":"조070004","ETC":"조070005"}
+        if task_type not in code:raise SearchBlocked("OFFICIAL_LIVE_TASK_INVALID")
+        fields["prcmBsneSeCd"]=code[task_type]
+    for name in ("currentPage","recordCountPerPage","startIndex","endIndex"):
+        if name not in fields:raise SearchBlocked("OFFICIAL_LIVE_PAGING_FIELD_NOT_OBSERVED_"+name)
+    fields["currentPage"]=str(page)
+    fields["recordCountPerPage"]=str(size)
+    fields["startIndex"]=(page-1)*size+1
+    fields["endIndex"]=page*size
+    data=json.loads(payload)
+    data["dlBidPbancLstM"]=fields
+    out=json.dumps(data,ensure_ascii=False,separators=(",",":"))
+    if not request_has_filter(out,detail10,start,end):
+        raise SearchBlocked("OFFICIAL_LIVE_FILTER_BODY_NOT_VERIFIED")
+    for key,value in options.items():
+        if value and json.loads(out)["dlBidPbancLstM"].get(key)!=value:
+            raise SearchBlocked("OFFICIAL_LIVE_FIELD_BODY_NOT_VERIFIED")
+    return out
+
+
 def _frames(page):
     # Site may use WebSquare iframes or a root document.
     return [f for f in page.frames if not f.is_detached()]
@@ -473,48 +536,168 @@ def _dismiss_public_notices(page):
             pass
     return closed
 
-def _click_notice_search(page):
-    """Click the public main notice search button; never bid/submit controls."""
+def _dismiss_obstructing_public_popups(page, *, max_passes=5):
+    """Use real public-site CLOSE / NO / CANCEL controls, not forced search.
+
+    When the site shows a login-required prompt during PUBLIC navigation,
+    decline it.  Never accept login, submit bids, remove DOM popups, fabricate
+    network responses or turn the modal's pointer-events off.
+    """
     import logging
+    diagnostics=[]
+    for attempt in range(max_passes):
+        changed=False
+        for frame in _frames(page):
+            try:
+                data=frame.evaluate(r"""() => {
+                  const visible=e=>!!(e && e.getClientRects().length) &&
+                    getComputedStyle(e).visibility!=='hidden' &&
+                    getComputedStyle(e).display!=='none';
+                  const windows=[...document.querySelectorAll('.w2popup_window')].filter(visible);
+                  let notices=0,login=0,clicked=0;
+                  for(const w of windows.slice().reverse()){
+                    const title=(w.innerText||'').slice(0,900);
+                    if(title.includes('나라장터 공지사항')){
+                      notices++;
+                      const closer=[...w.querySelectorAll('input,button,a')]
+                        .find(e=>visible(e) && (
+                          /btnClose$/i.test(e.id||'') ||
+                          /^(닫기|close)$/i.test((e.value||e.innerText||e.title||'').trim())));
+                      if(closer){closer.click();clicked++;}
+                    }else if(title.includes('로그인 후 사용 가능합니다') &&
+                             title.includes('로그인 페이지로 이동')){
+                      login++;
+                      const no=[...w.querySelectorAll('input,button,a,[role="button"]')]
+                        .find(e=>visible(e) && (
+                          /btnCancel$/i.test(e.id||'') ||
+                          /^(아니요|아니오|취소|닫기|no|cancel)$/i
+                            .test((e.value||e.innerText||e.title||'').trim())));
+                      if(no){no.click();clicked++;}
+                    }
+                  }
+                  return {notices,login,clicked,remaining:windows.length,
+                    top:windows.slice(-2).map(w=>(w.innerText||'').trim().slice(0,75))};
+                }""")
+                if data.get("notices") or data.get("login") or attempt==0:
+                    diagnostics.append(data)
+                if data.get("clicked"):
+                    changed=True
+            except Exception as exc:
+                diagnostics.append({"error_type":type(exc).__name__})
+        if changed:
+            page.wait_for_timeout(450)
+        else:
+            # The standard WebSquare close APIs can remove the residual
+            # overlay only when no real popup window remains visible.
+            for frame in _frames(page):
+                try:
+                    frame.evaluate(r"""()=>{
+                      const visible=e=>e&&e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=='hidden';
+                      if([...document.querySelectorAll('.w2popup_window')]
+                           .some(visible))return;
+                      if(typeof window.$p?.hideModal==='function')window.$p.hideModal();
+                    }""")
+                except Exception:
+                    pass
+            break
+    if any(d.get("notices") or d.get("login") for d in diagnostics):
+        logging.warning("FRESH_G2B_PUBLIC_POPUP_DISMISS %s",
+            json.dumps(diagnostics[-8:],ensure_ascii=False)[:1700])
+    # Do not claim success if the login prompt remains onscreen.
     for frame in _frames(page):
         try:
-            button=frame.locator('input[id$="btnS0004"]:visible')
-            if button.count():
-                try:
-                    button.first.click(timeout=2500)
-                except Exception as exc:
-                    diagnostic=frame.evaluate("""() => {
-                      const b=[...document.querySelectorAll('input[id$="btnS0004"]')]
-                        .find(e=>e.getClientRects().length>0);
-                      if(!b)return {button_missing:true};
-                      const r=b.getBoundingClientRect();
-                      const top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-                      return {button:b.id,topId:(top?.id||'').slice(0,110),
-                        topTag:top?.tagName||'',topClass:(""+(top?.className||'')).slice(0,110),
-                        topText:(top?.innerText||top?.title||'').slice(0,110),
-                        overlay:top!==b};
-                    }""")
-                    logging.warning("FRESH_G2B_MAIN_SEARCH_POINTER %s %s",
-                      type(exc).__name__,json.dumps(diagnostic,ensure_ascii=False))
-                    modal=frame.evaluate("""() => ({
-                      popups:[...document.querySelectorAll('[class*=popup],[id*=poup],[role=dialog]')]
-                        .filter(e=>e.getClientRects().length>0).slice(0,14)
-                        .map(e=>({id:(e.id||'').slice(0,90),cls:(""+(e.className||'')).slice(0,100),
-                          text:(e.innerText||'').trim().slice(0,180)})),
-                      closers:[...document.querySelectorAll('input[type=button],button,a')]
-                        .filter(e=>e.getClientRects().length>0 &&
-                          /닫기|확인|close/i.test((e.value||'')+' '+(e.title||'')+' '+(e.innerText||'')))
-                        .slice(0,20).map(e=>({id:(e.id||'').slice(0,100),
-                          label:((e.value||e.innerText||e.title||'')+'').slice(0,65)}))
-                    })""")
-                    logging.warning("FRESH_G2B_MODAL_CHOICES %s",
-                      json.dumps(modal,ensure_ascii=False)[:3500])
-                    button.first.click(force=True,timeout=2500)
-                return True
-        except Exception as exc:
-            logging.warning("FRESH_G2B_MAIN_SEARCH_CLICK_FAILURE %s",type(exc).__name__)
+            lingering=frame.evaluate(r"""()=>{
+              return [...document.querySelectorAll('.w2popup_window')]
+                .some(w=>w.getClientRects().length &&
+                  (w.innerText||'').includes('로그인 후 사용 가능합니다'));
+            }""")
+            if lingering:
+                import logging
+                details=frame.evaluate(r"""()=>{
+                  const w=[...document.querySelectorAll('.w2popup_window')]
+                    .find(x=>x.getClientRects().length &&
+                      (x.innerText||'').includes('로그인 후 사용 가능합니다'));
+                  if(!w)return {missing:true};
+                  const desc=e=>({
+                     tag:e.tagName,id:(e.id||'').slice(0,110),
+                     cls:(typeof e.className==='string'?e.className:'').slice(0,95),
+                     type:(e.type||'').slice(0,24),
+                     value:(e.value||'').slice(0,45),
+                     text:(e.innerText||e.textContent||'').trim().slice(0,55),
+                     title:(e.title||'').slice(0,55),
+                     visible:!!e.getClientRects().length
+                  });
+                  return {id:(w.id||'').slice(0,140),
+                    controls:[...w.querySelectorAll('input,button,a,[role=button]')].slice(0,34).map(desc),
+                    footer:[...w.querySelectorAll('div,span')].filter(e=>{
+                      const t=(e.innerText||e.textContent||'').trim();
+                      return /^(예|아니오|취소|확인|닫기|no|cancel|yes)$/.test(t)
+                         && e.getClientRects().length;
+                    }).slice(0,22).map(desc)};
+                }""")
+                logging.warning("FRESH_G2B_LOGIN_PROMPT_CONTROLS %s",
+                    json.dumps(details,ensure_ascii=False)[:3300])
+                raise SearchBlocked("OFFICIAL_SITE_LOGIN_PROMPT_STILL_BLOCKING")
+        except SearchBlocked:
+            raise
+        except Exception:
             continue
+    return True
+
+
+def _click_notice_search(page):
+    """Click the visible PUBLIC search button only after popups are dismissed.
+
+    Never treat a force-click under the G2B login modal as successful.
+    """
+    import logging
+    for attempt in range(3):
+        _dismiss_obstructing_public_popups(page)
+        for frame in _frames(page):
+            try:
+                button=frame.locator('input[id$="btnS0004"]:visible')
+                if not button.count():continue
+                if not button.first.is_enabled():continue
+                try:
+                    button.first.click(timeout=4500)
+                    logging.info("FRESH_G2B_PUBLIC_SEARCH_CLICK_OK attempt=%s",attempt+1)
+                    return True
+                except Exception as exc:
+                    diagnostics=frame.evaluate(r"""()=>{
+                      const btn=[...document.querySelectorAll('input[id$="btnS0004"]')]
+                         .find(e=>e.getClientRects().length);
+                      if(!btn)return {button_missing:true};
+                      const b=btn.getBoundingClientRect();
+                      const top=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);
+                      const modals=[...document.querySelectorAll('.w2popup_window')]
+                         .filter(e=>e.getClientRects().length)
+                         .map(e=>(e.innerText||'').trim().slice(0,75)).slice(0,7);
+                      return {blocked_by:top?.id||top?.className||top?.tagName||'',
+                        modals};
+                    }""")
+                    logging.warning("FRESH_G2B_PUBLIC_SEARCH_CLICK_RETRY %s %s",
+                        type(exc).__name__,json.dumps(diagnostics,ensure_ascii=False)[:900])
+                    # Playwright pointer clicks can be intercepted by a stale
+                    # WebSquare modal even after its actual popup is closed.
+                    # Invoke ONLY the observed public search button handler.
+                    # A DOM click is an attempt, NOT success: run_search still
+                    # requires capture of the genuine G2B POST and verified JSON.
+                    _dismiss_obstructing_public_popups(page)
+                    try:
+                        button.first.evaluate("(node)=>node.click()",timeout=1800)
+                        logging.warning("FRESH_G2B_PUBLIC_SEARCH_DOM_CLICK_ATTEMPT")
+                        return True
+                    except Exception as dom_exc:
+                        logging.warning("FRESH_G2B_PUBLIC_SEARCH_DOM_CLICK_FAILED %s",
+                                        type(dom_exc).__name__)
+            except SearchBlocked:
+                raise
+            except Exception as exc:
+                logging.warning("FRESH_G2B_PUBLIC_SEARCH_CLICK_EXCEPTION %s",type(exc).__name__)
+        page.wait_for_timeout(600)
     return False
+
 
 def _navigate(page):
     """Reach the real public notice list, then open advanced 10-digit criteria."""
@@ -643,7 +826,8 @@ def _safe_search_screen_diagnostic(tab):
             except Exception:details.append({"error_type":type(exc).__name__})
     return details
 
-def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
+def run_search(detail10,start,end,cursor=None,page=1,*,keyword="",region="",category="",
+               task_type="",size=10,factory=None):
     """One PUBLIC real website search. No external result data is fabricated."""
     w=search_window(detail10,start,end,cursor,page)
     output={"status":"blocked","source":"g2b_public_bid_notice_search_ui",
@@ -743,35 +927,61 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
             _dismiss_public_notices(tab)
             tab.wait_for_timeout(1600)
             _dismiss_public_notices(tab)
+            _dismiss_obstructing_public_popups(tab)
+            stage="region_selection"
+            region_code=_select_official_region_code(tab,region)
             stage="submit_search"
             # Require an actual site search button and form submission.
             if not _click_notice_search(tab):
-                raise SearchBlocked("BID_NOTICE_SEARCH_BUTTON_NOT_FOUND")
+                raise SearchBlocked("BID_NOTICE_SEARCH_CLICK_BLOCKED")
             stage="await_verified_request"
-            tab.wait_for_timeout(2500)
+            # WebSquare sometimes issues XHR after delayed validation.  Verify
+            # a request actually occurred; don't call a click "success" alone.
+            for step in range(10):
+                if date_replay_candidates:break
+                tab.wait_for_timeout(500)
             corrected_response=None
-            if not requests and date_replay_candidates:
-                original=date_replay_candidates[-1]
-                payload=_verified_date_replay(original,detail10,w["start"],w["end"])
-                # Browser navigation supplied the authentic submission headers.
-                # Playwright APIRequestContext shares this browser's cookie jar.
-                allowed={"accept","content-type","menu-info","submissionid",
-                         "usr-id","referer","x-requested-with"}
-                headers={k:v for k,v in original.headers.items()
-                         if k.lower() in allowed}
-                headers["Content-Type"]="application/json;charset=UTF-8"
-                corrected_response=context.request.post(
-                    original.url.split("?")[0],data=payload,
-                    headers=headers,timeout=35000)
-                if corrected_response.status!=200:
-                    raise SearchBlocked("OFFICIAL_DATE_REPLAY_HTTP_"+str(corrected_response.status))
+            if not date_replay_candidates:
+                # Site announcements and its login prompt sometimes reopen
+                # during a search.  Resolve them through public UI and retry
+                # the search once, in THIS fresh browser session.
+                import logging
+                logging.warning("FRESH_G2B_PUBLIC_POST_RETRY reasons=%s",
+                    json.dumps({"observed_paths":[x["path"] for x in observed_posts[-8:]],
+                      "native_dialog_count":len(dialogs)},ensure_ascii=False))
+                _dismiss_obstructing_public_popups(tab)
+                if not _click_notice_search(tab):
+                    raise SearchBlocked("OFFICIAL_G2B_RETRY_SEARCH_CLICK_BLOCKED")
+                for step in range(12):
+                    if date_replay_candidates:break
+                    tab.wait_for_timeout(500)
+            if not date_replay_candidates:
+                import logging
+                logging.warning("FRESH_G2B_NO_REAL_POST %s",
+                    json.dumps({"stage":stage,
+                      "observed_paths":[x["path"] for x in observed_posts[-12:]],
+                      "dialog_types":[m[:70] for m in dialogs[-5:]]},
+                      ensure_ascii=False)[:1400])
+                raise SearchBlocked("OFFICIAL_LIVE_G2B_POST_NOT_CAPTURED")
+            original=date_replay_candidates[-1]
+            payload=_verified_live_filter_replay(original,detail10,w["start"],w["end"],
+                keyword=keyword,region=region,category=category,task_type=task_type,
+                page=page,size=size,region_code=region_code)
+            allowed={"accept","content-type","menu-info","submissionid",
+                     "usr-id","referer","x-requested-with","target-id"}
+            headers={k:v for k,v in original.headers.items() if k.lower() in allowed}
+            headers["Content-Type"]="application/json;charset=UTF-8"
+            corrected_response=context.request.post(
+                original.url.split("?")[0],data=payload,headers=headers,timeout=35000)
+            if corrected_response.status!=200:
+                raise SearchBlocked("OFFICIAL_LIVE_G2B_HTTP_"+str(corrected_response.status))
             if not requests and corrected_response is None:
                 import logging
                 logging.warning("FRESH_G2B_SEARCH_DIALOGS %s",json.dumps(dialogs[-8:],ensure_ascii=False))
                 logging.warning("FRESH_G2B_SEARCH_POST_DIAG %s",
                     json.dumps(observed_posts[-16:],ensure_ascii=False))
                 raise SearchBlocked("BID_NOTICE_10DIGIT_NOT_IN_ACTUAL_POST_REQUEST")
-            if page>1:
+            if page>1 and corrected_response is None:
                 # Pagination must retain the same official date/category criteria.
                 pg=str(page)
                 if not _click_label(tab,(pg,),"click"):
@@ -829,7 +1039,12 @@ def run_search(detail10,start,end,cursor=None,page=1,*,factory=None):
                     json.dumps(data,ensure_ascii=False,sort_keys=True,default=str).encode()).hexdigest(),
                 returned_bid_ids=len(records),official_total=total,
                 next_page=page+1 if len(records)>0 and len(records)>=10 else None,
-                search_source_status="live_post_with_exact_filter_and_window")
+                search_source_status="new_G2B_POST_with_user_filters",
+                 live_filter_verified=True,db_reads=0,
+                 live_filters={"keyword":keyword,"region_restriction":region,
+                               "category_name":category,"task_type":task_type,
+                               "region_code_from_g2b_selector":region_code,
+                               "page":page,"size":size})
             context.close()
             browser.close()
     except SearchBlocked as exc:

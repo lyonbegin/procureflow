@@ -1,0 +1,18 @@
+name: Probe public G2B region search fields
+on:
+  push:
+    branches: [feature/g2b-mobile-live-source-20261106]
+    paths: [.github/workflows/g2b-region-probe.yml, fresh_live_region_probe.py]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --quiet playwright==1.52.0
+      - run: python -m playwright install --with-deps chromium
+      - run: python fresh_live_region_probe.py
