@@ -1,7 +1,7 @@
 name: Fresh G2B Mobile FastAPI Search Tests
 on:
   push:
-    branches: [feature/g2b-mobile-fastapi-search-20261106]
+    branches: [feature/g2b-mobile-live-source-20261106]
     paths:
       - fresh_mobile_live.py
       - fresh_mobile_live_tests.py
