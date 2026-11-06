@@ -41,7 +41,6 @@ try{
  await page.locator('.bottom-item').nth(4).click();
  check(await page.locator('.settings-page').count()===1,'settings screen');
  await page.locator('.settings-list >button').first().click();
- check(location===undefined?true:true,'');
  check(await page.locator('.categories-checks>button').count()===8,'interest_categories 8 choices');
  await page.locator('.categories-checks>button').first().click();
  await page.locator('.categories-page .filled-btn').click();
