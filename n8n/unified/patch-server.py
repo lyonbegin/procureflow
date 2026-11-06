@@ -28,8 +28,8 @@ route='''    def do_POST(self):
                 if not 2<=count<=250:
                     raise ValueError("INVALID_RUN_ALL_BODY")
                 body=json.loads(self.rfile.read(count))
-                import direct_public9
-                response=direct_public9.start(sid,DB_PATH,fixture_path,body)
+                import live_nine_test
+                response=live_nine_test.begin(sid,body)
                 return self._json(202,response,sid,new_cookie)
             except ValueError as exc:
                 return self._json(409,{"error":str(exc),"bid_submitted":False},sid,new_cookie)
@@ -73,5 +73,36 @@ src=src[:start]+'''        if urlsplit(self.path).path=="/api/procurement/public
             return self._json(410,{"error":"LEGACY_WORKER_QUEUE_REMOVED_USE_RUN_ALL",
                                    "bid_submitted":False},sid,cookie)
 '''+src[end:]
+# Pinned shared Studio GET supports same-origin cookie-scoped live run/status.
+marker='''    def do_GET(self):
+        path = urlsplit(self.path).path'''
+if src.count(marker)!=1:
+    raise RuntimeError("PINNED_SERVER_GET_ROUTE_MISMATCH")
+new='''    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path=="/api/procurement/public9/live-run":
+            sid,new_cookie=self._sid()
+            if WORKFLOW_DIR!="procure-workflows":
+                return self._json(404,{"error":"PROCUREMENT_ONLY"},sid,new_cookie)
+            import live_nine_test
+            return self._json(200,live_nine_test.current(sid),sid,new_cookie)
+        if path=="/api/procurement/public9/live-docx":
+            sid,new_cookie=self._sid()
+            from urllib.parse import parse_qs
+            args=parse_qs(urlsplit(self.path).query)
+            rid=(args.get("run_id") or [""])[0]
+            if WORKFLOW_DIR!="procure-workflows" or not re.fullmatch(r"[a-f0-9]{32}",rid):
+                return self._json(404,{"error":"INVALID_DOCUMENT_REQUEST"},sid,new_cookie)
+            try:
+                import live_nine_test
+                raw=live_nine_test.document(sid,rid)
+            except LookupError:
+                return self._json(404,{"error":"DOCUMENT_NOT_AVAILABLE"},sid,new_cookie)
+            return self._send(200,raw,
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  sid,new_cookie,extra={"Cache-Control":"no-store",
+                     "Content-Disposition":"attachment; filename=ProcureFlow-Live9-Test.docx"})
+'''
+src=src.replace(marker,new,1)
 path.write_text(src)
-print("PROCUREFLOW_TOKEN_FREE_READ_ONLY_TEST_ROUTE_INSTALLED")
+print("PROCUREFLOW_ON_DEMAND_LIVE_NINE_NO_DATABASE_ROUTE_INSTALLED")
