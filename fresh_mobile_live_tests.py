@@ -94,6 +94,39 @@ class LiveOfficialTests(unittest.TestCase):
   body=_verified_live_filter_replay(req,"","2026-11-01","2026-11-06",
     region="서울특별시",region_code="A_REAL_UI_OPTION_CODE")
   self.assertEqual(json.loads(body)["dlBidPbancLstM"]["odnLmtLgdngCd"],"A_REAL_UI_OPTION_CODE")
+ def test_login_prompt_is_declined_not_accepted_and_announcements_closed(self):
+  from g2b_bid_notice_site_search import _dismiss_obstructing_public_popups
+  clicks=[]
+  class FakeFrame:
+   def __init__(self):
+    self.round=0
+   def evaluate(self,script):
+    if "const windows=" in script and "let notices=0,login=0,clicked=0" in script:
+     self.round+=1
+     if self.round==1:return {"notices":2,"login":1,"clicked":3,"remaining":3}
+     return {"notices":0,"login":0,"clicked":0,"remaining":0}
+    if ".some(w=>w.getClientRects().length" in script:return False
+    return None
+  class FakePage:
+   def __init__(self):self.f=FakeFrame()
+   def wait_for_timeout(self,ms):pass
+  p=FakePage()
+  with patch("g2b_bid_notice_site_search._frames",return_value=[p.f]):
+   self.assertTrue(_dismiss_obstructing_public_popups(p))
+  self.assertEqual(p.f.round,2)
+ def test_undismissed_login_prompt_fails_closed(self):
+  from g2b_bid_notice_site_search import _dismiss_obstructing_public_popups,SearchBlocked
+  class FakeFrame:
+   def evaluate(self,script):
+    if "let notices=0,login=0,clicked=0" in script:
+     return {"notices":0,"login":1,"clicked":0,"remaining":1}
+    if ".some(w=>w.getClientRects().length" in script:return True
+    return None
+  class FakePage:
+   def wait_for_timeout(self,ms):pass
+  with patch("g2b_bid_notice_site_search._frames",return_value=[FakeFrame()]):
+   with self.assertRaisesRegex(SearchBlocked,"LOGIN_PROMPT_STILL_BLOCKING"):
+    _dismiss_obstructing_public_popups(FakePage())
  def test_invalid_region_and_task_rejected(self):
   with self.assertRaisesRegex(ValueError,"UNSUPPORTED_REGION"):
    mobile.clean_filters(region="SOMEWHERE")
