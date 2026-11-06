@@ -17,6 +17,7 @@ from fastapi import FastAPI,BackgroundTasks,HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel,Field
 import fresh_g2b_store as store
+from fresh_mobile_api import router as fresh_mobile_router
 from fresh_g2b_site import (
     search_one,opening_for_one,discover_attachments,download_attachment,SourceBlocked
 )
@@ -24,6 +25,7 @@ from fresh_g2b_site import (
 ROOT=Path(__file__).parent
 app=FastAPI(title="나라장터 실제 사이트 · 새 DB 독립 수집",version="1.0",
             docs_url=None,redoc_url=None)
+app.include_router(fresh_mobile_router)
 BID=re.compile(r"^(?:R\d{2}[A-Z]{2}\d{8}|\d{11})$")
 ORD=re.compile(r"^\d{3}$")
 
