@@ -12,15 +12,16 @@ class LiveOfficialTests(unittest.TestCase):
    url="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do",
    method="POST",post_data=json.dumps({"dlBidPbancLstM":{
      "dtlsPrnmNo":"","fromBidDt":"20261101","toBidDt":"20261106",
-     "bidPbancNm":"","odnLmtLgdngNm":"","dtlsPrnmNm":"",
+     "bidPbancNm":"","odnLmtLgdngNm":"","odnLmtLgdngCd":"","dtlsPrnmNm":"",
      "prcmBsneSeCd":"0000 조070001 조070002 조070003",
      "currentPage":"","recordCountPerPage":"10","startIndex":1,"endIndex":10}}))
   posted=_verified_live_filter_replay(request,"","2026-11-01","2026-11-06",
       keyword="정보시스템",region="서울특별시",category="정보시스템",
-      task_type="SERVICE",page=2,size=10)
+      task_type="SERVICE",page=2,size=10,region_code="11")
   q=json.loads(posted)["dlBidPbancLstM"]
   self.assertEqual(q["bidPbancNm"],"정보시스템")
   self.assertEqual(q["odnLmtLgdngNm"],"서울특별시")
+  self.assertEqual(q["odnLmtLgdngCd"],"11")
   self.assertEqual(q["dtlsPrnmNm"],"정보시스템")
   self.assertEqual(q["prcmBsneSeCd"],"조070003")
   self.assertEqual(q["currentPage"],"2")
@@ -80,6 +81,19 @@ class LiveOfficialTests(unittest.TestCase):
   self.assertFalse(result["live_search_verified"])
   self.assertEqual(result["db_reads"],0)
   del mobile.JOBS[job_id]
+ def test_region_requires_real_dropdown_option_code(self):
+  from g2b_bid_notice_site_search import _verified_live_filter_replay,SearchBlocked
+  req=SimpleNamespace(url="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do",
+   method="POST",post_data=json.dumps({"dlBidPbancLstM":{
+    "dtlsPrnmNo":"","fromBidDt":"20261101","toBidDt":"20261106",
+    "bidPbancNm":"","odnLmtLgdngNm":"","odnLmtLgdngCd":"",
+    "dtlsPrnmNm":"","prcmBsneSeCd":"",
+    "currentPage":"","recordCountPerPage":"10","startIndex":1,"endIndex":10}}))
+  with self.assertRaisesRegex(SearchBlocked,"REGION_CODE_NOT_VERIFIED"):
+   _verified_live_filter_replay(req,"","2026-11-01","2026-11-06",region="서울특별시")
+  body=_verified_live_filter_replay(req,"","2026-11-01","2026-11-06",
+    region="서울특별시",region_code="A_REAL_UI_OPTION_CODE")
+  self.assertEqual(json.loads(body)["dlBidPbancLstM"]["odnLmtLgdngCd"],"A_REAL_UI_OPTION_CODE")
  def test_invalid_region_and_task_rejected(self):
   with self.assertRaisesRegex(ValueError,"UNSUPPORTED_REGION"):
    mobile.clean_filters(region="SOMEWHERE")
