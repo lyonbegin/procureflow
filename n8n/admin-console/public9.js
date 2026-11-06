@@ -1,280 +1,120 @@
-/* Public procurement main command center: REAL newest notices → selected tender →
- * original Worker job → 9 stage DB run IDs → SAME-ORIGIN original Studio editor.
- * B/C remain untouched. No fictitious data, n8n execution claims or auto bidding.
+/* ProcureFlow direct-live nine-step TEST. No DB API, Worker, scheduler or mock.
+ * All external official G2B calls are performed only by user's run click.
  */
 'use strict';
 (function(){
-const FLOW='operations/PF00-public-nine-real.json';
-const CASE='R26BK01787028',DETAIL='8111159901';
-const STAGES=[
-['최신 공고 목록·선택','G2B DB의 공고번호·차수·신규/정정'],
-['공고·첨부 원본 분석','기존 원본·HWP/PDF/XLSX 해시 재사용'],
-['입찰참가 자격 검토','실제 회사 자격·원본 증빙'],
-['과거 개찰·낙찰 필터검색','정확 10자리·기간·기관 검색'],
-['경쟁업체·기관 분석','실제 참가업체·금액·순위'],
-['수행계획·원가 산출','인력·원가·외주 증빙'],
-['가격·수주전략 판단','기초금액·가격규칙·수익성'],
-['입찰서류 작성','원본에 근거한 Word 검토 초안'],
-['독립 검증·사람 승인','필수 자격·가격·서류 / 선택 공고 마감']
-];
-const API='/api/procurement/public9/';
-const st={notices:null,stage1:null,selected:null,job:null,search:'',status:'all',
-  error:null,loading:false,submitting:false,token:'',selectedNode:0,
-  nodeTab:'result',lastReload:null,loadStarted:false};
-const esc=v=>String(v===null||v===undefined?'':v).replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
-const at=()=>window.location.search.includes('section=public_nodes')?'nodes':'main';
-const asTime=v=>v?String(v).replace('T',' ').slice(0,19):'미확인';
-const field=(name,val)=>'<span style="display:inline-flex;gap:5px;flex-wrap:wrap"><span class="muted">'+esc(name)+'</span><strong>'+esc(val)+'</strong></span>';
-const label=(name,value)=>'<div class="item"><b>'+esc(name)+'</b><p>'+esc(value)+'</p></div>';
-function refreshView(){
- const page=new URLSearchParams(location.search).get('section');
- if(page==='public_nodes'&&document.getElementById('p9-node-inspector')){
-  // Preserve unsaved node editing in the original Studio iframe on every
-  // Worker polling tick; only repaint the real run-result inspector.
-  document.getElementById('p9-node-inspector').innerHTML=nodeInspector();
-  return;
+ const CASE='R26BK01787028',DETAIL='8111159901';
+ const FLOW='operations/PF00-public-nine-real.json';
+ const STAGES=['01 · 공고 직접 조회','02 · 첨부 원본 직접 다운로드',
+  '03 · 자격·원문 조건','04 · 개찰 원본 직접 조회',
+  '05 · 경쟁 정보 분석','06 · 수행·원가 근거',
+  '07 · 가격전략 검증','08 · Word 검토 초안','09 · 독립 최종 검증'];
+ const st={selected:CASE,selectedNode:0,run:null,error:null,submitting:false,lastReload:null};
+ let polling=false;
+ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const fmt=o=>esc(JSON.stringify(o??null,null,2));
+ const stage=i=>st.run?.steps?.find(x=>x.node==='N'+String(i+1).padStart(2,'0'));
+ function renderView(){if(window.Public9?.requestRender)window.Public9.requestRender();}
+ async function request(route,opts){
+   const r=await fetch('/api/procurement/public9/'+route,
+    {credentials:'same-origin',cache:'no-store',...opts});
+   const data=await r.json().catch(()=>({error:'INVALID_JSON_RESPONSE'}));
+   if(!r.ok)throw Error(data.error||'HTTP '+r.status);
+   return data;
  }
- if(['public','public_nodes','overview','workflows','strategy','tests','audit','opportunities'].includes(page))
-  window.dispatchEvent(new Event('public9-render'));
-}
-async function request(route,options){
- const r=await fetch(API+route,{credentials:'same-origin',cache:'no-store',...options});
- let result;try{result=await r.json()}catch{throw Error('실제 API에서 JSON 응답을 받지 못했습니다 ('+r.status+')')}
- if(!r.ok)throw Error(result.error||'API HTTP '+r.status);
- return result;
-}
-async function refreshSelectedRoute(){
- if(!st.selected)return;
- const data=await request('stage1?'+new URLSearchParams({
-  q:st.search,status:st.status,limit:30,offset:0,selected_bid_no:st.selected
- }));
- if(data.source!=='actual_procureflow_postgresql_g2b_notices'||
-    !Array.isArray(data.nodes)||data.nodes.length!==3||
-    data.selected_route?.selected?.bid_no!==st.selected)
-  throw Error('선택 공고 N02 분기 입력·출력 일치 검증 실패');
- st.stage1=data;
- st.notices=data.notices;
- refreshView();
-}
-
-async function load(){
- if(st.loading)return;
- st.loading=true;st.error=null;refreshView();
- try{
-  const [n,j]=await Promise.allSettled([
-   request('stage1?'+new URLSearchParams({q:st.search,status:st.status,limit:30,offset:0,selected_bid_no:st.selected||''})),
-   request('latest')]);
-  if(n.status==='fulfilled'){
-   if(n.value.source!=='actual_procureflow_postgresql_g2b_notices'||!Array.isArray(n.value.notices?.items)||!Array.isArray(n.value.nodes)||n.value.nodes.length!==3)
-    throw Error('모의 또는 확인되지 않은 공고 목록은 표시하지 않습니다');
-   st.stage1=n.value;
-   st.notices=n.value.notices;
-   const matches=st.notices.items.some(x=>x.bid_no===st.selected);
-   if(!st.selected||!matches)st.selected=st.notices.items[0]?.bid_no||null;
-   if(st.selected)await refreshSelectedRoute();
-  }else throw n.reason;
-  if(j.status==='fulfilled'&&j.value.worker_job_id_is_not_n8n_execution_id===true){
-   st.job=j.value;
-  }else if(j.status==='fulfilled'&&j.value.job_state==='not_run'){
-   st.job=j.value;
-  }else{st.job=null;}
-  st.lastReload=new Date().toISOString();
- }catch(e){st.error=e.message;}
- finally{st.loading=false;refreshView();}
-}
-async function poll(){
- try{
-  const id=st.job?.job_id;
-  if(!id)return;
-  const job=await request('job/'+id);
-  if(job.case_bid_no!==CASE||job.worker_job_id_is_not_n8n_execution_id!==true)
-   throw Error('선택 공고 실제 실행기록 검증 실패');
-  st.job=job;refreshView();
- }catch(e){st.error=e.message;refreshView();}
-}
-function tender(){return st.notices?.items?.find(x=>x.bid_no===st.selected)||null;}
-function selectedReady(){return tender()?.can_run_full_evidence===true&&st.selected===CASE;}
-function nodeRecords(){return selectedReady()?st.job?.steps||[]:[];}
-function stageStatus(i){
- if(st.selected!==CASE)return '이 공고 실행 엔진 미연결';
- const x=nodeRecords()[i];return x?x.state:(st.job?.job_state==='queued'?'실행 대기':'미실행');
-}
-
-function stageOneInspector(){
- const d=st.stage1;
- if(!d)return '<div class="notice warn">1단계 N01·N02·조건분기 실제 입력·출력 미확인. API 오류를 확인하세요.</div>';
- const nodes=d.nodes||[];
- const blocks=nodes.map(n=>'<details open class="item"><summary><strong>'+esc(n.id+' · '+n.name)+'</strong> · '+esc(n.status)+'</summary>'+
-  '<p class="muted smalltxt">실제 입력</p><pre class="log">'+esc(JSON.stringify(n.input,null,2))+'</pre>'+
-  '<p class="muted smalltxt">실제 출력</p><pre class="log">'+esc(JSON.stringify(n.output,null,2))+'</pre></details>').join('');
- const selected=(nodes[1]?.output?.tender_identifiers||[]).find(z=>z.bid_no===st.selected);
- const route=d.selected_route||{};
- return '<section class="panel" id="p9-stage1"><h3>1단계 실제 노드 실행 · N01 → N02 → 조건 분기</h3>'+
- '<p class="muted smalltxt">실제 PostgreSQL 조회와 공고 식별·선택별 조건 판정을 수행합니다. 신규 G2B 크롤링·n8n Execution·Worker 재수집은 실행하지 않습니다. 원본이 구분하지 않는 정정·취소 상태는 임의로 판단하지 않습니다.</p>'+
- '<div class="item"><b>실제 선택 입력</b><pre class="log">'+esc(JSON.stringify(selected||{bid_no:st.selected||null,status:"actual_row_not_selected"},null,2))+'</pre></div>'+
- '<div class="item"><b>선택 공고 조건 분기 결과</b><p>'+esc(route.route||'미확인')+' · 후속 실제 실행: '+esc(route.downstream_executed===true?'있음':'없음')+'</p></div>'+ 
- '<div class="item"><b>공용 편집기에서 조건 분기</b> <a href="/?workflow=operations%2FPF01-stage1-dataflow.json" target="_blank" rel="noopener">1단계 Switch 병렬 분기 그래프 열기</a></div>'+ 
- '<div class="item"><b>조건부 후속 연결</b><pre class="log">'+esc(JSON.stringify(d.connections||[],null,2))+'</pre></div>'+blocks+'</section>';
-}
-
-function main(){
- const items=st.notices?.items||[],t=tender();
- const waiting=st.loading?'<div class="loading">기존 G2B DB에서 실제 목록·실행이력 조회 중…</div>':'';
- const row=items.map((x,i)=>{
-  const on=x.bid_no===st.selected;
-  const supported=x.can_run_full_evidence===true;
-  return '<tr style="'+(on?'background:rgba(76,142,202,.13)':'')+'">'+
-   '<td><input type="radio" name="p9-tender" data-public9="choose" data-bid="'+esc(x.bid_no)+'" '+(on?'checked':'')+' aria-label="'+esc(x.bid_no)+' 선택"></td>'+
-   '<td><b>'+esc(x.bid_no)+'</b><div class="muted smalltxt">'+esc(x.title)+'</div></td>'+
-   '<td>'+esc(x.agency)+'</td><td>'+esc(asTime(x.notice_date))+'</td>'+
-   '<td>'+esc(asTime(x.deadline))+'</td>'+
-   '<td>'+ (supported?'<span class="badge ok">현재 실업무 연결</span>':'<span class="badge warn">실업무 연결 필요</span>')+'</td></tr>';
- }).join('');
- const chosen=t?'<div class="item"><b>'+esc(t.title)+'</b><p>'+esc(t.bid_no+'/'+(t.bid_ord||'000'))+
-  ' · '+esc(t.agency)+' · 공고일 '+esc(t.notice_date)+' · 마감 '+esc(t.deadline)+'</p></div>':
-  '<div class="empty">선택된 실제 공고가 없습니다.</div>';
- const current=selectedReady()?st.job:null;
- const cards=STAGES.map(([name,desc],i)=>'<button class="btn small '+(st.selectedNode===i?'primary':'outline')+
-  '" data-public9="node" data-index="'+i+'" style="text-align:left;flex:1 1 200px;min-width:185px;padding:12px">'+
-  '<b>'+String(i+1).padStart(2,'0')+' · '+esc(name)+'</b><div class="muted smalltxt">'+esc(desc)+'</div>'+
-  '<small>실제 상태: '+esc(stageStatus(i))+'</small></button>').join('');
- return (waiting||'')+
- '<section class="hero"><div class="kicker">PUBLIC · REAL ONE-TENDER COMMAND</div><h2>최신 공고 선택 → 전체 입찰 준비 실행 → 9개 노드·실제 이력·제출서류</h2>'+
- '<p>실제 PostgreSQL의 최신 나라장터 공고에서 선택합니다. 기존 Worker 실행 결과를 공유하며, 모의 완료율이나 가상의 낙찰가격을 표시하지 않습니다.</p></section>'+
- (st.error?'<div class="notice warn">실제 API 오류: '+esc(st.error)+' · 가상 목록으로 대체하지 않습니다.</div>':'')+
- '<section class="panel"><h3>① 나라장터 전체 최신 입찰공고 · 선택</h3>'+
- '<div class="actions"><input id="p9-q" class="input" placeholder="공고명 · 기관 · 공고번호 검색" maxlength="120" style="max-width:320px" value="'+esc(st.search)+'">'+
- '<select id="p9-status" class="select" style="max-width:170px">'+
- [['all','전체'],['open','마감 전'],['closed','마감 후']].map(([v,n])=>'<option value="'+v+'" '+(st.status===v?'selected':'')+'>'+n+'</option>').join('')+
- '</select><button data-public9="reload" class="btn small">↻ 실제 목록 조회</button></div>'+
- '<p class="muted smalltxt">1단계 N01/N02는 실제 DB 조회 및 식별을 실행하고 아래에 원본 입력·출력과 분기 판단을 표시합니다. 기존 수집기를 새로 실행하지 않습니다.</p>'+ 
- '<p class="muted smalltxt">저장된 공고 '+esc(st.notices?.total??'미확인')+'건 중 최신 30건 표시. 목록 갱신은 기존 G2B 수집기의 책임이며 조회 버튼은 새 크롤링을 시작하지 않습니다.</p>'+
- '<div class="table-wrap"><table><thead><tr><th>선택</th><th>실제 공고번호·제목</th><th>발주기관</th><th>게시</th><th>마감</th><th>실행 지원</th></tr></thead><tbody>'+
- (row||'<tr><td colspan="6">조건에 맞는 실제 수집 공고가 없습니다.</td></tr>')+
- '</tbody></table></div></section>'+
- '<section class="panel"><h3>② 선택 공고</h3>'+chosen+
- (selectedReady()?'<p class="muted smalltxt">실제 운영 엔진 대상 공고입니다. 다음 실행은 이 공고번호와 8111159901 분류를 사용합니다.</p>':
- '<div class="notice warn">이 공고는 목록에서 선택할 수 있지만 기존 단일공고 Worker가 아직 이 공고를 처리하도록 일반화되지 않았습니다. 잘못된 다른 공고로 고정 실행하지 않습니다.</div>')+
- '<div class="actions"><label class="label" style="min-width:210px">기존 관리자 토큰 (실행 시에만 사용)<input id="p9-token" class="input" type="password" autocomplete="off" placeholder="ADMIN_TOKEN"></label>'+
- '<button data-public9="run" class="btn primary" '+(!selectedReady()||st.submitting?'disabled':'')+'>▶ 선택 공고 전체 입찰 준비 실행</button>'+
- '<button data-public9="latest" class="btn">최근 실제 실행 기록 조회</button></div>'+
- '<p class="muted smalltxt">관리센터의 실행 버튼은 공용 Studio에 저장된 04번 검색노드의 기간·기관 필터를 검증해 기존 Worker에 전달합니다. 다른 노드의 코드 변경은 Worker에 자동 반영되지 않습니다. 자동 투찰·전자서명·입찰참가 없음.</p></section>'+
- '<section class="panel"><h3>③ 동일 공고 9개 업무 노드</h3><div class="actions" style="gap:8px">'+cards+'</div>'+
- '<div class="actions"><button class="btn primary" data-page="public_nodes">선택 공고의 9노드 편집기 · 입력·출력 열기</button>'+
- '<button class="btn" data-public9="inspect">선택 단계의 실제 입력·출력 확인</button></div>'+
- nodeInspector()+'</section>'+stageOneInspector()+
- '<section class="panel"><h3>④ 실제 Worker 실행 이력 · 경쟁·가격·제출서류</h3>'+
- (current?.job_id?label('실제 Worker 작업 ID '+current.job_id,'상태 '+current.job_state+
-  ' · 기록 '+(current.actual_stages_recorded||0)+'/9 단계 · 공식 n8n Execution ID가 아님'):'<div class="empty">실제 Worker 실행 기록을 조회하지 못했습니다.</div>')+
- (current?.draft&&st.selected===CASE?'<div class="actions"><a class="btn primary" href="https://procureflow-api-production.up.railway.app/api/g2b/public/selected/prepare-jobs/'+current.job_id+
-  '/draft.docx" target="_blank" rel="noopener">실제 근거 기반 Word 검토 초안 내려받기 · '+esc(current.draft.bytes)+' bytes</a></div>':'')+
- '<p class="muted smalltxt">자격·원가·확정 낙찰과 제출서식의 부족 여부는 각 노드 실행근거로 확인합니다. 완성된 투찰서가 아니라 검토 초안입니다.</p></section>';
-}
-function nodeInspector(){
- const i=st.selectedNode,found=nodeRecords()[i],name=STAGES[i][0];
- const html=found?
- '<p>'+field('업무',name)+'　'+field('DB 실제 run_id',found.run_id)+'　'+field('상태',found.state)+'</p>'+
- '<p class="muted smalltxt">시작 '+esc(asTime(found.started_at))+' · 종료 '+esc(asTime(found.finished_at))+'</p>'+
- (found.error?'<div class="notice warn">'+esc(found.error)+'</div>':'')+
- '<details open><summary>원본 Worker의 실제 처리 결과(JSON)</summary><pre class="log">'+esc(JSON.stringify(found.summary||{},null,2))+'</pre></details>':
- '<div class="empty">이 단계의 실제 DB 실행 이력이 없습니다. 다른 공고의 작업 기록으로 대체하지 않습니다.</div>';
- return '<div class="item"><b>선택 노드 '+(i+1)+' · '+esc(name)+'</b>'+html+'</div>';
-}
-function nodes(){
- const selected=tender();
- const path='/?workflow='+encodeURIComponent(FLOW);
- return '<section class="hero"><div class="kicker">PUBLIC9 / SAME ORIGINAL STUDIO EDITOR</div>'+
- '<h2>공공입찰 9개 업무 노드 관리</h2><p>관리센터와 같은 공고 '+esc(st.selected||'미선택')+
- ' · 기존 공용 Studio의 n8n 형식 노드를 저장·편집합니다. 실제 Worker의 단계 DB 이력은 아래에서 확인합니다.</p>'+
- '<div class="actions"><button class="btn primary" data-page="public">← 최신 공고·전체 실행 관리센터</button>'+
- '<a class="btn" href="/?workflow=operations%2FPF01-stage1-dataflow.json" target="_blank" rel="noopener">N01→N02 분기 그래프 열기</a>'+
- '<a class="btn" href="'+path+'" target="_blank" rel="noopener">노드 편집기 새 창으로 열기 ↗</a></div></section>'+
- (!selectedReady()?'<div class="notice warn">선택 공고 '+esc(st.selected||'없음')+
- '의 실제 9단계 실행은 현재 기존 Worker에 미연결입니다. 이 편집기에서 다른 공고가 자동 실행되는 것은 아닙니다.</div>':'')+
- '<section class="panel"><h3>같은 공고의 9개 노드 · 실제 단계별 실행 이력</h3>'+
- '<div class="actions">'+STAGES.map(([n],i)=>'<button data-public9="node" data-index="'+i+
- '" class="btn small '+(st.selectedNode===i?'primary':'')+'">'+String(i+1).padStart(2,'0')+' '+esc(n)+
- ' / '+esc(stageStatus(i))+'</button>').join('')+'</div>'+nodeInspector()+'</section>'+stageOneInspector()+
- '<section class="panel"><h3>공용 n8n Studio 실제 편집 캔버스 (동일 출처)</h3>'+
- '<p class="muted smalltxt">노드 이동·연결·설정·저장은 원래 공유 Studio의 기능입니다. 아래 그래프는 실제 운영 API 증빙 조회를 표현하며, 원본 Worker를 실행하는 버튼은 위 관리센터에 있습니다. 현재 Studio에서 변경한 노드 구성이 공식 n8n Worker 실행에 자동 배포되는 기능은 아직 미연결입니다.</p>'+
- '<iframe title="공공입찰 9개 업무 노드 공용 Studio 편집기" loading="lazy" src="'+path+
- '" style="display:block;width:100%;height:840px;border:1px solid #54708a;border-radius:12px;background:#0c1522"></iframe></section>';
-}
-async function readApprovedNodeFilter(){
- // Read the EXACT cookie-scoped saved original shared-Studio workflow.
- // Never treat arbitrary edited JS or URLs as executable backend code.
- const r=await fetch('/api/studio/workflows/'+FLOW,{credentials:'same-origin',cache:'no-store'});
- if(!r.ok)throw Error('저장된 노드 그래프 확인 실패: HTTP '+r.status);
- const body=await r.json(),w=body.workflow;
- if(!w||!Array.isArray(w.nodes)||w.nodes.length!==10)
-   throw Error('9개 업무노드 + 시작노드가 일치하지 않습니다');
- const ids=['public9-trigger',...Array.from({length:9},(_,i)=>'public9-'+String(i+1).padStart(2,'0'))];
- if(new Set(w.nodes.map(n=>n.id)).size!==10||ids.some(id=>!w.nodes.find(n=>n.id===id)))
-   throw Error('승인되지 않은 노드 변경이 있습니다. 9개 정규 업무노드를 유지해야 합니다');
- for(let i=0;i<ids.length-1;i++){
-  const from=w.nodes.find(n=>n.id===ids[i]),to=w.nodes.find(n=>n.id===ids[i+1]);
-  const next=w.connections?.[from.name]?.main?.[0]||[];
-  if(next.length!==1||next[0].node!==to.name)
-   throw Error('운영 9단계 연결선이 변경되었습니다. 먼저 원본 DAG를 검증해야 합니다');
+ async function load(){
+   try{st.run=await request('live-run');st.lastReload=new Date().toISOString();st.error=null;}
+   catch(e){st.error=e.message;}renderView();
  }
- const node=w.nodes.find(n=>n.id==='public9-04');
- if(node.type!=='n8n-nodes-base.httpRequest'||node.parameters?.method!=='GET')
-   throw Error('과거 검색 노드 유형이 원본에서 변경되었습니다');
- let url;try{url=new URL(node.parameters.url)}catch{throw Error('과거 검색 노드 API 주소 오류')}
- if(url.origin!=='https://procureflow-api-production.up.railway.app'||
-    url.pathname!=='/api/g2b/public/selected/search'||
-    url.searchParams.get('detail10')!==DETAIL||
-    url.searchParams.get('kind')!=='opening')
-    throw Error('실제 조달 검색으로 허가된 세부종목·API가 아닙니다');
- const start=url.searchParams.get('start'),end=url.searchParams.get('end');
- if(!/^\d{4}-\d\d-\d\d$/.test(start||'')||!/^\d{4}-\d\d-\d\d$/.test(end||'')||
-   start<'2016-10-24'||end>'2026-10-22'||start>end)
-    throw Error('노드 04의 기간 필터가 선택 공고의 과거 범위를 벗어납니다');
- const agency=url.searchParams.get('agency')||'';
- if(agency.length>100||/[\x00-\x1f]/.test(agency))
-   throw Error('원본 기관 필터가 유효하지 않습니다');
- return {start,end,agency};
-}
-async function execute(){
- if(!selectedReady())throw Error('현재 선택 공고의 실제 처리 Worker가 연결되지 않았습니다');
- const input=document.getElementById('p9-token');
- const token=input?.value.trim();
- if(!token)throw Error('기존 관리자 토큰을 입력해야 합니다');
- // The operator can change dates/agency via native Studio node 04,
- // SAVE the graph, and the actual Worker receives these validated filters.
- // Other JS/HTTP changes are never silently deployed to the Worker.
- const runFilter=await readApprovedNodeFilter();
- input.value='';
- st.submitting=true;refreshView();
- try{
-  const v=await request('prepare',{method:'POST',headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
-   body:JSON.stringify({bid_no:CASE,detail10:DETAIL,...runFilter})});
-  if(v.worker_source!=='g2b_public_prepare'||!v.job_id||v.bid_submitted!==false)
-   throw Error('실제 기존 Worker 작업을 확인할 수 없습니다');
-  st.job={job_id:v.job_id,case_bid_no:CASE,job_state:'queued',steps:[],actual_stages_recorded:0};
-  refreshView();
-  await poll();
- }finally{st.submitting=false;refreshView();}
-}
-document.addEventListener('click',async event=>{
- const hit=event.target.closest('[data-public9]');
- if(!hit)return;
- event.preventDefault();event.stopPropagation();
- const a=hit.dataset.public9;
- try{
-  if(a==='choose'){st.selected=hit.dataset.bid;st.selectedNode=0;await refreshSelectedRoute();}
-  else if(a==='node'){st.selectedNode=Number(hit.dataset.index)||0;refreshView();}
-  else if(a==='reload'){
-   st.search=document.getElementById('p9-q')?.value||'';
-   st.status=document.getElementById('p9-status')?.value||'all';
-   await load();
-  }else if(a==='latest'){await load();}
-  else if(a==='inspect'){refreshView();}
-  else if(a==='run'){await execute();}
- }catch(e){st.error=e.message;refreshView();}
-});
-setInterval(()=>{if(st.job?.job_id&&['queued','running'].includes(st.job.job_state))void poll();},5000);
-window.Public9={render:main,renderNodes:nodes,load,state:st};
-window.addEventListener('public9-render',()=>{if(window.Public9.requestRender)window.Public9.requestRender()});
-load();
+ async function poll(){
+   if(polling)return;
+   polling=true;
+   try{
+     const result=await request('live-run');
+     st.run=result;renderView();
+   }catch(e){st.error=e.message;renderView();}
+   finally{polling=false;}
+ }
+ async function execute(){
+   if(st.submitting||st.run?.status==='running')return;
+   st.error=null;st.submitting=true;renderView();
+   try{
+     // GET establishes an isolated Studio cookie before the same-origin POST.
+     await request('live-run');
+     st.run=await request('run-all',{method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({bid_no:CASE,detail10:DETAIL})});
+   }catch(e){st.error=e.message;}
+   finally{st.submitting=false;renderView();}
+ }
+ function inspector(){
+   const i=st.selectedNode;const s=stage(i);
+   return '<div class="item"><b>'+esc(STAGES[i])+'</b>'+
+    (s?'<p><b>실행 상태: '+esc(s.status)+'</b> · '+esc(s.at)+'</p>'+
+       '<p class="muted smalltxt">실제 INPUT</p><pre class="log">'+fmt(s.input)+'</pre>'+
+       '<p class="muted smalltxt">실제 OUTPUT</p><pre class="log">'+fmt(s.output)+'</pre>'
+      :'<p class="muted">이 노드는 아직 실행되지 않았습니다.</p>')+'</div>';
+ }
+ function progress(){
+   return '<div class="actions" style="gap:8px;flex-wrap:wrap">'+
+    STAGES.map((name,i)=>{
+      const s=stage(i);const active=st.selectedNode===i;const inProgress=st.run?.status==='running'&&st.run?.active_node==='N'+String(i+1).padStart(2,'0');
+      return '<button class="btn small '+(active?'primary':'outline')+
+       '" data-public9="node" data-index="'+i+
+       '" style="min-width:195px;flex:1 1 200px;text-align:left">'+
+       esc(name)+'<div class="muted smalltxt">'+esc(inProgress?'실행 중 · '+(st.run.active_title||'공식 사이트 응답 대기'):s?.status||'대기')+'</div></button>';
+    }).join('')+'</div>';
+ }
+ function runSummary(){
+   const r=st.run||{};
+   return '<section class="panel"><h3>실제 수집 실행 기록</h3>'+
+    '<p>실행 모드: <b>'+esc(r.mode||'on_demand_live_no_database')+'</b> · 상태: <b>'+
+    esc(r.status||'미실행')+'</b> · 완료 '+esc(r.completed_steps||0)+'/9 단계</p>'+
+    (r.status==='running'&&r.active_node?'<p class="notice"><b>현재 실행 중: '+esc(r.active_node)+' · '+esc(r.active_title)+'</b> · 공식 사이트 응답/다운로드를 확인하고 있습니다.</p>':'')+
+    '<p class="muted smalltxt">PostgreSQL 조회 0회 · 외부 Worker 호출 0회 · Chromium 실행 0회 · 자동 투찰 없음</p>'+
+    (r.run_id?'<p class="muted smalltxt">테스트 실행 ID: '+esc(r.run_id)+'</p>':'')+
+    (r.run_id&&stage(7)?.output?.draft_generated?
+      '<p><a class="btn primary" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(r.run_id)+
+      '">원본 근거 기반 Word 테스트 초안 내려받기</a></p>':'')+
+    (st.error?'<div class="notice warn">오류: '+esc(st.error)+'</div>':'')+
+    (r.error?'<div class="notice warn">서버 실행 오류: '+esc(r.error)+'</div>':'')+
+    '</section>';
+ }
+ function main(){
+   return '<section class="hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
+    '<h2>선택 공고 → 공식 나라장터 실시간 수집 → 9개 노드 순차 실행</h2>'+
+    '<p>기존 PostgreSQL을 조회하지 않고 공식 G2B에 새로 접속합니다. 서버에 Worker·스케줄러를 실행하지 않습니다.</p></section>'+
+    '<section class="panel"><h3>① 테스트 대상 공고</h3><div class="item">'+
+    '<b>'+esc(CASE)+'</b><p>분류 '+esc(DETAIL)+' · 실제 공고명·기관·문서는 N01/N02에서 새로 수집해 검증</p></div>'+
+    '<div class="actions">'+
+    '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+
+    ((st.submitting||st.run?.status==='running')?'disabled':'')+
+    '>▶ 9개 전체 순차 실행 · 실제 수집</button>'+
+    '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
+    '<button class="btn" data-public9="open">공용 Studio에서 9개 노드 열기</button></div>'+
+    '<p class="muted smalltxt">버튼을 눌러야 실제 공식 사이트에 요청합니다. DB 데이터 재활용 없음 · 토큰 입력 없음 · Worker 없음 · 자동 스케줄 없음.</p></section>'+
+    runSummary()+'<section class="panel"><h3>② 단계별 실행 · INPUT / OUTPUT</h3>'+
+    progress()+inspector()+'</section>';
+ }
+ function nodes(){
+   return '<section class="hero"><h2>공용 Studio · 9개 노드 직접 수집 실행</h2>'+
+    '<p>편집기 상단에서도 전체 순차 실행할 수 있습니다. 데이터는 버튼 클릭 시 공식 나라장터에서 새로 수집합니다.</p></section>'+
+    '<section class="panel"><div class="actions">'+
+    '<button class="btn primary" data-page="public">관리센터 돌아가기</button>'+
+    '<button class="btn" data-public9="open">새 창에서 캔버스 열기</button></div>'+
+    '<iframe title="9개 업무 노드 편집기" loading="lazy" src="/?workflow='+encodeURIComponent(FLOW)+
+    '" style="width:100%;height:850px;border:1px solid #54708a;border-radius:12px"></iframe></section>'+
+    runSummary()+'<section class="panel"><h3>실제 실행 결과</h3>'+progress()+inspector()+'</section>';
+ }
+ document.addEventListener('click',async ev=>{
+   const el=ev.target.closest('[data-public9]');
+   if(!el)return;ev.preventDefault();ev.stopPropagation();
+   if(el.dataset.public9==='run')await execute();
+   else if(el.dataset.public9==='latest')await poll();
+   else if(el.dataset.public9==='open')window.open('/?workflow='+encodeURIComponent(FLOW),'_blank','noopener');
+   else if(el.dataset.public9==='node'){st.selectedNode=Number(el.dataset.index)||0;renderView();}
+ });
+ setInterval(()=>{if(st.run?.status==='running')void poll();},1800);
+ window.Public9={render:main,renderNodes:nodes,load,state:st};
+ load();
 })();

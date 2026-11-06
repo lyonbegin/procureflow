@@ -1,11 +1,105 @@
-# Python-only G2B business API/Worker image. n8n is deployed separately.
-# No Vite/React Flow build, JS workflow runner, or duplicate DAG engine.
-FROM python:3.12-slim-bookworm
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# ProcureFlow uses EXACTLY the same shared-n8n-studio project as Investment.
+# No n8n server, no n8nio/n8n image, no owner creation, no API/Worker execution.
+# Reuses one already-existing ProcureFlow canvas service (no extra n8n).
+FROM node:22-alpine AS topology
+WORKDIR /work
+COPY n8n/operational_manifest.json /work/procureflow-operational-manifest.json
+COPY n8n/operational/ /work/procureflow-operational-workflows/
+COPY n8n/workflows/ /work/procureflow-demo-workflows/
+COPY n8n/source-build/compile-native-topology.mjs /tools/compile-native-topology.mjs
+COPY n8n/source-build/test-native-topology.mjs /tools/test-native-topology.mjs
+COPY n8n/source-build/augment-business-operations.mjs /tools/augment-business-operations.mjs
+COPY n8n/source-build/verify-packaged-graph.mjs /tools/verify-packaged-graph.mjs
+RUN PF_SOURCE=/work PF_OUTPUT=/generated node /tools/compile-native-topology.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/test-native-topology.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/augment-business-operations.mjs \
+    && PF_SOURCE=/work PF_OUTPUT=/generated node /tools/verify-packaged-graph.mjs \
+    && echo SHARED_STUDIO_PROCUREFLOW_26_FLOWS_43_GATES_PACKAGED
+
+# Shared editor is sourced from exactly one upstream commit.
+# The original n8n execution engine and credentials remain completely separate.
+FROM node:22-alpine AS ui
+RUN apk add --no-cache git
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && python -m playwright install --with-deps chromium
-COPY . .
-RUN python -c "import base64,io,tarfile,pathlib; p=pathlib.Path('/app/legacy_sources.tar.gz.b64'); b=base64.b64decode(p.read_text(encoding='ascii')); tarfile.open(fileobj=io.BytesIO(b),mode='r:gz').extractall('/app',filter='data')" \
-    && python -m py_compile main.py n8n_scenarios.py n8n_landing.py g2b_feature_api.py g2b_feature_data.py worker.py legacy_import.py legacy/g2b_headless_collect.py legacy/kapt_headless_collect.py
-CMD ["sh","-c","uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+ARG SHARED_STUDIO_COMMIT=4bc637c4dd2a7adc4e99cedddca95f3d55649be2
+RUN git clone https://github.com/lyonbegin/shared-n8n-studio.git /app/shared \
+    && git -C /app/shared checkout --detach "$SHARED_STUDIO_COMMIT" \
+    && test "$(git -C /app/shared rev-parse HEAD)" = "$SHARED_STUDIO_COMMIT" \
+    && grep -q "PROCURE_WORKFLOWS" /app/shared/playground/src/App.vue
+RUN npm install --prefix /app/shared/playground --no-audit --no-fund
+RUN mkdir -p /app/shared/playground/public/procure-workflows/operations \
+    /app/shared/playground/public/procure-workflows/scenarios
+COPY --from=topology /generated/operational/ /app/shared/playground/public/procure-workflows/operations/
+COPY n8n/workflows/ /app/shared/playground/public/procure-workflows/scenarios/
+COPY n8n/strategy-workflows/ /app/shared/playground/public/procure-workflows/operations/
+# Reject the former A01 43-node / 42-edge serial display at image build.
+RUN node -e 'const w=require("/app/shared/playground/public/procure-workflows/operations/A01-public-win-strategy.json");const links=Object.values(w.connections).flatMap(x=>(x.main||[]).flat());const h=w.connections["H04 · 구형·신형 공고 검증"].main[0].map(x=>x.node);if(w.nodes.length!==45||links.length!==54||w.nodes.filter(n=>/^public-(N|H|Q|S|P|R|O)\d{2}$/.test(n.id)).length!==43||w.nodes.find(n=>n.id==="public-H07-native-merge")?.parameters?.numberInputs!==2||!h.some(x=>x.startsWith("H05 ·"))||!h.some(x=>x.startsWith("H06 ·")))process.exit(1);console.log("A01_MANIFEST_DAG_BUILD_GATE_PASS",links.length)'
+COPY n8n/scenarios.json /app/shared/playground/public/procure-workflows/fixture-scenarios.json
+COPY n8n/unified/patch-catalog.mjs /tmp/patch-catalog.mjs
+RUN node /tmp/patch-catalog.mjs /app/shared/playground/src/procurement-adapter.js /app/shared/playground/src/App.vue
+
+ENV VITE_EDITOR_PROJECT=procurement
+RUN npm --prefix /app/shared/playground run build \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/PF00.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/PF15.json \
+    && test -s /app/shared/playground/dist/procure-workflows/scenarios/S10.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/PF00-public-nine-real.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/A01-public-win-strategy.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/B01-private-software-proposal.json \
+    && test -s /app/shared/playground/dist/procure-workflows/operations/C01-staffing-service-proposal.json
+
+# Same Python draft-storage server used by Investment, not an n8n instance.
+# Browser-cookie scoped drafts and approved offline Python nodes only; no n8n engine or live G2B requests.
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends nginx gosu ca-certificates \
+    && rm -f /etc/nginx/sites-enabled/default \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN pip install --no-cache-dir -r /app/requirements.txt \
+    && python -m playwright install --with-deps chromium
+COPY . /app/
+RUN python3 -c 'import base64,io,tarfile,pathlib;p=pathlib.Path("/app/legacy_sources.tar.gz.b64");b=base64.b64decode(p.read_text(encoding="ascii"));tarfile.open(fileobj=io.BytesIO(b),mode="r:gz").extractall("/app",filter="data")'
+COPY n8n/unified/nginx.conf /etc/nginx/conf.d/procureflow.conf
+RUN python3 -c 'from pathlib import Path; arr=[("fresh_g2b.html","fresh"),("focused_g2b.html","history")];[(lambda p,k:(p.write_text(p.read_text().replace(chr(34)+"/api/",chr(34)+"/"+k+"/api/"),encoding="utf8")))(Path("/app")/n,k) for n,k in arr]'
+RUN python3 -m py_compile main.py worker.py fresh_g2b_app.py fresh_g2b_store.py fresh_g2b_site.py focused_g2b.py g2b_bid_notice_site_search.py
+
+COPY --from=ui /app/shared/playground/dist /app/dist
+# Bundled public-case admin links to real source-filtered G2B preparation API.
+COPY n8n/admin-console/ /app/dist/admin/
+COPY n8n/operational_manifest.json /app/dist/procure-manifest.json
+RUN test -s /app/dist/admin/dashboard.js && test -s /app/dist/admin/dashboard.css \
+    && test -s /app/dist/admin/public9.js \
+    && test -s /app/dist/procure-manifest.json
+RUN python3 -c 'from pathlib import Path; p=Path("/app/dist/index.html");s=p.read_text();a="<a href=\"/admin/index.html?section=tests\" style=\"position:fixed;bottom:16px;right:16px;z-index:9999;background:#165e9b;color:white;text-decoration:none;padding:12px 16px;border-radius:9px;font:600 13px sans-serif\" aria-label=\"조달청 통합 테스트센터\">통합 테스트센터 ↗</a>";assert "</body>" in s;p.write_text(s.replace("</body>",a+"</body>"))'
+COPY --from=ui /app/shared/server/studio_server.py /app/studio_server.py
+COPY n8n/unified/patch-server.py /tmp/patch-server.py
+RUN python3 /tmp/patch-server.py /app/studio_server.py
+COPY n8n/unified/procurement_auto_test.py /app/procurement_auto_test.py
+COPY n8n/unified/live_nine_test.py /app/live_nine_test.py
+COPY --from=ui /app/shared/server/node_run_store.py /app/node_run_store.py
+COPY --from=ui /app/shared/server/node_workspace_store.py /app/node_workspace_store.py
+COPY --from=ui /app/shared/server/project_adapter_runtime.py /app/project_adapter_runtime.py
+COPY n8n/strategy-runtime/procurement_node_adapter.py /app/procurement_node_adapter.py
+COPY n8n/strategy-runtime/public_case_runtime.py /app/public_case_runtime.py
+COPY g2b_feature_registry.py /app/g2b_feature_registry.py
+COPY g2b_feature_contract_core.py /app/g2b_feature_contract_core.py
+COPY n8n/strategy-runtime/procurement_readonly_bridge.py /app/procurement_readonly_bridge.py
+COPY n8n/strategy-runtime/procurement_actual_records.py /app/procurement_actual_records.py
+COPY n8n/strategy-runtime/procurement_live_gateway.py /app/procurement_live_gateway.py
+COPY n8n/operational_manifest.json /app/operational_manifest.json
+RUN python3 -m py_compile /app/live_nine_test.py /app/procurement_auto_test.py /app/studio_server.py /app/node_run_store.py /app/node_workspace_store.py /app/project_adapter_runtime.py /app/procurement_node_adapter.py /app/public_case_runtime.py /app/g2b_feature_registry.py /app/g2b_feature_contract_core.py /app/procurement_readonly_bridge.py /app/procurement_live_gateway.py
+RUN python3 -c 'import json;w=json.load(open("/app/dist/procure-workflows/operations/PF00-public-nine-real.json"));assert w["meta"]["real_data_only"] is True and w["meta"]["business_node_count"]==9 and sum(n["id"].startswith("public9-0") for n in w["nodes"])==9 and w["meta"]["can_start_real_worker_from_this_graph"] is False'
+RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=="download_original_attachments"'
+RUN python3 -c 'import json,sys;sys.path.insert(0,"/app");import public_case_runtime as p;from g2b_feature_registry import FEATURES,FEATURE_GATES,GROUP_BOUNDS;rows=[{**f,"required_evidence":list(FEATURE_GATES[f["number"]]),"block_id":next(b["id"] for b in p.BLOCKS.values() if f["number"] in b["features"])} for f in FEATURES];open("/app/dist/public-case-feature-catalog.json","w").write(json.dumps({"case":p.summary_fixture(),"features":rows,"group_bounds":GROUP_BOUNDS,"block_order":p.ORDER,"manifest_blocks":list(p.BLOCKS.values()),"evidence_policy":"mock_is_never_official_verified"},ensure_ascii=False))'
+RUN mkdir -p /data && groupadd --system studio && useradd --system --gid studio --home /app studio \
+    && chown -R studio:studio /data /app /ms-playwright
+ENV PORT=3000
+ENV STUDIO_STATIC_ROOT=/app/dist
+ENV STUDIO_WORKFLOW_DIR=procure-workflows
+ENV STUDIO_PROJECT_ADAPTER=procurement_node_adapter
+ENV STUDIO_DB_PATH=/data/studio.sqlite3
+ENV PROCUREFLOW_API_ORIGIN=http://127.0.0.1:8001
+EXPOSE 3000
+CMD ["python3","-u","/app/n8n/unified/run.py"]

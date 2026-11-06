@@ -25,13 +25,41 @@
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/notices?limit=30&status=all",
+        "method": "POST",
+        "url": "https://nuri.g2b.go.kr/nn/nnb/nnba/selectBidPbancList.do",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"dlParamM\":{\"bidPbancNo\":\"R26BK01787028\",\"bidPbancOrd\":\"000\",\"bidPbancNm\":\"\",\"prcmBsneSeCd\":\"\",\"bidPbancPgstCd\":\"\",\"bidMthdCd\":\"\",\"pbancPstgStDt\":\"20261022\",\"pbancPstgEdDt\":\"20261107\",\"onbsPrnmntStDt\":\"\",\"onbsPrnmntEdDt\":\"\",\"recordCountPerPage\":\"20\",\"rowNum\":\"\",\"kbrdrId\":\"\",\"pbancInstUntyGrpNo\":\"\",\"pdngYn\":\"\",\"currentPage\":1,\"pbancSttsCd\":\"\",\"pbancKndCd\":\"\",\"stdCtrtMthdCd\":\"\",\"scsbdMthdCd\":\"\",\"untyGrpNo\":\"\",\"usrTyCd\":\"\",\"pbancPstgYn\":\"Y\",\"frgnrRprsvYn\":\"\"}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Menu-Info",
+              "value": "{\"menuNo\":\"15401\",\"menuCangVal\":\"NNBA001_01\",\"bsneClsfCd\":\"%EC%97%85130031\",\"scrnNo\":\"00777\"}"
+            },
+            {
+              "name": "Target-Id",
+              "value": "btnS0001"
+            },
+            {
+              "name": "Usr-Id",
+              "value": "null"
+            },
+            {
+              "name": "Origin",
+              "value": "https://nuri.g2b.go.kr"
+            },
+            {
+              "name": "Referer",
+              "value": "https://nuri.g2b.go.kr/"
+            }
+          ]
+        },
         "options": {
-          "timeout": 30000
+          "timeout": 18000
         }
       },
-      "notes": "기존 PostgreSQL 최신 실제 G2B 공고 목록. 하나 선택 시 관리센터의 bid_no로 고정. 이 노드는 입찰하지 않습니다.",
+      "notes": "실제 수집 N01: 공식 nuri.g2b.go.kr 공고 WebSquare POST. 매 실행 시 새 요청. 공식 응답 없으면 source_error; DB 조회 없음. 실행 시점 날짜는 통합 테스트 실행기에서 동적으로 설정.",
       "notesInFlow": true
     },
     {
@@ -45,31 +73,28 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/search?start=2026-10-01&end=2026-10-22&detail10=8111159901&kind=all&limit=1",
+        "url": "https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do?bidPbancNo=R26BK01787028&bidPbancOrd=000&fileType=&fileSeq=1&prcmBsneSeCd=03",
         "options": {
-          "timeout": 30000
+          "timeout": 18000
         }
       },
-      "notes": "선택 공고 원본·HWP/PDF/XLSX 저장 결과 재사용. 원본은 1번만 수집. 서버는 현재 R26BK01787028 전용.",
+      "notes": "실제 수집 N02: 공식 다운로드 GET, 실행기가 fileSeq 1,2 각 1회 다운로드하고 원본 SHA256/바이트·파싱 결과만 메모리에 저장. HWP5, PDF, DOCX, HWPX만 파싱. 기존 DB·Worker 사용 안 함.",
       "notesInFlow": true
     },
     {
       "id": "public9-03",
       "name": "03 · 자격·제출조건",
-      "type": "n8n-nodes-base.httpRequest",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         1120,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/preparation?start=2026-10-01&end=2026-10-22",
-        "options": {
-          "timeout": 30000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d=$input.first()?.json||{};const text=JSON.stringify(d);const keywords=['소프트웨어사업자','직접생산확인','입찰참가자격'].filter(s=>text.includes(s));return [{json:{source:'official_attachment_text_only',keywords,company_eligibility:'NOT_VERIFIED_NO_COMPANY_EVIDENCE',status:'partial',bid_submitted:false}}];"
       },
-      "notes": "실제 회사 자격·제출요건, 부족하면 HOLD. 운영 DB 원본 기반 조회.",
+      "notes": "N03: N02에서 실제 다운로드한 원본의 참가자격·업종·제출 조건 확인. 자사 자격 자료가 없으면 미검증으로 종료. DB 조회 안 함.",
       "notesInFlow": true
     },
     {
@@ -82,51 +107,69 @@
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/search?start=2016-10-24&end=2026-10-22&detail10=8111159901&kind=opening&limit=100",
+        "method": "POST",
+        "url": "https://www.g2b.go.kr/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"dlSrchOnbsRsltClsfListInM\":{\"bidPbancNo\":\"\",\"bidPbancOrd\":\"\",\"bidPbancNm\":\"\",\"onbsYmdStr\":\"20261024\",\"onbsYmdEnd\":\"20261107\",\"prcmBsneSeCd\":\"0000 조070001 조070002 조070003 조070004 조070005\",\"frcpYn\":\"Y\",\"rsrvYn\":\"Y\",\"laseYn\":\"Y\",\"chkBsneAllYn\":\"Y\",\"lastIndex\":10,\"firstIndex\":1,\"inqEnd\":\"\",\"stepBarYn\":\"\",\"pbancKndCd\":\"공440002\"}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Menu-Info",
+              "value": "{\"menuNo\":\"01522\",\"menuCangVal\":\"PBOC006_01\",\"bsneClsfCd\":\"%EC%97%85130028\",\"scrnNo\":\"02117\"}"
+            },
+            {
+              "name": "submissionid",
+              "value": "mf_wfm_container_selectOnbsRsltClsfList"
+            },
+            {
+              "name": "Usr-Id",
+              "value": "null"
+            },
+            {
+              "name": "Referer",
+              "value": "https://www.g2b.go.kr/"
+            }
+          ]
+        },
         "options": {
-          "timeout": 30000
+          "timeout": 18000
         }
       },
-      "notes": "정확한 공식 원본 10자리 검증, 검색기간·기관·결과 필터. 무조건 121개월 전체 수집 금지.",
+      "notes": "실제 수집 N04: 공식 개찰 WebSquare 실시간 POST, 최근 최대 14일·첫 10건으로 제한. 정확한 10자리 세부종목의 서버 검색 조건은 현재 검증되지 않아 해당 결과를 8111159901 일치 건수라고 주장하지 않음. 10년 전체 수집·DB·Worker 없음.",
       "notesInFlow": true
     },
     {
       "id": "public9-05",
       "name": "05 · 경쟁업체 분석",
-      "type": "n8n-nodes-base.httpRequest",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         1740,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/strategy?start=2016-10-24&end=2026-10-22",
-        "options": {
-          "timeout": 30000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "const h=$input.first()?.json||{};return [{json:{source:'official_websquare_live',observed_rows:h.official_rows??null,category_match_verified:false,competitor_ranking:null,confirmed_winner:null,status:'blocked_until_original_10digit_evidence'}}];"
       },
-      "notes": "실제 전체 개찰업체, 동일 기관, 개찰 순위. 개찰 1순위는 낙찰 확정이 아님.",
+      "notes": "N05: N04의 공식 개찰 조회 결과만 분석. 원본 10자리 세부종목 매칭 없는 회사·가격은 경쟁통계에서 제외.",
       "notesInFlow": true
     },
     {
       "id": "public9-06",
       "name": "06 · 수행·원가 조회",
-      "type": "n8n-nodes-base.httpRequest",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         2050,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/full/price",
-        "options": {
-          "timeout": 30000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{status:'blocked_company_cost_not_available_from_public_g2b',company_cost:null,staff_cost:null,outsource_quote:null,source:'official_tender_documents_only'}}];"
       },
-      "notes": "기존 자사 원가·인력·외주 견적 근거. 실제 숫자 없으면 BLOCKED.",
+      "notes": "N06: 공식 원본 과업범위로 수행 요건 검토. 회사 자체 원가·인건비·외주견적은 나라장터 공개값이 아니므로 추정하지 않음.",
       "notesInFlow": true
     },
     {
@@ -140,47 +183,41 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const p=$input.first().json;if(!p||typeof p!=='object')throw Error('Actual price input missing');const missing=Array.isArray(p.missing)?p.missing:[];return [{json:{source:'real_existing_price_evidence',status:p.status||'unknown',missing,can_recommend:p.status==='draft_computed_not_approved'&&missing.length===0,approved_bid_price:null,manual_review_required:true,bid_submitted:false}}];"
+        "jsCode": "return [{json:{status:'blocked_without_verified_cost_and_eligibility',approved_bid_price:null,manual_review_required:true,bid_submitted:false}}];"
       },
-      "notes": "직전 실제 가격 계산 결과만 검증·전달. 가격·하한율·원가 미충족 시 임의 값 생성 금지.",
+      "notes": "N07: 공고 원본 기초금액과 검증된 자사 원가·자격이 모두 있어야만 가격전략 검증. 빈 값으로 낙찰가격을 창작하지 않음.",
       "notesInFlow": true
     },
     {
       "id": "public9-08",
       "name": "08 · 서류·제안서 원본",
-      "type": "n8n-nodes-base.httpRequest",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         2670,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/proposal",
-        "options": {
-          "timeout": 30000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d=$input.first()?.json||{};return [{json:{status:'review_draft_only',source:'live_original_metadata',document_submit:false,source_hash:d.sha256||null,docx_generated_by:'live_nine_test._document'}}];"
       },
-      "notes": "원본 공고 요구서식에 따른 실제 초안/누락 증빙. 최종 제출 아님.",
+      "notes": "N08: 서버 메모리의 이번 직접 수집 원본으로 Word 검토 초안 생성. 디스크/DB에 저장하지 않으며 서버 메모리에 보유; 다운로드 URL은 실행 ID에 한정.",
       "notesInFlow": true
     },
     {
       "id": "public9-09",
       "name": "09 · 최종 실행기록",
-      "type": "n8n-nodes-base.httpRequest",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         2980,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://procureflow-api-production.up.railway.app/api/g2b/public/selected/prepare-jobs/latest",
-        "options": {
-          "timeout": 30000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{status:'manual_review_required',automatic_collection_scheduler:false,database_reads:0,worker_calls:0,official_tender_submission:false,electronic_signature:false}}];"
       },
-      "notes": "기존 Worker 실제 job_id·단계 run_id·DOCX 해시를 조회. 이 n8n 조회만으로 Worker가 실행되지는 않음.",
+      "notes": "N09: 실행기 메모리에 기록된 단계별 실제 INPUT·OUTPUT·원본 SHA256·실패 사유 검증. Worker Job ID가 아니라 이번 실행 전용 run_id.",
       "notesInFlow": true
     }
   ],
@@ -296,12 +333,19 @@
   "meta": {
     "real_data_only": true,
     "simulation_only": false,
-    "read_only_workflow": true,
+    "read_only_workflow": false,
     "can_start_real_worker_from_this_graph": false,
     "selected_case_bid_no": "R26BK01787028",
     "business_node_count": 9,
     "native_n8n_verified": false,
     "original_worker_source": "g2b_public_prepare",
-    "source_contract": "existing_original_g2b_api_only"
+    "source_contract": "official_g2b_websquare_on_demand_live_no_database",
+    "execution_adapter": "n8n/unified/live_nine_test.py",
+    "execution_trigger": "user_click_only",
+    "database_reads": 0,
+    "worker_calls": 0,
+    "auto_collection_schedule": false,
+    "draft_persistence": "session_memory_only",
+    "readme": "Shared Studio n8n graph describes the live source and stage contracts. Clicking ▶ entire run invokes the pinned Python test adapter. Editing node code is not dynamically executed."
   }
 }

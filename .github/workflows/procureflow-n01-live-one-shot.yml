@@ -1,0 +1,21 @@
+name: ProcureFlow official N01 single-shot evidence check
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  inspect-original-public-notice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install only official file parsers
+        run: python -m pip install --disable-pip-version-check olefile pypdf
+      - name: Fetch exactly one notice; independently verify official original title and agency
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python tests/one_shot_g2b_n01_probe.py
