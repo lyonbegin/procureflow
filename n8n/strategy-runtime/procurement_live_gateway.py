@@ -178,15 +178,21 @@ def proxy_get(route,query=""):
         return _request("/api/g2b/public/notices?"+urlencode({
             "q":q,"status":status,"limit":limit,"offset":offset}))
     if route=="latest":
+        if os.environ.get("DATABASE_URL") and os.environ.get("PROCUREFLOW_DIRECT_PUBLIC9_ENABLED")=="1":
+            import direct_public9
+            return 200,direct_public9.latest()
         return _request("/api/g2b/public/selected/prepare-jobs/latest")
     if route.startswith("job/"):
         id=route.removeprefix("job/")
         if not JOB_ID.fullmatch(id):
             raise ValueError("INVALID_PUBLIC_JOB_ID")
+        if os.environ.get("DATABASE_URL") and os.environ.get("PROCUREFLOW_DIRECT_PUBLIC9_ENABLED")=="1":
+            import direct_public9
+            return 200,direct_public9.job(int(id))
         return _request("/api/g2b/public/selected/prepare-jobs/"+id)
     if route=="catalog":
         return 200,{"workflow":"operations/PF00-public-nine-real.json",
-            "actual_worker_source":"g2b_public_prepare",
+            "actual_worker_source":None,"direct_runner":"unified_inprocess_public9",
             "native_n8n_execution_connected":False,
             "supported_case_bid_no":PUBLIC_ID,
             "real_source_only":True,"business_nodes":9,
@@ -194,30 +200,4 @@ def proxy_get(route,query=""):
     raise ValueError("UNREGISTERED_PUBLIC_ROUTE")
 
 def start_real_case(payload,authorization):
-    """Only queue actual existing Worker, with user's existing admin token.
-
-    This endpoint does not pass credentials to the Studio node or store them.
-    Other selected tenders fail closed until original case engine is generalized.
-    """
-    if not isinstance(payload,dict) or set(payload)-{
-        "bid_no","start","end","detail10","agency"}:
-        raise ValueError("UNREGISTERED_PUBLIC_PREPARATION_INPUT")
-    if payload.get("bid_no")!=PUBLIC_ID or payload.get("detail10")!="8111159901":
-        raise ValueError("SELECTED_CASE_ENGINE_NOT_YET_CONNECTED")
-    import datetime
-    try:
-        start=datetime.date.fromisoformat(payload["start"])
-        end=datetime.date.fromisoformat(payload["end"])
-    except (KeyError,ValueError,TypeError):
-        raise ValueError("INVALID_DATE_FILTER") from None
-    if not(datetime.date(2016,10,24)<=start<=end<=datetime.date(2026,10,22)):
-        raise ValueError("OUT_OF_SELECTED_CASE_DATE_RANGE")
-    agency=payload.get("agency","")
-    if not isinstance(agency,str) or len(agency)>100 or any(ord(c)<32 for c in agency):
-        raise ValueError("INVALID_AGENCY")
-    if not isinstance(authorization,str) or not authorization.startswith("Bearer "):
-        raise ValueError("EXISTING_ADMIN_AUTHORIZATION_REQUIRED")
-    token=authorization[7:]
-    return _request("/api/g2b/public/selected/prepare","POST",
-        {"start":start.isoformat(),"end":end.isoformat(),
-         "detail10":"8111159901","agency":agency},token)
+    raise ValueError("LEGACY_WORKER_QUEUE_REMOVED_USE_DIRECT_RUN_ALL")
