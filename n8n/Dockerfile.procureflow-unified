@@ -56,9 +56,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends nginx gosu ca-c
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN pip install --no-cache-dir -r /app/requirements.txt \
     && python -m playwright install --with-deps chromium
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY . /app/
 RUN python3 -c 'import base64,io,tarfile,pathlib;p=pathlib.Path("/app/legacy_sources.tar.gz.b64");b=base64.b64decode(p.read_text(encoding="ascii"));tarfile.open(fileobj=io.BytesIO(b),mode="r:gz").extractall("/app",filter="data")'
 COPY n8n/unified/nginx.conf /etc/nginx/conf.d/procureflow.conf
