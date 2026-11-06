@@ -117,6 +117,28 @@ class LiveOfficialTests(unittest.TestCase):
   self.assertEqual(search.call_args.kwargs["keyword"],"시스템")
   self.assertEqual(search.call_args.kwargs["category"],"")
   del mobile.JOBS[job_id]
+ def test_transient_websquare_login_popup_retries_one_fresh_official_search(self):
+  successful={"status":"partial_filtered_result","search_request_verified":True,
+   "live_filter_verified":True,"matched_explicit_detail10":[],
+   "pending_original_detail10_verification":[{"bid_no":"R26BM01034309","bid_ord":"000",
+    "title":"서울대학교병원 의료기기 입찰 공고","agency":"서울대학교병원",
+    "raw":{},"direct_category_codes":[],"posted_on":"20261106"}],
+   "official_total":1,"response_sha":"3"*64,"live_filters":{},"next_page":None}
+  blocked={"status":"blocked","search_request_verified":False,
+    "reason":"BID_NOTICE_SEARCH_CLICK_BLOCKED"}
+  with patch.object(mobile,"run_search",side_effect=[blocked,successful]) as fn:
+   result=mobile.verified_live_run("", "2026-11-01","2026-11-06",keyword="서울",region="")
+  self.assertTrue(result["live_filter_verified"])
+  self.assertEqual(fn.call_count,2)
+  self.assertEqual(fn.call_args_list[0].kwargs["keyword"],"서울")
+  self.assertEqual(fn.call_args_list[1].kwargs["keyword"],"서울")
+ def test_nontransient_official_failure_never_hides_or_retries(self):
+  blocked={"status":"blocked","reason":"OFFICIAL_LIVE_G2B_HTTP_403",
+    "search_request_verified":False}
+  with patch.object(mobile,"run_search",return_value=blocked) as fn:
+   result=mobile.verified_live_run("","2026-11-01","2026-11-06",keyword="서울")
+  self.assertEqual(result["reason"],"OFFICIAL_LIVE_G2B_HTTP_403")
+  self.assertEqual(fn.call_count,1)
  def test_blocked_live_search_does_not_fallback_to_database(self):
   job_id="d"*32
   mobile.JOBS[job_id]={"status":"queued","created_at":time.time(),"params":{},"result":None,"error":None}
