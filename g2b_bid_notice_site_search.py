@@ -568,8 +568,10 @@ def _dismiss_obstructing_public_popups(page, *, max_passes=5):
                              title.includes('로그인 페이지로 이동')){
                       login++;
                       const no=[...w.querySelectorAll('input,button,a,[role="button"]')]
-                        .find(e=>visible(e) && /^(아니오|취소|닫기|no|cancel)$/i
-                          .test((e.value||e.innerText||e.title||'').trim()));
+                        .find(e=>visible(e) && (
+                          /btnCancel$/i.test(e.id||'') ||
+                          /^(아니요|아니오|취소|닫기|no|cancel)$/i
+                            .test((e.value||e.innerText||e.title||'').trim())));
                       if(no){no.click();clicked++;}
                     }
                   }
