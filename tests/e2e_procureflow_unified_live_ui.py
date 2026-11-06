@@ -97,13 +97,20 @@ with sync_playwright() as playwright:
         button.wait_for(timeout=20000)
         require(page.locator("#p9-token").count()==0,"Token prompt unexpectedly present")
         require("전체 순차 실행" in button.inner_text(),"One-click 9-stage button missing")
+        # Never run official G2B collection automatically on git push/PR CI.
+        # One-shot external test requires an explicit manual workflow input.
+        if os.environ.get("PROCUREFLOW_ENABLE_ONE_SHOT_OFFICIAL_FETCH")!="1":
+            page.screenshot(path=str(OUT/"05_live_button_no_auto_collection.png"),full_page=True)
+            return {"live_button":True,"no_admin_token":True,
+                    "official_fetch":"NOT_INVOKED_IN_AUTOMATIC_CI",
+                    "worker_calls":0}
         seen=[]
         def track_request(req):
             if "/api/g2b/public/" in req.url:
                 seen.append(req.url)
         page.on("request",track_request)
         button.click(timeout=20000)
-        page.wait_for_function("() => document.body.innerText.includes('진행 9/9 단계')",timeout=240000)
+        page.wait_for_function("() => document.body.innerText.includes('진행 9/9 단계')",timeout=140000)
         response=context.request.get(BASE+"/api/procurement/public9/live-run",timeout=30000)
         require(response.status==200,"Live-run endpoint HTTP "+str(response.status))
         result=response.json()
