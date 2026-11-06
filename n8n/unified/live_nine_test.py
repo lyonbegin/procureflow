@@ -126,6 +126,50 @@ def _once(opener):
     except Exception:pass
     try:_fetch(opener,OFFICIAL+"/",timeout=3)
     except Exception:pass
+# These expected terms are a consistency CHECK for the current pinned test tender.
+# They are never used as output values. Actual fields must come from the file.
+TEST_TITLE_TOKENS=("철강·금속","인공지능전환","모니터링","소프트웨어 개발","용역")
+TEST_AGENCY_TOKEN="전남테크노파크"
+
+def _official_notice_fields(raw,ctype):
+    """Require title and issuing authority actually inside downloaded G2B original."""
+    doc,kind=_extract(raw,ctype)
+    flattened=re.sub(r"\s+"," ",doc).strip()
+    if not flattened or len(flattened)<100:
+        raise ValueError("ORIGINAL_NOTICE_EXTRACTED_TEXT_UNAVAILABLE")
+    def squish(x):
+        return re.sub(r"\s+","",x)
+    # Do not mistake the generic header '소액 수의 전자견적서 제출 공고'
+    # for the title enclosed by <...> in the original notice.
+    candidates=[x.strip(" \t\r\n<>〈〉") for x in re.findall(
+        r"[<〈]\s*([^<>〈〉]{15,300}?)\s*[>〉]",flattened)]
+    candidates.extend(x.strip() for x in re.findall(
+        r"(?:사\s*업\s*명|공\s*고\s*명)\s*[:：]\s*(.{15,220}?)(?=\s+(?:나[.]|내\s*역\s*[:：]|장\s*소\s*[:：]|기초금액\s*[:：]))",
+        flattened))
+    title=next((x for x in candidates
+                if all(squish(token) in squish(x) for token in TEST_TITLE_TOKENS)),None)
+    agency_match=re.search(
+        r"(?:수\s*요\s*기\s*관|발\s*주\s*기\s*관)\s*[:：]\s*"
+        r"((?:\(\s*재\s*\)|재단법인)\s*전남\s*테크노파크)",
+        flattened)
+    # Some HWP document authors omit the separate '수요기관:' label and
+    # print the issuer next to the official account signature.
+    if agency_match:
+        agency=agency_match.group(1).strip()
+    else:
+        name=re.search(r"((?:\(\s*재\s*\)|재단법인)\s*전남\s*테크노파크)",flattened)
+        agency=name.group(1).strip() if name else None
+    if not title or not agency or TEST_AGENCY_TOKEN not in squish(agency):
+        raise ValueError("ORIGINAL_NOTICE_TITLE_OR_AGENCY_NOT_VERIFIED")
+    budget_match=re.search(
+        r"(?:기\s*초\s*금\s*액|예\s*산)\s*[:：]?\s*(?:일\s*금)?\s*"
+        r"([\d,]{4,})\s*원",flattened)
+    budget=budget_match.group(1).replace(",","") if budget_match else None
+    return {"title":title,"agency":agency,"budget":budget,
+            "official_fields_verified":True,
+            "extracted_from":kind,
+            "source_text_sha256":sha256(doc.encode("utf-8")).hexdigest()}
+
 def _live_notice(opener,preload=None):
     """Prefer direct official notice listing, with official-original fallback.
 
@@ -144,15 +188,16 @@ def _live_notice(opener,preload=None):
                 raw,ctype=_fetch(opener,url,None,{"Referer":OFFICIAL+"/"})
                 if not (raw.startswith((b"\xd0\xcf\x11\xe0",b"%PDF",b"PK\x03\x04"))):
                     raise ValueError("OFFICIAL_ORIGINAL_FILE_SIGNATURE_INVALID")
+                fields=_official_notice_fields(raw,ctype)
                 if preload is not None:preload[seq]=(raw,ctype)
                 return {"bid_no":CASE,"bid_ord":"000",
-                    "source":url,"verified_by":"official_original_attachment",
+                    "source":url,"verified_by":"official_original_text",
                     "source_file_sha256":sha256(raw).hexdigest(),
                     "source_file_bytes":len(raw),"source_file_seq":seq,
-                    "notice_list": "UNAVAILABLE",
-                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:110],
-                    "title":None,"agency":None,
-                    "warning":"OFFICIAL_ATTACHMENT_CONFIRMS_SOURCE_ONLY_NOT_LATEST_LISTING"}
+                    "notice_list":"UNAVAILABLE",
+                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:150],
+                    "warning":"OFFICIAL_ORIGINAL_FIELDS_VERIFIED_LISTING_UNAVAILABLE",
+                    **fields}
             except Exception:
                 continue
         raise ValueError("OFFICIAL_NOTICE_LIST_AND_ATTACHMENTS_UNAVAILABLE:"
@@ -176,11 +221,21 @@ def _nuri_notice(opener):
             if isinstance(value,list) and (not value or isinstance(value[0],dict))]
     matches=[row for arr in arrays for row in arr if isinstance(row,dict)
              and row.get("bidPbancNo")==CASE]
-    if not matches:raise ValueError("SELECTED_TENDER_NOT_FOUND_IN_LIVE_OFFICIAL_RESPONSE")
+    if not matches:
+        raise ValueError("TARGET_NOT_IN_RETURNED_NURI_PAGE_1:"+
+                         "rows="+str(sum(len(a) for a in arrays))+
+                         ":page_size=20")
     row=matches[0]
+    title=str(row.get("bidPbancNm") or "").strip()
+    agency=str(row.get("pbancInstUntyGrpNoNm") or row.get("dmstNm") or "").strip()
+    if not title or not agency or not all(
+            re.sub(r"\s+","",token) in re.sub(r"\s+","",title)
+            for token in TEST_TITLE_TOKENS):
+        raise ValueError("NURI_MATCHED_ROW_TITLE_OR_AGENCY_NOT_VERIFIED")
     return {"bid_no":CASE,"bid_ord":str(row.get("bidPbancOrd") or "000"),
-            "title":str(row.get("bidPbancNm") or "")[:400],
-            "agency":str(row.get("pbancInstUntyGrpNoNm") or row.get("dmstNm") or "")[:180],
+            "title":title[:400],
+            "agency":agency[:180],
+            "official_fields_verified":True,
             "publication":str(row.get("pbancPstgDt") or row.get("bidPbancDt") or "")[:45],
             "budget":str(row.get("bsamt") or row.get("bssamt") or "")[:50],
             "source":NURI_LIST,
@@ -284,8 +339,12 @@ def _execute(run):
         _begin_stage(run,1)
         try:
             state["notice"]=_live_notice(opener,preload)
-            status=("partial" if state["notice"].get("verified_by")
-                    =="official_original_attachment" else "verified")
+            if (not state["notice"].get("official_fields_verified")
+                or not state["notice"].get("title")
+                or not state["notice"].get("agency")):
+                raise ValueError("N01_TITLE_AND_AGENCY_REQUIRED")
+            status=("partial" if state["notice"].get("notice_list")=="UNAVAILABLE"
+                    else "verified")
             _record(run,1,status,{"bid_no":CASE,"source":"official_nuri_live"},
                     state["notice"])
         except Exception as exc:
