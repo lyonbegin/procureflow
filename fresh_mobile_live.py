@@ -31,7 +31,7 @@ REGION_LABELS={
 }
 CATEGORY_LABELS={"it":"정보시스템","design":"디자인","food":"식품",
  "cleaning":"청소","interior":"시설공사","education":"교육",
- "office":"사무용품","etc":""}
+ "office":"사무용품","etc":"기타"}
 
 def _public(row,filters):
     raw=row.get("raw") or {}
