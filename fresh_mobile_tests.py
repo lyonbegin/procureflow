@@ -80,7 +80,9 @@ class MobileSearchTests(unittest.TestCase):
    mobile.mobile_notice_detail("../../etc/passwd","000")
   self.assertEqual(cx.exception.status_code,400)
  def test_official_code_vs_unverified_title_heuristic(self):
-  self.assertEqual(mobile.task_from_notice({"prcmBsneSeCd":"조070002"},"임대형공장 공사"),("SERVICE","official_code"))
+  self.assertEqual(mobile.task_from_notice({"prcmBsneSeCd":"조070002"},"임대형공장 공사"),("CONSTRUCTION","official_code"))
+  self.assertEqual(mobile.task_from_notice({"prcmBsneSeCd":"조070003"},"시스템 용역"),("SERVICE","official_code"))
+  self.assertEqual(mobile.task_from_notice({"prcmBsneSeCdNm":"용역","prcmBsneSeCd":"조070002"},"시스템 용역"),("SERVICE","official_label"))
   self.assertEqual(mobile.task_from_notice({},"서울시 신축 공사"),("CONSTRUCTION","title_keyword_unverified"))
  def test_no_date_or_amount_fabrication(self):
   item=mobile.map_notice(NOTICE)
