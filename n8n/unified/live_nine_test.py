@@ -80,7 +80,12 @@ def _hwp_text(raw):
         streams=sorted((p for p in ole.listdir() if len(p)==2 and p[0]=="BodyText" and p[1].startswith("Section")),key=lambda x:x[-1])
         for path in streams[:12]:
             buf=ole.openstream(path).read(MAX_BODY)
-            if flags&1:buf=zlib.decompress(buf,-15)
+            if flags&1:
+                # Cap HWP decompression to avoid high memory spikes.
+                inflater=zlib.decompressobj(-15)
+                buf=inflater.decompress(buf,MAX_TEXT*32)
+                if not inflater.eof:
+                    raise ValueError("HWP_SECTION_DECOMPRESSED_SIZE_LIMIT")
             i=0
             while i+4<=len(buf):
                 head=struct.unpack_from("<I",buf,i)[0];i+=4
