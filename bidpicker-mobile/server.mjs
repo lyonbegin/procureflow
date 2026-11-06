@@ -52,7 +52,7 @@ export function normalizeFreshResponse(raw,httpStatus,contentType){
  try{
    const data=JSON.parse(raw);
    if(data===null||typeof data!=='object')throw Error('not object');
-   return {httpStatus:200,body:JSON.stringify(data)};
+   return {httpStatus,body:JSON.stringify(data)};
  }catch{return {httpStatus:502,body:JSON.stringify({
     detail:'우리 나라장터 FastAPI의 응답을 해석할 수 없습니다.'})};}
 }
