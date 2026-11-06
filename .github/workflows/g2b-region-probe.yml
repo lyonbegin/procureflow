@@ -2,7 +2,7 @@ name: Probe public G2B region search fields
 on:
   push:
     branches: [feature/g2b-mobile-live-source-20261106]
-    paths: [.github/workflows/g2b-region-probe.yml]
+    paths: [.github/workflows/g2b-region-probe.yml, fresh_live_region_probe.py]
   workflow_dispatch:
 permissions: {contents: read}
 jobs:
