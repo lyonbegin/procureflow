@@ -1,0 +1,37 @@
+name: BidPicker original UI mobile web CI
+on:
+  push:
+    branches: [feature/bidpicker-mobile-original-ui-20261106]
+    paths:
+      - bidpicker-mobile/**
+      - .github/workflows/bidpicker-mobile-original-ui.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install and build mobile web
+        working-directory: bidpicker-mobile
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          npm test
+      - name: Install browser test tools
+        working-directory: bidpicker-mobile
+        run: |
+          npm install --no-save --no-audit playwright
+          npx playwright install --with-deps chromium
+      - name: Real mobile viewport interaction test
+        working-directory: bidpicker-mobile
+        run: |
+          PORT=8080 node server.mjs >/tmp/bidpicker-mobile-server.log 2>&1 &
+          for i in $(seq 1 20); do curl --fail -s http://127.0.0.1:8080/ >/dev/null && break; sleep 1; done
+          node tests/e2e.mjs
+      - name: Print server log on failure
+        if: failure()
+        run: cat /tmp/bidpicker-mobile-server.log || true
