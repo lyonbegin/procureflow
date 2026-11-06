@@ -36,7 +36,7 @@ COPY n8n/strategy-workflows/ /app/shared/playground/public/procure-workflows/ope
 RUN node -e 'const w=require("/app/shared/playground/public/procure-workflows/operations/A01-public-win-strategy.json");const links=Object.values(w.connections).flatMap(x=>(x.main||[]).flat());const h=w.connections["H04 · 구형·신형 공고 검증"].main[0].map(x=>x.node);if(w.nodes.length!==45||links.length!==54||w.nodes.filter(n=>/^public-(N|H|Q|S|P|R|O)\d{2}$/.test(n.id)).length!==43||w.nodes.find(n=>n.id==="public-H07-native-merge")?.parameters?.numberInputs!==2||!h.some(x=>x.startsWith("H05 ·"))||!h.some(x=>x.startsWith("H06 ·")))process.exit(1);console.log("A01_MANIFEST_DAG_BUILD_GATE_PASS",links.length)'
 COPY n8n/scenarios.json /app/shared/playground/public/procure-workflows/fixture-scenarios.json
 COPY n8n/unified/patch-catalog.mjs /tmp/patch-catalog.mjs
-RUN node /tmp/patch-catalog.mjs /app/shared/playground/src/procurement-adapter.js
+RUN node /tmp/patch-catalog.mjs /app/shared/playground/src/procurement-adapter.js /app/shared/playground/src/App.vue
 
 ENV VITE_EDITOR_PROJECT=procurement
 RUN npm --prefix /app/shared/playground run build \
