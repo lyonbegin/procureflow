@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {makeProxyUrl,normalizeUpstream,BIDPICKER_ORIGINAL_ROOT} from '../server.mjs';
+import {makeProxyUrl,normalizeUpstream,buildUpstreamHeaders,BIDPICKER_ORIGINAL_ROOT} from '../server.mjs';
 
 test('source base URL matches original XAPK',()=>{
  assert.equal(BIDPICKER_ORIGINAL_ROOT,'https://www.pickersoft.com/bidpicker-api/');
@@ -47,4 +47,20 @@ test('real JSON BidPageDto kept intact',()=>{
  const response=normalizeUpstream(JSON.stringify(data),200,'application/json');
  assert.equal(response.httpStatus,200);
  assert.deepEqual(JSON.parse(response.body),data);
+});
+
+test('authorized original app credentials can be configured as server secrets',()=>{
+ const h=buildUpstreamHeaders('https://www.pickersoft.com/bidpicker-api/api/bids',
+   {BIDPICKER_UPSTREAM_USERNAME:'example_user',BIDPICKER_UPSTREAM_PASSWORD:'example_pass'});
+ assert.equal(h.Authorization,'Basic '+Buffer.from('example_user:example_pass').toString('base64'));
+});
+test('missing credentials do not trigger artificial 503 or local blocking',()=>{
+ const h=buildUpstreamHeaders('https://www.pickersoft.com/bidpicker-api/api/bids',{});
+ assert.equal(h.Authorization,undefined);
+ assert.equal(h.Accept,'application/json');
+});
+test('authorization is never sent to the unrelated Bridge monitor',()=>{
+ const h=buildUpstreamHeaders('https://bidpicker-discovery-bridge-production.up.railway.app/api/bidpicker/status',
+  {BIDPICKER_UPSTREAM_USERNAME:'example',BIDPICKER_UPSTREAM_PASSWORD:'example'});
+ assert.equal(h.Authorization,undefined);
 });
