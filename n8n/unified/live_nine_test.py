@@ -126,7 +126,38 @@ def _once(opener):
     except Exception:pass
     try:_fetch(opener,OFFICIAL+"/")
     except Exception:pass
-def _live_notice(opener):
+def _live_notice(opener,preload=None):
+    """Prefer direct official notice listing, with official-original fallback.
+
+    If public WebSquare listing rejects the request, verify the selected bid
+    via its actual G2B attachment source. This is explicitly a partial notice
+    match, not proof of latest tender ordering.
+    """
+    try:
+        return _nuri_notice(opener)
+    except Exception as source_error:
+        for seq in (1,2):
+            qs=urlencode({"bidPbancNo":CASE,"bidPbancOrd":"000","fileType":"",
+                          "fileSeq":seq,"prcmBsneSeCd":"03"})
+            url=ATTACH+"?"+qs
+            try:
+                raw,ctype=_fetch(opener,url,None,{"Referer":OFFICIAL+"/"})
+                if not (raw.startswith((b"\xd0\xcf\x11\xe0",b"%PDF",b"PK\x03\x04"))):
+                    raise ValueError("OFFICIAL_ORIGINAL_FILE_SIGNATURE_INVALID")
+                if preload is not None:preload[seq]=(raw,ctype)
+                return {"bid_no":CASE,"bid_ord":"000",
+                    "source":url,"verified_by":"official_original_attachment",
+                    "source_file_sha256":sha256(raw).hexdigest(),
+                    "source_file_bytes":len(raw),"source_file_seq":seq,
+                    "notice_list": "UNAVAILABLE",
+                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:110],
+                    "title":None,"agency":None,
+                    "warning":"OFFICIAL_ATTACHMENT_CONFIRMS_SOURCE_ONLY_NOT_LATEST_LISTING"}
+            except Exception:
+                continue
+        raise ValueError("OFFICIAL_NOTICE_LIST_AND_ATTACHMENTS_UNAVAILABLE:"
+                         +type(source_error).__name__+":"+str(source_error)[:115])
+def _nuri_notice(opener):
     today=_now()
     payload={"dlParamM":{
         "bidPbancNo":CASE,"bidPbancOrd":"000","bidPbancNm":"",
@@ -154,15 +185,18 @@ def _live_notice(opener):
             "budget":str(row.get("bsamt") or row.get("bssamt") or "")[:50],
             "source":NURI_LIST,
             "source_fields":sorted(row.keys())[:85]}
-def _live_attachments(opener):
+def _live_attachments(opener,preload=None):
     out=[];texts=[]
     for seq in (1,2):
         qs=urlencode({"bidPbancNo":CASE,"bidPbancOrd":"000","fileType":"",
                       "fileSeq":seq,"prcmBsneSeCd":"03"})
         address=ATTACH+"?"+qs
         try:
-            raw,ctype=_fetch(opener,address,None,
-                 {"Accept":"application/octet-stream,*/*","Referer":OFFICIAL+"/"})
+            if preload and seq in preload:
+                raw,ctype=preload[seq]
+            else:
+                raw,ctype=_fetch(opener,address,None,
+                     {"Accept":"application/octet-stream,*/*","Referer":OFFICIAL+"/"})
             if raw[:20].lower().lstrip().startswith((b"<html",b"<!doctype")):
                 raise ValueError("OFFICIAL_RETURNED_HTML_NOT_DOCUMENT")
             digest=sha256(raw).hexdigest()
@@ -234,15 +268,16 @@ def _execute(run):
     try:
         # Each stage has its own bounded report. Fail-closed on unavailable source.
         _once(opener)
+        preloaded_attachments={}
         try:
-            state["notice"]=_live_notice(opener)
-            _record(run,1,"verified",{"bid_no":CASE,"source":"official_nuri_live"},
+            state["notice"]=_live_notice(opener,preloaded_attachments)
+            _record(run,1,"partial" if state["notice"].get("verified_by")=="official_original_attachment" else "verified",{"bid_no":CASE,"source":"official_nuri_live"},
                     state["notice"])
         except Exception as e:
             state["notice"]=None
             _record(run,1,"source_error",{"bid_no":CASE},
                     {"error":type(e).__name__+":"+str(e)[:180],"source":NURI_LIST})
-        docs,texts=_live_attachments(opener)
+        docs,texts=_live_attachments(opener,preloaded_attachments)
         state["docs"]=docs
         _record(run,2,"verified" if any("sha256" in v for v in docs) else "source_error",
                 {"bid_no":CASE,"request":"official_attachments_1_2"},
