@@ -140,6 +140,30 @@ class BridgeTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 422)
                 read.assert_not_called()
 
+    def test_ui_page_is_html_and_has_search_controls(self):
+        response = TestClient(b.app).get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn("공고 검색", response.text)
+        self.assertIn('id="searchForm"', response.text)
+
+    def test_public_readonly_search_fails_without_upstream_auth(self):
+        with patch.dict(os.environ, {"BIDPICKER_USERNAME": "", "BIDPICKER_PASSWORD": ""}):
+            with patch.object(b, "search_notices") as source:
+                response = TestClient(b.app).get("/api/bidpicker/discover?keyword=test&size=1")
+                self.assertEqual(response.status_code, 503)
+                source.assert_not_called()
+
+    def test_public_status_counts_only_separate_schema(self):
+        with patch.object(b, "connect_isolated") as connect:
+            connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = (0,)
+            response = TestClient(b.app).get("/api/bidpicker/status")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["stored_count"], 0)
+            self.assertFalse(response.json()["source_live_verified"])
+            connect.return_value.__enter__.return_value.execute.assert_called_with(
+                "SELECT count(*) FROM bidpicker_feed.notices")
+
     def test_no_legacy_import(self):
         import inspect
         source = inspect.getsource(b)
