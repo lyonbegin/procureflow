@@ -10,6 +10,34 @@ src=path.read_text()
 old='''    def do_POST(self):
         if urlsplit(self.path).path=="/api/procurement/public9/prepare":'''
 route='''    def do_POST(self):
+        if urlsplit(self.path).path=="/api/procurement/public9/run-all":
+            sid,new_cookie=self._sid()
+            if WORKFLOW_DIR!="procure-workflows":
+                return self._json(404,{"error":"PROCUREMENT_ONLY"},sid,new_cookie)
+            if new_cookie:
+                return self._json(403,{"error":"ESTABLISHED_STUDIO_SESSION_REQUIRED"},sid,new_cookie)
+            origin=self.headers.get("Origin","")
+            parsed=urlsplit(origin)
+            if (not origin or parsed.netloc!=self.headers.get("Host")
+                or parsed.scheme not in ("https","http")):
+                return self._json(403,{"error":"SAME_ORIGIN_REQUIRED"},sid,new_cookie)
+            if not self.headers.get("Content-Type","").startswith("application/json"):
+                return self._json(415,{"error":"JSON_REQUIRED"},sid,new_cookie)
+            try:
+                count=int(self.headers.get("Content-Length","0"))
+                if not 2<=count<=250:
+                    raise ValueError("INVALID_RUN_ALL_BODY")
+                body=json.loads(self.rfile.read(count))
+                import direct_public9
+                response=direct_public9.start(sid,DB_PATH,fixture_path,body)
+                return self._json(202,response,sid,new_cookie)
+            except ValueError as exc:
+                return self._json(409,{"error":str(exc),"bid_submitted":False},sid,new_cookie)
+            except RuntimeError as exc:
+                return self._json(503,{"error":str(exc),"bid_submitted":False},sid,new_cookie)
+            except Exception as exc:
+                return self._json(503,{"error":"DIRECT_NINE_STAGE_UNAVAILABLE",
+                    "detail":type(exc).__name__,"bid_submitted":False},sid,new_cookie)
         if urlsplit(self.path).path=="/api/procurement/public9/test":
             sid,cookie=self._sid()
             if WORKFLOW_DIR!="procure-workflows":
@@ -37,5 +65,13 @@ route='''    def do_POST(self):
                     "worker_executed":False,"bid_submitted":False},sid,cookie)
         if urlsplit(self.path).path=="/api/procurement/public9/prepare":'''
 if src.count(old)!=1:raise RuntimeError("PINNED_SERVER_POST_ROUTING_MISMATCH")
-path.write_text(src.replace(old,route))
+src=src.replace(old,route)
+start=src.index('        if urlsplit(self.path).path=="/api/procurement/public9/prepare":')
+end=src.index('        if urlsplit(self.path).path == "/api/investment/pipeline":',start)
+src=src[:start]+'''        if urlsplit(self.path).path=="/api/procurement/public9/prepare":
+            sid,cookie=self._sid()
+            return self._json(410,{"error":"LEGACY_WORKER_QUEUE_REMOVED_USE_RUN_ALL",
+                                   "bid_submitted":False},sid,cookie)
+'''+src[end:]
+path.write_text(src)
 print("PROCUREFLOW_TOKEN_FREE_READ_ONLY_TEST_ROUTE_INSTALLED")
