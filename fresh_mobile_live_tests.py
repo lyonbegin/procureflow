@@ -66,8 +66,56 @@ class LiveOfficialTests(unittest.TestCase):
   self.assertEqual(result["items"][0]["bidNo"],"R26BM01032671")
   self.assertEqual(result["db_reads"],0)
   self.assertTrue(result["live_search_verified"])
-  self.assertEqual(call.call_args.kwargs["keyword"],"우장산역")
-  self.assertEqual(call.call_args.kwargs["region"],"서울특별시")
+  self.assertEqual(call.call_args_list[0].kwargs["keyword"],"우장산역")
+  self.assertEqual(call.call_args_list[0].kwargs["region"],"")
+  self.assertEqual(call.call_args_list[1].kwargs["keyword"],"서울")
+  self.assertEqual(call.call_args_list[1].kwargs["region"],"")
+  self.assertEqual(result["regionMatchBasis"],"notice_title_or_agency_name")
+  self.assertEqual(result["appliedOfficialFilters"]["source_region_eligibility_code"],None)
+  del mobile.JOBS[job_id]
+ def test_seoul_location_selection_must_search_real_official_notice_titles(self):
+  job_id="e"*32
+  mobile.JOBS[job_id]={"status":"queued","created_at":time.time(),"params":{},"result":None,"error":None}
+  seoul={"bid_no":"R26BM01034309","bid_ord":"000",
+         "title":"서울대학교병원 의료장비 매각 공고","agency":"서울대학교병원",
+         "raw":{},"direct_category_codes":[],"posted_on":"20261106"}
+  other={"bid_no":"R26BM01034500","bid_ord":"000",
+         "title":"밀양중학교 전기공사","agency":"경상남도교육청",
+         "raw":{},"direct_category_codes":[],"posted_on":"20261106"}
+  result={"status":"partial_filtered_result","search_request_verified":True,
+         "live_filter_verified":True,"matched_explicit_detail10":[],
+         "pending_original_detail10_verification":[seoul,other],
+         "official_total":2,"response_sha":"1"*64,
+         "live_filters":{"keyword":"서울"},"next_page":2}
+  with patch.object(mobile,"run_search",return_value=result) as search:
+   mobile._work(job_id,mobile.clean_filters(region="서울"))
+  response=mobile.live_search_job(job_id)
+  self.assertEqual(response["status"],"completed")
+  self.assertEqual(response["total"],1)
+  self.assertEqual(response["items"][0]["bidNo"],"R26BM01034309")
+  self.assertTrue(all("서울" in x["title"] or "서울" in x["agencyName"] for x in response["items"]))
+  self.assertEqual(search.call_args.kwargs["keyword"],"서울")
+  self.assertEqual(search.call_args.kwargs["region"],"")
+  self.assertEqual(search.call_args.kwargs["category"],"")
+  self.assertEqual(response["db_reads"],0)
+  self.assertNotIn("참가제한지역 필드를 사용", " ".join(response["filterNotes"]))
+  del mobile.JOBS[job_id]
+ def test_it_category_must_not_be_an_unverified_exact_goods_code_search(self):
+  job_id="f"*32
+  mobile.JOBS[job_id]={"status":"queued","created_at":time.time(),"params":{},"result":None,"error":None}
+  actual={"bid_no":"R26BM01034496","bid_ord":"000",
+          "title":"공단 정보시스템 통합 유지관리 및 운영","agency":"공단",
+          "raw":{},"direct_category_codes":[],"posted_on":"20261106"}
+  response={"status":"partial_filtered_result","search_request_verified":True,
+    "live_filter_verified":True,"matched_explicit_detail10":[],
+    "pending_original_detail10_verification":[actual],"official_total":1,
+    "response_sha":"2"*64,"live_filters":{},"next_page":None}
+  with patch.object(mobile,"run_search",return_value=response) as search:
+   mobile._work(job_id,mobile.clean_filters(category="it"))
+  done=mobile.live_search_job(job_id)
+  self.assertEqual(done["total"],1)
+  self.assertEqual(search.call_args.kwargs["keyword"],"시스템")
+  self.assertEqual(search.call_args.kwargs["category"],"")
   del mobile.JOBS[job_id]
  def test_blocked_live_search_does_not_fallback_to_database(self):
   job_id="d"*32
