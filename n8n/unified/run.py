@@ -39,6 +39,8 @@ def main():
         raise SystemExit("UNIFIED_EXPECTS_RAILWAY_PORT_3000")
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+    # Railway mounts existing draft volume as root, after image build.
+    subprocess.run(["chown", "-R", "studio:studio", "/data"], check=True)
     launch("studio", ["gosu", "studio", "python3", "-u", "/app/studio_server.py"],
            {"PORT": "3001"})
     database = bool(os.environ.get("DATABASE_URL"))
