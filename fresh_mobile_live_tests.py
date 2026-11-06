@@ -127,6 +127,26 @@ class LiveOfficialTests(unittest.TestCase):
   with patch("g2b_bid_notice_site_search._frames",return_value=[FakeFrame()]):
    with self.assertRaisesRegex(SearchBlocked,"LOGIN_PROMPT_STILL_BLOCKING"):
     _dismiss_obstructing_public_popups(FakePage())
+ def test_live_only_fastapi_starts_without_any_database(self):
+  import os
+  import fresh_g2b_api as appmod
+  with patch.dict(os.environ,{"G2B_LIVE_ONLY_MODE":"1"}):
+   with patch.object(appmod.store,"initialize",side_effect=AssertionError("DB must never be reached")):
+    appmod.boot()
+  response=appmod.health()
+  self.assertEqual(response["status"],"ok")
+  self.assertFalse(response["db_connected"])
+  self.assertTrue(response["live_search_service_online"])
+  self.assertFalse(response["live_search_requires_db"])
+  self.assertIsNone(response["new_db_notices"])
+ def test_db_connection_failure_must_not_crash_live_search_server(self):
+  import os
+  import fresh_g2b_api as appmod
+  with patch.dict(os.environ,{"G2B_LIVE_ONLY_MODE":"0"}):
+   with patch.object(appmod.store,"initialize",side_effect=OSError("database hostname unavailable")):
+    appmod.boot()
+  self.assertEqual(appmod.health()["status"],"ok")
+  self.assertFalse(appmod.health()["db_connected"])
  def test_invalid_region_and_task_rejected(self):
   with self.assertRaisesRegex(ValueError,"UNSUPPORTED_REGION"):
    mobile.clean_filters(region="SOMEWHERE")
