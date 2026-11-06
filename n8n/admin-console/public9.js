@@ -58,18 +58,19 @@
  function progress(){
    return '<div class="actions" style="gap:8px;flex-wrap:wrap">'+
     STAGES.map((name,i)=>{
-      const s=stage(i);const active=st.selectedNode===i;
+      const s=stage(i);const active=st.selectedNode===i;const inProgress=st.run?.status==='running'&&st.run?.active_node==='N'+String(i+1).padStart(2,'0');
       return '<button class="btn small '+(active?'primary':'outline')+
        '" data-public9="node" data-index="'+i+
        '" style="min-width:195px;flex:1 1 200px;text-align:left">'+
-       esc(name)+'<div class="muted smalltxt">'+esc(s?.status||'미실행')+'</div></button>';
+       esc(name)+'<div class="muted smalltxt">'+esc(inProgress?'실행 중 · '+(st.run.active_title||'공식 사이트 응답 대기'):s?.status||'대기')+'</div></button>';
     }).join('')+'</div>';
  }
  function runSummary(){
    const r=st.run||{};
    return '<section class="panel"><h3>실제 수집 실행 기록</h3>'+
     '<p>실행 모드: <b>'+esc(r.mode||'on_demand_live_no_database')+'</b> · 상태: <b>'+
-    esc(r.status||'미실행')+'</b> · 진행 '+esc(r.completed_steps||0)+'/9 단계</p>'+
+    esc(r.status||'미실행')+'</b> · 완료 '+esc(r.completed_steps||0)+'/9 단계</p>'+
+    (r.status==='running'&&r.active_node?'<p class="notice"><b>현재 실행 중: '+esc(r.active_node)+' · '+esc(r.active_title)+'</b> · 공식 사이트 응답/다운로드를 확인하고 있습니다.</p>':'')+
     '<p class="muted smalltxt">PostgreSQL 조회 0회 · 외부 Worker 호출 0회 · Chromium 실행 0회 · 자동 투찰 없음</p>'+
     (r.run_id?'<p class="muted smalltxt">테스트 실행 ID: '+esc(r.run_id)+'</p>':'')+
     (r.run_id&&stage(7)?.output?.draft_generated?
