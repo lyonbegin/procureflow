@@ -29,9 +29,9 @@ REGION_LABELS={
  "전북":"전북특별자치도","전남":"전라남도","경북":"경상북도",
  "경남":"경상남도","제주":"제주특별자치도"
 }
-CATEGORY_LABELS={"it":"정보시스템","design":"디자인","food":"식품",
- "cleaning":"청소","interior":"시설공사","education":"교육",
- "office":"사무용품","etc":"기타"}
+CATEGORY_LABELS={"it":"시스템","design":"디자인","food":"급식",
+ "cleaning":"청소","interior":"공사","education":"교육",
+ "office":"납품","etc":"기타"}
 
 def _public(row,filters):
     raw=row.get("raw") or {}
@@ -93,10 +93,10 @@ def _work(job_id,params):
         # Do not silently send the unrelated eligibility restriction.
         area=params["region"] if params["region"]!="전국" else ""
         keyword=params["keyword"]
-        query_term=keyword or area
+        query_term=keyword or area or CATEGORY_LABELS.get(params["category"],"")
         result=run_search("",first,last,
            keyword=query_term,region="",
-           category=CATEGORY_LABELS.get(params["category"],""),
+           category="",
            task_type=params["task_type"],page=params["page"],size=params["size"])
         if not result.get("search_request_verified") or not result.get("live_filter_verified"):
             raise RuntimeError("G2B_LIVE_UNVERIFIED_"+str(result.get("reason") or result.get("status")))
@@ -104,11 +104,16 @@ def _work(job_id,params):
         if area:
             raw=[row for row in raw if area in (row.get("title") or "") or
                  area in (row.get("agency") or "")]
+        if params["category"]:
+            category_terms=CATEGORIES[params["category"]]
+            raw=[row for row in raw if any(term.lower() in
+                  ((row.get("title") or "")+" "+(row.get("agency") or "")).lower()
+                  for term in category_terms)]
         if area and keyword:
             # Two independent G2B live searches find keyword matches in
             # locality-labelled notices and locality matches under keyword.
             other=run_search("",first,last,keyword=area,region="",
-                category=CATEGORY_LABELS.get(params["category"],""),
+                category="",
                 task_type=params["task_type"],page=params["page"],size=params["size"])
             if not other.get("search_request_verified") or not other.get("live_filter_verified"):
                 raise RuntimeError("G2B_LIVE_UNVERIFIED_SECOND_REGION_QUERY_"+
@@ -117,12 +122,20 @@ def _work(job_id,params):
                 (other.get("matched_explicit_detail10") or [])+
                 (other.get("pending_original_detail10_verification") or [])
                 if keyword.lower() in ((row.get("title") or "")+" "+
-                      (row.get("agency") or "")).lower())
+                      (row.get("agency") or "")).lower() and
+                   (not params["category"] or any(term.lower() in
+                      ((row.get("title") or "")+" "+(row.get("agency") or "")).lower()
+                      for term in CATEGORIES[params["category"]])))
             dedup={}
             for row in raw:
                 dedup[(row["bid_no"],row["bid_ord"])]=row
             raw=list(dedup.values())[:params["size"]]
         items=[_public(x,params) for x in raw]
+        if area:
+            for item in items:
+                if not item["region"] and area in item["title"]:
+                    item["region"]=area
+                    item["regionBasis"]="notice_title_match"
         # Optional display constraints that are not verified as direct official
         # query fields (e.g. deadline) must be applied ONLY to this fresh response.
         if params["deadline_soon"]:
@@ -139,16 +152,15 @@ def _work(job_id,params):
            "live_search_verified":True,"requestWindow":result.get("request_window"),
            "officialEndpoint":result.get("live_search_endpoint"),
            "responseSha":result.get("response_sha"),
-           "appliedOfficialFilters":result.get("live_filters"),
            "regionMatchBasis":"notice_title_or_agency_name" if area else "none",
            "searchScope":"official_current_month_limited_pages",
            "appliedOfficialFilters":{"bidPbancNm":query_term,
                "source_region_eligibility_code":None,
-               "area_match":area or None,"category_name":CATEGORY_LABELS.get(params["category"],""),
+               "area_match":area or None,"category_search_term":CATEGORY_LABELS.get(params["category"],""),
                "task_type":params["task_type"],"page":params["page"],"size":params["size"]},
            "filterNotes":[
               "선택 조건으로 나라장터 공식 사이트에 매번 새로 검색합니다. DB 결과를 사용하지 않습니다.",
-              ("지역 '+area+'은 공고명·발주기관명에 지역명이 포함된 공고만 표시합니다. "
+              ("지역 "+area+"은 공고명·발주기관명에 지역명이 포함된 공고만 표시합니다. "
                "참가제한지역과 다르며 검색 범위에 따라 누락될 수 있습니다.") if area else
                "전국 공고를 검색합니다.",
               "현재 검색은 이번 달 공고의 지정 페이지 기준이며 전체 공고 전수검색은 아닙니다.",
