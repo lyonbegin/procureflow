@@ -76,11 +76,12 @@ function prettyDay(v){
 }
 function typeLabel(t){return ({GOODS:'물품',SERVICE:'용역',CONSTRUCTION:'공사',FOREIGN:'외자',ETC:'기타'})[t]||'입찰공고'}
 function getError(status){
- if(status===503)return '공고를 불러오지 못했어요. 원본 앱 검색 서버 인증이 아직 연결되지 않았습니다.';
- if(status===502)return '공고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
- if(status===429)return '요청이 많아요. 잠시 후 다시 시도해 주세요.';
- if(status===401)return '검색 서버 접근 권한을 확인할 수 없어요.';
- return '공고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+ if(status===401)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 401 (접근 거부).';
+ if(status===403)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 403 (접근 거부).';
+ if(status===503)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 503 (서비스 이용 불가).';
+ if(status===502)return '원본 입찰공고 알리미 API 연결/응답 오류 (HTTP 502).';
+ if(status===429)return '원본 API 요청 제한: HTTP 429.';
+ return '원본 입찰공고 알리미 API 응답: HTTP '+String(status||'알 수 없음')+'.';
 }
 
 function Chip({active=false,children,onClick,subtle=false}){
