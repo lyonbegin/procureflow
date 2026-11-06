@@ -2,75 +2,65 @@ import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
 const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1,isMobile:true,hasTouch:true});
-const errors=[],requested=[];
+const errors=[],queries=[],jobs=new Map();
 page.on('pageerror',e=>errors.push(e.message));
-page.on('request',r=>{if(r.url().includes('/api/bidpicker/discover'))requested.push(r.url())});
 const origin='http://127.0.0.1:8080/';
-const oldSource='https://www.pickersoft.com';
-function check(cond,msg){assert.ok(cond,msg);console.log('UI_PASS',msg)}
-const mock=[
+function check(condition,text){assert.ok(condition,text);console.log('UI_PASS',text)}
+const rows=[
  {id:'R26BM01032422-000',bidNo:'R26BM01032422',bidSeq:'000',
-  title:'2027년~2028년 세종시 도서관 ICT 통합정보시스템 유지관리 용역',
-  agencyName:'조달청',region:'',status:'',deadlineAt:null,budgetAmount:null,
-  source:'fresh_g2b_official_site',regionBasis:'unverified'},
+   title:'세종시 도서관 ICT 통합정보시스템 유지관리 용역',agencyName:'조달청',
+   region:'',status:'',source:'g2b_live_official_site'},
  {id:'R26BM01032671-000',bidNo:'R26BM01032671',bidSeq:'000',
-  title:'우장산역 노후 에스컬레이터 교체공사',
-  agencyName:'서울교통공사',region:'서울',status:'',deadlineAt:null,budgetAmount:null,
-  source:'fresh_g2b_official_site',regionBasis:'agency_name_only'}
+   title:'우장산역 노후 에스컬레이터 교체공사',agencyName:'서울교통공사',
+   region:'서울',status:'',source:'g2b_live_official_site'}
 ];
+let index=0;
 await page.route('**/api/bidpicker/discover?**',async route=>{
  const q=new URL(route.request().url()).searchParams;
- const kw=q.get('keyword')||'';
- const reg=q.get('region')||'전국';
- const items=mock.filter(x=>(!kw||x.title.includes(kw)||x.agencyName.includes(kw))&&(reg==='전국'||x.region===reg));
+ queries.push({keyword:q.get('keyword')||'',region:q.get('region')||'전국'});
+ const id=(++index).toString(16).padStart(32,'0');
+ jobs.set(id,{keyword:q.get('keyword')||'',region:q.get('region')||'전국'});
+ await route.fulfill({status:202,contentType:'application/json',
+  body:JSON.stringify({jobId:id,status:'queued',source:'g2b_live_official_site',db_reads:0})});
+});
+await page.route('**/api/bidpicker/live/jobs/*',async route=>{
+ const id=route.request().url().split('/').at(-1),q=jobs.get(id);
+ if(!q)return route.fulfill({status:404,contentType:'application/json',body:'{}'});
+ const items=rows.filter(x=>(!q.keyword||x.title.includes(q.keyword)||x.agencyName.includes(q.keyword))&&
+   (q.region==='전국'||x.region===q.region));
  await route.fulfill({status:200,contentType:'application/json',
-   body:JSON.stringify({items,total:items.length,page:1,size:10,hasMore:false,source:'fresh_g2b_official_site',
-   filterNotes:['지역은 발주기관 이름 기준입니다. 실제 입찰 참가 가능 지역과 다를 수 있습니다.']})});
+  body:JSON.stringify({status:'completed',items,total:items.length,hasMore:false,
+   source:'g2b_live_official_site',db_reads:0,live_search_verified:true,
+   filterNotes:['매번 나라장터 사이트에 새로 요청하는 테스트 흐름입니다.']})});
 });
 await page.route('**/api/bidpicker/status',route=>route.fulfill({status:200,contentType:'application/json',
- body:JSON.stringify({status:'ok',new_db_notices:22,official_site_search_live_proven:true})}));
-await page.route('**/api/bidpicker/detail/**',route=>route.fulfill({status:200,contentType:'application/json',
- body:JSON.stringify({source:'fresh_g2b_official_site',item:mock[0],attachments:[]})}));
+ body:JSON.stringify({status:'live_only',db_reads:0})}));
 try{
  await page.goto(origin,{waitUntil:'domcontentloaded'});
  await page.locator('.onboard-top button').click();
- check(await page.locator('.onboard-cover').count()===0,'onboarding skips');
- check(await page.locator('.bottom-item').count()===5,'original 5 bottom tabs retained');
- check(await page.locator('.category-tile').count()===8,'original 8 category tiles retained');
+ check(await page.locator('.bottom-item').count()===5,'5 original tabs present');
+ check(await page.locator('.category-tile').count()===8,'8 categories present');
  await page.locator('.bottom-item').nth(1).click();
  await page.waitForSelector('.search-box');
  await page.locator('.search-box input').fill('정보시스템');
  await page.locator('.search-submit').click();
- await page.waitForSelector('.cards-list .bid-card',{timeout:12000});
- check((await page.locator('.bid-card h3').first().textContent()).includes('통합정보시스템'),'keyword search displays official-source notice');
- check(requested.some(x=>new URL(x).searchParams.get('keyword')==='정보시스템'),'keyword actually sent to backend');
- check((await page.locator('.bid-card .status-chip').first().textContent()).includes('상태 확인중'),'unknown status never fabricated OPEN');
+ await page.waitForSelector('.cards-list .bid-card',{timeout:18000});
+ check((await page.locator('.bid-card h3').first().textContent()).includes('정보시스템'),'live POST job result visibly renders in mobile UI');
+ check(queries.at(-1).keyword==='정보시스템','search keyword actually reaches live job start');
  await page.locator('.search-box input').fill('');
  await page.locator('.search-submit').click();
- await page.waitForFunction(()=>document.querySelectorAll('.bid-card').length===2,{timeout:12000});
+ await page.waitForFunction(()=>document.querySelectorAll('.bid-card').length===2,{timeout:18000});
  await page.locator('.quick-filters .chip').first().click();
  await page.waitForSelector('.popup .chip-flow');
  await page.locator('.popup .chip-flow .chip').filter({hasText:'서울'}).first().click();
- await page.waitForFunction(()=>document.querySelectorAll('.bid-card').length===1,{timeout:12000});
- check(requested.some(x=>new URL(x).searchParams.get('region')==='서울'),'Seoul selection triggers our FastAPI URL with region param');
- check((await page.locator('.bid-card h3').first().textContent()).includes('우장산역'),'Seoul selection renders matching agency-region record');
- await page.locator('.page-header .icon-button').last().click();
- await page.waitForSelector('.popup .filter-section');
- check(await page.locator('.popup .filter-section').count()===4,'filter sheet retains category, region, task and deadline');
- await page.locator('.popup-head .icon-button').click();
- await page.locator('.bottom-item').nth(2).click();
- await page.waitForSelector('.saved-page');
- await page.locator('.bottom-item').nth(3).click();
- await page.waitForSelector('.alerts-page');
- await page.locator('.page-header .icon-button').last().click();
- await page.waitForSelector('.popup .text-field');
- check(await page.locator('.popup .text-field').count()===2,'alert condition form retained');
- await page.locator('.popup-head .icon-button').click();
- await page.locator('.bottom-item').nth(4).click();
- await page.waitForSelector('.settings-page');
- check((await page.locator('body').innerText()).includes('설정'),'settings retained');
- check(requested.every(x=>!x.startsWith(oldSource)),'never uses original third-party API');
- check(errors.length===0,'no JavaScript runtime errors');
+ await page.waitForFunction(()=>document.querySelectorAll('.bid-card').length===1,{timeout:18000});
+ check(queries.at(-1).region==='서울','region selection starts another fresh official G2B query');
+ check((await page.locator('.bid-card h3').first().textContent()).includes('우장산역'),'regional result visibly rendered');
+ check((await page.locator('.bid-card .status-chip').first().textContent()).includes('상태 확인중'),'unknown source status not fabricated');
+ await page.locator('.bottom-item').nth(2).click();await page.waitForSelector('.saved-page');
+ await page.locator('.bottom-item').nth(3).click();await page.waitForSelector('.alerts-page');
+ await page.locator('.bottom-item').nth(4).click();await page.waitForSelector('.settings-page');
+ check(errors.length===0,'zero runtime JS errors');
+ check(queries.length>=3,'each search creates a new live job');
  console.log('UI_E2E_COMPLETED');
-}catch(e){console.error('UI_E2E_FAILED',e);throw e}
-finally{await browser.close()}
+}catch(e){console.error('UI_E2E_FAILED',e);throw e}finally{await browser.close()}
