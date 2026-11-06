@@ -24,7 +24,7 @@ class NoRedirect(HTTPRedirectHandler):
         raise ValueError("PUBLIC_API_REDIRECT_REFUSED")
 
 def _request(path,method="GET",body=None,token=None,*,opener=None):
-    if not path.startswith("/api/g2b/public/") or "://" in path or ("?" in path and not path.startswith("/api/g2b/public/notices?")):
+    if not path.startswith("/api/g2b/public/") or "://" in path or ("?" in path and not (path.startswith("/api/g2b/public/notices?") or path.startswith("/api/g2b/public/selected/search?"))):
         raise ValueError("UNREGISTERED_BACKEND_ENDPOINT")
     if method not in ("GET","POST"):
         raise ValueError("INVALID_METHOD")
