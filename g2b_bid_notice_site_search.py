@@ -164,8 +164,33 @@ def _verified_date_replay(original, detail10, start, end):
     return payload
 
 
+def _select_official_region_code(page,region):
+    """Choose a real region option in the public WebSquare select element.
+
+    The UI's sbxOdnLmtLgdngCd is a SELECT, not a free-form text field.
+    A name-only POST is silently ignored by the G2B site. Never guess a code.
+    """
+    if not region:return ""
+    for frame in _frames(page):
+        try:
+            selector=frame.locator('select[id$="sbxOdnLmtLgdngCd"]:visible')
+            if not selector.count():continue
+            field=selector.first
+            field.select_option(label=region,timeout=4000)
+            code=str(field.input_value() or "").strip()
+            if not code:
+                raise SearchBlocked("OFFICIAL_REGION_OPTION_SELECTED_WITHOUT_CODE")
+            page.wait_for_timeout(350)
+            return code
+        except SearchBlocked:
+            raise
+        except Exception:
+            continue
+    raise SearchBlocked("OFFICIAL_REGION_SELECT_OPTION_NOT_FOUND")
+
+
 def _verified_live_filter_replay(original,detail10,start,end,*,keyword="",region="",
-                                  category="",task_type="",page=1,size=10):
+                                  category="",task_type="",page=1,size=10,region_code=""):
     """Replay only a genuine observed G2B WebSquare POST with user filters."""
     payload=_verified_date_replay(original,detail10,start,end)
     fields=json.loads(payload)["dlBidPbancLstM"]
@@ -175,6 +200,10 @@ def _verified_live_filter_replay(original,detail10,start,end,*,keyword="",region
         if value:
             if key not in fields:raise SearchBlocked("OFFICIAL_LIVE_FIELD_NOT_OBSERVED_"+key)
             fields[key]=value
+    if region:
+        if "odnLmtLgdngCd" not in fields or not region_code:
+            raise SearchBlocked("OFFICIAL_LIVE_REGION_CODE_NOT_VERIFIED")
+        fields["odnLmtLgdngCd"]=region_code
     if task_type:
         if "prcmBsneSeCd" not in fields:raise SearchBlocked("OFFICIAL_LIVE_TASK_FIELD_NOT_OBSERVED")
         code={"GOODS":"조070001","CONSTRUCTION":"조070002",
@@ -778,6 +807,8 @@ def run_search(detail10,start,end,cursor=None,page=1,*,keyword="",region="",cate
             _dismiss_public_notices(tab)
             tab.wait_for_timeout(1600)
             _dismiss_public_notices(tab)
+            stage="region_selection"
+            region_code=_select_official_region_code(tab,region)
             stage="submit_search"
             # Require an actual site search button and form submission.
             if not _click_notice_search(tab):
@@ -792,7 +823,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,keyword="",region="",cate
             original=date_replay_candidates[-1]
             payload=_verified_live_filter_replay(original,detail10,w["start"],w["end"],
                 keyword=keyword,region=region,category=category,task_type=task_type,
-                page=page,size=size)
+                page=page,size=size,region_code=region_code)
             allowed={"accept","content-type","menu-info","submissionid",
                      "usr-id","referer","x-requested-with","target-id"}
             headers={k:v for k,v in original.headers.items() if k.lower() in allowed}
@@ -869,6 +900,7 @@ def run_search(detail10,start,end,cursor=None,page=1,*,keyword="",region="",cate
                  live_filter_verified=True,db_reads=0,
                  live_filters={"keyword":keyword,"region_restriction":region,
                                "category_name":category,"task_type":task_type,
+                               "region_code_from_g2b_selector":region_code,
                                "page":page,"size":size})
             context.close()
             browser.close()
