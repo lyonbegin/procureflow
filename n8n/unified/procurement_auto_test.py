@@ -33,8 +33,13 @@ def approved_filter(workflow):
     if (url.scheme,url.netloc,url.path)!=("https","procureflow-api-production.up.railway.app","/api/g2b/public/selected/search"):
         raise ValueError("SEARCH_NODE_SOURCE_NOT_APPROVED")
     params=parse_qs(url.query,keep_blank_values=True)
-    if set(params)!={"start","end","detail10","kind","agency"} or any(len(v)!=1 for v in params.values()):
+    allowed={"start","end","detail10","kind","agency","limit","offset"}
+    required={"start","end","detail10","kind"}
+    if not required.issubset(params) or set(params)-allowed or any(len(v)!=1 for v in params.values()):
         raise ValueError("SEARCH_NODE_QUERY_NOT_APPROVED")
+    limit,offset=params.get("limit",["100"])[0],params.get("offset",["0"])[0]
+    if not limit.isdigit() or not 1<=int(limit)<=200 or not offset.isdigit() or not 0<=int(offset)<=50000:
+        raise ValueError("SEARCH_NODE_PAGINATION_NOT_APPROVED")
     start,end=params["start"][0],params["end"][0]
     if params["detail10"][0]!=DETAIL or params["kind"][0]!="opening":
         raise ValueError("SEARCH_NODE_TENDER_CATEGORY_NOT_APPROVED")
@@ -44,7 +49,7 @@ def approved_filter(workflow):
         raise ValueError("SEARCH_NODE_DATE_INVALID") from None
     if not datetime.date(2016,10,24)<=a<=b<=datetime.date(2026,10,22):
         raise ValueError("SEARCH_NODE_DATE_OUT_OF_RANGE")
-    agency=params["agency"][0]
+    agency=params.get("agency",[""])[0]
     if len(agency)>100 or any(ord(c)<32 for c in agency):
         raise ValueError("SEARCH_NODE_AGENCY_INVALID")
     return {"start":start,"end":end,"agency":agency,"detail10":DETAIL,"kind":"opening"}
