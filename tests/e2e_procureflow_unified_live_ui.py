@@ -6,9 +6,9 @@ read-only API assertion fails. Store screenshots and JSON trace in artifact.
 """
 from playwright.sync_api import sync_playwright
 from pathlib import Path
-import json, traceback, sys, time
+import json, traceback, sys, time, os
 
-BASE="https://procureflow-unified-studio-candidate-production.up.railway.app"
+BASE=os.environ.get("PROCUREFLOW_UI_BASE","https://procureflow-unified-studio-candidate-production.up.railway.app")
 OUT=Path("artifacts/unified-live-ui")
 OUT.mkdir(parents=True, exist_ok=True)
 results=[]
