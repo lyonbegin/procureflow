@@ -1,10 +1,5 @@
 name: ProcureFlow official N01 single-shot evidence check
 on:
-  push:
-    branches:
-      - feature/procureflow-unified-studio-20261107
-    paths:
-      - tests/one_shot_g2b_n01_probe.py
   workflow_dispatch:
 
 permissions:
