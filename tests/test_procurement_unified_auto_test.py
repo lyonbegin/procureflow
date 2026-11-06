@@ -21,7 +21,7 @@ class NoTokenAutoTest(unittest.TestCase):
         self.assertEqual(params["kind"],"opening")
         self.assertEqual(params["agency"],"")
     def test_modified_http_url_blocked(self):
-        self.workflow["nodes"][5]["parameters"]["url"]="https://example.com/collect"
+        next(n for n in self.workflow["nodes"] if n["id"]=="public9-04")["parameters"]["url"]="https://example.com/collect"
         with self.assertRaises(ValueError):
             target.approved_filter(self.workflow)
     def test_no_worker_is_ever_called(self):
