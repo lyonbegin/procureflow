@@ -66,6 +66,9 @@ with sync_playwright() as pw:
     "title_contains_seoul":sum("서울" in v for v in titles),
     "examples":[{"agency":x["agency"][:65],"title":x["title"][:100]} for x in (records or [])[:4]]},ensure_ascii=False),flush=True)
   except Exception as e:print("G2B_PROBE",json.dumps({"name":name,"error_type":type(e).__name__}),flush=True)
+ print("G2B_FIELD_DEFAULTS",json.dumps({k:fields.get(k) for k in
+   ("dmstNm","instSearchRangeYn","bidPbancNm","odnLmtLgdngCd","odnLmtLgdngNm")},
+   ensure_ascii=False),flush=True)
  probe("baseline",{})
  for name,key in [
     ("agency_name1","oderInstUntyGrpNm"),
@@ -75,4 +78,7 @@ with sync_playwright() as pw:
     ("notice_keyword","bidPbancNm")
  ]:
   if key in fields:probe(name,{key:"서울"})
+ if "dmstNm" in fields and "instSearchRangeYn" in fields:
+  for value in ("Y","N","1"):
+   probe("agency_name_range_"+value,{"dmstNm":"서울","instSearchRangeYn":value})
  ctx.close();browser.close()
