@@ -76,12 +76,10 @@ function prettyDay(v){
 }
 function typeLabel(t){return ({GOODS:'물품',SERVICE:'용역',CONSTRUCTION:'공사',FOREIGN:'외자',ETC:'기타'})[t]||'입찰공고'}
 function getError(status){
- if(status===401)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 401 (접근 거부).';
- if(status===403)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 403 (접근 거부).';
- if(status===503)return '원본 입찰공고 알리미 API의 실제 응답: HTTP 503 (서비스 이용 불가).';
- if(status===502)return '원본 입찰공고 알리미 API 연결/응답 오류 (HTTP 502).';
- if(status===429)return '원본 API 요청 제한: HTTP 429.';
- return '원본 입찰공고 알리미 API 응답: HTTP '+String(status||'알 수 없음')+'.';
+ if(status===502||status===503)return '우리 나라장터 수집 FastAPI에 연결할 수 없습니다. 서버 상태를 확인해 주세요.';
+ if(status===429)return '나라장터 데이터 조회 요청이 많습니다. 잠시 후 재시도해 주세요.';
+ if(status===400)return '검색 조건을 확인해 주세요.';
+ return '우리 나라장터 수집 서버 오류: HTTP '+String(status||'알 수 없음')+'.';
 }
 
 function Chip({active=false,children,onClick,subtle=false}){
@@ -92,7 +90,8 @@ function EmptyState({Icon=FileText,title,body,action,actionText}){
 }
 function StatusChip({bid}){
  const urgent=bid.deadlineSoon||bid.status==='SOON';
- return <span className={'status-chip '+(urgent?'urgent':bid.status==='CLOSED'?'closed':'')}><Clock size={11}/>{urgent?'오늘 마감':bid.status==='CLOSED'?'마감':'공고중'}</span>;
+ const unknown=!urgent&&!['OPEN','CLOSED'].includes(bid.status);
+ return <span className={'status-chip '+(urgent?'urgent':bid.status==='CLOSED'?'closed':'')}><Clock size={11}/>{urgent?'마감 임박':bid.status==='CLOSED'?'마감':unknown?'상태 확인중':'공고중'}</span>;
 }
 function BidCard({bid,onOpen,saved,onSave}){
  if(!bid)return null;
@@ -152,6 +151,7 @@ function App(){
  const [categoriesTemp,setCategoriesTemp]=useState([]);
  const [activeOnboard,setActiveOnboard]=useState(false);
  const [prefetched,setPrefetched]=useState(false);
+ const [homeLatest,setHomeLatest]=useState([]);
  const inputRef=useRef(null);
  const mainScroll=useRef(null);
  const tab=route.split('/')[0];
@@ -164,10 +164,27 @@ function App(){
  const keyOf=(b)=>asText(b?.id||b?.bidNo)+'#'+asText(b?.bidSeq);
  const isSaved=(b)=>saved.some(x=>keyOf(x)===keyOf(b));
  function toggleSave(b){setSaved(prev=>{const arr=Array.isArray(prev)?prev:[];return arr.some(x=>keyOf(x)===keyOf(b))?arr.filter(x=>keyOf(x)!==keyOf(b)):[{...b,savedAt:new Date().toISOString()},...arr].slice(0,500)})}
- function openDetail(b){setDetailBid(b);try{sessionStorage.setItem('bidpicker.detail',JSON.stringify(b))}catch{}go('detail/'+encodeURIComponent(b.id||b.bidNo))}
+ function openDetail(b){
+  setDetailBid(b);try{sessionStorage.setItem('bidpicker.detail',JSON.stringify(b))}catch{}
+  go('detail/'+encodeURIComponent(b.id||b.bidNo));
+  if(b.bidNo&&b.bidSeq){
+   fetch(API_ROOT+'/detail/'+encodeURIComponent(b.bidNo)+'/'+encodeURIComponent(b.bidSeq))
+    .then(r=>r.ok?r.json():null)
+    .then(data=>{if(data?.item){const verified=normalizeBid(data.item);if(verified)setDetailBid(verified);}})
+    .catch(()=>{});
+  }
+ }
  useEffect(()=>{if(tab==='detail'&&!detailBid){try{const b=JSON.parse(sessionStorage.getItem('bidpicker.detail')||'null');if(b)setDetailBid(b)}catch{}}},[tab,detailBid]);
  useEffect(()=>{if(tab==='interest_categories')setCategoriesTemp(Array.isArray(interestCats)?interestCats:[])},[tab]);
  useEffect(()=>{fetch(API_ROOT+'/status').then(async r=>r.ok?await r.json():null).then(setStatus).catch(()=>{})},[]);
+ useEffect(()=>{
+  let live=true;
+  fetch(API_ROOT+'/discover?page=1&size=4&include_closed=true')
+   .then(r=>r.ok?r.json():null)
+   .then(data=>{if(live&&Array.isArray(data?.items))setHomeLatest(data.items.map(normalizeBid).filter(Boolean));})
+   .catch(()=>{});
+  return ()=>{live=false};
+ },[]);
 
  async function load(queryValue,extend=false){
   if(loading)return;
@@ -185,7 +202,7 @@ function App(){
    const incoming=Array.isArray(data.items)?data.items.map(normalizeBid).filter(Boolean):[];
    if(!Array.isArray(data.items))throw Error('502');
    setResults(prev=>extend?[...prev,...incoming]:incoming);
-   setResultsMeta({total:typeof data.total==='number'?data.total:incoming.length,hasMore:data.hasMore===true,loaded:incoming.length});
+   setResultsMeta({total:typeof data.total==='number'?data.total:incoming.length,hasMore:data.hasMore===true,loaded:incoming.length,filterNotes:Array.isArray(data.filterNotes)?data.filterNotes:[],source:data.source||''});
   }catch(e){setSearchError(getError(Number(e.message)||502));if(!extend){setResults([]);setResultsMeta(null);}}
   finally{setLoading(false)}
  }
@@ -195,8 +212,8 @@ function App(){
  function openFilter(){setFilter({...query});setPopup('filters')}
  function clearFilter(){setFilter({keyword:query.keyword,category:'',region:'전국',taskType:'',deadlineSoon:false,includeClosed:false,sort:'latest',page:1,size:10})}
  function loadNext(){if(!resultsMeta?.hasMore||loading)return;const next={...query,page:query.page+1};setQuery(next);load(next,true)}
- function selectCategory(id){runSearch({category:id})}
- function selectRegion(r){runSearch({region:r})}
+ function selectCategory(id){runSearch({category:id,...(tab==='home'?{keyword:'',region:'전국'}:{})})}
+ function selectRegion(r){runSearch({region:r,...(tab==='home'?{keyword:'',category:''}:{})})}
  function saveRule(){
   const k=alertsForm.keyword.trim();if(!k&&!alertsForm.category&&!alertsForm.taskType&&(!alertsForm.region||alertsForm.region==='전국')){setPreviewNotice('키워드나 업종·지역·업무구분 중 하나 이상을 골라 주세요.');return}
   setAlertRules(prev=>[...prev,{...alertsForm,id:Date.now(),localOnly:true,label:alertsForm.label.trim()||alertsForm.keyword.trim()||'맞춤 조건'}]);setPopup('');setAlertsForm({label:'',keyword:'',category:'',region:'전국',taskType:''});setPreviewNotice('');
@@ -226,13 +243,15 @@ function App(){
    <SectionHeading title="업종으로 찾기"/>
    <p className="section-sub">내 업종을 누르면 관련 공고만 모아봐요</p>
    <div className="category-grid">{CATEGORIES.map(({id,text,Icon})=><button className="category-tile" key={id} onClick={()=>selectCategory(id)}><span className={'tile-icon '+id}><Icon size={20} strokeWidth={1.9}/></span><span>{text}</span></button>)}</div>
+   <SectionHeading title="실제 수집된 최신 입찰공고" link="모두 보기" action={()=>runSearch({keyword:'',category:'',region:'전국'})}/>
+   {homeLatest.length?<div className="home-list">{homeLatest.slice(0,3).map((b,i)=><BidCard key={keyOf(b)+i} bid={b} onOpen={openDetail} saved={isSaved(b)} onSave={toggleSave}/>)}</div>:<div className="home-empty compact"><Search size={20}/><p>현재 수집된 공고를 확인하고 있습니다.</p></div>}
    <SectionHeading title="지역으로 찾기" link="전체" action={()=>setPopup('region-home')}/><p className="section-sub">내 지역 공고를 한눈에</p>
    <div className="region-row">{REGIONS.slice(0,7).map(x=><button className="region-mini" onClick={()=>selectRegion(x)} key={x}><MapPin size={12}/>{x}</button>)}</div>
    <SectionHeading title="인기 검색어"/>
-   <div className="plain-subtle">현재 인기 검색어 데이터는 원본 서버 연결 후 표시됩니다.</div>
+   <div className="plain-subtle">인기 검색어 순위는 아직 집계되지 않았습니다.</div>
    <SectionHeading title="마감 임박" link="모두 보기" action={()=>runSearch({deadlineSoon:true})}/>
    <div className="home-empty compact"><Clock size={22}/><p>곧 마감돼요. 서두르세요!<br/>실제 공고를 불러오지 못했습니다.</p></div>
-   <div className="source-line">자료: 조달청 나라장터(공공데이터포털) · 공고 원문이 최종 기준입니다.</div>
+   <div className="source-line">자료: 나라장터 공식 웹사이트 자체 수집 · 공고일과 마감일 등 미확인 항목은 별도 검증이 필요합니다.</div>
   </div>
  </>}
  {tab==='search'&&<>
@@ -241,7 +260,8 @@ function App(){
    <form className="search-box" onSubmit={e=>{e.preventDefault();runSearch()}}><Search size={17}/><input aria-label="검색어" placeholder="공고명·키워드 (예: 청소, 급식)" value={query.keyword} onChange={e=>setQuery({...query,keyword:e.target.value})} ref={inputRef}/>{query.keyword&&<button type="button" className="clear-input" aria-label="지우기" onClick={()=>setQuery({...query,keyword:''})}><X size={15}/></button>}<button type="submit" className="search-submit">검색</button></form>
    <div className="sort-strip">{SORTS.map(x=><Chip key={x.id} active={query.sort===x.id} onClick={()=>switchSort(x.id)}>{x.text}</Chip>)}</div>
    <div className="quick-filters"><Chip active={query.region!=='전국'} onClick={()=>{setFilter(query);setPopup('regions')}}><MapPin size={13}/>{query.region||'전국'}</Chip><Chip active={query.deadlineSoon} onClick={()=>runSearch({deadlineSoon:!query.deadlineSoon})}>마감임박만</Chip><Chip active={query.includeClosed} onClick={()=>runSearch({includeClosed:!query.includeClosed})}>마감 포함</Chip><button type="button" className="filter-trigger" onClick={openFilter}><SlidersHorizontal size={14}/> 필터</button></div>
-   {requestStarted?<div className="search-results-header"><span>{loading?'공고를 불러오는 중…':searchError?'검색':'검색 결과'}</span><b>{loading?'':searchError?'':countText}</b></div>:<div className="search-intro"><SectionHeading title="최근 검색어" link={recent.length?'모두 삭제':null} action={()=>setPopup('clear-recent')}/>{recent.length?<div className="recent-list">{recent.slice(0,10).map(x=><span key={x}><button onClick={()=>runSearch({keyword:x})}><Clock size={13}/>{x}</button><button title="삭제" onClick={()=>setRecent(recent.filter(v=>v!==x))}><X size={14}/></button></span>)}</div>:<p className="hint-copy">최근 검색어가 없어요</p>}<SectionHeading title="인기 검색어"/><p className="hint-copy">인기 검색어는 원본 서버 연결 후 표시됩니다.</p></div>}
+   {requestStarted?<div className="search-results-header"><span>{loading?'공고를 불러오는 중…':searchError?'검색':'검색 결과'}</span><b>{loading?'':searchError?'':countText}</b></div>:<div className="search-intro"><SectionHeading title="최근 검색어" link={recent.length?'모두 삭제':null} action={()=>setPopup('clear-recent')}/>{recent.length?<div className="recent-list">{recent.slice(0,10).map(x=><span key={x}><button onClick={()=>runSearch({keyword:x})}><Clock size={13}/>{x}</button><button title="삭제" onClick={()=>setRecent(recent.filter(v=>v!==x))}><X size={14}/></button></span>)}</div>:<p className="hint-copy">최근 검색어가 없어요</p>}<SectionHeading title="인기 검색어"/><p className="hint-copy">인기 검색어는 현재 집계되지 않았습니다.</p></div>}
+   {requestStarted&&!loading&&!searchError&&resultsMeta?.filterNotes?.length>0&&<div className="inline-notice"><Info size={15}/><div>{(query.region!=='전국'||query.category||query.taskType||query.deadlineSoon)?resultsMeta.filterNotes.join(' '):'나라장터 공식 사이트에서 수집한 공고를 조회합니다. 공고별 상세 정보는 원문이 최종 기준입니다.'}</div></div>}
    {requestStarted&&loading&&!results.length&&<div className="loading-message"><RefreshCw className="spin" size={21}/>공고를 불러오는 중…</div>}
    {requestStarted&&searchError&&!loading&&<div className="error-panel"><AlertCircle size={25}/><h3>공고를 불러오지 못했어요</h3><p>{searchError}</p><button className="outline-btn" onClick={()=>load(query)}>다시 시도</button><small>실제 공고가 확인되지 않아 임의 데이터를 표시하지 않습니다.</small></div>}
    {requestStarted&&!searchError&&results.length===0&&!loading&&<EmptyState Icon={Search} title="검색 결과가 없어요" body="키워드나 지역·업무구분 필터를 바꿔서 다시 찾아보세요."/>}
@@ -313,7 +333,7 @@ function App(){
   <div className="filter-section"><h3>업무구분</h3><div className="chip-flow">{TYPES.map(t=><Chip key={t.id} active={filter.taskType===t.id} onClick={()=>setFilter({...filter,taskType:t.id})}>{t.text}</Chip>)}</div></div>
   <div className="filter-section"><h3>마감 조건</h3><label className="switch-row"><span>마감 임박만 보기</span><input type="checkbox" checked={filter.deadlineSoon} onChange={e=>setFilter({...filter,deadlineSoon:e.target.checked})}/></label><label className="switch-row"><span>마감된 공고도 포함</span><input type="checkbox" checked={filter.includeClosed} onChange={e=>setFilter({...filter,includeClosed:e.target.checked})}/></label></div>
  </Popup>}
- {(popup==='regions'||popup==='region-home'||popup==='interest-region')&&<Popup title="지역" onClose={()=>setPopup('')} footer={<button className="filled-btn full" onClick={()=>setPopup('')}>닫기</button>}><p className="popup-helper">전국을 고르면 지역 제한 없이 모두 보여드려요.</p><div className="chip-flow">{REGIONS.map(r=><Chip key={r} active={popup==='interest-region'?interestRegion===r:query.region===r} onClick={()=>{if(popup==='interest-region'){setInterestRegion(r);setPopup('')}else selectRegion(r)}}>{r}</Chip>)}</div></Popup>}
+ {(popup==='regions'||popup==='region-home'||popup==='interest-region')&&<Popup title="지역" onClose={()=>setPopup('')} footer={<button className="filled-btn full" onClick={()=>setPopup('')}>닫기</button>}><p className="popup-helper">지역은 현재 발주기관명 기준으로 검색합니다. 실제 입찰 참가 지역 제한과는 다릅니다.</p><div className="chip-flow">{REGIONS.map(r=><Chip key={r} active={popup==='interest-region'?interestRegion===r:query.region===r} onClick={()=>{if(popup==='interest-region'){setInterestRegion(r);setPopup('')}else selectRegion(r)}}>{r}</Chip>)}</div></Popup>}
  {popup==='clear-saved'&&<Popup title="저장한 공고를 모두 지울까요?" onClose={()=>setPopup('')} small footer={<><button className="outline-btn" onClick={()=>setPopup('')}>취소</button><button className="danger-btn" onClick={()=>{setSaved([]);setPopup('')}}>삭제</button></>}><p className="popup-helper">이 작업은 되돌릴 수 없어요.</p></Popup>}
  {popup==='clear-recent'&&<Popup title="최근 검색어를 모두 지울까요?" onClose={()=>setPopup('')} small footer={<><button className="outline-btn" onClick={()=>setPopup('')}>취소</button><button className="danger-btn" onClick={()=>{setRecent([]);setPopup('')}}>삭제</button></>}/>}
  {popup==='delete-alert'&&<Popup title="알림 조건 삭제" onClose={()=>setPopup('')} small footer={<><button className="outline-btn" onClick={()=>setPopup('')}>취소</button><button className="danger-btn" onClick={()=>{setAlertRules(v=>v.filter(a=>String(a.id)!==previewNotice));setPopup('');setPreviewNotice('')}}>삭제</button></>}><p className="popup-helper">선택한 맞춤 조건을 삭제하시겠습니까?</p></Popup>}
