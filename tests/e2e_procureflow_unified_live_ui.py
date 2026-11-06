@@ -101,6 +101,25 @@ with sync_playwright() as playwright:
         page.screenshot(path=str(OUT/"04_python_fixture_node.png"),full_page=True)
         return {"status":"SUCCESS","evidence":"fictional_test_fixture"}
     record("A01_mock_python_N01_and_SQLite",run_fixture_python)
+    def test_tokenless_selected_tender():
+        page.goto(BASE+"/admin/index.html?section=public",wait_until="domcontentloaded",timeout=45000)
+        button=page.locator('[data-public9="run"]')
+        button.wait_for(timeout=20000)
+        require(page.locator("#p9-token").count()==0,"Manual admin token field is still rendered")
+        require("자동 테스트" in button.inner_text(),"Automatic test label missing")
+        button.click(timeout=20000)
+        page.get_by_text("자동 테스트 결과:",exact=False).wait_for(timeout=40000)
+        response=page.locator("section.item pre.log").filter(has_text='"mode": "read_only_automated_test"').first
+        response.wait_for(timeout=10000)
+        result=json.loads(response.inner_text())
+        require(result.get("test_passed") is True,"GET-only real-source verification was not successful")
+        require(result.get("worker_executed") is False and result.get("bid_submitted") is False,
+                "Danger: test triggered a Worker or bid submission")
+        require(len(result.get("verified_steps",[]))==3,"Expected only actual N01/N02/N04 read-only tests")
+        page.screenshot(path=str(OUT/"05_no_token_real_readonly_test.png"),full_page=True)
+        return {"status":result["status"],"steps":[x["node"] for x in result["verified_steps"]],
+                "no_token_input":True,"worker_executed":False}
+    record("selected_tender_auto_test_no_token",test_tokenless_selected_tender)
     record("javascript_runtime_errors",lambda: (require(not errors,f"JavaScript page exceptions: {errors[:5]}"),{"page_errors":[]})[1])
     (OUT/"results.json").write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf8")
     context.close()
