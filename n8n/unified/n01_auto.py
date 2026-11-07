@@ -14,7 +14,7 @@ import os
 import re
 import uuid
 
-LEDGER_PATH=Path(os.environ.get("PROCUREFLOW_N01_LEDGER_PATH","/data/procureflow_n01_progress.json"))
+LEDGER_PATH=Path(os.environ.get("PROCUREFLOW_N01_LEDGER_PATH","/data/n01/procureflow_n01_progress.json"))
 LOCK=RLock()
 ID=re.compile(r"(?:R\d{2}BK\d{8}|\d{11})$")
 MAX_PAGES=100
