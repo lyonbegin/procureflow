@@ -67,6 +67,8 @@ jobs:
                   out=walk(d)
                   print('N01_ROWS',len(out),'MATCHES',[{'no':r.get('bidPbancUntyNo') or r.get('bidPbancNo'),'title':str(r.get('bidPbancNm',''))[:110],'date':str(r.get('pbancPstgDt',''))[:20]} for r in out[:6]],flush=True)
                   print('N01_RESULT_SHAPE',str(type(d.get('result')) if isinstance(d,dict) else type(d)),flush=True)
+                  if case and out:
+                      print('N01_TARGET_FIELDS',json.dumps({k:str(v)[:140] for k,v in out[0].items() if isinstance(v,(str,int,float))},ensure_ascii=False)[:4200],flush=True)
                   if not out and isinstance(d,dict):print('N01_RESULT_SUMMARY',str(d.get('result'))[:420],flush=True)
               except Exception as e:
                   print('N01_POST_ERROR',case,type(e).__name__,str(e)[:250],flush=True)
