@@ -20,7 +20,9 @@ jobs:
           c=l._client()
           l._once(c)
           original=l._json_post
+          captured={}
           def trace(opener,url,data,headers):
+              captured.update(url=url,data=data,headers=headers)
               print("REQUEST",json.dumps(data,ensure_ascii=False))
               raw,ctype=l._fetch(opener,url,json.dumps(data).encode(),{"Content-Type":"application/json;charset=UTF-8","Accept":"application/json",**headers})
               response=json.loads(raw)
@@ -29,7 +31,20 @@ jobs:
           l._json_post=trace
           try:l._nuri_notice(c)
           except Exception as e:print("BASELINE_ERROR",str(e))
-          for url in (l.NURI+"/",):
+          for patch in ({"firstIndex":1,"lastIndex":20},{"firstIndex":0,"lastIndex":20},{"bidPbancNo":"","firstIndex":1,"lastIndex":2}):
+              data=json.loads(json.dumps(captured["data"]))
+              data["dlParamM"].update(patch)
+              try:trace(c,captured["url"],data,captured["headers"])
+              except Exception as e:print("VARIANT_ERROR",str(e))
+          from urllib.request import build_opener,HTTPRedirectHandler,HTTPCookieProcessor
+          from http.cookiejar import CookieJar
+          from urllib.parse import urlparse
+          class OfficialRedirect(HTTPRedirectHandler):
+              def redirect_request(self,req,fp,code,msg,headers,newurl):
+                  if urlparse(newurl).scheme!="https" or urlparse(newurl).hostname not in ("nuri.g2b.go.kr","www.g2b.go.kr"):raise ValueError("unexpected redirect")
+                  return super().redirect_request(req,fp,code,msg,headers,newurl)
+          c=build_opener(OfficialRedirect(),HTTPCookieProcessor(CookieJar()))
+          for url in (l.NURI+"/",l.OFFICIAL+"/"):
               try:
                   raw,ctype=l._fetch(c,url)
                   text=raw.decode("utf-8",errors="replace")
