@@ -1,129 +1,51 @@
-name: N01 official G2B live bid notice POST (one-shot diagnostic)
+name: N01 automatic latest incomplete procurement selection - live G2B
 on:
   push:
-    branches:
-      - feature/procureflow-unified-studio-20261107
+    branches: [feature/procureflow-unified-studio-20261107]
     paths:
       - .github/workflows/n01-official-diagnostic.yml
+      - n8n/unified/live_nine_test.py
+      - n8n/unified/n01_auto.py
+      - tests/test_procurement_live_nine_test.py
 permissions:
   contents: read
 jobs:
-  n01-official-api:
+  n01-live:
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Run real N01 production Python function against official G2B
+      - name: Unit test newest-first selection and nine-stage completion journal
+        run: python3 -m unittest discover -s tests -p test_procurement_live_nine_test.py -v
+      - name: Prove real production N01 function selects newest official G2B tender
+        env:
+          PROCUREFLOW_N01_LEDGER_PATH: /tmp/n01-actions-live-progress.json
         run: |
           python3 - <<'PY'
-          import sys,json
+          import json,sys
           sys.path.insert(0,'n8n/unified')
           import live_nine_test as live
-          session=live._client()
-          live._once(session)
-          out=live._official_g2b_search(session)
-          assert out['notice_list']=='AVAILABLE',out
-          assert out['search_request_verified'] is True,out
-          assert out['bid_no']==live.CASE,out
-          assert out['agency'] and '전남테크노파크' in out['agency'],out
-          assert out['latest_notice_count']>0,out
-          assert out['latest_notice_rows'][0]['bid_no'] != live.CASE or out['selected_search_count']>0
-          assert out['source']==live.G2B_BID_LIST
-          print('N01_PYTHON_PRODUCTION_FUNCTION_PASS',json.dumps({
-            'selected_bid_no':out['bid_no'],'selected_title':out['title'],
-            'agency':out['agency'],'budget':out.get('budget'),
-            'recent_notice_count':out['latest_notice_count'],
-            'recent_sample':out['latest_notice_rows'][:3],
-            'endpoint':out['source']},ensure_ascii=False),flush=True)
-          PY
-      - name: Probe N01 official pagination and server-side keyword filters
-        run: |
-          python3 - <<'PY'
-          import sys,json
-          sys.path.insert(0,'n8n/unified')
-          import live_nine_test as l
-          op=l._client();l._once(op)
-          hdr={"Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',"submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst","Target-Id":"btnS0004","Usr-Id":"null","Origin":l.OFFICIAL,"Referer":l.OFFICIAL+"/"}
-          variants=[
-             ('p1',1,'','', ''),
-             ('p2',2,'','', ''),
-             ('title_software',1,'소프트웨어','', ''),
-             ('agency_dalseong',1,'','대구광역시 달성군',''),
-             ('service03',1,'','','03'),
-          ]
-          for label,page,title,agency,typ in variants:
-              d=l._g2b_bid_list_payload('20261101','20261108','')
-              f=d['dlBidPbancLstM']
-              f.update({'currentPage':str(page),'startIndex':1+(page-1)*20,'endIndex':page*20,
-                        'bidPbancNm':title,'dmstNm':agency})
-              if typ:f['prcmBsneSeCd']=typ
-              try:
-                  result=l._json_post(op,l.G2B_BID_LIST,d,hdr)
-                  print('N01_VARIANT',label,'rows',len(result) if isinstance(result,list) else 'nonlist',
-                       'first',[{'bid':r.get('bidPbancUntyNo'),'name':str(r.get('bidPbancNm'))[:58],'agency':r.get('dmstNm'),'rowNum':r.get('rowNum'),
-                        'currentPage':r.get('currentPage'),'nextRowYn':r.get('nextRowYn'),'business':r.get('prcmBsneSeCd')} for r in result[:3]] if isinstance(result,list) else str(result)[:150],flush=True)
-              except Exception as e:print('N01_VARIANT_ERROR',label,type(e).__name__,str(e)[:250],flush=True)
-          PY
-      - name: Check public official G2B WebSquare bid notice endpoint (no API key)
-        run: |
-          python3 - <<'PY'
-          import json,urllib.request,urllib.error,http.cookiejar,datetime
-          endpoint="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
-          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-          try:
-              r=opener.open(urllib.request.Request('https://www.g2b.go.kr/',headers={'User-Agent':'Mozilla/5.0'}),timeout=18)
-              print('N01_HOME',r.status,len(r.read(1200)),flush=True)
-          except Exception as e:print('N01_HOME_ERROR',type(e).__name__,str(e)[:140],flush=True)
-          def walk(node,depth=0):
-              if depth>7:return []
-              out=[]
-              if isinstance(node,list):
-                  for item in node[:100]:out+=walk(item,depth+1)
-              elif isinstance(node,dict):
-                  if 'bidPbancNm' in node or 'bidPbancUntyNo' in node or 'bidPbancNo' in node:
-                      out.append(node)
-                  else:
-                      for v in node.values():
-                          if isinstance(v,(dict,list)):out+=walk(v,depth+1)
-              return out
-          def send(case):
-              target='R26BK01787028' if case else ''
-              x={"untyBidPbancNo":"","bidPbancNo":target,"bidPbancOrd":"","prcmBsneUntyNoOrd":"",
-                 "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005 민079999",
-                 "bidPbancNm":"","pbancPstgDt":"","ldocNoVal":"","bidPrspPrce":"",
-                 "ctrtDmndRcptNo":"","dmstcOvrsSeCd":"","pbancKndCd":"공440002",
-                 "ctrtTyCd":"","bidCtrtMthdCd":"","scsbdMthdCd":"",
-                 "fromBidDt":"20261022" if case else "20261101",
-                 "toBidDt":"20261108","bsneAllYn":"Y","frcpYn":"Y","rsrvYn":"Y","laseYn":"Y",
-                 "untyGrpGb":"","dmstNm":"","pbancPicNm":"","odnLmtLgdngCd":"",
-                 "odnLmtLgdngNm":"","intpCd":"","intpNm":"","dtlsPrnmNo":"",
-                 "dtlsPrnmNm":"","slprRcptDdlnYn":"","lcrtTyCd":"","isMas":"",
-                 "isElpdt":"","oderInstUntyGrpNo":"","esdacYn":"","infoSysCd":"정010029",
-                 "contxtSeCd":"콘010006","bidDateType":"R","brcoOrgnCd":"",
-                 "deptOrgnCd":"","isShop":"","srchTy":"0","cangParmVal":"",
-                 "currentPage":"1","recordCountPerPage":"20","startIndex":1,"endIndex":20}
-              headers={"Content-Type":"application/json;charset=UTF-8","Accept":"application/json",
-                  "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
-                  "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
-                  "Target-Id":"btnS0004","Usr-Id":"null",
-                  "Origin":"https://www.g2b.go.kr","Referer":"https://www.g2b.go.kr/",
-                  "User-Agent":"Mozilla/5.0"}
-              req=urllib.request.Request(endpoint,method='POST',data=json.dumps({"dlBidPbancLstM":x},ensure_ascii=False).encode('utf-8'),headers=headers)
-              try:
-                  with opener.open(req,timeout=22) as r:
-                      raw=r.read(2100000);print('N01_POST',case,'status',r.status,'bytes',len(raw),'type',r.headers.get('Content-Type'),flush=True)
-                  try:d=json.loads(raw)
-                  except Exception:
-                      print('N01_RESPONSE_NONJSON',raw[:200].decode('utf8',errors='replace'),flush=True);return
-                  print('N01_KEYS',list(d)[:20] if isinstance(d,dict) else type(d).__name__,flush=True)
-                  out=walk(d)
-                  print('N01_ROWS',len(out),'MATCHES',[{'no':r.get('bidPbancUntyNo') or r.get('bidPbancNo'),'title':str(r.get('bidPbancNm',''))[:110],'date':str(r.get('pbancPstgDt',''))[:20]} for r in out[:6]],flush=True)
-                  print('N01_RESULT_SHAPE',str(type(d.get('result')) if isinstance(d,dict) else type(d)),flush=True)
-                  if case and out:
-                      print('N01_TARGET_FIELDS',json.dumps({k:str(v)[:140] for k,v in out[0].items() if isinstance(v,(str,int,float))},ensure_ascii=False)[:4200],flush=True)
-                  if not out and isinstance(d,dict):print('N01_RESULT_SUMMARY',str(d.get('result'))[:420],flush=True)
-              except Exception as e:
-                  print('N01_POST_ERROR',case,type(e).__name__,str(e)[:250],flush=True)
-          send(True)
-          send(False)
+          opener=live._client()
+          live._once(opener)
+          result=live._official_g2b_search(opener)
+          assert result['selection_automatic'] is True
+          assert result['selection_policy']=='newest_not_fully_nine_stage_verified'
+          assert result['notice_list']=='AVAILABLE'
+          assert result['search_request_verified'] is True
+          assert result['selection_reason']=='newest_unprocessed'
+          assert result['latest_notice_count']>0
+          assert result['latest_notice_rows'][0]['bid_no']==result['bid_no']
+          assert result['source']==live.G2B_BID_LIST
+          assert result['title'] and result['agency']
+          second=live._g2b_list_rows(opener,result['search_request_window']['start'],
+                                    result['search_request_window']['end'],page=2)
+          assert second
+          assert second[0]['bid_no']!=result['bid_no'] or second[0]['bid_ord']!=result['bid_ord']
+          print("N01_AUTO_LIVE_G2B_PASS",json.dumps({
+            'selected_bid_no':result['bid_no'],'selected_bid_ord':result['bid_ord'],
+            'title':result['title'],'agency':result['agency'],
+            'selection_reason':result['selection_reason'],
+            'latest_notice_count':result['latest_notice_count'],
+            'page2_count':len(second),'page2_first':second[0]['bid_no'],
+            'source':result['source']},ensure_ascii=False),flush=True)
           PY
