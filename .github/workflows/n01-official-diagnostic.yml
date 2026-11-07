@@ -36,6 +36,34 @@ jobs:
             'recent_sample':out['latest_notice_rows'][:3],
             'endpoint':out['source']},ensure_ascii=False),flush=True)
           PY
+      - name: Probe N01 official pagination and server-side keyword filters
+        run: |
+          python3 - <<'PY'
+          import sys,json
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as l
+          op=l._client();l._once(op)
+          hdr={"Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',"submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst","Target-Id":"btnS0004","Usr-Id":"null","Origin":l.OFFICIAL,"Referer":l.OFFICIAL+"/"}
+          variants=[
+             ('p1',1,'','', ''),
+             ('p2',2,'','', ''),
+             ('title_software',1,'소프트웨어','', ''),
+             ('agency_dalseong',1,'','대구광역시 달성군',''),
+             ('service03',1,'','','03'),
+          ]
+          for label,page,title,agency,typ in variants:
+              d=l._g2b_bid_list_payload('20261101','20261108','')
+              f=d['dlBidPbancLstM']
+              f.update({'currentPage':str(page),'startIndex':1+(page-1)*20,'endIndex':page*20,
+                        'bidPbancNm':title,'dmstNm':agency})
+              if typ:f['prcmBsneSeCd']=typ
+              try:
+                  result=l._json_post(op,l.G2B_BID_LIST,d,hdr)
+                  print('N01_VARIANT',label,'rows',len(result) if isinstance(result,list) else 'nonlist',
+                       'first',[{'bid':r.get('bidPbancUntyNo'),'name':str(r.get('bidPbancNm'))[:58],'agency':r.get('dmstNm'),'rowNum':r.get('rowNum'),
+                        'currentPage':r.get('currentPage'),'nextRowYn':r.get('nextRowYn'),'business':r.get('prcmBsneSeCd')} for r in result[:3]] if isinstance(result,list) else str(result)[:150],flush=True)
+              except Exception as e:print('N01_VARIANT_ERROR',label,type(e).__name__,str(e)[:250],flush=True)
+          PY
       - name: Check public official G2B WebSquare bid notice endpoint (no API key)
         run: |
           python3 - <<'PY'
