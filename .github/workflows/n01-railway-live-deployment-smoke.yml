@@ -1,0 +1,81 @@
+name: N01 Railway live runtime and N02 handoff smoke
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/n01-railway-live-deployment-smoke.yml
+permissions:
+  contents: read
+jobs:
+  production-n01-n02:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Invoke real Railway execution and assert official N01 and N02 identity
+        run: |
+          python3 - <<'PY'
+          import json,time,urllib.request,urllib.error,http.cookiejar
+          base="https://procureflow-unified-studio-candidate-production.up.railway.app"
+          jar=http.cookiejar.CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          def req(path,body=None):
+              data=None if body is None else json.dumps(body).encode("utf-8")
+              headers={"Accept":"application/json","User-Agent":"ProcureFlow-N01-live-smoke"}
+              if data is not None:
+                  headers.update({"Content-Type":"application/json",
+                                  "Origin":base,"Referer":base+"/admin/index.html?section=public"})
+              with opener.open(urllib.request.Request(base+path,data=data,headers=headers,
+                                                      method="POST" if data is not None else "GET"),timeout=28) as r:
+                  return r.status,json.loads(r.read(1200000))
+          status,last=req("/api/procurement/public9/live-run")
+          assert status==200,(status,last)
+          assert len(list(jar))>0,"Railway session cookie was not established"
+          print("N01_RAILWAY_SESSION_OK",len(list(jar)),flush=True)
+          deadline=time.monotonic()+210
+          start=None
+          while time.monotonic()<deadline:
+              try:
+                  status,start=req("/api/procurement/public9/run-all",{"mode":"auto"})
+                  assert status==202,(status,start)
+                  break
+              except urllib.error.HTTPError as e:
+                  payload=e.read().decode("utf-8",errors="replace")[:450]
+                  if e.code==409 and "LIVE_RUN_ALREADY_ACTIVE" in payload:
+                      print("N01_WAIT_EXISTING_RUN",flush=True)
+                      time.sleep(7)
+                      continue
+                  raise RuntimeError("N01_POST_REJECTED:"+str(e.code)+":"+payload)
+          assert start and start.get("run_id"),"RUN_NOT_ACCEPTED"
+          run_id=start["run_id"]
+          print("N01_RAILWAY_RUN_ACCEPTED",run_id,flush=True)
+          n01=n02=None
+          while time.monotonic()<deadline:
+              _,state=req("/api/procurement/public9/live-run")
+              assert state.get("run_id")==run_id,("SESSION_RUN_ID_CHANGED",run_id,state.get("run_id"))
+              n01=next((x for x in state.get("steps",[]) if x.get("node")=="N01"),None)
+              n02=next((x for x in state.get("steps",[]) if x.get("node")=="N02"),None)
+              if n01 and n02:break
+              if state.get("status") not in ("running",):
+                  raise AssertionError("N01_N02_NOT_REACHED:"+json.dumps(state,ensure_ascii=False)[:2500])
+              time.sleep(2.5)
+          assert n01 and n02,"N01_OR_N02_NOT_REACHED_IN_TIME"
+          print("N01_RAILWAY_N01",json.dumps(n01,ensure_ascii=False)[:4200],flush=True)
+          print("N01_RAILWAY_N02",json.dumps(n02,ensure_ascii=False)[:2400],flush=True)
+          assert n01["status"]=="verified","N01_NOT_VERIFIED:"+json.dumps(n01,ensure_ascii=False)[:900]
+          out=n01["output"]
+          assert out.get("notice_list")=="AVAILABLE",out
+          assert out.get("selection_automatic") is True,out
+          assert out.get("search_request_verified") is True,out
+          assert out.get("selection_policy")=="newest_not_fully_nine_stage_verified",out
+          assert out.get("source")=="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+          assert out.get("bid_no") and out.get("bid_ord")
+          assert out.get("title") and out.get("agency")
+          assert n02["input"].get("bid_no")==out["bid_no"],(n02["input"],out["bid_no"])
+          assert n02["input"].get("bid_ord")==out["bid_ord"],(n02["input"],out["bid_ord"])
+          print("N01_RAILWAY_LIVE_RUNTIME_AND_N02_HANDOFF_PASS",
+                json.dumps({"run_id":run_id,"selected_bid_no":out["bid_no"],
+                "selected_bid_ord":out["bid_ord"],"selection_reason":out.get("selection_reason"),
+                "n01_status":n01["status"],"n02_status":n02["status"],
+                "n02_received_bid_no":n02["input"]["bid_no"],
+                "n02_received_bid_ord":n02["input"]["bid_ord"]},ensure_ascii=False),flush=True)
+          PY
