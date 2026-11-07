@@ -1,0 +1,38 @@
+name: N01 bounded lookup diagnosis
+on:
+  push:
+    branches: [fix/n01-lookup-diagnosis-20261107]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    if: github.event.head_commit.message == 'diagnose N01 public lookup once'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect one public tender lookup and public screen definition
+        run: |
+          python -u - <<'PY'
+          import json,sys,re
+          sys.path.insert(0,"n8n/unified")
+          import live_nine_test as l
+          c=l._client()
+          l._once(c)
+          original=l._json_post
+          def trace(opener,url,data,headers):
+              print("REQUEST",json.dumps(data,ensure_ascii=False))
+              raw,ctype=l._fetch(opener,url,json.dumps(data).encode(),{"Content-Type":"application/json;charset=UTF-8","Accept":"application/json",**headers})
+              response=json.loads(raw)
+              print("RESPONSE",json.dumps(response,ensure_ascii=False)[:24000])
+              return response.get("result",{})
+          l._json_post=trace
+          try:l._nuri_notice(c)
+          except Exception as e:print("BASELINE_ERROR",str(e))
+          for url in (l.NURI+"/",):
+              try:
+                  raw,ctype=l._fetch(c,url)
+                  text=raw.decode("utf-8",errors="replace")
+                  print("HOME",text[:15000])
+              except Exception as e:print("HOME_ERROR",str(e))
+          PY
