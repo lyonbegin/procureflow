@@ -1,4 +1,4 @@
-name: N01 official G2B browser navigation (one-shot diagnostic)
+name: N01 official G2B live bid notice POST (one-shot diagnostic)
 on:
   push:
     branches:
@@ -8,79 +8,68 @@ on:
 permissions:
   contents: read
 jobs:
-  n01-official-screen:
+  n01-official-api:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: |
-          python -m pip install playwright
-          python -m playwright install --with-deps chromium
-      - name: Read only real official G2B menu and search controls
+      - name: Check public official G2B WebSquare bid notice endpoint (no API key)
         run: |
-          python - <<'PY'
-          import json,re
-          from urllib.parse import urlparse
-          from playwright.sync_api import sync_playwright
-          origin='https://www.g2b.go.kr/'
-          def snap(c,tag):
-              print("N01_SNAPSHOT",tag,flush=True)
-              for pi,p in enumerate(c.pages[:4]):
-                  print("PAGE",pi,"url",p.url[:180],flush=True)
-                  for fi,fr in enumerate(p.frames[:10]):
-                      if not urlparse(fr.url).hostname in ('www.g2b.go.kr','g2b.go.kr'):continue
-                      try:
-                          d=fr.evaluate("""() => ({
-                            title:document.title, ready:document.readyState,
-                            body:(document.body?.innerText||'').slice(0,2600),
-                            controls:[...document.querySelectorAll('a,button,input,select,[role=button],label')].filter(e=>{
-                              const t=(e.innerText||e.textContent||e.getAttribute('title')||e.getAttribute('aria-label')||e.value||'').trim();
-                              return /입찰|공고|검색|사이트맵|전체메뉴|세부품명|나라장터/.test(t) || /btn_menuLvl/.test(e.id);
-                            }).slice(0,85).map(e=>({tag:e.tagName,id:e.id,label:(e.innerText||e.textContent||e.getAttribute('title')||e.getAttribute('aria-label')||e.value||'').trim().slice(0,70),visible:!!e.getClientRects().length})),
-                            dateInputs:[...document.querySelectorAll('input')].slice(0,45).map(e=>({id:e.id,name:e.name,title:e.title,placeholder:e.placeholder,type:e.type}))
-                          })""")
-                          print("FRAME",fi,"url",fr.url[:135],json.dumps(d,ensure_ascii=False)[:12300],flush=True)
-                      except Exception as e:print("FRAME_ERROR",type(e).__name__,str(e)[:130],flush=True)
-          with sync_playwright() as pw:
-              b=pw.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
-              c=b.new_context(locale='ko-KR',timezone_id='Asia/Seoul')
-              p=c.new_page()
-              p.on('console',lambda m:print('JS_CONSOLE',m.type,m.text[:140],flush=True) if m.type=='error' else None)
-              p.on('pageerror',lambda e:print('PAGE_ERROR',str(e)[:200],flush=True))
-              p.on('requestfailed',lambda r:print('REQUEST_FAILED',urlparse(r.url).path[:120],r.failure,flush=True) if urlparse(r.url).hostname=='www.g2b.go.kr' else None)
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,http.cookiejar,datetime
+          endpoint="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          try:
+              r=opener.open(urllib.request.Request('https://www.g2b.go.kr/',headers={'User-Agent':'Mozilla/5.0'}),timeout=18)
+              print('N01_HOME',r.status,len(r.read(1200)),flush=True)
+          except Exception as e:print('N01_HOME_ERROR',type(e).__name__,str(e)[:140],flush=True)
+          def walk(node,depth=0):
+              if depth>7:return []
+              out=[]
+              if isinstance(node,list):
+                  for item in node[:100]:out+=walk(item,depth+1)
+              elif isinstance(node,dict):
+                  if 'bidPbancNm' in node or 'bidPbancUntyNo' in node or 'bidPbancNo' in node:
+                      out.append(node)
+                  else:
+                      for v in node.values():
+                          if isinstance(v,(dict,list)):out+=walk(v,depth+1)
+              return out
+          def send(case):
+              target='R26BK01787028' if case else ''
+              x={"untyBidPbancNo":"","bidPbancNo":target,"bidPbancOrd":"","prcmBsneUntyNoOrd":"",
+                 "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005 민079999",
+                 "bidPbancNm":"","pbancPstgDt":"","ldocNoVal":"","bidPrspPrce":"",
+                 "ctrtDmndRcptNo":"","dmstcOvrsSeCd":"","pbancKndCd":"공440002",
+                 "ctrtTyCd":"","bidCtrtMthdCd":"","scsbdMthdCd":"",
+                 "fromBidDt":"20261022" if case else "20261101",
+                 "toBidDt":"20261108","bsneAllYn":"Y","frcpYn":"Y","rsrvYn":"Y","laseYn":"Y",
+                 "untyGrpGb":"","dmstNm":"","pbancPicNm":"","odnLmtLgdngCd":"",
+                 "odnLmtLgdngNm":"","intpCd":"","intpNm":"","dtlsPrnmNo":"",
+                 "dtlsPrnmNm":"","slprRcptDdlnYn":"","lcrtTyCd":"","isMas":"",
+                 "isElpdt":"","oderInstUntyGrpNo":"","esdacYn":"","infoSysCd":"정010029",
+                 "contxtSeCd":"콘010006","bidDateType":"R","brcoOrgnCd":"",
+                 "deptOrgnCd":"","isShop":"","srchTy":"0","cangParmVal":"",
+                 "currentPage":"1","recordCountPerPage":"20","startIndex":1,"endIndex":20}
+              headers={"Content-Type":"application/json;charset=UTF-8","Accept":"application/json",
+                  "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
+                  "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
+                  "Target-Id":"btnS0004","Usr-Id":"null",
+                  "Origin":"https://www.g2b.go.kr","Referer":"https://www.g2b.go.kr/",
+                  "User-Agent":"Mozilla/5.0"}
+              req=urllib.request.Request(endpoint,method='POST',data=json.dumps({"dlBidPbancLstM":x},ensure_ascii=False).encode('utf-8'),headers=headers)
               try:
-                  resp=p.goto(origin,wait_until='domcontentloaded',timeout=45000)
-                  print('G2B_LANDING_HTTP',resp.status if resp else None,flush=True)
-                  p.wait_for_timeout(5500)
-                  snap(c,"landing")
-                  for phase,search in enumerate(['사이트맵','전체메뉴','입찰공고','입찰']):
-                      done=False
-                      for pp in list(c.pages):
-                          for fr in pp.frames:
-                              if urlparse(fr.url).hostname not in ('www.g2b.go.kr','g2b.go.kr'):continue
-                              for selector in ['a','button','[role=button]']:
-                                  try:
-                                      loc=fr.locator(selector).filter(has_text=search)
-                                      for ix in range(min(10,loc.count())):
-                                          e=loc.nth(ix)
-                                          if not e.is_visible():continue
-                                          text=(e.inner_text(timeout=600) or '').strip()
-                                          if search not in text or len(text)>50:continue
-                                          print('N01_TRY_CLICK',search,selector,text[:70],flush=True)
-                                          e.click(timeout=1800)
-                                          done=True
-                                          break
-                                      if done:break
-                                  except Exception as e:pass
-                              if done:break
-                          if done:break
-                      p.wait_for_timeout(2000)
-                      snap(c,"clicked_"+str(phase)+"_"+search+('_yes' if done else '_no'))
-                  print('N01_OFFICIAL_DIAGNOSTIC_DONE',flush=True)
-              except Exception as e:print('N01_OFFICIAL_DIAGNOSTIC_ERROR',type(e).__name__,str(e)[:500],flush=True)
-              finally:
-                  c.close();b.close()
+                  with opener.open(req,timeout=22) as r:
+                      raw=r.read(2100000);print('N01_POST',case,'status',r.status,'bytes',len(raw),'type',r.headers.get('Content-Type'),flush=True)
+                  try:d=json.loads(raw)
+                  except Exception:
+                      print('N01_RESPONSE_NONJSON',raw[:200].decode('utf8',errors='replace'),flush=True);return
+                  print('N01_KEYS',list(d)[:20] if isinstance(d,dict) else type(d).__name__,flush=True)
+                  out=walk(d)
+                  print('N01_ROWS',len(out),'MATCHES',[{'no':r.get('bidPbancUntyNo') or r.get('bidPbancNo'),'title':str(r.get('bidPbancNm',''))[:110],'date':str(r.get('pbancPstgDt',''))[:20]} for r in out[:6]],flush=True)
+                  print('N01_RESULT_SHAPE',str(type(d.get('result')) if isinstance(d,dict) else type(d)),flush=True)
+                  if not out and isinstance(d,dict):print('N01_RESULT_SUMMARY',str(d.get('result'))[:420],flush=True)
+              except Exception as e:
+                  print('N01_POST_ERROR',case,type(e).__name__,str(e)[:250],flush=True)
+          send(True)
+          send(False)
           PY
