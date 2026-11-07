@@ -1,7 +1,7 @@
 """Live, on-demand, no-DB, no-Worker public G2B nine-stage TEST executor.
 
 Runs only after an explicit Studio button click. Official public G2B endpoints
-are contacted afresh; no API/Worker/PG or Chromium/Playwright, no cron,
+are contacted afresh; no API/Worker/PG or cron, and no automatic browser scheduling,
 no bidding, signing, submissions or server-side persistence. Stage results
 are held in bounded session-scoped process memory for the browser UI.
 """
@@ -28,8 +28,6 @@ CASE="R26BK01787028"
 DETAIL="8111159901"
 FLOW="operations/PF00-public-nine-real.json"
 OFFICIAL="https://www.g2b.go.kr"
-NURI="https://nuri.g2b.go.kr"
-NURI_LIST=NURI+"/nn/nnb/nnba/selectBidPbancList.do"
 OPENINGS=OFFICIAL+"/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do"
 ATTACH=OFFICIAL+"/pn/pnp/pnpe/UntyAtchFile/downloadFile.do"
 MAX_BODY=8*1024*1024
@@ -47,7 +45,7 @@ class NoRedirect(HTTPRedirectHandler):
 def _client():
     return build_opener(HTTPCookieProcessor(CookieJar()),NoRedirect())
 def _fetch(opener,url,body=None,headers=None,timeout=12):
-    if not any(url.startswith(p) for p in (OFFICIAL+"/",NURI+"/")):
+    if not url.startswith(OFFICIAL+"/"):
         raise ValueError("OFFICIAL_HOST_REQUIRED")
     req=Request(url,data=body,headers=headers or {},method="POST" if body is not None else "GET")
     with opener.open(req,timeout=timeout) as response:
@@ -121,9 +119,7 @@ def _extract(raw,ctype):
 def _now():
     return datetime.now(ZoneInfo("Asia/Seoul"))
 def _once(opener):
-    # One HTTPS public website session; never launch Chromium.
-    try:_fetch(opener,NURI+"/",timeout=3)
-    except Exception:pass
+    # Establish an HTTPS session for official attachments and opening results.
     try:_fetch(opener,OFFICIAL+"/",timeout=3)
     except Exception:pass
 # These expected terms are a consistency CHECK for the current pinned test tender.
@@ -170,23 +166,62 @@ def _official_notice_fields(raw,ctype):
             "extracted_from":kind,
             "source_text_sha256":sha256(doc.encode("utf-8")).hexdigest()}
 
-def _live_notice(opener,preload=None):
-    """Prefer direct official notice listing, with official-original fallback.
+def _official_g2b_search():
+    """Search the *actual* public G2B bid notices, not NURI's different list.
 
-    If public WebSquare listing rejects the request, verify the selected bid
-    via its actual G2B attachment source. This is explicitly a partial notice
-    match, not proof of latest tender ordering.
+    The browser runs only for a user-started N01 execution. Verify the exact
+    filtered POST and the response before accepting any listing evidence.
+    """
+    from g2b_bid_notice_site_search import run_search
+    end=_now().date()
+    start=end-timedelta(days=30)
+    result=run_search(DETAIL,start.isoformat(),end.isoformat(),page=1)
+    if result.get("status")!="partial_filtered_result" or result.get("search_request_verified") is not True:
+        reason=str(result.get("reason") or result.get("status") or "unknown")
+        raise ValueError("G2B_BID_NOTICE_LIVE_SEARCH_UNVERIFIED:"+reason[:130])
+    explicit=list(result.get("matched_explicit_detail10") or [])
+    pending=list(result.get("pending_original_detail10_verification") or [])
+    all_rows=explicit+pending
+    matched=next((r for r in all_rows
+                  if r.get("bid_no")==CASE and r.get("bid_ord")=="000"),None)
+    if matched is None:
+        raise ValueError("TARGET_NOT_IN_G2B_VERIFIED_SEARCH_PAGE_1:"
+                         +"returned="+str(len(all_rows))
+                         +":official_total="+str(result.get("official_total")))
+    title=str(matched.get("title") or "").strip()
+    agency=str(matched.get("agency") or "").strip()
+    if not title or not agency:
+        raise ValueError("G2B_SEARCH_TARGET_TITLE_OR_AGENCY_MISSING")
+    return {"bid_no":CASE,"bid_ord":"000","title":title,"agency":agency,
+            "source":OFFICIAL+"/","verified_by":"official_g2b_bid_notice_search",
+            "notice_list":"AVAILABLE","official_fields_verified":True,
+            "search_request_verified":True,
+            "search_request_window":result.get("request_window"),
+            "search_page":result.get("page"),
+            "live_search_endpoint":result.get("live_search_endpoint"),
+            "returned_bid_ids":len(all_rows),
+            "official_total":result.get("official_total"),
+            "exact10_in_list_row_verified":matched in explicit,
+            "source_notice_rows":all_rows[:20]}
+
+def _live_notice(opener,preload=None):
+    """Official G2B site listing first; HWP is only a *partial* fallback.
+
+    NURI is a different procurement portal. A file for one pinned tender must
+    never be presented as proof that the latest G2B notices were searched.
     """
     try:
-        return _nuri_notice(opener)
+        return _official_g2b_search()
     except Exception as source_error:
+        log.warning("N01_G2B_LIST_UNVERIFIED reason=%s",
+                    type(source_error).__name__+":"+str(source_error)[:170])
         for seq in (1,2):
             qs=urlencode({"bidPbancNo":CASE,"bidPbancOrd":"000","fileType":"",
                           "fileSeq":seq,"prcmBsneSeCd":"03"})
             url=ATTACH+"?"+qs
             try:
                 raw,ctype=_fetch(opener,url,None,{"Referer":OFFICIAL+"/"})
-                if not (raw.startswith((b"\xd0\xcf\x11\xe0",b"%PDF",b"PK\x03\x04"))):
+                if not raw.startswith((b"\xd0\xcf\x11\xe0",b"%PDF",b"PK\x03\x04")):
                     raise ValueError("OFFICIAL_ORIGINAL_FILE_SIGNATURE_INVALID")
                 fields=_official_notice_fields(raw,ctype)
                 if preload is not None:preload[seq]=(raw,ctype)
@@ -195,51 +230,13 @@ def _live_notice(opener,preload=None):
                     "source_file_sha256":sha256(raw).hexdigest(),
                     "source_file_bytes":len(raw),"source_file_seq":seq,
                     "notice_list":"UNAVAILABLE",
-                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:150],
-                    "warning":"OFFICIAL_ORIGINAL_FIELDS_VERIFIED_LISTING_UNAVAILABLE",
+                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:170],
+                    "warning":"G2B_CURRENT_LIST_UNVERIFIED_HWP_CASE_ONLY",
                     **fields}
             except Exception:
                 continue
-        raise ValueError("OFFICIAL_NOTICE_LIST_AND_ATTACHMENTS_UNAVAILABLE:"
+        raise ValueError("G2B_LIST_UNVERIFIED_AND_CASE_ORIGINAL_UNAVAILABLE:"
                          +type(source_error).__name__+":"+str(source_error)[:115])
-def _nuri_notice(opener):
-    today=_now()
-    payload={"dlParamM":{
-        "bidPbancNo":CASE,"bidPbancOrd":"000","bidPbancNm":"",
-        "prcmBsneSeCd":"","bidPbancPgstCd":"","bidMthdCd":"",
-        "pbancPstgStDt":"20261022","pbancPstgEdDt":today.strftime("%Y%m%d"),
-        "onbsPrnmntStDt":"","onbsPrnmntEdDt":"",
-        "recordCountPerPage":"20","rowNum":"","kbrdrId":"",
-        "pbancInstUntyGrpNo":"","pdngYn":"","currentPage":1,
-        "pbancSttsCd":"","pbancKndCd":"","stdCtrtMthdCd":"",
-        "scsbdMthdCd":"","untyGrpNo":"","usrTyCd":"","pbancPstgYn":"Y",
-        "frgnrRprsvYn":""}}
-    headers={"Menu-Info":'{"menuNo":"15401","menuCangVal":"NNBA001_01","bsneClsfCd":"%EC%97%85130031","scrnNo":"00777"}',
-        "Target-Id":"btnS0001","Usr-Id":"null","Origin":NURI,"Referer":NURI+"/"}
-    result=_json_post(opener,NURI_LIST,payload,headers)
-    arrays=[value for value in (result.values() if isinstance(result,dict) else [result])
-            if isinstance(value,list) and (not value or isinstance(value[0],dict))]
-    matches=[row for arr in arrays for row in arr if isinstance(row,dict)
-             and row.get("bidPbancNo")==CASE]
-    if not matches:
-        raise ValueError("TARGET_NOT_IN_RETURNED_NURI_PAGE_1:"+
-                         "rows="+str(sum(len(a) for a in arrays))+
-                         ":page_size=20")
-    row=matches[0]
-    title=str(row.get("bidPbancNm") or "").strip()
-    agency=str(row.get("pbancInstUntyGrpNoNm") or row.get("dmstNm") or "").strip()
-    if not title or not agency or not all(
-            re.sub(r"\s+","",token) in re.sub(r"\s+","",title)
-            for token in TEST_TITLE_TOKENS):
-        raise ValueError("NURI_MATCHED_ROW_TITLE_OR_AGENCY_NOT_VERIFIED")
-    return {"bid_no":CASE,"bid_ord":str(row.get("bidPbancOrd") or "000"),
-            "title":title[:400],
-            "agency":agency[:180],
-            "official_fields_verified":True,
-            "publication":str(row.get("pbancPstgDt") or row.get("bidPbancDt") or "")[:45],
-            "budget":str(row.get("bsamt") or row.get("bssamt") or "")[:50],
-            "source":NURI_LIST,
-            "source_fields":sorted(row.keys())[:85]}
 def _live_attachments(opener,preload=None):
     out=[];texts=[]
     for seq in (1,2):
@@ -337,6 +334,7 @@ def _execute(run):
         _once(opener)
         preload={}
         _begin_stage(run,1)
+        with GUARD:run["g2b_site_browser_search_attempted"]=True
         try:
             state["notice"]=_live_notice(opener,preload)
             if (not state["notice"].get("official_fields_verified")
@@ -345,13 +343,13 @@ def _execute(run):
                 raise ValueError("N01_TITLE_AND_AGENCY_REQUIRED")
             status=("partial" if state["notice"].get("notice_list")=="UNAVAILABLE"
                     else "verified")
-            _record(run,1,status,{"bid_no":CASE,"source":"official_nuri_live"},
+            _record(run,1,status,{"bid_no":CASE,"source":"official_g2b_live_site"},
                     state["notice"])
         except Exception as exc:
             state["notice"]=None
             _record(run,1,"source_error",{"bid_no":CASE},
                     {"error":type(exc).__name__+":"+str(exc)[:180],
-                     "source":NURI_LIST,
+                     "source":OFFICIAL+"/",
                      "continue_to":"N02"})
         _begin_stage(run,2)
         try:
@@ -446,8 +444,8 @@ def _execute(run):
                 {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
                  "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
                  "source_errors":sum(s["status"]=="source_error" for s in run["steps"]),
-                 "live_official_sources":[NURI_LIST,ATTACH,OPENINGS],
-                 "db_reads":0,"worker_calls":0,"browser_instances":0,
+                 "live_official_sources":[OFFICIAL+"/",ATTACH,OPENINGS],
+                 "db_reads":0,"worker_calls":0,"g2b_site_browser_search_attempted":True,
                  "bid_submitted":False,"final_bid_approval":False})
         with GUARD:run["status"]="completed_with_missing_evidence"
     except Exception as exc:
@@ -484,7 +482,7 @@ def begin(sid,payload):
         state={"run_id":rid,"status":"running","mode":"on_demand_live_no_database",
             "case_bid_no":CASE,"detail10":DETAIL,"started_at":_now().isoformat(),
             "completed_steps":0,"partial_steps":0,"steps":[],
-            "db_reads":0,"worker_calls":0,"chromium_launched":False,
+            "db_reads":0,"worker_calls":0,"g2b_site_browser_search_attempted":False,
             "bid_submitted":False}
         # Preserve all other sessions while this one runs. Prior RUNS.clear()
         # erased previous users' progress when a new test started.
