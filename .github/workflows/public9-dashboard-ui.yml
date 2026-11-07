@@ -1,0 +1,33 @@
+name: ProcureFlow public9 real deployed interactive flow UI
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/public9-dashboard-ui.yml
+      - n8n/admin-console/public9.js
+      - n8n/admin-console/dashboard.css
+      - tests/test_public9_live_flow_dashboard.py
+permissions:
+  contents: read
+jobs:
+  real-dashboard-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install headless Chromium for real deployed UI
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Exercise full live 9-stage UI with browser-only controlled status transitions
+        run: python tests/test_public9_live_flow_dashboard.py
+      - name: Upload desktop and mobile screenshot evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public9-live-interactive-ui
+          path: artifacts/public9-live-dashboard
+          if-no-files-found: warn
