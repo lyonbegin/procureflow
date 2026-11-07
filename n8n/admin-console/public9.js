@@ -71,7 +71,7 @@
     '<p>실행 모드: <b>'+esc(r.mode||'on_demand_live_no_database')+'</b> · 상태: <b>'+
     esc(r.status||'미실행')+'</b> · 완료 '+esc(r.completed_steps||0)+'/9 단계</p>'+
     (r.status==='running'&&r.active_node?'<p class="notice"><b>현재 실행 중: '+esc(r.active_node)+' · '+esc(r.active_title)+'</b> · 공식 사이트 응답/다운로드를 확인하고 있습니다.</p>':'')+
-    '<p class="muted smalltxt">PostgreSQL 조회 0회 · 외부 Worker 호출 0회 · Chromium 실행 0회 · 자동 투찰 없음</p>'+
+    '<p class="muted smalltxt">PostgreSQL 조회 0회 · 외부 Worker 호출 0회 · N01은 공식 G2B 사이트 브라우저 검색 · 자동 투찰 없음</p>'+
     (r.run_id?'<p class="muted smalltxt">테스트 실행 ID: '+esc(r.run_id)+'</p>':'')+
     (r.run_id&&stage(7)?.output?.draft_generated?
       '<p><a class="btn primary" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(r.run_id)+
@@ -85,7 +85,7 @@
     '<h2>선택 공고 → 공식 나라장터 실시간 수집 → 9개 노드 순차 실행</h2>'+
     '<p>기존 PostgreSQL을 조회하지 않고 공식 G2B에 새로 접속합니다. 서버에 Worker·스케줄러를 실행하지 않습니다.</p></section>'+
     '<section class="panel"><h3>① 테스트 대상 공고</h3><div class="item">'+
-    '<b>'+esc(CASE)+'</b><p>분류 '+esc(DETAIL)+' · 실제 공고명·기관·문서는 N01/N02에서 새로 수집해 검증</p></div>'+
+    '<b>'+esc(CASE)+'</b><p>분류 '+esc(DETAIL)+' · N01은 실제 나라장터 공고 검색을 먼저 수행하고, 검색 실패 시 HWP 확인만 부분 성공으로 구분</p></div>'+
     '<div class="actions">'+
     '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+
     ((st.submitting||st.run?.status==='running')?'disabled':'')+
