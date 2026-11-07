@@ -12,6 +12,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
+      - name: Run real N01 production Python function against official G2B
+        run: |
+          python3 - <<'PY'
+          import sys,json
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          session=live._client()
+          live._once(session)
+          out=live._official_g2b_search(session)
+          assert out['notice_list']=='AVAILABLE',out
+          assert out['search_request_verified'] is True,out
+          assert out['bid_no']==live.CASE,out
+          assert out['agency'] and '전남테크노파크' in out['agency'],out
+          assert out['latest_notice_count']>0,out
+          assert out['latest_notice_rows'][0]['bid_no'] != live.CASE or out['selected_search_count']>0
+          assert out['source']==live.G2B_BID_LIST
+          print('N01_PYTHON_PRODUCTION_FUNCTION_PASS',json.dumps({
+            'selected_bid_no':out['bid_no'],'selected_title':out['title'],
+            'agency':out['agency'],'budget':out.get('budget'),
+            'recent_notice_count':out['latest_notice_count'],
+            'recent_sample':out['latest_notice_rows'][:3],
+            'endpoint':out['source']},ensure_ascii=False),flush=True)
+          PY
       - name: Check public official G2B WebSquare bid notice endpoint (no API key)
         run: |
           python3 - <<'PY'
