@@ -3,13 +3,12 @@
  */
 'use strict';
 (function(){
- const CASE='R26BK01787028',DETAIL='8111159901';
  const FLOW='operations/PF00-public-nine-real.json';
  const STAGES=['01 · 공고 직접 조회','02 · 첨부 원본 직접 다운로드',
   '03 · 자격·원문 조건','04 · 개찰 원본 직접 조회',
   '05 · 경쟁 정보 분석','06 · 수행·원가 근거',
   '07 · 가격전략 검증','08 · Word 검토 초안','09 · 독립 최종 검증'];
- const st={selected:CASE,selectedNode:0,run:null,error:null,submitting:false,lastReload:null};
+ const st={selectedNode:0,run:null,error:null,submitting:false,lastReload:null};
  let polling=false;
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const fmt=o=>esc(JSON.stringify(o??null,null,2));
@@ -43,7 +42,7 @@
      await request('live-run');
      st.run=await request('run-all',{method:'POST',
        headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({bid_no:CASE,detail10:DETAIL})});
+       body:JSON.stringify({mode:'auto'})});
    }catch(e){st.error=e.message;}
    finally{st.submitting=false;renderView();}
  }
@@ -67,7 +66,9 @@
  }
  function runSummary(){
    const r=st.run||{};
-   return '<section class="panel"><h3>실제 수집 실행 기록</h3>'+
+   const selected=r.case_bid_no?'<p><b>자동 선택 공고: '+esc(r.case_bid_no)+'-'+esc(r.case_bid_ord||'000')+'</b> · '+esc(r.selection_reason||'')+'</p>':'<p>최신 미완료 공고를 서버에서 자동 선정합니다.</p>';
+   const checkpoint=r.completion_checkpoint?'<p class="muted smalltxt">단계 완료 기록: '+esc(r.completion_checkpoint.verified_stage_count)+'/9 검증 완료 · '+esc(r.completion_checkpoint.state)+'</p>':'';
+   return '<section class="panel"><h3>실제 수집 실행 기록</h3>'+selected+checkpoint+
     '<p>실행 모드: <b>'+esc(r.mode||'on_demand_live_no_database')+'</b> · 상태: <b>'+
     esc(r.status||'미실행')+'</b> · 완료 '+esc(r.completed_steps||0)+'/9 단계</p>'+
     (r.status==='running'&&r.active_node?'<p class="notice"><b>현재 실행 중: '+esc(r.active_node)+' · '+esc(r.active_title)+'</b> · 공식 사이트 응답/다운로드를 확인하고 있습니다.</p>':'')+
@@ -82,23 +83,23 @@
  }
  function main(){
    return '<section class="hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
-    '<h2>선택 공고 → 공식 나라장터 실시간 수집 → 9개 노드 순차 실행</h2>'+
+    '<h2>최신 공고 자동 선정 → 완료여부 확인 → N02~N09 순차 실행</h2>'+
     '<p>기존 PostgreSQL을 조회하지 않고 공식 G2B에 새로 접속합니다. 서버에 Worker·스케줄러를 실행하지 않습니다.</p></section>'+
-    '<section class="panel"><h3>① 테스트 대상 공고</h3><div class="item">'+
-    '<b>'+esc(CASE)+'</b><p>분류 '+esc(DETAIL)+' · N01은 나라장터 공식 사이트에서 최신 공고 20건 및 선택 공고번호를 각각 조회하고, 실패 시 HWP 확인만 부분 성공으로 구분</p></div>'+
+    '<section class="panel"><h3>① 최신 미완료 공고 자동 선택</h3><div class="item">'+
+    '<b>사용자 선택 없음 · 공고번호 고정 없음</b><p>나라장터 최신 공고부터 확인합니다. 9단계가 모두 verified인 공고만 건너뛰며, 미완료 공고는 다시 선택합니다. 20건이 모두 완료됐다면 다음 페이지로 이동합니다.</p></div>'+
     '<div class="actions">'+
     '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+
     ((st.submitting||st.run?.status==='running')?'disabled':'')+
-    '>▶ 9개 전체 순차 실행 · 실제 수집</button>'+
+    '>▶ 최신 미완료 공고 자동 선정 · 9개 실행</button>'+
     '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
     '<button class="btn" data-public9="open">공용 Studio에서 9개 노드 열기</button></div>'+
-    '<p class="muted smalltxt">버튼을 눌러야 실제 공식 사이트에 요청합니다. DB 데이터 재활용 없음 · 토큰 입력 없음 · Worker 없음 · 자동 스케줄 없음.</p></section>'+
+    '<p class="muted smalltxt">버튼은 자동 선정·실행을 검증하기 위한 수동 트리거입니다. 선택은 자동으로 수행하며, 이전 DB의 공고 데이터를 재활용하지 않습니다.</p></section>'+
     runSummary()+'<section class="panel"><h3>② 단계별 실행 · INPUT / OUTPUT</h3>'+
     progress()+inspector()+'</section>';
  }
  function nodes(){
    return '<section class="hero"><h2>공용 Studio · 9개 노드 직접 수집 실행</h2>'+
-    '<p>편집기 상단에서도 전체 순차 실행할 수 있습니다. 데이터는 버튼 클릭 시 공식 나라장터에서 새로 수집합니다.</p></section>'+
+    '<p>사용자 공고 선택 없이, 실행 시 공식 나라장터 최신 목록에서 9단계 미완료 공고를 자동 선택합니다.</p></section>'+
     '<section class="panel"><div class="actions">'+
     '<button class="btn primary" data-page="public">관리센터 돌아가기</button>'+
     '<button class="btn" data-public9="open">새 창에서 캔버스 열기</button></div>'+
