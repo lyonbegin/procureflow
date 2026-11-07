@@ -1,4 +1,4 @@
-"""No PostgreSQL, no Worker, no Chrome: deterministic live G2B orchestrator contract."""
+"""No PostgreSQL or Worker: deterministic G2B N01 website-search contract."""
 from pathlib import Path
 import sys
 import unittest
@@ -8,12 +8,10 @@ sys.path.insert(0,str(ROOT/"n8n/unified"))
 import live_nine_test as live
 
 class OnDemandNineStageTests(unittest.TestCase):
-    def test_no_db_worker_or_browser_dependencies_in_source(self):
+    def test_no_db_worker_or_scheduled_browser_dependencies_in_source(self):
         text=(ROOT/"n8n/unified/live_nine_test.py").read_text()
         self.assertNotIn("from db import",text)
         self.assertNotIn("import psycopg",text)
-        self.assertNotIn("sync_playwright",text)
-        self.assertNotIn("chromium.launch",text)
         self.assertNotIn("procureflow.jobs",text)
         self.assertNotIn("schedule.tick",text)
     def test_invalid_request_does_not_start_network(self):
@@ -21,7 +19,7 @@ class OnDemandNineStageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 live.begin("f"*48,{"bid_no":"OTHER","detail10":live.DETAIL})
     def test_nine_steps_in_order_and_zero_db_reads(self):
-        fake_notice={"bid_no":live.CASE,"title":"철강·금속 인공지능전환(AX)실증센터 스마트 실증장비 모니터링 시스템용 소프트웨어 개발 용역","agency":"(재)전남테크노파크","source":live.NURI_LIST,"official_fields_verified":True}
+        fake_notice={"bid_no":live.CASE,"title":"철강·금속 인공지능전환(AX)실증센터 스마트 실증장비 모니터링 시스템용 소프트웨어 개발 용역","agency":"(재)전남테크노파크","source":live.OFFICIAL+"/","official_fields_verified":True}
         fake_docs=[{"file_seq":1,"bytes":100,"sha256":"0"*64,"source":live.ATTACH}]
         fake_history={"official_rows":3,"sample":[],"source":live.OPENINGS,"exact_detail10_verified":False}
         job={"run_id":"9"*32,"status":"running","mode":"on_demand_live_no_database",
@@ -121,4 +119,45 @@ class OnDemandNineStageTests(unittest.TestCase):
     def test_official_urls_cannot_be_redirected_elsewhere(self):
         with self.assertRaises(ValueError):
             live._fetch(None,"https://www.evil.com/official")
+    def test_n01_uses_real_g2b_website_search_not_nuri(self):
+        import g2b_bid_notice_site_search as site
+        target={"bid_no":live.CASE,"bid_ord":"000","title":"실제 공고명",
+                "agency":"실제 공고기관","direct_category_codes":[live.DETAIL]}
+        result={"status":"partial_filtered_result","search_request_verified":True,
+                "request_window":{"start":"2026-10-09","end":"2026-11-08"},
+                "page":1,"official_total":2,"live_search_endpoint":"/actual/request.do",
+                "matched_explicit_detail10":[target],
+                "pending_original_detail10_verification":[]}
+        with patch.object(site,"run_search",return_value=result) as searched, \
+             patch.object(live,"_fetch",side_effect=AssertionError("No HWP fallback expected")):
+            notice=live._live_notice(None)
+        searched.assert_called_once()
+        self.assertEqual(notice["notice_list"],"AVAILABLE")
+        self.assertTrue(notice["search_request_verified"])
+        self.assertTrue(notice["exact10_in_list_row_verified"])
+        self.assertEqual(notice["title"],"실제 공고명")
+        self.assertEqual(notice["returned_bid_ids"],1)
+        self.assertNotIn("nuri",notice["source"])
+
+    def test_n01_empty_or_unverified_g2b_listing_remains_partial_on_hwp(self):
+        with patch.object(live,"_official_g2b_search",
+                          side_effect=ValueError("G2B_BID_NOTICE_LIVE_SEARCH_UNVERIFIED")), \
+             patch.object(live,"_fetch",return_value=(b"\xd0\xcf\x11\xe0"+"x".encode(),"application/octet-stream")), \
+             patch.object(live,"_official_notice_fields",return_value={
+                 "title":"공식 HWP 추출 공고명","agency":"공식 HWP 기관",
+                 "official_fields_verified":True}):
+            notice=live._live_notice(None)
+        self.assertEqual(notice["notice_list"],"UNAVAILABLE")
+        self.assertIn("HWP_CASE_ONLY",notice["warning"])
+        self.assertNotIn("search_request_verified",notice)
+
+    def test_n01_not_in_first_page_never_claims_successful_listing(self):
+        import g2b_bid_notice_site_search as site
+        payload={"status":"partial_filtered_result","search_request_verified":True,
+                 "matched_explicit_detail10":[],"pending_original_detail10_verification":[],
+                 "official_total":80}
+        with patch.object(site,"run_search",return_value=payload):
+            with self.assertRaisesRegex(ValueError,"TARGET_NOT_IN_G2B_VERIFIED_SEARCH_PAGE_1"):
+                live._official_g2b_search()
+
 if __name__=="__main__":unittest.main()
