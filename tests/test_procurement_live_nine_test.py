@@ -119,25 +119,44 @@ class OnDemandNineStageTests(unittest.TestCase):
     def test_official_urls_cannot_be_redirected_elsewhere(self):
         with self.assertRaises(ValueError):
             live._fetch(None,"https://www.evil.com/official")
-    def test_n01_uses_real_g2b_website_search_not_nuri(self):
-        import g2b_bid_notice_site_search as site
-        target={"bid_no":live.CASE,"bid_ord":"000","title":"실제 공고명",
-                "agency":"실제 공고기관","direct_category_codes":[live.DETAIL]}
-        result={"status":"partial_filtered_result","search_request_verified":True,
-                "request_window":{"start":"2026-10-09","end":"2026-11-08"},
-                "page":1,"official_total":2,"live_search_endpoint":"/actual/request.do",
-                "matched_explicit_detail10":[target],
-                "pending_original_detail10_verification":[]}
-        with patch.object(site,"run_search",return_value=result) as searched, \
-             patch.object(live,"_fetch",side_effect=AssertionError("No HWP fallback expected")):
+    def test_n01_selected_notice_and_latest_list_from_official_post(self):
+        recent=[{"bid_no":"R26BK01816186","bid_ord":"000","title":"새로운 공고",
+                 "agency":"최근 기관","publication":"2026/11/07 21:09"}]
+        selected=[{"bid_no":live.CASE,"bid_ord":"000","title":"실제 공고명",
+                   "agency":"재단법인전남테크노파크","publication":"2026/10/22 17:53",
+                   "budget":"51626000","budget_source_field":"alotBgtAmt"}]
+        with patch.object(live,"_g2b_list_rows",side_effect=[recent,selected]) as searched, \
+             patch.object(live,"_fetch",side_effect=AssertionError("No fallback expected")):
             notice=live._live_notice(None)
-        searched.assert_called_once()
+        self.assertEqual(searched.call_count,2)
+        self.assertEqual(searched.call_args_list[0].args[3] if len(searched.call_args_list[0].args)>3 else "", "")
+        self.assertEqual(searched.call_args_list[1].args[3],live.CASE)
         self.assertEqual(notice["notice_list"],"AVAILABLE")
         self.assertTrue(notice["search_request_verified"])
-        self.assertTrue(notice["exact10_in_list_row_verified"])
-        self.assertEqual(notice["title"],"실제 공고명")
-        self.assertEqual(notice["returned_bid_ids"],1)
-        self.assertNotIn("nuri",notice["source"])
+        self.assertEqual(notice["latest_notice_count"],1)
+        self.assertEqual(notice["latest_notice_rows"][0]["title"],"새로운 공고")
+        self.assertEqual(notice["bid_no"],live.CASE)
+        self.assertEqual(notice["agency"],"재단법인전남테크노파크")
+        self.assertFalse(notice["exact10_category_verified"])
+        self.assertEqual(notice["source"],live.G2B_BID_LIST)
+
+    def test_n01_official_json_row_maps_actual_g2b_fields(self):
+        raw=[{"bidPbancUntyNo":live.CASE,"bidPbancUntyOrd":"000",
+              "bidPbancNm":"철강·금속 인공지능전환&#40;AX&#41; 실증센터 개발 용역",
+              "dmstNm":"재단법인전남테크노파크",
+              "pbancPstgDt":"2026/10/22 17:53&lt;br/&gt;&#40;마감&#41;",
+              "prcmBsneSeCdNm":"일반용역","alotBgtAmt":"51626000",
+              "pbancSttsNm":"등록공고"}]
+        with patch.object(live,"_json_post",return_value=raw) as request:
+            rows=live._g2b_list_rows(None,"20261022","20261108",live.CASE)
+        self.assertEqual(len(rows),1)
+        self.assertIn("(AX)",rows[0]["title"])
+        self.assertEqual(rows[0]["publication"],"2026/10/22 17:53")
+        self.assertEqual(rows[0]["budget"],"51626000")
+        args=request.call_args.args
+        self.assertEqual(args[1],live.G2B_BID_LIST)
+        self.assertEqual(args[2]["dlBidPbancLstM"]["bidPbancNo"],live.CASE)
+        self.assertEqual(args[2]["dlBidPbancLstM"]["recordCountPerPage"],"20")
 
     def test_n01_empty_or_unverified_g2b_listing_remains_partial_on_hwp(self):
         with patch.object(live,"_official_g2b_search",
@@ -151,13 +170,16 @@ class OnDemandNineStageTests(unittest.TestCase):
         self.assertIn("HWP_CASE_ONLY",notice["warning"])
         self.assertNotIn("search_request_verified",notice)
 
-    def test_n01_not_in_first_page_never_claims_successful_listing(self):
-        import g2b_bid_notice_site_search as site
-        payload={"status":"partial_filtered_result","search_request_verified":True,
-                 "matched_explicit_detail10":[],"pending_original_detail10_verification":[],
-                 "official_total":80}
-        with patch.object(site,"run_search",return_value=payload):
-            with self.assertRaisesRegex(ValueError,"TARGET_NOT_IN_G2B_VERIFIED_SEARCH_PAGE_1"):
-                live._official_g2b_search()
+    def test_n01_selected_notice_missing_is_not_verified(self):
+        latest=[{"bid_no":"R26BK01816186","bid_ord":"000","title":"새 공고","agency":"기관"}]
+        with patch.object(live,"_g2b_list_rows",side_effect=[latest,[]]):
+            with self.assertRaisesRegex(ValueError,"G2B_SELECTED_NOTICE_NOT_FOUND_IN_OFFICIAL_LIST"):
+                live._official_g2b_search(None)
+
+    def test_n01_empty_recent_list_is_not_verified(self):
+        with patch.object(live,"_g2b_list_rows",return_value=[]):
+            with self.assertRaisesRegex(ValueError,"G2B_RECENT_BID_NOTICE_LIST_EMPTY"):
+                live._official_g2b_search(None)
+
 
 if __name__=="__main__":unittest.main()
