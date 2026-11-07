@@ -365,7 +365,7 @@ def _execute(run):
             run["selected_notice"]=state["notice"]
             run["case_bid_no"]=state["notice"]["bid_no"]
             run["case_bid_ord"]=state["notice"]["bid_ord"]
-            run["selection_reason"]=state["notice"]["selection_reason"]
+            run["selection_reason"]=state["notice"].get("selection_reason","newest_unprocessed")
             if (not state["notice"].get("official_fields_verified")
                 or not state["notice"].get("title")
                 or not state["notice"].get("agency")):
