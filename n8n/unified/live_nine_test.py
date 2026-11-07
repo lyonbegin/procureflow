@@ -1,7 +1,7 @@
 """Live, on-demand, no-DB, no-Worker public G2B nine-stage TEST executor.
 
 Runs only after an explicit Studio button click. Official public G2B endpoints
-are contacted afresh; no API/Worker/PG or cron, and no automatic browser scheduling,
+are contacted afresh; no API-key/Worker/PG/Chromium or cron,
 no bidding, signing, submissions or server-side persistence. Stage results
 are held in bounded session-scoped process memory for the browser UI.
 """
@@ -119,7 +119,7 @@ def _extract(raw,ctype):
 def _now():
     return datetime.now(ZoneInfo("Asia/Seoul"))
 def _once(opener):
-    # Establish an HTTPS session for official attachments and opening results.
+    # Establish an HTTPS session for the G2B listing, attachments and openings.
     try:_fetch(opener,OFFICIAL+"/",timeout=3)
     except Exception:pass
 # These expected terms are a consistency CHECK for the current pinned test tender.
@@ -166,43 +166,100 @@ def _official_notice_fields(raw,ctype):
             "extracted_from":kind,
             "source_text_sha256":sha256(doc.encode("utf-8")).hexdigest()}
 
-def _official_g2b_search():
-    """Search the *actual* public G2B bid notices, not NURI's different list.
+G2B_BID_LIST=OFFICIAL+"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
 
-    The browser runs only for a user-started N01 execution. Verify the exact
-    filtered POST and the response before accepting any listing evidence.
+def _g2b_bid_list_payload(start,end,bid_no=""):
+    """Fields observed in official PNPE001_01 WebSquare POST on 2026-11-08."""
+    return {"dlBidPbancLstM":{
+      "untyBidPbancNo":"","bidPbancNo":bid_no,"bidPbancOrd":"",
+      "prcmBsneUntyNoOrd":"",
+      "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005 민079999",
+      "bidPbancNm":"","pbancPstgDt":"","ldocNoVal":"","bidPrspPrce":"",
+      "ctrtDmndRcptNo":"","dmstcOvrsSeCd":"","pbancKndCd":"공440002",
+      "ctrtTyCd":"","bidCtrtMthdCd":"","scsbdMthdCd":"",
+      "fromBidDt":start,"toBidDt":end,
+      "bsneAllYn":"Y","frcpYn":"Y","rsrvYn":"Y","laseYn":"Y",
+      "untyGrpGb":"","dmstNm":"","pbancPicNm":"",
+      "odnLmtLgdngCd":"","odnLmtLgdngNm":"","intpCd":"","intpNm":"",
+      "dtlsPrnmNo":"","dtlsPrnmNm":"","slprRcptDdlnYn":"",
+      "lcrtTyCd":"","isMas":"","isElpdt":"","oderInstUntyGrpNo":"",
+      "esdacYn":"","infoSysCd":"정010029","contxtSeCd":"콘010006",
+      "bidDateType":"R","brcoOrgnCd":"","deptOrgnCd":"",
+      "isShop":"","srchTy":"0","cangParmVal":"",
+      "currentPage":"1","recordCountPerPage":"20",
+      "startIndex":1,"endIndex":20}}
+
+def _g2b_list_rows(opener,start,end,bid_no=""):
+    """Read one actual official G2B list page; no database or API key."""
+    headers={
+      "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
+      "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
+      "Target-Id":"btnS0004","Usr-Id":"null",
+      "Origin":OFFICIAL,"Referer":OFFICIAL+"/"}
+    response=_json_post(opener,G2B_BID_LIST,_g2b_bid_list_payload(start,end,bid_no),headers)
+    if not isinstance(response,list) or len(response)>20 or any(not isinstance(v,dict) for v in response):
+        raise ValueError("G2B_BID_LIST_RESPONSE_SCHEMA_INVALID")
+    from html import unescape
+    def clean(value):
+        return re.sub(r"\s+"," ",unescape(str(value or ""))).strip()
+    rows=[]
+    for item in response:
+        number=clean(item.get("bidPbancUntyNo") or item.get("bidPbancNo"))
+        if not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",number):continue
+        order=clean(item.get("bidPbancUntyOrd") or item.get("bidPbancOrd") or "000").zfill(3)
+        if not re.fullmatch(r"\d{3}",order):continue
+        title=clean(item.get("bidPbancNm"))
+        agency=clean(item.get("dmstNm") or item.get("oderInstUntyGrpNm"))
+        if not title or not agency:continue
+        published=clean(item.get("pbancPstgDt")).split("<br",1)[0].strip()
+        rows.append({
+            "bid_no":number,"bid_ord":order,
+            "title":title[:350],"agency":agency[:180],
+            "publication":published[:45],
+            "status":clean(item.get("pbancSttsNm"))[:80],
+            "business_type":clean(item.get("prcmBsneSeCdNm"))[:60],
+            "budget":clean(item.get("alotBgtAmt"))[:30] or None,
+            "budget_source_field":"alotBgtAmt" if item.get("alotBgtAmt") else None})
+    if response and not rows:raise ValueError("G2B_BID_LIST_RECORDS_UNREADABLE")
+    if bid_no and any(r["bid_no"]!=bid_no for r in rows):
+        raise ValueError("G2B_BID_LIST_CONTAINS_WRONG_NOTICE")
+    return rows
+
+def _official_g2b_search(opener=None):
+    """Official G2B list: latest notices plus exact selected notice.
+
+    The selected notice is looked up independently of page 1. Unlike the old
+    implementation, NO ten-digit category UI is required for an N01 listing.
+    Exact-10 historical classification must be verified in later stages.
     """
-    from g2b_bid_notice_site_search import run_search
-    end=_now().date()
-    start=end-timedelta(days=30)
-    result=run_search(DETAIL,start.isoformat(),end.isoformat(),page=1)
-    if result.get("status")!="partial_filtered_result" or result.get("search_request_verified") is not True:
-        reason=str(result.get("reason") or result.get("status") or "unknown")
-        raise ValueError("G2B_BID_NOTICE_LIVE_SEARCH_UNVERIFIED:"+reason[:130])
-    explicit=list(result.get("matched_explicit_detail10") or [])
-    pending=list(result.get("pending_original_detail10_verification") or [])
-    all_rows=explicit+pending
-    matched=next((r for r in all_rows
-                  if r.get("bid_no")==CASE and r.get("bid_ord")=="000"),None)
-    if matched is None:
-        raise ValueError("TARGET_NOT_IN_G2B_VERIFIED_SEARCH_PAGE_1:"
-                         +"returned="+str(len(all_rows))
-                         +":official_total="+str(result.get("official_total")))
-    title=str(matched.get("title") or "").strip()
-    agency=str(matched.get("agency") or "").strip()
-    if not title or not agency:
-        raise ValueError("G2B_SEARCH_TARGET_TITLE_OR_AGENCY_MISSING")
-    return {"bid_no":CASE,"bid_ord":"000","title":title,"agency":agency,
-            "source":OFFICIAL+"/","verified_by":"official_g2b_bid_notice_search",
-            "notice_list":"AVAILABLE","official_fields_verified":True,
-            "search_request_verified":True,
-            "search_request_window":result.get("request_window"),
-            "search_page":result.get("page"),
-            "live_search_endpoint":result.get("live_search_endpoint"),
-            "returned_bid_ids":len(all_rows),
-            "official_total":result.get("official_total"),
-            "exact10_in_list_row_verified":matched in explicit,
-            "source_notice_rows":all_rows[:20]}
+    if opener is None:opener=_client()
+    now=_now().date()
+    recent_start=(now-timedelta(days=7)).strftime("%Y%m%d")
+    end=now.strftime("%Y%m%d")
+    recent=_g2b_list_rows(opener,recent_start,end)
+    if not recent:
+        raise ValueError("G2B_RECENT_BID_NOTICE_LIST_EMPTY")
+    selected=_g2b_list_rows(opener,"20261022",end,CASE)
+    matches=[row for row in selected if row["bid_no"]==CASE and row["bid_ord"]=="000"]
+    if len(matches)!=1:
+        raise ValueError("G2B_SELECTED_NOTICE_NOT_FOUND_IN_OFFICIAL_LIST")
+    row=matches[0]
+    return {
+        **row,
+        "source":G2B_BID_LIST,
+        "verified_by":"official_g2b_websquare_list",
+        "official_fields_verified":True,
+        "notice_list":"AVAILABLE",
+        "search_request_verified":True,
+        "search_page":1,"search_page_size":20,
+        "search_request_window":{"start":recent_start,"end":end},
+        "selected_lookup_by_bid_no":CASE,
+        "latest_notice_count":len(recent),
+        "latest_notice_rows":recent,
+        "selected_search_count":len(selected),
+        "exact10_category_verified":False,
+        "warning":"N01_LIST_VERIFIED_EXACT10_CLASSIFICATION_NOT_YET_VERIFIED"
+    }
 
 def _live_notice(opener,preload=None):
     """Official G2B site listing first; HWP is only a *partial* fallback.
@@ -211,7 +268,7 @@ def _live_notice(opener,preload=None):
     never be presented as proof that the latest G2B notices were searched.
     """
     try:
-        return _official_g2b_search()
+        return _official_g2b_search(opener)
     except Exception as source_error:
         log.warning("N01_G2B_LIST_UNVERIFIED reason=%s",
                     type(source_error).__name__+":"+str(source_error)[:170])
@@ -334,7 +391,7 @@ def _execute(run):
         _once(opener)
         preload={}
         _begin_stage(run,1)
-        with GUARD:run["g2b_site_browser_search_attempted"]=True
+        with GUARD:run["g2b_site_live_post_attempted"]=True
         try:
             state["notice"]=_live_notice(opener,preload)
             if (not state["notice"].get("official_fields_verified")
@@ -444,8 +501,8 @@ def _execute(run):
                 {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
                  "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
                  "source_errors":sum(s["status"]=="source_error" for s in run["steps"]),
-                 "live_official_sources":[OFFICIAL+"/",ATTACH,OPENINGS],
-                 "db_reads":0,"worker_calls":0,"g2b_site_browser_search_attempted":True,
+                 "live_official_sources":[G2B_BID_LIST,ATTACH,OPENINGS],
+                 "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":True,
                  "bid_submitted":False,"final_bid_approval":False})
         with GUARD:run["status"]="completed_with_missing_evidence"
     except Exception as exc:
@@ -482,7 +539,7 @@ def begin(sid,payload):
         state={"run_id":rid,"status":"running","mode":"on_demand_live_no_database",
             "case_bid_no":CASE,"detail10":DETAIL,"started_at":_now().isoformat(),
             "completed_steps":0,"partial_steps":0,"steps":[],
-            "db_reads":0,"worker_calls":0,"g2b_site_browser_search_attempted":False,
+            "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":False,
             "bid_submitted":False}
         # Preserve all other sessions while this one runs. Prior RUNS.clear()
         # erased previous users' progress when a new test started.
