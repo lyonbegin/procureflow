@@ -58,7 +58,7 @@ def completed(record):
             and isinstance(stages,dict)
             and all(stages.get(stage)=="verified" for stage in STAGE_IDS))
 
-def select(fetch_page):
+def select(fetch_page,fetch_selected=None):
     """Return newest not fully verified, retrying previous incomplete entries.
 
     fetch_page(page_number) MUST perform a fresh official G2B request.
@@ -68,6 +68,39 @@ def select(fetch_page):
     with LOCK:
         journal=_load()
         records=journal["records"]
+    # An unfinished previously started tender has priority over newly posted
+    # tenders, so newer arrivals cannot starve an in-progress nine-stage job.
+    pending=sorted(
+        (r for r in records.values()
+         if isinstance(r,dict) and r.get("state")=="incomplete"
+         and not completed(r)),
+        key=lambda r:r.get("last_updated_at") or "",reverse=True)
+    if pending and fetch_selected is not None:
+        fresh=fetch_page(1)
+        if not isinstance(fresh,list):
+            raise ValueError("N01_OFFICIAL_LIST_BAD_SCHEMA")
+        last=pending[0]
+        key=_key(last.get("bid_no"),last.get("bid_ord"))
+        row=fetch_selected(last["bid_no"],last["bid_ord"])
+        if not isinstance(row,dict) or _key(row.get("bid_no"),row.get("bid_ord"))!=key:
+            raise ValueError("N01_INCOMPLETE_NOTICE_OFFICIAL_REVALIDATION_FAILED")
+        return {
+            "selected":dict(row),
+            "selection_reason":"retry_incomplete",
+            "existing_checkpoint":{
+                "state":last.get("state"),
+                "stage_status":dict(last.get("stage_status") or {}),
+                "attempts":int(last.get("attempts") or 0)
+            },
+            "skipped_fully_verified":[],
+            "skipped_completed_count":0,
+            "scanned_pages":1,
+            "latest_notice_rows":fresh[:20],
+            "latest_notice_count":len(fresh[:20]),
+            "notice_list":"AVAILABLE",
+            "search_request_verified":True,
+            "verified_by":"official_g2b_websquare_list",
+        }
     seen=set()
     skipped=[]
     first_page=[]
