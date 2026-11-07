@@ -37,6 +37,23 @@ jobs:
           assert result['latest_notice_rows'][0]['bid_no']==result['bid_no']
           assert result['source']==live.G2B_BID_LIST
           assert result['title'] and result['agency']
+          import n01_auto
+          checkpoint={'run_id':'actions-isolated-n01-test',
+                      'selected_notice':result,'case_bid_no':result['bid_no']}
+          n01_auto.record_stage(checkpoint,1,'verified')
+          resumed=live._official_g2b_search(opener)
+          assert resumed['bid_no']==result['bid_no'],(result,resumed)
+          assert resumed['bid_ord']==result['bid_ord']
+          assert resumed['selection_reason']=='retry_incomplete'
+          for i in range(2,10):
+              n01_auto.record_stage(checkpoint,i,'verified')
+          after_complete=live._official_g2b_search(opener)
+          assert (after_complete['bid_no'],after_complete['bid_ord']) != (result['bid_no'],result['bid_ord'])
+          assert after_complete['skipped_completed_count']>=1
+          print('N01_REAL_RETRY_THEN_ADVANCE_PASS',json.dumps({
+              'incomplete_reselected':resumed['bid_no'],
+              'completed_skipped':result['bid_no'],
+              'next_selected':after_complete['bid_no']},ensure_ascii=False),flush=True)
           second=live._g2b_list_rows(opener,result['search_request_window']['start'],
                                     result['search_request_window']['end'],page=2)
           assert second
