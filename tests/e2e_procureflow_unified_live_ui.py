@@ -96,7 +96,7 @@ with sync_playwright() as playwright:
         button=page.get_by_test_id("live-nine-run-all")
         button.wait_for(timeout=20000)
         require(page.locator("#p9-token").count()==0,"Token prompt unexpectedly present")
-        require("전체 순차 실행" in button.inner_text(),"One-click 9-stage button missing")
+        require("최신 미완료 공고 자동 선정" in button.inner_text(),"Automatic N01 newest incomplete selector button missing")
         # Never run official G2B collection automatically on git push/PR CI.
         # One-shot external test requires an explicit manual workflow input.
         if os.environ.get("PROCUREFLOW_ENABLE_ONE_SHOT_OFFICIAL_FETCH")!="1":
