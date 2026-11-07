@@ -1,0 +1,86 @@
+name: N01 official G2B browser navigation (one-shot diagnostic)
+on:
+  push:
+    branches:
+      - feature/procureflow-unified-studio-20261107
+    paths:
+      - .github/workflows/n01-official-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  n01-official-screen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Read only real official G2B menu and search controls
+        run: |
+          python - <<'PY'
+          import json,re
+          from urllib.parse import urlparse
+          from playwright.sync_api import sync_playwright
+          origin='https://www.g2b.go.kr/'
+          def snap(c,tag):
+              print("N01_SNAPSHOT",tag,flush=True)
+              for pi,p in enumerate(c.pages[:4]):
+                  print("PAGE",pi,"url",p.url[:180],flush=True)
+                  for fi,fr in enumerate(p.frames[:10]):
+                      if not urlparse(fr.url).hostname in ('www.g2b.go.kr','g2b.go.kr'):continue
+                      try:
+                          d=fr.evaluate("""() => ({
+                            title:document.title, ready:document.readyState,
+                            body:(document.body?.innerText||'').slice(0,2600),
+                            controls:[...document.querySelectorAll('a,button,input,select,[role=button],label')].filter(e=>{
+                              const t=(e.innerText||e.textContent||e.getAttribute('title')||e.getAttribute('aria-label')||e.value||'').trim();
+                              return /입찰|공고|검색|사이트맵|전체메뉴|세부품명|나라장터/.test(t) || /btn_menuLvl/.test(e.id);
+                            }).slice(0,85).map(e=>({tag:e.tagName,id:e.id,label:(e.innerText||e.textContent||e.getAttribute('title')||e.getAttribute('aria-label')||e.value||'').trim().slice(0,70),visible:!!e.getClientRects().length})),
+                            dateInputs:[...document.querySelectorAll('input')].slice(0,45).map(e=>({id:e.id,name:e.name,title:e.title,placeholder:e.placeholder,type:e.type}))
+                          })""")
+                          print("FRAME",fi,"url",fr.url[:135],json.dumps(d,ensure_ascii=False)[:12300],flush=True)
+                      except Exception as e:print("FRAME_ERROR",type(e).__name__,str(e)[:130],flush=True)
+          with sync_playwright() as pw:
+              b=pw.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              c=b.new_context(locale='ko-KR',timezone_id='Asia/Seoul')
+              p=c.new_page()
+              p.on('console',lambda m:print('JS_CONSOLE',m.type,m.text[:140],flush=True) if m.type=='error' else None)
+              p.on('pageerror',lambda e:print('PAGE_ERROR',str(e)[:200],flush=True))
+              p.on('requestfailed',lambda r:print('REQUEST_FAILED',urlparse(r.url).path[:120],r.failure,flush=True) if urlparse(r.url).hostname=='www.g2b.go.kr' else None)
+              try:
+                  resp=p.goto(origin,wait_until='domcontentloaded',timeout=45000)
+                  print('G2B_LANDING_HTTP',resp.status if resp else None,flush=True)
+                  p.wait_for_timeout(5500)
+                  snap(c,"landing")
+                  for phase,search in enumerate(['사이트맵','전체메뉴','입찰공고','입찰']):
+                      done=False
+                      for pp in list(c.pages):
+                          for fr in pp.frames:
+                              if urlparse(fr.url).hostname not in ('www.g2b.go.kr','g2b.go.kr'):continue
+                              for selector in ['a','button','[role=button]']:
+                                  try:
+                                      loc=fr.locator(selector).filter(has_text=search)
+                                      for ix in range(min(10,loc.count())):
+                                          e=loc.nth(ix)
+                                          if not e.is_visible():continue
+                                          text=(e.inner_text(timeout=600) or '').strip()
+                                          if search not in text or len(text)>50:continue
+                                          print('N01_TRY_CLICK',search,selector,text[:70],flush=True)
+                                          e.click(timeout=1800)
+                                          done=True
+                                          break
+                                      if done:break
+                                  except Exception as e:pass
+                              if done:break
+                          if done:break
+                      p.wait_for_timeout(2000)
+                      snap(c,"clicked_"+str(phase)+"_"+search+('_yes' if done else '_no'))
+                  print('N01_OFFICIAL_DIAGNOSTIC_DONE',flush=True)
+              except Exception as e:print('N01_OFFICIAL_DIAGNOSTIC_ERROR',type(e).__name__,str(e)[:500],flush=True)
+              finally:
+                  c.close();b.close()
+          PY
