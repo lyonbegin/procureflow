@@ -177,6 +177,30 @@ class AutomaticProcurementStageTests(unittest.TestCase):
         self.assertEqual(chosen_again["selected"]["bid_no"],BID_B)
         self.assertEqual(chosen_again["selection_reason"],"retry_incomplete")
 
+    def test_new_latest_arrival_does_not_starve_unfinished_prior_tender(self):
+        previous=run_job(BID_A,run_id="d"*32)
+        for stage in range(1,5):
+            auto.record_stage(previous,stage,"verified" if stage<=2 else "blocked")
+        newer=notice(BID_B)
+        older=notice(BID_A)
+        def read(_,start,end,bid_no="",page=1):
+            return [older] if bid_no==BID_A else [newer,older]
+        with patch.object(live,"_g2b_list_rows",side_effect=read) as fetch:
+            chosen=live._official_g2b_search(None)
+        self.assertEqual(chosen["bid_no"],BID_A)
+        self.assertEqual(chosen["selection_reason"],"retry_incomplete")
+        self.assertEqual(chosen["prior_checkpoint"]["stage_status"]["N04"],"blocked")
+        self.assertEqual(fetch.call_count,2)
+        self.assertEqual(fetch.call_args_list[1].kwargs["bid_no"],BID_A)
+
+    def test_unavailable_old_unfinished_tender_does_not_silently_switch_to_new(self):
+        previous=run_job(BID_A,run_id="e"*32)
+        auto.record_stage(previous,1,"verified")
+        with patch.object(live,"_g2b_list_rows",side_effect=lambda _op,_s,_e,bid_no="",page=1:
+                          [] if bid_no else [notice(BID_B)]):
+            with self.assertRaisesRegex(ValueError,"N01_INCOMPLETE_NOTICE_OFFICIAL_REVALIDATION_FAILED"):
+                live._official_g2b_search(None)
+
     def test_reject_old_fixed_notice_request_and_accept_only_auto_mode(self):
         with patch.object(live,"_client",side_effect=AssertionError("network should not be called")):
             with self.assertRaisesRegex(ValueError,"AUTOMATIC_SELECTION_ONLY"):
