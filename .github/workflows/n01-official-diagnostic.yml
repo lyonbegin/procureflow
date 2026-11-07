@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
+      - uses: actions/checkout@v4
       - name: Run real N01 production Python function against official G2B
         run: |
           python3 - <<'PY'
