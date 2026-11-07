@@ -232,7 +232,12 @@ def _official_g2b_search(opener=None):
     today=_now().date()
     start=(today-timedelta(days=30)).strftime("%Y%m%d")
     end=today.strftime("%Y%m%d")
-    decision=select(lambda page:_g2b_list_rows(opener,start,end,page=page))
+    def official_revalidate(bid_no,bid_ord):
+        # Current official site exact-number search, regardless of latest page.
+        rows=_g2b_list_rows(opener,"20160101",end,bid_no=bid_no)
+        return next((r for r in rows if r["bid_no"]==bid_no and r["bid_ord"]==bid_ord),None)
+    decision=select(lambda page:_g2b_list_rows(opener,start,end,page=page),
+                    fetch_selected=official_revalidate)
     row=decision["selected"]
     return {
       **row,"source":G2B_BID_LIST,"official_fields_verified":True,
