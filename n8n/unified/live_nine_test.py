@@ -24,8 +24,6 @@ import uuid
 import zipfile
 import zlib
 
-CASE="R26BK01787028"
-DETAIL="8111159901"
 FLOW="operations/PF00-public-nine-real.json"
 OFFICIAL="https://www.g2b.go.kr"
 OPENINGS=OFFICIAL+"/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do"
@@ -168,8 +166,9 @@ def _official_notice_fields(raw,ctype):
 
 G2B_BID_LIST=OFFICIAL+"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
 
-def _g2b_bid_list_payload(start,end,bid_no=""):
+def _g2b_bid_list_payload(start,end,bid_no="",page=1):
     """Fields observed in official PNPE001_01 WebSquare POST on 2026-11-08."""
+    if not isinstance(page,int) or not 1<=page<=100:raise ValueError("INVALID_G2B_PAGE")
     return {"dlBidPbancLstM":{
       "untyBidPbancNo":"","bidPbancNo":bid_no,"bidPbancOrd":"",
       "prcmBsneUntyNoOrd":"",
@@ -186,17 +185,17 @@ def _g2b_bid_list_payload(start,end,bid_no=""):
       "esdacYn":"","infoSysCd":"정010029","contxtSeCd":"콘010006",
       "bidDateType":"R","brcoOrgnCd":"","deptOrgnCd":"",
       "isShop":"","srchTy":"0","cangParmVal":"",
-      "currentPage":"1","recordCountPerPage":"20",
-      "startIndex":1,"endIndex":20}}
+      "currentPage":str(page),"recordCountPerPage":"20",
+      "startIndex":(page-1)*20+1,"endIndex":page*20}}
 
-def _g2b_list_rows(opener,start,end,bid_no=""):
+def _g2b_list_rows(opener,start,end,bid_no="",page=1):
     """Read one actual official G2B list page; no database or API key."""
     headers={
       "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
       "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
       "Target-Id":"btnS0004","Usr-Id":"null",
       "Origin":OFFICIAL,"Referer":OFFICIAL+"/"}
-    response=_json_post(opener,G2B_BID_LIST,_g2b_bid_list_payload(start,end,bid_no),headers)
+    response=_json_post(opener,G2B_BID_LIST,_g2b_bid_list_payload(start,end,bid_no,page),headers)
     if not isinstance(response,list) or len(response)>20 or any(not isinstance(v,dict) for v in response):
         raise ValueError("G2B_BID_LIST_RESPONSE_SCHEMA_INVALID")
     from html import unescape
@@ -214,6 +213,7 @@ def _g2b_list_rows(opener,start,end,bid_no=""):
         published=clean(item.get("pbancPstgDt")).split("<br",1)[0].strip()
         rows.append({
             "bid_no":number,"bid_ord":order,
+            "business_code":clean(item.get("prcmBsneSeCd"))[:8],
             "title":title[:350],"agency":agency[:180],
             "publication":published[:45],
             "status":clean(item.get("pbancSttsNm"))[:80],
@@ -226,79 +226,45 @@ def _g2b_list_rows(opener,start,end,bid_no=""):
     return rows
 
 def _official_g2b_search(opener=None):
-    """Official G2B list: latest notices plus exact selected notice.
-
-    The selected notice is looked up independently of page 1. Unlike the old
-    implementation, NO ten-digit category UI is required for an N01 listing.
-    Exact-10 historical classification must be verified in later stages.
-    """
+    """Auto-select latest tender not fully verified in nine stages."""
+    from n01_auto import select
     if opener is None:opener=_client()
-    now=_now().date()
-    recent_start=(now-timedelta(days=7)).strftime("%Y%m%d")
-    end=now.strftime("%Y%m%d")
-    recent=_g2b_list_rows(opener,recent_start,end)
-    if not recent:
-        raise ValueError("G2B_RECENT_BID_NOTICE_LIST_EMPTY")
-    selected=_g2b_list_rows(opener,"20261022",end,CASE)
-    matches=[row for row in selected if row["bid_no"]==CASE and row["bid_ord"]=="000"]
-    if len(matches)!=1:
-        raise ValueError("G2B_SELECTED_NOTICE_NOT_FOUND_IN_OFFICIAL_LIST")
-    row=matches[0]
+    today=_now().date()
+    start=(today-timedelta(days=30)).strftime("%Y%m%d")
+    end=today.strftime("%Y%m%d")
+    decision=select(lambda page:_g2b_list_rows(opener,start,end,page=page))
+    row=decision["selected"]
     return {
-        **row,
-        "source":G2B_BID_LIST,
-        "verified_by":"official_g2b_websquare_list",
-        "official_fields_verified":True,
-        "notice_list":"AVAILABLE",
-        "search_request_verified":True,
-        "search_page":1,"search_page_size":20,
-        "search_request_window":{"start":recent_start,"end":end},
-        "selected_lookup_by_bid_no":CASE,
-        "latest_notice_count":len(recent),
-        "latest_notice_rows":recent,
-        "selected_search_count":len(selected),
-        "exact10_category_verified":False,
-        "warning":"N01_LIST_VERIFIED_EXACT10_CLASSIFICATION_NOT_YET_VERIFIED"
+      **row,"source":G2B_BID_LIST,"official_fields_verified":True,
+      "notice_list":"AVAILABLE","search_request_verified":True,
+      "verified_by":"official_g2b_websquare_list",
+      "search_page":decision["scanned_pages"],"search_page_size":20,
+      "search_request_window":{"start":start,"end":end},
+      "selection_policy":"newest_not_fully_nine_stage_verified",
+      "selection_reason":decision["selection_reason"],
+      "selection_automatic":True,
+      "skipped_fully_verified":decision["skipped_fully_verified"],
+      "skipped_completed_count":decision["skipped_completed_count"],
+      "prior_checkpoint":decision["existing_checkpoint"],
+      "latest_notice_count":decision["latest_notice_count"],
+      "latest_notice_rows":decision["latest_notice_rows"],
+      "exact10_category_verified":False,
+      "warning":"N01_AUTOMATIC_SELECTION_NOT_NINE_STAGE_COMPLETION"
     }
 
 def _live_notice(opener,preload=None):
-    """Official G2B site listing first; HWP is only a *partial* fallback.
+    """Fresh official listing only; never use a pinned HWP to choose."""
+    return _official_g2b_search(opener)
 
-    NURI is a different procurement portal. A file for one pinned tender must
-    never be presented as proof that the latest G2B notices were searched.
-    """
-    try:
-        return _official_g2b_search(opener)
-    except Exception as source_error:
-        log.warning("N01_G2B_LIST_UNVERIFIED reason=%s",
-                    type(source_error).__name__+":"+str(source_error)[:170])
-        for seq in (1,2):
-            qs=urlencode({"bidPbancNo":CASE,"bidPbancOrd":"000","fileType":"",
-                          "fileSeq":seq,"prcmBsneSeCd":"03"})
-            url=ATTACH+"?"+qs
-            try:
-                raw,ctype=_fetch(opener,url,None,{"Referer":OFFICIAL+"/"})
-                if not raw.startswith((b"\xd0\xcf\x11\xe0",b"%PDF",b"PK\x03\x04")):
-                    raise ValueError("OFFICIAL_ORIGINAL_FILE_SIGNATURE_INVALID")
-                fields=_official_notice_fields(raw,ctype)
-                if preload is not None:preload[seq]=(raw,ctype)
-                return {"bid_no":CASE,"bid_ord":"000",
-                    "source":url,"verified_by":"official_original_text",
-                    "source_file_sha256":sha256(raw).hexdigest(),
-                    "source_file_bytes":len(raw),"source_file_seq":seq,
-                    "notice_list":"UNAVAILABLE",
-                    "notice_list_error":type(source_error).__name__+":"+str(source_error)[:170],
-                    "warning":"G2B_CURRENT_LIST_UNVERIFIED_HWP_CASE_ONLY",
-                    **fields}
-            except Exception:
-                continue
-        raise ValueError("G2B_LIST_UNVERIFIED_AND_CASE_ORIGINAL_UNAVAILABLE:"
-                         +type(source_error).__name__+":"+str(source_error)[:115])
-def _live_attachments(opener,preload=None):
+def _live_attachments(opener,preload=None,notice=None):
+    if not isinstance(notice,dict) or not notice.get("bid_no"):
+        raise ValueError("N02_AUTO_SELECTED_NOTICE_REQUIRED")
+    bid_no=notice["bid_no"];bid_ord=notice.get("bid_ord") or "000"
+    business_code=notice.get("business_code") or "03"
     out=[];texts=[]
     for seq in (1,2):
-        qs=urlencode({"bidPbancNo":CASE,"bidPbancOrd":"000","fileType":"",
-                      "fileSeq":seq,"prcmBsneSeCd":"03"})
+        qs=urlencode({"bidPbancNo":bid_no,"bidPbancOrd":bid_ord,"fileType":"",
+                      "fileSeq":seq,"prcmBsneSeCd":business_code})
         address=ATTACH+"?"+qs
         try:
             if preload and seq in preload:
@@ -354,7 +320,7 @@ def _document(notice,files,assessment,openings,competition,cost,price):
     document=Document()
     document.add_heading("실제 나라장터 수집 · 9단계 검토 테스트",0)
     document.add_paragraph("자동 투찰·전자서명·입찰참가 없음. 직접 외부 수집한 원본 결과만 사용.")
-    for label,value in (("공고번호",CASE),("공고명",(notice or {}).get("title")),
+    for label,value in (("공고번호",(notice or {}).get("bid_no")),("공고명",(notice or {}).get("title")),
         ("기관",(notice or {}).get("agency")),("실행 시각",_now().isoformat())):
         document.add_paragraph(label+": "+str(value or "미확인"))
     for title,item in (("공식 첨부 확보",files),("자격·원문 조건",assessment),
@@ -382,6 +348,8 @@ def _record(run,index,status,inp,output):
         run["active_since"]=None
         run["last_activity"]=_now().isoformat()
         if status!="verified":run["partial_steps"]+=1
+    from n01_auto import record_stage
+    record_stage(run,index,status)
     log.info("LIVE9_STAGE_END run_id=%s node=N%02d status=%s",run["run_id"],index,status)
 def _execute(run):
     global ACTIVE
@@ -394,33 +362,38 @@ def _execute(run):
         with GUARD:run["g2b_site_live_post_attempted"]=True
         try:
             state["notice"]=_live_notice(opener,preload)
+            run["selected_notice"]=state["notice"]
+            run["case_bid_no"]=state["notice"]["bid_no"]
+            run["case_bid_ord"]=state["notice"]["bid_ord"]
+            run["selection_reason"]=state["notice"]["selection_reason"]
             if (not state["notice"].get("official_fields_verified")
                 or not state["notice"].get("title")
                 or not state["notice"].get("agency")):
                 raise ValueError("N01_TITLE_AND_AGENCY_REQUIRED")
             status=("partial" if state["notice"].get("notice_list")=="UNAVAILABLE"
                     else "verified")
-            _record(run,1,status,{"bid_no":CASE,"source":"official_g2b_live_site"},
+            _record(run,1,status,{"mode":"newest_incomplete_auto","source":"official_g2b_live_site"},
                     state["notice"])
         except Exception as exc:
             state["notice"]=None
-            _record(run,1,"source_error",{"bid_no":CASE},
+            _record(run,1,"source_error",{"mode":"newest_incomplete_auto"},
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "source":OFFICIAL+"/",
                      "continue_to":"N02"})
         _begin_stage(run,2)
         try:
-            docs,texts=_live_attachments(opener,preload)
+            docs,texts=_live_attachments(opener,preload,state.get("notice"))
             state["docs"]=docs
             _record(run,2,"verified" if any("sha256" in v for v in docs)
                     else "source_error",
-                    {"bid_no":CASE,"request":"official_attachments_1_2"},
+                    {"bid_no":run.get("case_bid_no"),"bid_ord":run.get("case_bid_ord"),
+                     "request":"official_attachments_1_2"},
                     {"files":docs,"downloaded":sum("sha256" in v for v in docs),
                      "text_extracted_files":len(texts)})
         except Exception as exc:
             docs,texts=[],[]
             state["docs"]=docs
-            _record(run,2,"source_error",{"bid_no":CASE},
+            _record(run,2,"source_error",{"bid_no":run.get("case_bid_no")},
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "continue_to":"N03"})
         _begin_stage(run,3)
@@ -442,11 +415,12 @@ def _execute(run):
         try:
             state["history"]=_live_openings(opener)
             _record(run,4,"partial",
-                    {"source":"live_official_opening_only","detail10":DETAIL},
+                    {"source":"live_official_opening_only","detail10":None,
+                     "note":"exact10 for auto-selected notice not verified yet"},
                     state["history"])
         except Exception as exc:
             state["history"]=None
-            _record(run,4,"source_error",{"detail10":DETAIL},
+            _record(run,4,"source_error",{"detail10":None},
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "source":OPENINGS,"continue_to":"N05"})
         _begin_stage(run,5)
@@ -531,13 +505,14 @@ def _execute(run):
                  run["run_id"],run["status"],run["completed_steps"])
 def begin(sid,payload):
     global ACTIVE
-    if not isinstance(payload,dict) or payload!={"bid_no":CASE,"detail10":DETAIL}:
-        raise ValueError("EXACT_TEST_CASE_REQUIRED")
+    if not isinstance(payload,dict) or payload not in ({"mode":"auto"},{}):
+        raise ValueError("AUTOMATIC_SELECTION_ONLY_NO_PINNED_CASE")
     with GUARD:
         if ACTIVE is not None:raise ValueError("LIVE_RUN_ALREADY_ACTIVE")
         rid=uuid.uuid4().hex
         state={"run_id":rid,"status":"running","mode":"on_demand_live_no_database",
-            "case_bid_no":CASE,"detail10":DETAIL,"started_at":_now().isoformat(),
+            "selection_mode":"newest_incomplete_auto","case_bid_no":None,
+            "case_bid_ord":None,"detail10":None,"started_at":_now().isoformat(),
             "completed_steps":0,"partial_steps":0,"steps":[],
             "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":False,
             "bid_submitted":False}
