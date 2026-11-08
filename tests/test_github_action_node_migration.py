@@ -129,10 +129,10 @@ class MigrationTests(unittest.TestCase):
   self.assertEqual(record["file_count"],1)
   self.assertTrue(Path(record["manifest_path"]).exists())
   self.assertEqual(Path(record["files"][0]["saved_path"]).read_bytes(),body)
-  # N03 is the official eligibility-document reader, N09 verifies
-  # immutable saved originals. Any other pending stage must be denied.
-  with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
-   bridge.original("Bearer unit-test-oidc",self.rid,1)
+  # The selected N03 collection job can read official N02 bytes without
+  # evaluating bidder eligibility; all other intermediate stages are denied.
+  source_for_n03=bridge.original("Bearer unit-test-oidc",self.rid,1)
+  self.assertEqual(source_for_n03.read_bytes(),body)
   self._result("N03","partial",{"detail10_verified":False,
     "business_evaluation_performed":False})
   with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
