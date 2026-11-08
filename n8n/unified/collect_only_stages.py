@@ -682,10 +682,6 @@ def n07_price_sources(notice,metadata,history,opening,supply):
     fields=(metadata or {}).get("official_fields") or {}
     amounts.extend(_field_sources(fields,amount_fields,"N03_official_record"))
     amounts.extend(_field_sources(notice or {},("budget",),"N01_official_bid_list"))
-    for item in (opening or {}).get("opening_records") or []:
-        bid=item.get("bid_no")
-        order=item.get("bid_ord") or "000"
-        opening_map.setdefault((bid,order),[]).append(item)
     # Some notices publish an opening/award row but no bidder detail.
     # Keep their price, item and quantity fields rather than dropping them.
     for origin in (opening or {}).get("opening_records") or []:
