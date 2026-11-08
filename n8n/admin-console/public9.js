@@ -61,7 +61,7 @@
    // Rebuilding #content on each 1.8s poll would destroy drag/pan/editor state.
    const regions=document.querySelectorAll('[data-p9-region]');
    if(!regions.length){window.Public9?.requestRender?.();return;}
-   const fragments={overview,inventory,issues,actions,inspector,audit};
+   const fragments={overview,inventory,issues,actions,evidence,inspector,audit};
    regions.forEach(region=>{
      const fn=fragments[region.getAttribute('data-p9-region')];
      if(fn)region.innerHTML=fn();
@@ -163,6 +163,52 @@
        r.finished_at?'종료 시각 '+esc(clock(r.finished_at)):'실행 전')+'</span></div>'+
     '<p class="p9-helper">N01~N08은 자료 수집·정리만 수행합니다. 입찰 관련 판단과 AI 평가는 N09에서만 수행합니다.</p></section>';
  }
+ function stageStatusName(s){
+   if(!s)return '대기';
+   const out=s.output||{};
+   if(s.node==='N09'&&!out.ai_evaluation_performed){
+     if(out.reason==='N09_AI_API_NOT_CONFIGURED')return 'AI 설정 필요';
+     if(s.status==='not_executed')return 'AI 미실행';
+   }
+   if(s.node==='N08'&&out.handoff_bundle&&!out.bundle_error)return '자료 통합 완료';
+   if(s.node==='N06'&&!out.supplier_quotation_original_count&&!out.company_workforce_original_count)return '외부 자료 미수집';
+   if(s.node==='N04'&&!out.requested_detail10)return '분류번호 대기';
+   if(s.node==='N05'&&!out.candidates)return '과거 공고 대기';
+   if(s.node==='N03'&&!out.detail10_verified)return '10자리 분류 미확보';
+   if(s.node==='N07'&&Array.isArray(out.source_amounts))return '금액 '+out.source_amounts.length+'건 수집';
+   return statusName(s.status);
+ }
+ function evidenceDetail(i,s){
+   if(!s)return '실행 전';
+   const o=s.output||{},missing=(o.gaps||o.collection_gaps||[]).length;
+   if(o.error)return '실행 오류: '+String(o.error).slice(0,160);
+   switch(i){
+     case 0:return o.bid_no?'공식 공고 '+String(o.bid_no):'공고 선정 결과 미확인';
+     case 1:return (o.file_count??o.files?.length??0)+'개 원본'+(o.official_attachment_inventory_complete?' · 목록 확인':' · 목록 확인 필요');
+     case 2:return '공식 상세 필드 '+Object.keys(o.official_fields||{}).length+'개 · 세부품명 '+(o.detail10_verified?o.detail10:'10자리 미확보');
+     case 3:return '10년 조회 구간 '+(o.periods_checked?.length||0)+'/'+(o.periods_requested||0)+' · 연결 공고 '+(o.verified_record_count||0)+'건';
+     case 4:return '이력 후보 '+(o.candidates||0)+'건 · 개찰 조회 '+(o.checked||0)+'건 · 개찰 원본 '+(o.opening_records?.length||0)+'건';
+     case 5:return '원본 목록 '+(o.official_originals_catalog?.length||0)+'개 · 외부 견적 '+(o.supplier_quotation_original_count||0)+'개 · 인력 '+(o.company_workforce_original_count||0)+'개';
+     case 6:return '공식 금액 필드 '+(o.source_amounts?.length||0)+'건 · 누락 '+missing+'건';
+     case 7:return o.handoff_bundle?'AI 전달 묶음 '+(o.bundle_bytes||0)+'바이트 · 수집 누락 '+missing+'건':'자료 통합 미완료';
+     case 8:return o.ai_evaluation_performed?'AI 최종보고서 생성됨':(o.reason||'AI 분석 실행 결과 미확인');
+     default:return '정보 없음';
+   }
+ }
+ function evidence(){
+   const rows=STAGES.map((label,i)=>{
+     const s=stage(i),state=s?.status||'waiting',summary=evidenceDetail(i,s);
+     const link=s?.github_run_id&&/^\d+$/.test(String(s.github_run_id))
+       ?'<a href="https://github.com/lyonbegin/procureflow/actions/runs/'+esc(s.github_run_id)+'" target="_blank" rel="noopener">실행 로그</a>'
+       :'';
+     return '<tr><td><b>'+id(i)+'</b></td><td>'+esc(label)+'</td><td><span class="p9-status-pill p9-'+esc(state)+'">'+esc(stageStatusName(s))+'</span></td><td>'+esc(summary)+'</td><td>'+link+'</td></tr>';
+   }).join('');
+   return '<section class="panel p9-evidence" aria-label="노드별 실제 수집·실행 증빙">'+
+     '<div class="p9-panel-heading"><div><h3>N01~N09 실제 처리 현황</h3>'+
+     '<p>GitHub Actions 완료와 자료 수집 성공은 다릅니다. 각 노드가 반환한 숫자와 미수집 항목을 그대로 표시합니다.</p></div></div>'+
+     '<div class="p9-evidence-scroll"><table class="p9-evidence-table"><thead><tr><th>노드</th><th>수집 단계</th><th>실제 상태</th><th>확인된 처리 내용</th><th>증빙</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+     '</section>';
+ }
  function studio(){
    const src='/?workflow='+encodeURIComponent(FLOW)+'&public9_embed=1';
    return '<section class="panel p9-studio-panel" id="p9-shared-studio-panel" data-p9-studio-panel role="region" aria-label="공용 Studio 실시간 노드 관리 화면">'+
@@ -221,7 +267,7 @@
        return '<button class="p9-issue-row p9-'+esc(s.status)+'" type="button" data-public9="node" data-index="'+i+'">'+
        '<span class="p9-issue-id">'+esc(s.node)+'</span>'+
        '<span class="p9-issue-text"><b>'+esc(STAGES[i]||s.title)+'</b><small>'+esc(preview(reason(s),210))+'</small></span>'+
-       '<span class="p9-state">'+esc(statusName(s.status))+'</span></button>';
+       '<span class="p9-state">'+esc(stageStatusName(s))+'</span></button>';
      }).join('')+'</div>'+
      (live()?'<p class="p9-helper">수집 누락은 그대로 기록하며 후속 수집을 중단하지 않습니다. 판단과 평가는 N09에서만 수행합니다.</p>':'')+
      '</section>';
@@ -231,7 +277,7 @@
    return '<section class="panel p9-inspector" aria-label="선택 노드 상세 정보">'+
     '<div class="p9-panel-heading"><div><h3>선택 노드 실행 상세 · '+esc(name(i))+'</h3>'+
     '<p>공용 Studio 노드 또는 수집 누락 목록에서 원하는 노드를 선택하실 수 있습니다.</p></div>'+
-    '<span class="p9-status-pill p9-'+esc(v)+'">'+esc(statusName(v))+'</span></div>'+
+    '<span class="p9-status-pill p9-'+esc(v)+'">'+esc(stageStatusName(s))+'</span></div>'+
     (s?'<p class="p9-inspector-reason">'+esc(reason(s))+'</p>'+
       '<div class="p9-detail-meta"><span>완료 시각 '+esc(clock(s.at))+'</span><span>공고 '+esc(r.case_bid_no||'아직 자동 선택되지 않음')+'</span>'+ (s.github_run_id && /^\d+$/.test(String(s.github_run_id))?'<span><a target="_blank" rel="noopener" href="https://github.com/lyonbegin/procureflow/actions/runs/'+esc(s.github_run_id)+'">Actions 실행 로그 ↗</a></span>':'')+'</div>'+
       '<div class="p9-detail-grid"><div><h4>실제 INPUT</h4><pre class="log">'+fmt(s.input)+'</pre></div>'+
@@ -273,14 +319,14 @@
    return '<section class="hero p9-hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
     '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 공용 Studio 실행 관제</h2>'+
     '<p>실행 진행상태가 별도 흐름도가 아닌 공용 노드 관리 캔버스에 직접 표시됩니다.</p></section>'+
-    region('overview',overview)+region('actions',actions)+studio()+region('issues',issues)+
+    region('overview',overview)+region('actions',actions)+region('evidence',evidence)+studio()+region('issues',issues)+
     region('inventory',inventory)+
     region('inspector',inspector)+region('audit',audit);
  }
  function nodes(){
    return '<section class="hero p9-hero"><div class="kicker">SHARED N8N STUDIO · LIVE</div>'+
     '<h2>공용 노드 관리 · 실제 실행상태</h2><p>별도 복제 흐름도 없이 기존 Vue Flow 캔버스를 그대로 표시합니다.</p></section>'+
-    region('overview',overview)+region('actions',actions)+studio()+region('issues',issues)+
+    region('overview',overview)+region('actions',actions)+region('evidence',evidence)+studio()+region('issues',issues)+
     region('inventory',inventory)+region('inspector',inspector)+region('audit',audit);
  }
  document.addEventListener('click',async ev=>{
