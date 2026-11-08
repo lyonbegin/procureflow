@@ -246,36 +246,120 @@ class CollectFirstTests(unittest.TestCase):
     def test_n05_capacity_at_least_fifty(self):
         self.assertGreaterEqual(c.MAX_OPENING_LOOKUPS,50)
 
-    def test_n05_only_connected_official_bids_no_competitor_prediction(self):
-        hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":CODE,
-                         "query_period":{"from":"20260101","to":"20261231"}}]}
+    def test_n05_exact_list_row_fills_official_detail_request(self):
+        hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":None,
+                         "query_period":{"from":"20250101","to":"20251231"}}]}
+        official={"bidPbancNo":BID,"bidPbancOrd":"000",
+                  "bidClsfNo":"7","bidPrgrsOrd":"002",
+                  "prcmBsneSeCd":"조070003","bidPgstCd":"공식상태코드"}
+        observed=[]
         def post(opener,url,payload,headers):
-            self.assertEqual(payload["dlSrchOnbsRsltClsfListInM"]["bidPbancNo"],BID)
-            return {"onbsRsltClsfList":[{"bidPbancNo":BID,"bidPbancOrd":"000",
-                                         "onbsYmd":"20261108","scsbdAmt":"111000000"}]}
-        status,out=c.n05_openings(None,hist,post,date(2026,11,8))
-        self.assertEqual(status,"partial")
-        self.assertEqual(len(out["opening_records"]),1)
-        self.assertEqual(out["opening_records"][0]["bid_no"],BID)
-        self.assertFalse(out["full_bidder_participation_records_verified"])
-        self.assertFalse(out["business_evaluation_performed"])
-        self.assertNotIn("competitor_ranking",out)
-    def test_n05_official_bidder_details_preserve_amount_without_evaluation(self):
-        history={"records":[{"bid_no":"R25BK01234567","bid_ord":"000",
-                             "detail10":None,"query_period":{"from":"20250101","to":"20251231"}}]}
-        def post(opener,url,payload,headers):
-            if url==c.OPENING_LIST:return {"onbsRsltClsfList":[]}
+            if url==c.OPENING_LIST:
+                self.assertEqual(payload["dlSrchOnbsRsltClsfListInM"]["bidPbancNo"],BID)
+                return {"onbsRsltClsfList":[official]}
             if url==c.OPENING_DETAIL:
-                return {"successBidInfo":[{"onbsRnkg":"1","grpNm":"테스트 회사",
-                                          "bdngAmt":"1000000","bdrt":"87.745"}],
+                q=payload["dlSrchOnbsRsltBidInM"]
+                observed.append(dict(q))
+                return {"successBidInfo":[{"onbsRnkg":"1","grpNm":"테스트업체",
+                                          "bdngAmt":"111000000","bdrt":"87.745"}],
                         "bidInfo":{}}
             raise AssertionError("UNEXPECTED_OFFICIAL_ENDPOINT")
+        state,out=c.n05_openings(None,hist,post,date(2026,11,8))
+        self.assertEqual(state,"verified")
+        self.assertEqual(out["checked"],1)
+        self.assertEqual(len(out["opening_records"]),1)
+        self.assertEqual(out["opening_records"][0]["bid_no"],BID)
+        self.assertEqual(out["opening_records"][0]["official_fields"]["bidClsfNo"],"7")
+        self.assertEqual(observed[0]["bidClsfNo"],"7")
+        self.assertEqual(observed[0]["bidPrgrsOrd"],"002")
+        self.assertEqual(observed[0]["prcmBsneSeCd"],"조070003")
+        self.assertEqual(observed[0]["bidPgstCd"],"공식상태코드")
+        self.assertEqual(out["observed_bidder_row_count"],1)
+        self.assertFalse(out["business_evaluation_performed"])
+        self.assertNotIn("competitor_ranking",out)
+
+    def test_n05_missing_official_detail_keys_never_forges_status(self):
+        hist={"records":[{"bid_no":BID,"bid_ord":"000",
+                          "query_period":{"from":"20250101","to":"20251231"}}]}
+        calls=[]
+        def post(opener,url,payload,headers):
+            calls.append(url)
+            if url==c.OPENING_LIST:
+                return {"onbsRsltClsfList":[{"bidPbancNo":BID,"bidPbancOrd":"000"}]}
+            raise AssertionError("MUST_NOT_SEND_FABRICATED_DETAIL_PARAMETERS")
+        state,out=c.n05_openings(None,hist,post,date(2026,11,8))
+        self.assertEqual(state,"partial")
+        self.assertEqual(calls,[c.OPENING_LIST])
+        self.assertEqual(out["checked"],1)
+        self.assertTrue(any("official_opening_detail_keys_missing" in x
+                            for x in out["gaps"]))
+        self.assertEqual(out["observed_bidder_row_count"],0)
+
+    def test_n05_distinguishes_official_http_422_from_unpublished(self):
+        from urllib.error import HTTPError
+        hist={"records":[{"bid_no":BID,"bid_ord":"000",
+                         "query_period":{"from":"20250101","to":"20251231"}}]}
+        official={"bidPbancNo":BID,"bidPbancOrd":"000",
+                  "bidClsfNo":"0","bidPrgrsOrd":"000",
+                  "prcmBsneSeCd":"조070003","bidPgstCd":"공식코드"}
+        def post(opener,url,payload,headers):
+            if url==c.OPENING_LIST:return {"onbsRsltClsfList":[official]}
+            raise HTTPError(url,422,"Unprocessable Entity",None,None)
+        state,out=c.n05_openings(None,hist,post,date(2026,11,8))
+        self.assertEqual(state,"partial")
+        self.assertEqual(out["per_notice"][0]["status"],"partial")
+        self.assertTrue(any("official_http_422" in x for x in out["gaps"]))
+        self.assertEqual(out["not_published_count"],0)
+        self.assertEqual(out["opening_records"][0]["bid_no"],BID)
+        self.assertEqual(out["observed_bidder_row_count"],0)
+
+    def test_n05_pages_official_list_and_rejects_unrelated_rows(self):
+        hist={"records":[{"bid_no":BID,"bid_ord":"000",
+                         "query_period":{"from":"20250101","to":"20251231"}}]}
+        official={"bidPbancNo":BID,"bidPbancOrd":"000",
+                  "bidClsfNo":"1","bidPrgrsOrd":"001",
+                  "prcmBsneSeCd":"조070003","bidPgstCd":"공식코드"}
+        def post(opener,url,payload,headers):
+            if url==c.OPENING_LIST:
+                start=payload["dlSrchOnbsRsltClsfListInM"]["firstIndex"]
+                if start==1:
+                    return {"onbsRsltClsfList":[{
+                        "bidPbancNo":"R25BK00000001","bidPbancOrd":"000"}
+                        for _ in range(10)]}
+                return {"onbsRsltClsfList":[official]}
+            return {"successBidInfo":[{"bdngAmt":"1000000"}],"bidInfo":{}}
+        state,out=c.n05_openings(None,hist,post,date(2026,11,8))
+        self.assertEqual(state,"verified")
+        self.assertEqual(out["opening_list_pages"],2)
+        self.assertEqual(out["unrelated_response_rows"],10)
+        self.assertEqual(len(out["opening_records"]),1)
+        self.assertEqual(out["observed_bidder_row_count"],1)
+
+    def test_n05_unpublished_is_not_bidders_collected(self):
+        history={"records":[{"bid_no":BID,"bid_ord":"000",
+                             "query_period":{"from":"20250101","to":"20251231"}}]}
+        def post(opener,url,payload,headers):
+            self.assertEqual(url,c.OPENING_LIST)
+            return {"onbsRsltClsfList":[]}
         state,out=c.n05_openings(None,history,post,date(2026,11,8))
         self.assertEqual(state,"partial")
-        self.assertEqual(len(out["bidder_detail_records"]),1)
-        evidence=out["bidder_detail_records"][0]
-        self.assertEqual(evidence["bidders"][0]["bdngAmt"],"1000000")
-        self.assertEqual(evidence["source"],c.OPENING_DETAIL)
+        self.assertEqual(out["not_published_count"],1)
+        self.assertEqual(out["checked"],1)
+        self.assertEqual(out["observed_bidder_row_count"],0)
+
+    def test_n05_handles_fifty_historical_candidates(self):
+        history={"records":[{"bid_no":f"R25BK{i:08d}","bid_ord":"000",
+                              "query_period":{"from":"20250101","to":"20251231"}}
+                             for i in range(1,51)]}
+        def post(opener,url,payload,headers):
+            self.assertEqual(url,c.OPENING_LIST)
+            return {"onbsRsltClsfList":[]}
+        state,out=c.n05_openings(None,history,post,date(2026,11,8))
+        self.assertEqual(state,"partial")
+        self.assertEqual(out["attempted"],50)
+        self.assertEqual(out["checked"],50)
+        self.assertEqual(out["not_published_count"],50)
+        self.assertEqual(len(out["per_notice"]),50)
         self.assertFalse(out["business_evaluation_performed"])
 
     def test_n06_n07_only_catalog_existing_sources(self):
