@@ -1,0 +1,35 @@
+name: BidPicker visual reference audit
+on:
+  push:
+    branches: [feature/bidpicker-mobile-original-ui-20261106]
+    paths: [.github/workflows/bidpicker-reference-visual.yml]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install --quiet pillow requests
+      - name: Inspect published Google Play screenshots for design accuracy
+        run: |
+          python - <<'PY'
+          import requests, base64, io, hashlib
+          from PIL import Image
+          urls=["https://play-lh.googleusercontent.com/osxt8t-jsEmg1IlgoB0ZL7g5d_4d5RR5bqYFIqppNstBW_2-_UQ4jismKJH4jfrRWQBlUavFfcZ4YO8XP5E3=w1052-h592-rw","https://play-lh.googleusercontent.com/jd2nLFG5LXpz3jXplEYiZBYBQvfmqxgsNnTa-dMGWWi3nuOd63a1MS1pL6YzpzDLnt6b4Z1lHKUZ7el2vLWkTQ=w1052-h592-rw","https://play-lh.googleusercontent.com/btw16eKBAwlCyss1KY2NTlUChEJVsJxKncyDMFrhReXT1uBdVA0lM4Pf3MHoq6oWLkYCmC0VT3u0sbuQBgqbnQ=w1052-h592-rw","https://play-lh.googleusercontent.com/G3pH-d3at1-Zk_8re_LJOxKFsI0vbqU1_ZvqVjqsoiuNqu53sJkD9t3nx2900zxf-0nCcA2vaROMsIGEjte-=w1052-h592-rw","https://play-lh.googleusercontent.com/19FKUa8GtCnUFSM3Edcql3bZhRvh5WGGBS0V4C4xrgsrmLP9fcuXMCXP9l8bEab4PKoVcq2w-l9SWUJ15NrQywk=w1052-h592-rw","https://play-lh.googleusercontent.com/KyILB2T5WR_HTV0KtZhGdgEYTkEuPETzLW_xLeZF7u18OP9HNVRwjqV-R2UHM0_hwjl3ZJ0Vu-NFR9dUm3RVVT8=w1052-h592-rw","https://play-lh.googleusercontent.com/o8fGYPOMqUF_HUsU1J-JuqFXIO32cMOFPiZLEQ9-9jscA0lW09r7IM7MmsQA1JrY7MLatuLue-Q42bWcVgoS=w1052-h592-rw"]
+          for i,url in enumerate(urls,1):
+              try:
+                  r=requests.get(url,timeout=15)
+                  r.raise_for_status()
+                  im=Image.open(io.BytesIO(r.content)).convert('RGB')
+                  orig=im.size
+                  im.thumbnail((640,450))
+                  buf=io.BytesIO();im.save(buf,'JPEG',quality=56,optimize=True)
+                  encoded=base64.b64encode(buf.getvalue()).decode()
+                  print('APP_REFERENCE_'+str(i)+'='+encoded,flush=True)
+                  print('APP_META_'+str(i)+'='+str(orig)+':'+str(im.size)+':'+str(len(encoded)),flush=True)
+              except Exception as e: print('APP_ERROR_'+str(i)+'='+repr(e),flush=True)
+
+          PY
