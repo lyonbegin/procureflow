@@ -1,121 +1,24 @@
-name: N03 live official originals — GitHub Actions only
+name: Archived N03 document-parser experiment (not an execution node)
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/procureflow-unified-studio-20261107]
-    paths:
-      - .github/workflows/n03-qualification-live.yml
-      - n8n/unified/n03_documents.py
-      - n8n/unified/n03_eligibility.py
-      - n8n/unified/github_node_worker.py
-      - n8n/unified/github_actions_bridge.py
-      - tests/test_n03_github_originals.py
-      - tests/test_github_action_node_migration.py
 permissions:
   contents: read
 jobs:
-  n03-original-evidence:
+  archived-parser-not-in-n03:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install HWP5/PDF readers exclusively on the GitHub runner
-        run: python -m pip install --disable-pip-version-check --no-cache-dir 'PyJWT[crypto]==2.10.1' olefile==0.47 pypdf==5.4.0
-      - name: Verify GH N03 relay, OIDC read scope, real source hash and segmented extraction
-        run: |
-          python -m unittest discover -s tests -p test_n03_github_originals.py -v
-          python -m unittest discover -s tests -p test_n03_qualification_evidence.py -v
-          python -m unittest discover -s tests -p test_github_action_node_migration.py -v
-      - name: Actual G2B official HWP/PDF -> N02 saved files -> N03 qualification analysis
-        env:
-          PROCUREFLOW_ATTACHMENT_ROOT: /tmp/n03-official-originals
+      - name: Ensure N03–N08 never perform qualification review
         run: |
           python - <<'PY'
-          import hashlib,json,sys
           from pathlib import Path
-          sys.path.insert(0,"n8n/unified")
-          import n02_collect,n03_documents,live_nine_test
-          notice={"bid_no":"R26BK01816186","bid_ord":"000","business_code":"22"}
-          opener=live_nine_test._client()
-          live_nine_test._once(opener)
-          source=n02_collect.collect(opener,notice)
-          print("N03_REAL_N02_MANIFEST",json.dumps({
-            "bid_no":source["notice_bid_no"],
-            "file_count":source["file_count"],
-            "inventory_complete":source["official_attachment_inventory_complete"],
-            "filenames":source["file_names"],
-            "file_types":source["file_types"],
-          },ensure_ascii=False),flush=True)
-          assert source["official_attachment_inventory_complete"],source.get("errors")
-          assert source["file_count"]>=3,source
-          original_data={}
-          for item in source["files"]:
-              file=Path(item["saved_path"])
-              raw=file.read_bytes()
-              assert len(raw)==item["size_bytes"]
-              assert hashlib.sha256(raw).hexdigest()==item["sha256"]
-              original_data[item["file_seq"]]=raw
-          state,result=n03_documents.extract_requirements(
-              source["files"],original_data,live_nine_test._extract)
-          summary={
-            "bid_no":notice["bid_no"],
-            "stage":state,
-            "downloaded_files":result["N02_original_count"],
-            "verified_originals":result["verified_original_count"],
-            "text_extracted_files":result["text_extracted_files"],
-            "qualification_rule_count":result.get("qualification_rule_count"),
-            "required_document_count":result.get("required_document_count"),
-            "evidence_line_basis":result.get("evidence_line_basis"),
-            "company_eligibility_verified":result["company_eligibility_verified"],
-            "inspection":[{"file_seq":f["file_seq"],
-                "original_filename":f["original_filename"],
-                "content_extraction":f["content_extraction"],
-                "text_chars":f.get("text_chars")}
-                for f in result["file_inspection"]],
-            "extraction_issues":result["extraction_issues"],
-          }
-          print("N03_REAL_ORIGINAL_ANALYSIS",json.dumps(summary,ensure_ascii=False),flush=True)
-          assert result["originals_integrity_verified"] is True
-          assert result["text_extracted_files"]>=2,summary
-          assert result["document_requirement_extraction"]=="verified",summary
-          assert result["qualification_rule_count"]>=3,summary
-          assert result["required_document_count"]>=10,summary
-          assert any("정비사업전문관리업자" in x["text"] for x in result["qualification_rules"]),result["qualification_rules"]
-          assert any("등록증" in x["text"] for x in result["required_documents"]),result["required_documents"]
-          assert all(x["source_file_sha256"] in {f["sha256"] for f in source["files"]}
-                     for x in result["qualification_rules"]+result["required_documents"])
-          assert state=="partial" and result["company_eligibility_verified"] is False
-          # Execute the actual GitHub N03 job function against the exact same
-          # source originals. Only the transport is replaced by on-runner files,
-          # because the production Railway dispatch token is not provisioned.
-          from unittest.mock import patch
-          import github_node_worker
-          context={"run_id":"d"*32,"selected_notice":notice,
-                   "outputs":{"N02":source}}
-          with patch.object(github_node_worker,"_read_original_for_n03",
-                  side_effect=lambda relay,rid,file:original_data[file["file_seq"]]) as read:
-              job_status,job_input,job_output=github_node_worker.execute(
-                  "N03",context,base="https://procureflow-unified-studio-candidate-production.up.railway.app")
-          assert read.call_count==len(source["files"]),(read.call_count,len(source["files"]))
-          assert job_status==state=="partial",(job_status,state)
-          assert job_output["qualification_rule_count"]==result["qualification_rule_count"]
-          assert job_output["required_document_count"]==result["required_document_count"]
-          assert job_output["source_files"]==result["source_files"]
-          assert job_input["selected_bid_no"]==notice["bid_no"]
-          assert job_output["company_eligibility_verified"] is False
-          print("N03_GITHUB_NODE_EXECUTOR_REAL_ORIGINALS_PASS",json.dumps({
-               "files":read.call_count,"qualification_rules":job_output["qualification_rule_count"],
-               "required_documents":job_output["required_document_count"],
-               "stage":job_status,"company_eligibility_verified":False,
-               "transport":"runner_saved_source_bytes_test_adapter"
-          },ensure_ascii=False),flush=True)
-          print("N03_GITHUB_ACTUAL_HWP_PDF_EVIDENCE_PASS",json.dumps({
-            "qualification_rule_count":result["qualification_rule_count"],
-            "required_document_count":result["required_document_count"],
-            "source_file_count":source["file_count"],"stage_status":state,
-            "company_eligibility_verified":False,
-          },ensure_ascii=False),flush=True)
+          source=Path("n8n/unified/github_node_worker.py").read_text()
+          a=source.index('    if stage=="N03":')
+          b=source.index('    if stage=="N09":',a)
+          early=source[a:b]
+          assert "n03_eligibility" not in early
+          assert "extract_requirements" not in early
+          assert "company_eligibility" not in early
+          assert "live._extract" not in early
+          print("ARCHIVED_N03_ANALYSIS_MOVED_TO_N09_ONLY_PASS")
           PY
