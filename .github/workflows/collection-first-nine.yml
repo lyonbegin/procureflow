@@ -68,3 +68,36 @@ jobs:
           assert status in ("verified","partial")
           print("COLLECTION_FIRST_REAL_G2B_N03_NO_EVALUATION_PASS",flush=True)
           PY
+      - name: Probe actual N04 broad search filters (read-only)
+        run: |
+          python - <<'PY'
+          import sys,json
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import BID_LIST,BID_HEADERS,n03_metadata
+          opener=live._client();live._once(opener)
+          _,record=n03_metadata(opener,{"bid_no":"R26BK01816186","bid_ord":"000"},
+                               live._json_post,live,date(2026,11,8))
+          fields=record["official_fields"]
+          searches=[
+             ("agency_code","oderInstUntyGrpNo",fields.get("oderInstUntyGrpNo")),
+             ("agency_name","dmstNm",fields.get("dmstNm")),
+             ("title_short","bidPbancNm",(fields.get("bidPbancNm") or "")[:10]),
+          ]
+          for name,key,val in searches:
+             if not val:continue
+             payload=live._g2b_bid_list_payload("20251108","20261108",page=1)
+             payload["dlBidPbancLstM"][key]=val
+             try:
+                rows=live._json_post(opener,BID_LIST,payload,BID_HEADERS)
+                print("N04_LIVE_FILTER_PROBE",json.dumps({
+                    "mode":name,"valid_list":isinstance(rows,list),
+                    "rows":len(rows) if isinstance(rows,list) else None,
+                    "example_key_names":list(rows[0].keys())[:14] if isinstance(rows,list) and rows else []
+                },ensure_ascii=False),flush=True)
+             except Exception as error:
+                print("N04_LIVE_FILTER_PROBE",json.dumps({
+                    "mode":name,"error":type(error).__name__+":"+str(error)[:80]
+                }),flush=True)
+          PY
