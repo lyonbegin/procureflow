@@ -13,6 +13,9 @@ import json,re
 G2B="https://www.g2b.go.kr"
 BID_LIST=G2B+"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
 OPENING_LIST=G2B+"/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do"
+OPENING_DETAIL=G2B+"/pb/pbo/pboc/OnbsRslt/selectOnbsRsltSbidGods.do"
+DETAIL_HEADERS={"Menu-Info":'{"menuNo":"15620","scrnNo":"08542"}',
+                "Referer":G2B+"/","User-Agent":"Mozilla/5.0"}
 BID_HEADERS={
     "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
     "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
@@ -259,10 +262,53 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
         and len(value["periods_checked"])==len(periods) and not value["gaps"])
     return ("verified" if value["all_history_complete"] else "partial"),value
 
+def _n05_bidder_details(opener,post,bid,order,source=None):
+    """Read-only official WebSquare bid-result detail, never infer a winner."""
+    source=source or {}
+    errors=[]
+    for code in ("","03","01"):
+        query={"dlSrchOnbsRsltBidInM":{
+            "bidPbancNo":bid,"bidPbancOrd":order,
+            "bidClsfNo":str(source.get("bidClsfNo") or "0"),
+            "bidPrgrsOrd":str(source.get("bidPrgrsOrd") or "000"),
+            "prcmBsneSeCd":code,
+            "bidPgstCd":str(source.get("bidPgstCd") or "개찰완료"),
+            "bzmnRegNo":"","reOpenPbancYN":"",
+            "currentPage":1,"recordCountPerPage":"999"}}
+        try:
+            result=post(opener,OPENING_DETAIL,query,DETAIL_HEADERS)
+            if not isinstance(result,dict):
+                raise ValueError("N05_OFFICIAL_BID_DETAIL_SCHEMA_INVALID")
+            rows=result.get("successBidInfo") or []
+            if not isinstance(rows,list):
+                raise ValueError("N05_OFFICIAL_BID_DETAIL_ROWS_INVALID")
+            kept=[]
+            allowed=("onbsRnkg","bidprcRank","grpNm","fnlSucsfbdCorpNm",
+                     "bdngAmt","sucsfbidAmt","bdrt","sucsfbidRate",
+                     "bzmnRegNo","bidPgstCd","fnlBidWinnrNm","bidWinnrNm")
+            for row in rows[:200]:
+                if not isinstance(row,dict):
+                    raise ValueError("N05_OFFICIAL_BID_DETAIL_ROW_INVALID")
+                kept.append(_pick(row,allowed))
+            return {"source":OPENING_DETAIL,"bid_no":bid,"bid_ord":order,
+                    "query_business_code":code,"bidders":kept,
+                    "source_rows":len(rows),
+                    "rows_truncated":len(rows)>200,
+                    "source_json_sha256":sha256(json.dumps(result,ensure_ascii=False,
+                        sort_keys=True,separators=(",",":")).encode()).hexdigest(),
+                    "bid_info_fields":_pick(result.get("bidInfo") or {},
+                        ("fnlSucsfbdCorpNm","fnlBidWinnrNm","scsbdAmt","scsbdPrce")),
+                    "business_evaluation_performed":False},errors
+        except Exception as exc:
+            errors.append(type(exc).__name__+":"+str(exc)[:90])
+    return None,errors
+
+
 def n05_openings(opener,history,post,today):
     """Collect opening-list source records; never guess bidder or winner data."""
     candidates=list((history or {}).get("records") or [])
-    value={"source":OPENING_LIST,"opening_records":[],"candidates":len(candidates),
+    value={"source":OPENING_LIST,"opening_records":[],"bidder_detail_records":[],
+           "candidates":len(candidates),
            "checked":0,"full_bidder_participation_records_verified":False,
            "all_candidate_openings_collected":False,"gaps":[],
            "business_evaluation_performed":False}
@@ -296,6 +342,19 @@ def n05_openings(opener,history,post,today):
                    "source":OPENING_LIST})
         except Exception as exc:
             value["gaps"].append("opening_lookup_failed:"+bid+"-"+order+":"+type(exc).__name__)
+    # The official result-detail endpoint is independent of list pagination.
+    # Attempt for every bounded candidate, even when a listing has no rows.
+    for record in candidates[:MAX_OPENING_LOOKUPS]:
+        bid,order=_valid_notice(record)
+        detail,errors=_n05_bidder_details(opener,post,bid,order,
+                                            (record.get("official_fields") or {}))
+        if detail:
+            value["bidder_detail_records"].append(detail)
+            if detail["rows_truncated"]:
+                value["gaps"].append("bidder_detail_rows_exceed_limit:"+bid)
+        else:
+            value["gaps"].append("bidder_detail_unavailable:"+bid+":"+
+                                 ",".join(errors[:2])[:140])
     if len(candidates)>MAX_OPENING_LOOKUPS:
         value["gaps"].append("opening_lookup_limit_"+str(MAX_OPENING_LOOKUPS))
     # An opening list alone does not enumerate bidders or establish the award.
