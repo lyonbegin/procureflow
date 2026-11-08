@@ -48,7 +48,7 @@
      if(s.node==='N09')return '9개 단계 중 일부의 근거가 부족하여 최종 검증을 완료하지 못했습니다.';
      return String(out.status||out.warning||'일부 근거만 확인되어 추가 검증이 필요합니다.');
    }
-   if(s.status==='source_error')return '공식 사이트 조회 또는 서버 단계 실행 중 오류';
+   if(s.status==='source_error')return out.error||'GitHub Actions 노드 실행 또는 공식 사이트 조회 중 오류';
    if(s.status==='not_executed')return String(out.error||'이전 단계 오류로 실행되지 않았습니다.');
    if(s.status==='verified'){
      if(s.node==='N01')return '공식 나라장터 최신 공고 확인 · '+String(out.bid_no||'');
@@ -215,10 +215,10 @@
     '<p>상단 흐름도와 문제 목록에서 원하는 노드를 선택하실 수 있습니다.</p></div>'+
     '<span class="p9-status-pill p9-'+esc(v)+'">'+esc(statusName(v))+'</span></div>'+
     (s?'<p class="p9-inspector-reason">'+esc(reason(s))+'</p>'+
-      '<div class="p9-detail-meta"><span>완료 시각 '+esc(clock(s.at))+'</span><span>공고 '+esc(r.case_bid_no||'아직 자동 선택되지 않음')+'</span></div>'+
+      '<div class="p9-detail-meta"><span>완료 시각 '+esc(clock(s.at))+'</span><span>공고 '+esc(r.case_bid_no||'아직 자동 선택되지 않음')+'</span>'+ (s.github_run_id && /^\d+$/.test(String(s.github_run_id))?'<span><a target="_blank" rel="noopener" href="https://github.com/lyonbegin/procureflow/actions/runs/'+esc(s.github_run_id)+'">Actions 실행 로그 ↗</a></span>':'')+'</div>'+
       '<div class="p9-detail-grid"><div><h4>실제 INPUT</h4><pre class="log">'+fmt(s.input)+'</pre></div>'+
       '<div><h4>실제 OUTPUT</h4><pre class="log">'+fmt(s.output)+'</pre></div></div>':
-      '<div class="p9-inspector-idle">'+(v==='running'?'현재 서버에서 실행 중입니다. 단계 결과가 반환되면 이 영역도 자동 갱신됩니다.':'아직 실행되지 않았습니다.')+'</div>')+
+      '<div class="p9-inspector-idle">'+(v==='running'?'현재 GitHub Actions에서 해당 노드를 실행 중입니다. 결과가 반환되면 자동 갱신됩니다.':'아직 실행되지 않았습니다.')+'</div>')+
     '</section>';
  }
  function audit(){
@@ -243,7 +243,7 @@
       '>▶ 최신 미완료 공고 자동 선정 · 9개 실행</button>'+
       '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
       '<button class="btn" data-public9="open">공용 노드 캔버스 전체 화면</button></div>'+
-      '<p class="p9-helper">실행 버튼은 수동 검증용이며 공고 선택은 자동입니다. PostgreSQL 공고 데이터·외부 Worker·자동 투찰은 사용하지 않습니다.</p>'+
+      '<p class="p9-helper">실행 버튼은 개별 GitHub Actions 노드를 순서대로 요청합니다. Railway는 UI·상태·원본 보관만 담당하며 자동 투찰하지 않습니다.</p>'+
       (st.error?'<div class="notice warn" role="alert">'+esc(st.error)+'</div>':'')+
       (st.run?.error?'<div class="notice warn" role="alert">서버 실행 오류: '+esc(st.run.error)+'</div>':'')+
       (st.run?.run_id&&stage(7)?.output?.draft_generated?'<p><a class="btn" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(st.run.run_id)+'">Word 테스트 초안 내려받기</a></p>':'')+
