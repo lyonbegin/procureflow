@@ -320,7 +320,19 @@ def _n05_error(exc):
     """Stable, non-sensitive error reason (never serialize response body)."""
     if isinstance(exc,HTTPError):
         code=int(getattr(exc,"code",0) or 0)
-        if code==422:return "official_http_422_bad_or_unpublished_detail"
+        if code==422:
+            # Only an explicit official "no opening data" message establishes
+            # that status. A bare 422 could equally be a malformed WebSquare
+            # payload, so it remains an unresolved source error.
+            try:
+                raw=exc.read(4096)
+                body=json.loads(raw.decode("utf-8","replace"))
+                message=str(body.get("ErrorMsg") or body.get("errorMsg") or "")
+                if "개찰결과 데이터가 존재하지 않습니다" in message:
+                    return "official_422_no_published_opening_detail"
+            except (ValueError,TypeError,AttributeError,UnicodeError):
+                pass
+            return "official_http_422_unclassified"
         return "official_http_"+str(code)
     return type(exc).__name__+":"+str(exc)[:110]
 
