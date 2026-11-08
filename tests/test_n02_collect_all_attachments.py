@@ -116,6 +116,16 @@ class N02Tests(unittest.TestCase):
         self.assertEqual(report["file_count"],1)
         self.assertEqual(report["errors"][0]["file_seq"],2)
         self.assertTrue(Path(report["manifest_path"]).exists())
+    def test_final_handoff_reads_disk_and_verifies_all_original_hashes(self):
+        report=n02.collect(self.fake(),NOTICE)
+        handoff=n02.verify_saved_files(report)
+        self.assertTrue(handoff["original_files_integrity_verified"])
+        self.assertEqual(handoff["verified_saved_original_count"],3)
+        self.assertFalse(handoff["content_analysis_performed"])
+        Path(report["files"][1]["saved_path"]).write_bytes(b"%PDF-TAMPERED")
+        with self.assertRaisesRegex(ValueError,"BYTES_MISMATCH|SHA256_MISMATCH"):
+            n02.verify_saved_files(report)
+
     def test_missing_gap_not_marked_complete(self):
         official=FakeOfficial({1:("첫번째.hwp",b"\xd0\xcf\x11\xe0A"),
                                3:("세번째.pdf",b"%PDF-1.4B")})
