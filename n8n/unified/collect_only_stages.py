@@ -9,6 +9,7 @@ from datetime import date,timedelta
 from hashlib import sha256
 from html import unescape
 import json,re
+from urllib.error import HTTPError
 
 G2B="https://www.g2b.go.kr"
 BID_LIST=G2B+"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
@@ -42,10 +43,14 @@ PUBLIC_FIELDS=(
 OPEN_FIELDS=("bidPbancNo","bidPbancOrd","bidPbancNm",
              "onbsYmd","onbsDt","onbsPrnmntDt","prcmBsneSeCd",
              "scsbdMthdCd","scsbdMthdNm","pbancSttsNm",
-             "scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate")
+             "scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate",
+             "bidClsfNo","bidPrgrsOrd","bidPgstCd","dmstNm","demaInstNm")
 MAX_HISTORY_ROWS=400
 MAX_HISTORY_PAGES_PER_YEAR=30
 MAX_OPENING_LOOKUPS=50
+MAX_OPENING_PAGES_PER_NOTICE=5
+MAX_BIDDER_PAGES_PER_OPENING=5
+MAX_BIDDER_ROWS_PER_NOTICE=1000
 HISTORY_INITIAL_YEARS=3
 HISTORY_MAX_YEARS=10
 HISTORY_TARGET_RECORDS=50
@@ -311,112 +316,228 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
     # of the last three years was scanned or the class was AI-confirmed.
     return ("verified" if value["collection_target_complete"] else "partial"),value
 
-def _n05_bidder_details(opener,post,bid,order,source=None):
-    """Read-only official WebSquare bid-result detail, never infer a winner."""
-    source=source or {}
-    errors=[]
-    for code in ("","03","01"):
-        query={"dlSrchOnbsRsltBidInM":{
-            "bidPbancNo":bid,"bidPbancOrd":order,
-            "bidClsfNo":str(source.get("bidClsfNo") or "0"),
-            "bidPrgrsOrd":str(source.get("bidPrgrsOrd") or "000"),
-            "prcmBsneSeCd":code,
-            "bidPgstCd":str(source.get("bidPgstCd") or "개찰완료"),
-            "bzmnRegNo":"","reOpenPbancYN":"",
-            "currentPage":1,"recordCountPerPage":"999"}}
-        try:
-            result=post(opener,OPENING_DETAIL,query,DETAIL_HEADERS)
-            if not isinstance(result,dict):
-                raise ValueError("N05_OFFICIAL_BID_DETAIL_SCHEMA_INVALID")
-            rows=result.get("successBidInfo") or []
-            if not isinstance(rows,list):
-                raise ValueError("N05_OFFICIAL_BID_DETAIL_ROWS_INVALID")
-            kept=[]
-            allowed=("onbsRnkg","bidprcRank","grpNm","fnlSucsfbdCorpNm",
-                     "bdngAmt","sucsfbidAmt","bdrt","sucsfbidRate",
-                     "bzmnRegNo","bidPgstCd","fnlBidWinnrNm","bidWinnrNm")
-            for row in rows[:200]:
-                if not isinstance(row,dict):
-                    raise ValueError("N05_OFFICIAL_BID_DETAIL_ROW_INVALID")
-                kept.append(_pick(row,allowed))
-            return {"source":OPENING_DETAIL,"bid_no":bid,"bid_ord":order,
-                    "query_business_code":code,"bidders":kept,
-                    "source_rows":len(rows),
-                    "rows_truncated":len(rows)>200,
-                    "source_json_sha256":sha256(json.dumps(result,ensure_ascii=False,
-                        sort_keys=True,separators=(",",":")).encode()).hexdigest(),
-                    "bid_info_fields":_pick(result.get("bidInfo") or {},
-                        ("fnlSucsfbdCorpNm","fnlBidWinnrNm","scsbdAmt","scsbdPrce")),
-                    "business_evaluation_performed":False},errors
-        except Exception as exc:
-            errors.append(type(exc).__name__+":"+str(exc)[:90])
-    return None,errors
+def _n05_error(exc):
+    """Stable, non-sensitive error reason (never serialize response body)."""
+    if isinstance(exc,HTTPError):
+        code=int(getattr(exc,"code",0) or 0)
+        if code==422:return "official_http_422_bad_or_unpublished_detail"
+        return "official_http_"+str(code)
+    return type(exc).__name__+":"+str(exc)[:110]
 
 
-def n05_openings(opener,history,post,today):
-    """Collect opening-list source records; never guess bidder or winner data."""
-    candidates=list((history or {}).get("records") or [])
-    value={"source":OPENING_LIST,"opening_records":[],"bidder_detail_records":[],
-           "candidates":len(candidates),
-           "checked":0,"full_bidder_participation_records_verified":False,
-           "all_candidate_openings_collected":False,"gaps":[],
-           "business_evaluation_performed":False}
-    if not candidates:value["gaps"].append("no_exact_10_digit_historical_candidates")
-    for record in candidates[:MAX_OPENING_LOOKUPS]:
-        bid,order=_valid_notice(record)
-        date_from=_year_back(today).strftime("%Y%m%d")
-        period=record.get("query_period") or {}
-        if period.get("from"):date_from=period["from"]
-        date_to=period.get("to") or today.strftime("%Y%m%d")
-        payload={"dlSrchOnbsRsltClsfListInM":{
+def _n05_opening_list(opener,post,bid,order,date_from,date_to,max_pages=MAX_OPENING_PAGES_PER_NOTICE):
+    """Search official G2B opening-list pages and trust only exact bid+order.
+    Merely getting HTTP 200 or unrelated rows is NOT evidence for this tender.
+    """
+    matched=[]
+    seen=set()
+    count_rows=0
+    pages=0
+    complete=False
+    ignored_filter_rows=0
+    for page in range(1,max_pages+1):
+        first=1+(page-1)*10
+        query={"dlSrchOnbsRsltClsfListInM":{
             "bidPbancNo":bid,"bidPbancOrd":order,"bidPbancNm":"",
             "onbsYmdStr":date_from,"onbsYmdEnd":date_to,
             "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
             "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
-            "lastIndex":100,"firstIndex":1,"inqEnd":"","stepBarYn":"",
-            "pbancKndCd":"공440002"}}
+            "firstIndex":first,"lastIndex":first+9,
+            "inqEnd":"","stepBarYn":"","pbancKndCd":"공440002"}}
+        response=post(opener,OPENING_LIST,query,OPEN_HEADERS)
+        rows=response.get("onbsRsltClsfList") if isinstance(response,dict) else None
+        if not isinstance(rows,list):
+            raise ValueError("N05_OFFICIAL_OPENING_LIST_SCHEMA_INVALID")
+        if len(rows)>10:
+            raise ValueError("N05_OFFICIAL_OPENING_LIST_PAGE_SIZE_INVALID")
+        pages+=1
+        count_rows+=len(rows)
+        for row in rows:
+            if not isinstance(row,dict):
+                raise ValueError("N05_OFFICIAL_OPENING_LIST_ROW_INVALID")
+            row_no=_scalar(row.get("bidPbancNo"))
+            row_ord=_scalar(row.get("bidPbancOrd") or "000")
+            if row_ord and row_ord.isdigit():row_ord=row_ord.zfill(3)
+            if (row_no,row_ord)!=(bid,order):
+                ignored_filter_rows+=1
+                continue
+            key=(row_no,row_ord,_scalar(row.get("bidClsfNo") or "0"),
+                 _scalar(row.get("bidPrgrsOrd") or "000"))
+            if key not in seen:
+                seen.add(key)
+                matched.append(row)
+        if len(rows)<10:
+            complete=True
+            break
+    return {"matched":matched,"pages":pages,"response_rows":count_rows,
+            "ignored_filter_rows":ignored_filter_rows,"pages_complete":complete}
+
+
+def _n05_bidder_details(opener,post,bid,order,source):
+    """Only request official bid details using class/progress/status from an
+    exact matched opening-list row. Never synthesize '개찰완료' or class '0'.
+    """
+    required=("bidClsfNo","bidPrgrsOrd","prcmBsneSeCd","bidPgstCd")
+    missing=[k for k in required if source.get(k) in (None,"")]
+    if missing:
+        return None,["official_opening_detail_keys_missing:"+",".join(missing)]
+    errors=[]
+    all_rows=[]
+    sha=[]
+    info={}
+    completed=False
+    seen=set()
+    for page in range(1,MAX_BIDDER_PAGES_PER_OPENING+1):
+        query={"dlSrchOnbsRsltBidInM":{
+            "bidPbancNo":bid,"bidPbancOrd":order,
+            "bidClsfNo":str(source["bidClsfNo"]),
+            "bidPrgrsOrd":str(source["bidPrgrsOrd"]),
+            "prcmBsneSeCd":str(source["prcmBsneSeCd"]),
+            "bidPgstCd":str(source["bidPgstCd"]),
+            "bzmnRegNo":"","reOpenPbancYN":"",
+            "currentPage":page,"recordCountPerPage":"999"}}
         try:
-            response=post(opener,OPENING_LIST,payload,OPEN_HEADERS)
-            rows=response.get("onbsRsltClsfList") if isinstance(response,dict) else None
-            if not isinstance(rows,list):raise ValueError("OFFICIAL_OPENING_SCHEMA_INVALID")
-            value["checked"]+=1
-            for row in rows:
-                if not isinstance(row,dict):raise ValueError("OFFICIAL_OPENING_ROW_INVALID")
-                if (_scalar(row.get("bidPbancNo")),_scalar(row.get("bidPbancOrd") or "000"))!=(bid,order):
-                    raise ValueError("OFFICIAL_OPENING_UNRELATED_NOTICE")
-                value["opening_records"].append({
-                   "bid_no":bid,"bid_ord":order,
-                   "detail10":record["detail10"],
-                   "official_fields":_pick(row,OPEN_FIELDS),
-                   "source":OPENING_LIST})
+            result=post(opener,OPENING_DETAIL,query,DETAIL_HEADERS)
         except Exception as exc:
-            value["gaps"].append("opening_lookup_failed:"+bid+"-"+order+":"+type(exc).__name__)
-    # The official result-detail endpoint is independent of list pagination.
-    # Attempt for every bounded candidate, even when a listing has no rows.
+            errors.append(_n05_error(exc))
+            break
+        if not isinstance(result,dict):
+            errors.append("N05_OFFICIAL_BID_DETAIL_SCHEMA_INVALID")
+            break
+        rows=result.get("successBidInfo")
+        if not isinstance(rows,list):
+            errors.append("N05_OFFICIAL_BID_DETAIL_ROWS_INVALID")
+            break
+        sha.append(sha256(json.dumps(result,ensure_ascii=False,sort_keys=True,
+                                    separators=(",",":")).encode()).hexdigest())
+        if page==1:
+            bid_info=result.get("bidInfo") or {}
+            if isinstance(bid_info,dict):
+                info=_pick(bid_info,("fnlSucsfbdCorpNm","fnlBidWinnrNm",
+                                     "scsbdAmt","scsbdPrce"))
+        if not rows:
+            completed=True
+            break
+        allowed=("onbsRnkg","bidprcRank","grpNm","fnlSucsfbdCorpNm",
+                 "bdngAmt","sucsfbidAmt","bdrt","sucsfbidRate",
+                 "bzmnRegNo","bidPgstCd","fnlBidWinnrNm","bidWinnrNm",
+                 "nextRowYn","totCnt")
+        for row in rows:
+            if not isinstance(row,dict):
+                errors.append("N05_OFFICIAL_BID_DETAIL_ROW_INVALID")
+                break
+            cleaned=_pick(row,allowed)
+            key=json.dumps(cleaned,sort_keys=True,ensure_ascii=False)
+            if key not in seen and len(all_rows)<MAX_BIDDER_ROWS_PER_NOTICE:
+                seen.add(key)
+                all_rows.append(cleaned)
+        if errors:
+            break
+        if str(rows[-1].get("nextRowYn") or "N").upper()!="Y":
+            completed=True
+            break
+    detail={"source":OPENING_DETAIL,"bid_no":bid,"bid_ord":order,
+            "query_origin":"exact_official_opening_list_row",
+            "bidClsfNo":str(source["bidClsfNo"]),
+            "bidPrgrsOrd":str(source["bidPrgrsOrd"]),
+            "prcmBsneSeCd":str(source["prcmBsneSeCd"]),
+            "bidPgstCd":str(source["bidPgstCd"]),
+            "bidders":all_rows,"source_rows":len(all_rows),
+            "pages_complete":completed,"pages_checked":len(sha),
+            "source_page_sha256":sha,
+            "bid_info_fields":info,
+            "business_evaluation_performed":False}
+    if not completed:
+        errors.append("bidder_detail_pagination_unfinished")
+    return detail if sha else None,errors
+
+
+def n05_openings(opener,history,post,today):
+    """Collect source-backed opening and bidder records for up to 50 historical
+    candidates. No participant scoring, final-award inference, or AI evaluation.
+    """
+    candidates=list((history or {}).get("records") or [])
+    value={"source":OPENING_LIST,"opening_records":[],
+           "bidder_detail_records":[],"candidates":len(candidates),
+           "checked":0,"attempted":0,"opening_list_pages":0,
+           "opening_list_response_rows":0,"unrelated_response_rows":0,
+           "not_published_count":0,"detail_requests_completed":0,
+           "full_bidder_participation_records_verified":False,
+           "all_candidate_openings_collected":False,"per_notice":[],
+           "gaps":[],"business_evaluation_performed":False}
+    if not candidates:
+        value["gaps"].append("no_historical_candidates")
     for record in candidates[:MAX_OPENING_LOOKUPS]:
         bid,order=_valid_notice(record)
-        detail,errors=_n05_bidder_details(opener,post,bid,order,
-                                            (record.get("official_fields") or {}))
-        if detail:
-            value["bidder_detail_records"].append(detail)
-            if detail["rows_truncated"]:
-                value["gaps"].append("bidder_detail_rows_exceed_limit:"+bid)
-        else:
-            value["gaps"].append("bidder_detail_unavailable:"+bid+":"+
-                                 ",".join(errors[:2])[:140])
+        period=record.get("query_period") or {}
+        date_from=period.get("from") or _year_back(today).strftime("%Y%m%d")
+        date_to=period.get("to") or today.strftime("%Y%m%d")
+        if date_to>today.strftime("%Y%m%d"):date_to=today.strftime("%Y%m%d")
+        entry={"bid_no":bid,"bid_ord":order,"opening_list_rows":0,
+               "bidder_rows":0,"status":"unverified"}
+        value["attempted"]+=1
+        try:
+            listing=_n05_opening_list(opener,post,bid,order,date_from,date_to)
+            value["checked"]+=1
+            value["opening_list_pages"]+=listing["pages"]
+            value["opening_list_response_rows"]+=listing["response_rows"]
+            value["unrelated_response_rows"]+=listing["ignored_filter_rows"]
+            entry["opening_list_rows"]=len(listing["matched"])
+            entry["listing_pages_complete"]=listing["pages_complete"]
+            if not listing["pages_complete"]:
+                entry["status"]="pagination_incomplete"
+                value["gaps"].append("opening_listing_page_limit:"+bid+"-"+order)
+            if not listing["matched"]:
+                entry["status"]="not_published_or_not_returned" if listing["pages_complete"] else entry["status"]
+                value["not_published_count"]+=1
+                value["per_notice"].append(entry)
+                continue
+            all_details_completed=True
+            for source_row in listing["matched"]:
+                value["opening_records"].append({
+                    "bid_no":bid,"bid_ord":order,
+                    "detail10":record.get("detail10"),
+                    "official_fields":_pick(source_row,OPEN_FIELDS),
+                    "source":OPENING_LIST,
+                    "source_row_sha256":sha256(json.dumps(source_row,ensure_ascii=False,
+                        sort_keys=True).encode()).hexdigest()})
+                detail,errors=_n05_bidder_details(opener,post,bid,order,source_row)
+                if detail:
+                    value["bidder_detail_records"].append(detail)
+                    entry["bidder_rows"]+=len(detail["bidders"])
+                    if detail["pages_complete"]:
+                        value["detail_requests_completed"]+=1
+                    else:
+                        all_details_completed=False
+                else:
+                    all_details_completed=False
+                for problem in errors:
+                    value["gaps"].append("opening_detail:"+bid+"-"+order+":"+problem)
+            entry["status"]="collected" if all_details_completed and listing["pages_complete"] else "partial"
+        except Exception as exc:
+            entry["status"]="source_error"
+            entry["error"]=_n05_error(exc)
+            value["gaps"].append("opening_lookup_failed:"+bid+"-"+order+":"+entry["error"])
+        value["per_notice"].append(entry)
     if len(candidates)>MAX_OPENING_LOOKUPS:
         value["gaps"].append("opening_lookup_limit_"+str(MAX_OPENING_LOOKUPS))
-    # A successful empty list response is not a collected opening/bidder result.
-    value["observed_bidder_row_count"]=sum(len(x.get("bidders") or [])
-                                        for x in value["bidder_detail_records"])
+    value["observed_bidder_row_count"]=sum(
+        len(d.get("bidders") or []) for d in value["bidder_detail_records"])
+    value["full_bidder_participation_records_verified"]=bool(
+        value["bidder_detail_records"] and
+        all(x.get("pages_complete") for x in value["bidder_detail_records"]))
+    value["all_candidate_openings_collected"]=bool(
+        candidates and len(candidates)<=MAX_OPENING_LOOKUPS
+        and value["checked"]==len(candidates)
+        and all(e["status"]=="collected" for e in value["per_notice"]))
+    if not value["opening_records"]:
+        value["gaps"].append("no_official_opening_records_collected")
     if not value["observed_bidder_row_count"]:
         value["gaps"].append("bidder_amounts_not_collected")
-    # A winner field does not by itself prove a signed/final award.
+    # Successful lookup of a bidder list is not proof of a signed final award.
     value["gaps"].append("final_signed_award_detail_not_verified")
-    value["all_candidate_openings_collected"]=(
-        value["checked"]==len(candidates) and bool(value["opening_records"])
-        and not any("lookup_failed" in g for g in value["gaps"]))
-    return "partial",value
+    return ("verified" if value["all_candidate_openings_collected"]
+            and value["observed_bidder_row_count"]>0 else "partial"),value
 
 def n06_supply_catalog(notice,n02,history,opening):
     """Register available official evidence + missing external source connectors."""
