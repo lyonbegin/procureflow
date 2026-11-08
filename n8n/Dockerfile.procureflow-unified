@@ -37,6 +37,8 @@ RUN node -e 'const w=require("/app/shared/playground/public/procure-workflows/op
 COPY n8n/scenarios.json /app/shared/playground/public/procure-workflows/fixture-scenarios.json
 COPY n8n/unified/patch-catalog.mjs /tmp/patch-catalog.mjs
 RUN node /tmp/patch-catalog.mjs /app/shared/playground/src/procurement-adapter.js /app/shared/playground/src/App.vue
+COPY n8n/unified/patch-live-overlay.mjs /tmp/patch-live-overlay.mjs
+RUN node /tmp/patch-live-overlay.mjs /app/shared/playground/src/App.vue /app/shared/playground/src/style.css
 
 ENV VITE_EDITOR_PROJECT=procurement
 RUN npm --prefix /app/shared/playground run build \
