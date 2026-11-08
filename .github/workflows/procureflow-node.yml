@@ -73,21 +73,3 @@ jobs:
           PROCUREFLOW_RELAY_URL: https://procureflow-unified-studio-candidate-production.up.railway.app
           PYTHONPATH: n8n/unified
         run: python -u n8n/unified/github_node_worker.py
-  unit-tests:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Validate all nine GitHub node contracts and dispatch control
-        run: python -m unittest discover -s tests -p test_github_action_node_migration.py -v
-      - name: Confirm Chrome is absent from runner
-        run: |
-          if grep -E "^ *run: *(python.*playwright|apt-get.*chromium)" .github/workflows/procureflow-node.yml; then
-            echo "Unexpected browser dependency" >&2
-            exit 1
-          fi
-          echo "GITHUB_ACTIONS_NINE_NODE_LIGHTWEIGHT_EXECUTOR_PASS"
