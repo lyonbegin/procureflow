@@ -80,7 +80,7 @@ def _download_saved(base,run_id,file):
     return size==file["size_bytes"] and digest.hexdigest()==file["sha256"]
 
 def _read_original_for_n03(base,run_id,file):
-    """Fetch a saved N02 original using GitHub OIDC, verify before parsing."""
+    """Fetch a saved N02 original only for N09 AI final evaluation."""
     from n03_documents import MAX_ORIGINAL_SIZE,N03SourceError
     size=file.get("size_bytes")
     if not isinstance(size,int) or not 0<size<=MAX_ORIGINAL_SIZE:
@@ -89,7 +89,7 @@ def _read_original_for_n03(base,run_id,file):
         "run_id":run_id,"file_seq":file["file_seq"]})
     req=Request(source,headers={
         "Authorization":"Bearer "+_get_oidc(base),
-        "User-Agent":"ProcureFlow-GitHub-Actions-N03"})
+        "User-Agent":"ProcureFlow-GitHub-Actions-N09"})
     digest=sha256()
     parts=[]
     received=0
@@ -140,68 +140,53 @@ def execute(stage,context,base=ROOT):
         value["storage_folder"]=None
         value["manifest_path"]=None
         return status,inputs,value
+    # N03–N08 are collection-only. No HWP/PDF interpretation, company
+    # eligibility judgments, competitive predictions, pricing or Word drafts.
     if stage=="N03":
-        from n03_documents import extract_requirements
-        original_blobs={file["file_seq"]:_read_original_for_n03(
-            base,context["run_id"],file) for file in docs}
-        status,value=extract_requirements(docs,original_blobs,live._extract)
-        return status,{
-            "N02_original_file_count":len(docs),
-            "N02_manifest_path":collection.get("manifest_path"),
-            "selected_bid_no":(notice or {}).get("bid_no"),
-            "request":"verified_saved_originals_source_evidence_only",
-        },value
-    if stage=="N04":
-        if not notice or not notice.get("bid_no"):
-            return "blocked",inputs,{"error":"N04_SELECTED_NOTICE_REQUIRED"}
+        from collect_only_stages import n03_metadata
         opener=live._client();live._once(opener)
-        value=live._live_openings(opener,notice)
-        return "partial",{"selected_bid_no":notice["bid_no"],"selected_bid_ord":notice["bid_ord"]},value
+        status,value=n03_metadata(opener,notice,live._json_post,live,live._now().date())
+        return status,{"selected_bid_no":(notice or {}).get("bid_no"),
+            "selected_bid_ord":(notice or {}).get("bid_ord"),
+            "request":"official_exact_number_metadata_only"},value
+    if stage=="N04":
+        from collect_only_stages import n04_history
+        opener=live._client();live._once(opener)
+        status,value=n04_history(opener,notice,previous.get("N03"),
+                                  live._json_post,live,live._now().date())
+        return status,{"selected_bid_no":(notice or {}).get("bid_no"),
+            "detail10":(previous.get("N03") or {}).get("detail10"),
+            "requested_period":"ten_calendar_years"},value
     if stage=="N05":
-        h=previous.get("N04") or {}
-        return "blocked",{"N04_status":h.get("query_result")},{
-           "source":"N04_official_selected_notice_opening",
-           "raw_opening_rows":h.get("official_rows"),
-           "exact10_matched_competitors":None,"confirmed_awards":None,
-           "status":"HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED"}
+        from collect_only_stages import n05_openings
+        opener=live._client();live._once(opener)
+        status,value=n05_openings(opener,previous.get("N04"),
+                                  live._json_post,live._now().date())
+        return status,{"N04_verified_historical_records":
+            (previous.get("N04") or {}).get("verified_record_count",0)},value
     if stage=="N06":
-        return "blocked",{"N02_docs":len(docs)},{
-          "status":"MISSING_COMPANY_COST_EVIDENCE",
-          "source":"official_tender_attachment_only",
-          "bid_budget":(notice or {}).get("budget"),
-          "verified_company_cost":None}
+        from collect_only_stages import n06_supply_catalog
+        status,value=n06_supply_catalog(notice,collection,
+                          previous.get("N04"),previous.get("N05"))
+        return status,{"N02_original_file_count":len(docs),
+            "request":"collect_supplier_workforce_source_catalog_only"},value
     if stage=="N07":
-        return "blocked",{"N03":previous.get("N03"),"N06":previous.get("N06")},{
-          "status":"NO_PRICE_RECOMMENDATION",
-          "bid_budget":(notice or {}).get("budget"),
-          "eligibility_verified":False,"cost_verified":False,
-          "recommended_bid":None}
+        from collect_only_stages import n07_price_sources
+        status,value=n07_price_sources(notice,previous.get("N03"),
+                     previous.get("N04"),previous.get("N05"),previous.get("N06"))
+        return status,{"source":"N01_N03_N04_N05_N06_official_source_records"},value
     if stage=="N08":
-        raw=live._document(notice,docs,previous.get("N03"),
-                           previous.get("N04"),previous.get("N05"),
-                           previous.get("N06"),previous.get("N07"))
-        return "partial",{"source":"N01-N07_GITHUB_ACTIONS_RESULTS"},{
-          "draft_generated":True,"bytes":len(raw),
-          "sha256":sha256(raw).hexdigest(),"draft_only":True,
-          "_document_base64":base64.b64encode(raw).decode("ascii")}
+        from collect_only_stages import n08_handoff
+        status,value=n08_handoff(notice,previous)
+        return status,{"source":"N01_N07_collected_unassessed_evidence"},value
     if stage=="N09":
-        results=[]
-        for file in docs:
-            verified=_download_saved(base,context["run_id"],file)
-            results.append({"file_seq":file["file_seq"],"integrity_verified":verified})
-        valid=bool(results) and all(x["integrity_verified"] for x in results)
-        statuses=context.get("statuses") or {}
-        return "partial",{"stage_count":8,"N02_original_file_count":len(docs)},{
-          "verified_steps":sum(x=="verified" for x in statuses.values()),
-          "blocked_steps":sum(x=="blocked" for x in statuses.values()),
-          "source_errors":sum(x=="source_error" for x in statuses.values()),
-          "N02_persistent_file_handoff":{
-              "verified_saved_original_count":sum(x["integrity_verified"] for x in results),
-              "original_files_integrity_verified":valid,
-              "file_checks":results,
-              "content_analysis_performed":False},
-          "db_reads":0,"worker_calls":0,
-          "bid_submitted":False,"final_bid_approval":False}
+        from n09_final_ai import evaluate
+        def read_original(file):
+            return _read_original_for_n03(base,context["run_id"],file)
+        status,value=evaluate(previous,read_original,live._extract)
+        return status,{"source":"N08_bundle_and_N02_originals",
+             "request":"first_and_only_AI_business_evaluation",
+             "original_count":len(docs)},value
     raise ValueError("UNKNOWN_GITHUB_NODE_STAGE")
 
 def main():
