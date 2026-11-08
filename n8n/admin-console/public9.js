@@ -140,6 +140,33 @@
       [['verified','검증 완료'],['running','실행 중'],['partial','부분 확인'],['blocked','차단'],['source_error','오류'],['waiting','대기']].map(x=>'<span><i class="p9-legend-dot p9-'+x[0]+'"></i>'+x[1]+'</span>').join('')+
      '</div></section>';
  }
+ function inventory(){
+   const out=stage(1)?.output;
+   const files=Array.isArray(out?.files)?out.files:[];
+   if(!out)return '';
+   const total=out?.file_count??files.length;
+   const complete=out.official_attachment_inventory_complete===true;
+   const rows=files.map(file=>'<li class="p9-inventory-item">'+
+     '<div class="p9-inventory-file"><span class="p9-inventory-seq">'+
+     String(file.file_seq||'').padStart(2,'0')+'</span><strong>'+esc(file.original_filename||'이름 미확인')+'</strong></div>'+
+     '<div class="p9-inventory-meta"><span>'+esc((file.file_type||'기타').toUpperCase())+'</span>'+
+     '<span>'+esc(file.size_bytes?((file.size_bytes/1024).toFixed(1)+' KB'):'크기 미확인')+'</span>'+
+     '<span>'+(file.saved?'<span class="p9-inventory-saved">원본 저장됨</span>':'저장 실패')+'</span></div>'+
+     '<div class="p9-inventory-path" title="'+esc(file.saved_path||'')+'">'+esc(file.saved_path||'저장 경로 미확인')+'</div>'+
+   '</li>').join('');
+   return '<section class="panel p9-inventory" aria-label="공고 첨부 원본 파일 저장 목록">'+
+     '<div class="p9-panel-heading"><div><h3>N02 · 공고 원본 파일 보관함</h3>'+
+     '<p>파일명과 유형을 기준으로 선별하지 않고, 공식 서버에서 발견한 원본을 모두 저장합니다.</p></div>'+
+     '<span class="p9-status-pill '+(complete?'p9-verified':'p9-partial')+'">'+
+     esc(complete?'첨부 수집 종료 확인':'수집 일부 미확인')+'</span></div>'+
+     '<p class="p9-inventory-summary"><strong>'+esc(total)+'개 파일</strong> · 총 '+esc(((out.total_bytes||0)/1024/1024).toFixed(2))+
+     ' MB · <span>내용 분석 없이 원본만 보관</span></p>'+
+     (files.length?'<ul class="p9-inventory-list">'+rows+'</ul>':'<p>아직 저장된 원본 파일이 없습니다.</p>')+
+     '<p class="p9-inventory-folder"><b>공고별 보관 폴더</b> <code>'+esc(out.storage_folder||'--')+'</code></p>'+
+     '<p class="p9-inventory-folder"><b>평가 단계 전달 목록</b> <code>'+esc(out.manifest_path||'--')+'</code></p>'+
+     (!complete?'<p class="p9-helper">파일 수집 완료 여부가 확인되지 않았습니다. 실패나 누락을 원문 파일 수집 완료로 취급하지 않습니다.</p>':'')+
+     '</section>';
+ }
  function issues(){
    const entries=problemSteps();
    if(!entries.length&&live())return '<section class="panel p9-issues"><h3>문제 감지</h3><p class="p9-clear">현재까지 보고된 오류·차단·부분 확인이 없습니다. 실행은 진행 중입니다.</p></section>';
@@ -203,7 +230,7 @@
    return '<section class="hero p9-hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
     '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 9단계 실시간 실행 관제</h2>'+
     '<p>진행 중인 노드, 다음 단계로의 이동, 오류·차단 원인을 한 화면에서 확인하실 수 있습니다.</p></section>'+
-    overview()+flow()+issues()+actions()+inspector()+audit();
+    overview()+flow()+inventory()+issues()+actions()+inspector()+audit();
  }
  function nodes(){
    return '<section class="hero p9-hero"><div class="kicker">LIVE · 9 NODES</div>'+
