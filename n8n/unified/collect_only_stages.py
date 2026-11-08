@@ -44,8 +44,11 @@ OPEN_FIELDS=("bidPbancNo","bidPbancOrd","bidPbancNm",
              "scsbdMthdCd","scsbdMthdNm","pbancSttsNm",
              "scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate")
 MAX_HISTORY_ROWS=400
-MAX_HISTORY_PAGES_PER_YEAR=10
-MAX_OPENING_LOOKUPS=30
+MAX_HISTORY_PAGES_PER_YEAR=30
+MAX_OPENING_LOOKUPS=50
+HISTORY_INITIAL_YEARS=3
+HISTORY_MAX_YEARS=10
+HISTORY_TARGET_RECORDS=50
 
 def _scalar(x,limit=240):
     if x is None:return None
@@ -83,18 +86,18 @@ def _valid_notice(notice):
     if not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",bid) or not re.fullmatch(r"\d{3}",order):
         raise ValueError("COLLECTION_SELECTED_NOTICE_ID_INVALID")
     return bid,order
-def _year_back(day):
-    try:return day.replace(year=day.year-10)
-    except ValueError:return day.replace(year=day.year-10,day=28)
-def _periods(day):
-    start=_year_back(day)
-    cursor=start
-    while cursor<=day:
-        try:nxt=cursor.replace(year=cursor.year+1)
-        except ValueError:nxt=cursor.replace(year=cursor.year+1,day=28)
-        end=min(day,nxt-timedelta(days=1))
-        yield cursor.strftime("%Y%m%d"),end.strftime("%Y%m%d")
-        cursor=end+timedelta(days=1)
+def _year_back(day,years=10):
+    try:return day.replace(year=day.year-years)
+    except ValueError:return day.replace(year=day.year-years,day=28)
+
+def _periods(day,years=HISTORY_MAX_YEARS):
+    """Exactly 'years' contiguous nonoverlapping annual windows, oldest first."""
+    if not isinstance(years,int) or not 1<=years<=HISTORY_MAX_YEARS:
+        raise ValueError("INVALID_HISTORY_YEARS")
+    for age in range(years,0,-1):
+        start=_year_back(day,age)
+        end=day if age==1 else _year_back(day,age-1)-timedelta(days=1)
+        yield start.strftime("%Y%m%d"),end.strftime("%Y%m%d")
 def _g2b_rows(opener,post,live,start,end,bid="",code="",page=1):
     payload=live._g2b_bid_list_payload(start,end,bid,page)
     payload["dlBidPbancLstM"]["dtlsPrnmNo"]=code
@@ -175,27 +178,51 @@ def _history_query(notice,n03):
     return "no_supported_query",{},None
 
 
-def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PER_YEAR):
-    """Collect historical candidates without requiring a 10-digit class.
-    Every official response is checked for the actual query predicate, because
-    an HTTP 200 may mean that the official site ignored a search filter.
+def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PER_YEAR,
+                initial_years=HISTORY_INITIAL_YEARS,target_records=HISTORY_TARGET_RECORDS,
+                max_years=HISTORY_MAX_YEARS):
+    """Search recent 3 years first; expand one year at a time until 50 genuine
+    distinct source records or 10 years. Source match != business evaluation.
     """
     bid,order=_valid_notice(notice)
+    if not (1<=initial_years<=max_years<=HISTORY_MAX_YEARS):
+        raise ValueError("INVALID_HISTORICAL_WINDOW_POLICY")
+    if not (1<=target_records<=MAX_HISTORY_ROWS):
+        raise ValueError("INVALID_HISTORICAL_TARGET")
+    if not (1<=max_pages<=100):
+        raise ValueError("INVALID_HISTORICAL_PAGE_LIMIT")
     mode,filter_fields,query=_history_query(notice,n03)
-    periods=list(reversed(list(_periods(today))))
-    value={"source":BID_LIST,"selected_bid_no":bid,"selected_bid_ord":order,
-           "query_mode":mode,"query_value":query,"requested_detail10":(n03 or {}).get("detail10"),
-           "requested_class8":(n03 or {}).get("class8"),"periods_requested":len(periods),
-           "periods_checked":[],"records":[],"unverified_classification_count":0,
-           "total_responses":0,"all_history_complete":False,
-           "business_evaluation_performed":False,"gaps":[]}
+    # Most recent annual window first: [2025-11-08,2026-11-08], then older.
+    periods=list(reversed(list(_periods(today,years=max_years))))
+    value={
+        "source":BID_LIST,"selected_bid_no":bid,"selected_bid_ord":order,
+        "query_mode":mode,"query_value":query,
+        "requested_detail10":(n03 or {}).get("detail10"),
+        "requested_class8":(n03 or {}).get("class8"),
+        "initial_years":initial_years,"max_years":max_years,
+        "target_records":target_records,"periods_requested":initial_years,
+        "periods_available":len(periods),"periods_checked":[],
+        "years_expanded":initial_years,"records":[],
+        "unverified_classification_count":0,"total_responses":0,
+        "candidate_record_count":0,"target_reached":False,
+        "all_history_complete":False,"business_evaluation_performed":False,
+        "gaps":[]
+    }
     if mode=="no_supported_query":
         value["gaps"].append("no_official_item_code_title_or_agency_for_history")
         return "partial",value
-    records={};truncated=False
-    for date_start,date_end in periods:
+    records={}
+    truncated=False
+    for index,(date_start,date_end) in enumerate(periods):
+        # Finish the initial three yearly windows before applying target policy.
+        if index>=initial_years and len(records)>=target_records:
+            break
+        # Extend exactly one further year when the cumulative total is below 50.
+        if index>=initial_years:
+            value["years_expanded"]=index+1
         segment={"from":date_start,"to":date_end,"pages_checked":0,
-                 "returned_rows":0,"candidate_rows":0,"complete":False}
+                 "returned_rows":0,"candidate_rows":0,"new_unique_records":0,
+                 "cumulative_records":len(records),"complete":False}
         try:
             for page in range(1,max_pages+1):
                 payload=live._g2b_bid_list_payload(date_start,date_end,"",page)
@@ -227,18 +254,21 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
                         continue
                     key=(number,ordr)
                     if key==(bid,order):
-                        continue  # The selected current notice is not historical evidence.
-                    item={"bid_no":number,"bid_ord":ordr,"detail10":actual10,
-                          "detail10_source_field":field10,"class8":actual8,
-                          "class8_source_field":field8,"source":BID_LIST,
-                          "match_basis":mode,"official_classification_confirmed":
-                               mode in ("official_item8","official_item10"),
-                          "query_period":{"from":date_start,"to":date_end},
-                          "official_fields":_pick(row,PUBLIC_FIELDS)}
+                        continue  # Never count selected notice as past evidence.
                     segment["candidate_rows"]+=1
                     if key not in records:
-                        if len(records)<MAX_HISTORY_ROWS:records[key]=item
-                        else:truncated=True
+                        if len(records)<target_records:
+                            records[key]={
+                                "bid_no":number,"bid_ord":ordr,"detail10":actual10,
+                                "detail10_source_field":field10,"class8":actual8,
+                                "class8_source_field":field8,"source":BID_LIST,
+                                "match_basis":mode,"official_classification_confirmed":
+                                    mode in ("official_item8","official_item10"),
+                                "query_period":{"from":date_start,"to":date_end},
+                                "official_fields":_pick(row,PUBLIC_FIELDS)}
+                            segment["new_unique_records"]+=1
+                        else:
+                            truncated=True  # Target achieved; not claiming exhaustive history.
                 if len(rows)<20:
                     segment["complete"]=True
                     break
@@ -247,20 +277,32 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
         except Exception as exc:
             segment["error"]=type(exc).__name__+":"+str(exc)[:100]
             value["gaps"].append("history_period_lookup_failed:"+date_start+"-"+date_end)
+        segment["cumulative_records"]=len(records)
         value["periods_checked"].append(segment)
     if value["unverified_classification_count"]:
         value["gaps"].append("source_rows_not_matching_query_predicate")
-    if truncated:value["gaps"].append("history_records_exceed_inline_result_limit")
+    if truncated:
+        value["gaps"].append("additional_history_rows_excluded_after_target_50")
     if mode not in ("official_item8","official_item10"):
-        value["gaps"].append("historical_candidates_unclassified_manual_or_final_ai_review")
+        value["gaps"].append("historical_candidates_unclassified_final_ai_review")
     value["records"]=list(records.values())
     value["verified_record_count"]=len(records) if mode in ("official_item8","official_item10") else 0
     value["candidate_record_count"]=len(records)
-    if not records:value["gaps"].append("no_historical_candidate_collected")
+    value["target_reached"]=len(records)>=target_records
+    value["periods_requested"]=len(value["periods_checked"])
+    value["years_searched"]=len(value["periods_checked"])
     value["records_truncated"]=truncated
-    value["all_history_complete"]=(all(p["complete"] for p in value["periods_checked"])
-        and len(value["periods_checked"])==len(periods) and not value["gaps"])
-    return ("verified" if value["all_history_complete"] else "partial"),value
+    if not value["target_reached"]:
+        value["gaps"].append("historical_target_not_reached:"+str(len(records))+"/"+str(target_records))
+        if value["years_searched"]>=max_years:
+            value["gaps"].append("historical_max_years_exhausted")
+    # Collection of 50 candidates is not the same as exhaustive 10-year coverage.
+    value["all_history_complete"]=(
+        value["target_reached"] and all(x["complete"] for x in value["periods_checked"])
+        and not any(g.startswith("history_period_") for g in value["gaps"]))
+    return ("verified" if value["target_reached"] and value["all_history_complete"]
+            and mode in ("official_item8","official_item10") and not truncated
+            and value["unverified_classification_count"]==0 else "partial"),value
 
 def _n05_bidder_details(opener,post,bid,order,source=None):
     """Read-only official WebSquare bid-result detail, never infer a winner."""
