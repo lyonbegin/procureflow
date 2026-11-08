@@ -87,6 +87,19 @@ class MigrationTests(unittest.TestCase):
    bridge.begin("another-browser",{"mode":"auto"})
   self.assertEqual(len(self.dispatched),1)
   self.assertEqual(bridge.current(self.cookie)["active_node"],"N01")
+ def test_audit_is_read_only_oidc_bound_and_aggregate_only(self):
+  selected=dict(NOTICE)
+  selected["private_company_document"]="DO_NOT_EXPOSE"
+  self._result("N01","verified",selected)
+  summary=bridge.audit("Bearer github-oidc",self.rid)
+  self.assertEqual(summary["completed_steps"],1)
+  self.assertEqual(summary["stages"][0]["node"],"N01")
+  self.assertEqual(summary["stages"][0]["details"]["selected_bid_no"],BID)
+  self.assertNotIn("private_company_document",str(summary))
+  self.assertFalse(summary["contains_raw_company_documents"])
+  with patch.object(bridge,"verify",side_effect=auth.GitHubOIDCError("INVALID_OIDC")):
+   with self.assertRaises(auth.GitHubOIDCError):
+    bridge.audit("Bearer invalid",self.rid)
  def test_stage_order_and_duplicate_callback_are_rejected(self):
   with self.assertRaisesRegex(ValueError,"ACTION_NOT_PENDING_FOR_RUN"):
    self._result("N02","verified",{})
