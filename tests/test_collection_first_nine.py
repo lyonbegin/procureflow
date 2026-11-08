@@ -120,6 +120,13 @@ class CollectFirstTests(unittest.TestCase):
         self.assertTrue(seen)
         self.assertFalse(out["business_evaluation_performed"])
 
+    def test_n04_uses_longest_real_title_subject_not_unique_location_prefix(self):
+        notice={**NOTICE,"title":"해운대 특별정비예정 11구역 행정용역컨설팅(PM) 입찰공고"}
+        mode,fields,term=c._history_query(notice,{})
+        self.assertEqual(mode,"official_title_keyword")
+        self.assertEqual(term,"행정용역컨설팅")
+        self.assertEqual(fields["bidPbancNm"],term)
+
     def test_n04_does_not_treat_business_category_as_item_code(self):
         self.assertEqual(c._history_query(
             {"bid_no":BID,"bid_ord":"000","business_code":"조070001",
