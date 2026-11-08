@@ -564,15 +564,17 @@ class CollectFirstTests(unittest.TestCase):
         self.assertFalse(out["final_bid_approval"])
         self.assertEqual(len(calls),1)
         self.assertFalse(calls[0]["store"])
-    def test_worker_n03_calls_official_metadata_not_hwp_parser(self):
+    def test_worker_n03_no_originals_cannot_report_document_requirements_complete(self):
         context={"run_id":"a"*32,"selected_notice":NOTICE,
-                 "outputs":{"N02":{"files":[{"file_seq":1}]}}}
+                 "outputs":{"N02":{"files":[]}}}
         with patch("live_nine_test._client",return_value=None),\
              patch("live_nine_test._once"),\
-             patch("live_nine_test._json_post",return_value=[ROW]),\
-             patch("live_nine_test._extract",side_effect=AssertionError("EARLY_ORIGINAL_PARSING")):
+             patch("live_nine_test._json_post",return_value=[ROW]):
             status,inp,out=worker.execute("N03",context)
-        self.assertEqual(status,"verified")
+        self.assertEqual(status,"partial")
+        self.assertTrue(out["official_selected_record_found"])
+        self.assertEqual(sum(out["official_requirement_category_counts"].values()),0)
+        self.assertEqual(len(out["official_requirement_missing_categories"]),6)
         self.assertFalse(out["business_evaluation_performed"])
     def test_graph_has_nine_retained_nodes_no_hardcoded_auction(self):
         doc=json.loads((ROOT/"n8n/strategy-workflows/PF00-public-nine-real.json").read_text())
