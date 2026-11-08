@@ -146,6 +146,24 @@ class CollectFirstTests(unittest.TestCase):
         self.assertFalse(out["full_bidder_participation_records_verified"])
         self.assertFalse(out["business_evaluation_performed"])
         self.assertNotIn("competitor_ranking",out)
+    def test_n05_official_bidder_details_preserve_amount_without_evaluation(self):
+        history={"records":[{"bid_no":"R25BK01234567","bid_ord":"000",
+                             "detail10":None,"query_period":{"from":"20250101","to":"20251231"}}]}
+        def post(opener,url,payload,headers):
+            if url==c.OPENING_LIST:return {"onbsRsltClsfList":[]}
+            if url==c.OPENING_DETAIL:
+                return {"successBidInfo":[{"onbsRnkg":"1","grpNm":"테스트 회사",
+                                          "bdngAmt":"1000000","bdrt":"87.745"}],
+                        "bidInfo":{}}
+            raise AssertionError("UNEXPECTED_OFFICIAL_ENDPOINT")
+        state,out=c.n05_openings(None,history,post,date(2026,11,8))
+        self.assertEqual(state,"partial")
+        self.assertEqual(len(out["bidder_detail_records"]),1)
+        evidence=out["bidder_detail_records"][0]
+        self.assertEqual(evidence["bidders"][0]["bdngAmt"],"1000000")
+        self.assertEqual(evidence["source"],c.OPENING_DETAIL)
+        self.assertFalse(out["business_evaluation_performed"])
+
     def test_n06_n07_only_catalog_existing_sources(self):
         hist={"records":[{"bid_no":BID}]}
         n02={"files":[{"file_seq":1,"original_filename":"원본.hwp",
