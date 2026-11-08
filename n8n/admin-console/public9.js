@@ -35,6 +35,7 @@
      return '필수 원본 또는 검증 근거가 부족하여 이 단계의 결과를 확정할 수 없습니다.';
    }
    if(s.status==='partial'){
+     if(s.node==='N03'&&out.document_requirement_extraction==='verified')return '원문 자격요건 '+(out.qualification_rule_count||0)+'건 · 제출서류 '+(out.required_document_count||0)+'건 추출 완료 / 업체 자격증빙 미확인';
      if(out.notice_list==='UNAVAILABLE')return out.notice_list_error||'공식 공고 목록 확인 실패 · 첨부만 확인';
      if(out.company_eligibility)return String(out.company_eligibility);
      if(out.exact_detail10_verified===false)return '세부품명 10자리의 정확한 이력 연결이 아직 검증되지 않았습니다.';
