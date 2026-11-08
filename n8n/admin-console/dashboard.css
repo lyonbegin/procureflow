@@ -257,3 +257,14 @@ body.p9-studio-modal-open{overflow:hidden!important}
 .p9-studio-toolbar-actions [data-testid="live-nine-run-top"]{white-space:nowrap;font-weight:700;min-height:36px}
 .p9-controls{margin-bottom:14px}
 @media(max-width:760px){.p9-studio-toolbar-actions [data-testid="live-nine-run-top"]{width:100%;order:-1}.p9-studio-toolbar-actions{align-items:stretch}}
+
+
+/* Explain what each GitHub stage REALLY collected; no duplicate flow editor. */
+.p9-evidence{margin-bottom:14px}
+.p9-evidence-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.p9-evidence-table{width:100%;border-collapse:collapse;font-size:12px;min-width:740px}
+.p9-evidence-table thead{background:#203650;color:#eef5ff}
+.p9-evidence-table th,.p9-evidence-table td{padding:10px 11px;text-align:left;border-bottom:1px solid #34506b;vertical-align:middle}
+.p9-evidence-table td:nth-child(4){min-width:260px;overflow-wrap:anywhere}
+.p9-evidence-table .p9-status-pill{display:inline-flex;white-space:nowrap}
+.p9-evidence-table td a{color:#5ec1ff;text-decoration:underline;text-underline-offset:2px}
