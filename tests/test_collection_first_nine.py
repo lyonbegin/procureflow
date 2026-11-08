@@ -50,6 +50,22 @@ class CollectFirstTests(unittest.TestCase):
         self.assertIsNone(out["detail10"])
         self.assertFalse(out["detail10_verified"])
         self.assertIn("official_10_digit_detail_class_not_verified",out["gaps"])
+    def test_n03_searches_beyond_first_year_window(self):
+        seen=[]
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            seen.append((q["start"],q["end"],q["currentPage"]))
+            if q["start"]=="20251108":
+                return [ROW]
+            return []
+        status,out=c.n03_metadata(None,NOTICE,post,Live,date(2026,11,8))
+        self.assertEqual(status,"verified")
+        self.assertEqual(out["detail10"],CODE)
+        self.assertGreater(len(seen),1)
+        self.assertEqual(out["query_windows_checked"][0]["start"],"20261108")
+        self.assertEqual(out["query_windows_checked"][1]["start"],"20251108")
+        self.assertFalse(out["business_evaluation_performed"])
+
     def test_n04_ten_year_history_only_exact_code(self):
         seen=[]
         def post(opener,url,payload,headers):
