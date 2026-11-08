@@ -21,7 +21,18 @@ def step(n,status,output=None):
             "input":{"bid_no":BID,"stage":n},"output":output or {},
             "at":"2026-11-08T08:20:%02d+09:00"%n}
 s1=step(1,"verified",{"notice_list":"AVAILABLE","bid_no":BID})
-s2=step(2,"verified",{"downloaded":2,"text_extracted_files":2})
+s2=step(2,"verified",{"downloaded":3,"file_count":3,
+    "total_bytes":498382,"official_attachment_inventory_complete":True,
+    "analysis_performed":False,
+    "storage_folder":"/data/n01/bids/R26BK01816186-000/attachments",
+    "manifest_path":"/data/n01/bids/R26BK01816186-000/attachment_manifest.json",
+    "files":[
+        {"file_seq":1,"original_filename":"별지서식.hwp","file_type":"hwp",
+         "size_bytes":31232,"saved":True,"saved_path":"/data/n01/bids/R26BK01816186-000/attachments/001__별지서식.hwp"},
+        {"file_seq":2,"original_filename":"입찰지침서.pdf","file_type":"pdf",
+         "size_bytes":365197,"saved":True,"saved_path":"/data/n01/bids/R26BK01816186-000/attachments/002__입찰지침서.pdf"},
+        {"file_seq":3,"original_filename":"입찰공고.pdf","file_type":"pdf",
+         "size_bytes":101953,"saved":True,"saved_path":"/data/n01/bids/R26BK01816186-000/attachments/003__입찰공고.pdf"}]})
 s3=step(3,"partial",{"company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL"})
 s4=step(4,"partial",{"exact_detail10_verified":False})
 s5=step(5,"blocked",{"status":"HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED"})
@@ -81,6 +92,10 @@ with sync_playwright() as pw:
     assert page.locator('[data-p9="counter"]').inner_text()=="진행된 단계 1 / 9"
     page.screenshot(path=str(OUT/"03_transition_n01_n02.png"),full_page=True)
     page.wait_for_function("() => document.querySelector('[data-p9-node=N04]')?.classList.contains('p9-running')",timeout=18000)
+    assert page.locator(".p9-inventory-item").count()==3
+    assert "별지서식.hwp" in page.locator(".p9-inventory").inner_text()
+    assert "입찰공고.pdf" in page.locator(".p9-inventory").inner_text()
+    assert "/data/n01/bids/R26BK01816186-000/attachments" in page.locator(".p9-inventory").inner_text()
     assert page.locator("[data-p9-state='N03']").inner_text()=="부분 확인"
     assert page.locator(".p9-issue-list").get_by_text("N03").count()>0
     page.screenshot(path=str(OUT/"04_partial_n03_running_n04.png"),full_page=True)
