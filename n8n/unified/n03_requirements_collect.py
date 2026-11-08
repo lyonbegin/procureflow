@@ -158,6 +158,7 @@ def collect(files,read_original):
     no invented form names, deadlines, tasks or scores.
     """
     categories={key:[] for key in CATEGORIES}
+    actual_matches={key:0 for key in CATEGORIES}
     sources=[]
     gaps=[]
     if not files:
@@ -197,7 +198,9 @@ def collect(files,read_original):
             lines=_logical_lines(text)
             for index,line in enumerate(lines):
                 for category,pattern in PATTERNS.items():
-                    if not pattern.search(line) or len(categories[category])>=MAX_EVIDENCE_PER_CATEGORY:continue
+                    if not pattern.search(line):continue
+                    actual_matches[category]+=1
+                    if len(categories[category])>=MAX_EVIDENCE_PER_CATEGORY:continue
                     snippet=line
                     if len(line)<90 and (HEADING.match(line) or line.endswith((":", "："))):
                         snippet=" ".join(lines[index:min(index+4,len(lines))])
@@ -213,14 +216,20 @@ def collect(files,read_original):
             gaps.append("N03_document_text_unavailable:"+str(seq))
         sources.append(entry)
     missing=[key for key,quotes in categories.items() if not quotes]
+    omitted={key:max(0,actual_matches[key]-len(quotes))
+             for key,quotes in categories.items() if actual_matches[key]>len(quotes)}
     gaps.extend("N03_missing_raw_evidence:"+key for key in missing)
+    gaps.extend("N03_evidence_excerpt_limit:"+key+":"+str(count)
+                for key,count in omitted.items())
     count=sum(1 for x in sources if x["text_extracted"])
     if count<len(files):gaps.append("N03_not_all_originals_text_extracted")
-    return ("verified" if count==len(files) and not missing and
+    return ("verified" if count==len(files) and not missing and not omitted and
             not any(x["text_truncated"] for x in sources) else "partial"),{
         "source":"N02_immutable_official_originals",
         "categories":categories,
         "category_counts":{k:len(v) for k,v in categories.items()},
+        "actual_source_line_match_counts":actual_matches,
+        "omitted_excerpt_counts":omitted,
         "source_files":sources,
         "original_file_count":len(files),
         "extracted_source_count":count,
