@@ -85,13 +85,19 @@ class TestN03(unittest.TestCase):
             with patch.object(live,"_client",return_value=None), \
                  patch.object(live,"_once"), \
                  patch.object(live,"_live_notice",return_value=notice), \
-                 patch.object(live,"_live_attachments",return_value=(files,[RAW])), \
+                 patch.object(live,"_live_attachments",return_value={
+                   "files":[{"original_filename":"원본지침서.pdf","file_seq":2}],
+                   "file_count":1,"downloaded":1,
+                   "manifest_path":"/data/n01/bids/R26BK01816186-000/attachment_manifest.json",
+                   "official_attachment_inventory_complete":True}), \
                  patch.object(live,"_live_openings",return_value={"official_rows":0}), \
                  patch.object(live,"_document",return_value=b"docx"):
                 live._execute(job)
             record=next(x for x in job["steps"] if x["node"]=="N03")
             self.assertEqual(record["status"],"partial")
-            self.assertGreaterEqual(record["output"]["required_document_count"],5)
+            self.assertEqual(record["output"]["downloaded_files"],1)
+            self.assertFalse(record["output"]["analysis_performed"])
+            self.assertIn("attachment_manifest_path",record["output"])
             self.assertFalse(record["output"]["company_eligibility_verified"])
             self.assertNotIn("requirement_keywords",record["output"])
             self.assertFalse(job["completion_checkpoint"]["fully_completed"])
