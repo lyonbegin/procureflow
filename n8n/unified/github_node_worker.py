@@ -189,6 +189,49 @@ def execute(stage,context,base=ROOT):
              "original_count":len(docs)},value
     raise ValueError("UNKNOWN_GITHUB_NODE_STAGE")
 
+def _safe_collected_counts(stage,status,output):
+    """Non-sensitive audit only: actual source counts and missing connectors.
+
+    Do not print source documents, model prompts, tokens, company identifiers,
+    personal data, original filenames or bidder identities into Actions logs.
+    """
+    result={"stage":stage,"status":status}
+    if not isinstance(output,dict):return result
+    if stage=="N01":
+        result["selected_bid_no"]=str(output.get("bid_no") or "")[:30]
+        result["official_fields_verified"]=bool(output.get("official_fields_verified"))
+    elif stage=="N02":
+        result["file_count"]=output.get("file_count")
+        result["official_inventory_complete"]=bool(output.get("official_attachment_inventory_complete"))
+    elif stage=="N03":
+        result["official_record_found"]=bool(output.get("official_selected_record_found"))
+        result["detail10_verified"]=bool(output.get("detail10_verified"))
+        result["official_field_count"]=len(output.get("official_fields") or {})
+    elif stage=="N04":
+        result["periods_checked"]=len(output.get("periods_checked") or [])
+        result["periods_requested"]=output.get("periods_requested")
+        result["verified_history_records"]=output.get("verified_record_count",0)
+    elif stage=="N05":
+        result["history_candidates"]=output.get("candidates",0)
+        result["opening_queries_checked"]=output.get("checked",0)
+        result["opening_records"]=len(output.get("opening_records") or [])
+    elif stage=="N06":
+        result["supplier_quotations"]=output.get("supplier_quotation_original_count",0)
+        result["company_workforce_originals"]=output.get("company_workforce_original_count",0)
+    elif stage=="N07":
+        result["collected_amount_fields"]=len(output.get("source_amounts") or [])
+        result["recommended_bid_generated"]=output.get("recommended_bid") is not None
+    elif stage=="N08":
+        result["handoff_assembled"]=bool(output.get("handoff_assembled") or output.get("handoff_bundle"))
+        result["bundled_originals"]=output.get("source_originals",0)
+        result["upstream_gaps_preserved"]=len(output.get("collection_gaps") or [])
+    elif stage=="N09":
+        result["ai_evaluation_performed"]=bool(output.get("ai_evaluation_performed"))
+        result["ai_not_run_reason"]=str(output.get("reason") or "")[:70]
+    gaps=output.get("gaps") or output.get("collection_gaps") or []
+    result["missing_source_count"]=len(gaps)
+    return result
+
 def main():
     run_id=os.environ.get("PROCUREFLOW_RUN_ID","")
     stage=os.environ.get("PROCUREFLOW_STAGE","")
@@ -211,6 +254,7 @@ def main():
             "github_run_id":os.environ.get("GITHUB_RUN_ID"),
             "github_run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT")}
     _api(base,"/api/procurement/public9/action-result",result)
+    print("GITHUB_ACTION_NODE_EVIDENCE_COUNTS",json.dumps(_safe_collected_counts(stage,status,output),ensure_ascii=False),flush=True)
     print("GITHUB_ACTION_NODE_DONE",json.dumps({"stage":stage,"status":status,
           "run_id":run_id,"github_run_id":result["github_run_id"]},ensure_ascii=False),flush=True)
 
