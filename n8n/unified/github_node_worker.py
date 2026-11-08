@@ -172,12 +172,12 @@ def execute(stage,context,base=ROOT):
         status,value=n06_supply_catalog(notice,collection,
                           previous.get("N04"),previous.get("N05"))
         return status,{"N02_original_file_count":len(docs),
-            "request":"collect_supplier_workforce_source_catalog_only"},value
+            "request":"organize_N05_company_bid_and_award_source_records"},value
     if stage=="N07":
         from collect_only_stages import n07_price_sources
         status,value=n07_price_sources(notice,previous.get("N03"),
                      previous.get("N04"),previous.get("N05"),previous.get("N06"))
-        return status,{"source":"N01_N03_N04_N05_N06_official_source_records"},value
+        return status,{"source":"N05_bid_and_opening_item_price_quantity_records"},value
     if stage=="N08":
         from collect_only_stages import n08_handoff
         status,value=n08_handoff(notice,previous)
@@ -227,10 +227,14 @@ def _safe_collected_counts(stage,status,output):
         result["not_published_or_not_returned"]=output.get("not_published_count",0)
         result["per_notice_attempted"]=output.get("attempted",0)
     elif stage=="N06":
-        result["supplier_quotations"]=output.get("supplier_quotation_original_count",0)
-        result["company_workforce_originals"]=output.get("company_workforce_original_count",0)
+        result["unique_company_groups"]=output.get("company_count",0)
+        result["company_bid_history_rows"]=output.get("bid_history_record_count",0)
+        result["award_source_documents"]=output.get("award_result_source_count",0)
     elif stage=="N07":
-        result["collected_amount_fields"]=len(output.get("source_amounts") or [])
+        result["price_source_fields"]=output.get("source_amount_count",0)
+        result["item_quantity_source_fields"]=output.get("quantity_source_count",0)
+        result["classification_groups"]=output.get("classification_group_count",0)
+        result["awarded_price_records_verified"]=output.get("awarded_price_records_verified",0)
         result["recommended_bid_generated"]=output.get("recommended_bid") is not None
     elif stage=="N08":
         result["handoff_assembled"]=bool(output.get("handoff_assembled") or output.get("handoff_bundle"))
