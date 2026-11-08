@@ -79,31 +79,52 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(out["query_windows_checked"][1]["start"],"20251108")
         self.assertFalse(out["business_evaluation_performed"])
 
-    def test_n04_ten_year_history_only_exact_code(self):
+    def test_n04_actual_8_digit_item_matches_official_records(self):
         seen=[]
+        official={**ROW,"prdlstClsfNo":"81111599"}
+        official.pop("dtlsPrnmNo")
         def post(opener,url,payload,headers):
-            query=payload["dlBidPbancLstM"];seen.append(dict(query))
-            if query["start"]=="20161108":
-                return [ROW,{"bidPbancUntyNo":"R26BK00000000",
-                             "bidPbancUntyOrd":"000","dtlsPrnmNo":"1234567890"}]
+            q=payload["dlBidPbancLstM"]
+            seen.append(dict(q))
+            if q["fromBidDt"]=="20161108":
+                return [official,{**official,"bidPbancUntyNo":"R26BK00000000",
+                                  "prdlstClsfNo":"12345678"}]
             return []
-        status,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+        status,out=c.n04_history(None,NOTICE,{"class8":"81111599","class8_verified":True},
                                  post,Live,date(2026,11,8))
+        self.assertEqual(out["query_mode"],"official_item8")
         self.assertEqual(out["periods_requested"],len(list(c._periods(date(2026,11,8)))))
-        self.assertEqual(len(out["periods_checked"]),len(seen))
         self.assertGreaterEqual(len(seen),10)
-        self.assertEqual(out["records"][0]["detail10"],CODE)
+        self.assertEqual(out["records"][0]["class8"],"81111599")
         self.assertEqual(out["verified_record_count"],1)
         self.assertEqual(out["unverified_classification_count"],1)
-        self.assertEqual(status,"partial") # foreign classification explicitly flagged
-        self.assertFalse(out["business_evaluation_performed"])
-        self.assertEqual(seen[0]["dtlsPrnmNo"],CODE)
-    def test_n04_without_detail10_does_not_make_unfiltered_lookup(self):
-        def forbidden(*args):raise AssertionError("NO_UNFILTERED_HISTORICAL_QUERY_ALLOWED")
-        status,out=c.n04_history(None,NOTICE,{"detail10":None},forbidden,Live,date(2026,11,8))
         self.assertEqual(status,"partial")
-        self.assertEqual(out["records"],[])
-        self.assertIn("exact_10_digit_class_required_for_10_year_search",out["gaps"])
+        self.assertEqual(seen[0]["prdlstClsfNo"],"81111599")
+        self.assertFalse(out["business_evaluation_performed"])
+
+    def test_n04_without_item_code_collects_labeled_title_candidates(self):
+        seen=[]
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            seen.append(dict(q))
+            if q["fromBidDt"]=="20251108":
+                return [ROW]
+            return []
+        status,out=c.n04_history(None,NOTICE,{"detail10":None},post,Live,date(2026,11,8))
+        self.assertEqual(out["query_mode"],"official_title_prefix")
+        self.assertEqual(out["candidate_record_count"],1)
+        self.assertEqual(out["verified_record_count"],0)
+        self.assertEqual(out["records"][0]["match_basis"],"official_title_prefix")
+        self.assertFalse(out["records"][0]["official_classification_confirmed"])
+        self.assertEqual(status,"partial")
+        self.assertTrue(seen)
+        self.assertFalse(out["business_evaluation_performed"])
+
+    def test_n04_does_not_treat_business_category_as_item_code(self):
+        self.assertEqual(c._history_query(
+            {"bid_no":BID,"bid_ord":"000","business_code":"조070001",
+             "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_title_prefix")
+
     def test_n05_only_connected_official_bids_no_competitor_prediction(self):
         hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":CODE,
                          "query_period":{"from":"20260101","to":"20261231"}}]}
