@@ -127,10 +127,15 @@ jobs:
           assert history["business_evaluation_performed"] is False
           from collect_only_stages import n05_openings
           if history.get("records"):
-             status5,opening=n05_openings(opener,history,live._json_post,date(2026,11,8))
+             # N04 is tested across the full policy; limit this separate N05
+             # smoke to one source-backed sample so CI does not perform 50
+             # independent full bidder-detail requests.
+             n05_sample={**history,"records":history["records"][:1]}
+             status5,opening=n05_openings(opener,n05_sample,live._json_post,date(2026,11,8))
              print("N05_LIVE_HISTORY_OPENING",json.dumps({
                  "status":status5,
                  "history_candidates":opening.get("candidates"),
+                 "smoke_sample_limit":1,
                  "checked":opening.get("checked"),
                  "opening_records":len(opening.get("opening_records") or []),
                  "bidder_detail_documents":len(opening.get("bidder_detail_records") or []),
