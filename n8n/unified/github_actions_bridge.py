@@ -239,8 +239,17 @@ def upload(auth,headers,data):
     return {"accepted":True,"saved":count==total,"bytes":count}
 
 def original(auth,run_id,seq):
+    """Read-only original access for N03 evidence extraction and N09 integrity.
+
+    N02 must have finished and the authenticated job must currently be
+    pending. Never permit cross-run reads, arbitrary paths, or other stages.
+    """
+    claims=_verify_request(auth)
     with LOCK:
-        run,claims=_check_stage(run_id,"N09",auth)
+        run=_state(run_id)
+        pending=run.get("pending_stage")
+        if run.get("status")!="running" or pending not in ("N03","N09"):
+            raise ValueError("ORIGINAL_READ_STAGE_NOT_AUTHORIZED")
         collection=next((s["output"] for s in run["steps"] if s["node"]=="N02"),None)
         if not collection:raise LookupError("ORIGINAL_COLLECTION_NOT_FOUND")
         file=next((f for f in collection.get("files",[]) if f.get("file_seq")==seq),None)
