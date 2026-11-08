@@ -160,7 +160,7 @@ class CollectFirstTests(unittest.TestCase):
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
             n=year_starts.index(q["start"]) if q["start"] in year_starts else 9
-            if n==9:return []
+            if n==9 or int(q["currentPage"])>1:return []
             count=20 if n==3 else 10
             return [{**ROW,"bidPbancUntyNo":f"R25BK{n*100+i:08d}"}
                     for i in range(1,count+1)]
