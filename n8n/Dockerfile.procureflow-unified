@@ -102,7 +102,7 @@ RUN python3 -c 'import json;w=json.load(open("/app/dist/procure-workflows/operat
 RUN python3 -c 'import sys;sys.path.insert(0,"/app");import public_case_runtime as p,g2b_feature_contract_core as f;assert len(p.ORDER)==43 and len(p.CATALOG)==104 and f.collection_action(29)=="download_original_attachments"'
 RUN python3 -c 'import json,sys;sys.path.insert(0,"/app");import public_case_runtime as p;from g2b_feature_registry import FEATURES,FEATURE_GATES,GROUP_BOUNDS;rows=[{**f,"required_evidence":list(FEATURE_GATES[f["number"]]),"block_id":next(b["id"] for b in p.BLOCKS.values() if f["number"] in b["features"])} for f in FEATURES];open("/app/dist/public-case-feature-catalog.json","w").write(json.dumps({"case":p.summary_fixture(),"features":rows,"group_bounds":GROUP_BOUNDS,"block_order":p.ORDER,"manifest_blocks":list(p.BLOCKS.values()),"evidence_policy":"mock_is_never_official_verified"},ensure_ascii=False))'
 RUN mkdir -p /data && groupadd --system studio && useradd --system --gid studio --home /app studio \
-    && chown -R studio:studio /data /app /ms-playwright
+    && chown -R studio:studio /data /app
 ENV PORT=3000
 ENV STUDIO_STATIC_ROOT=/app/dist
 ENV STUDIO_WORKFLOW_DIR=procure-workflows
