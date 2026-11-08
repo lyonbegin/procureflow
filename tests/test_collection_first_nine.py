@@ -175,6 +175,29 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(out["periods_checked"][3]["to"],"20231107")
         self.assertEqual(out["periods_checked"][3]["cumulative_records"],50)
 
+    def test_n04_fifty_official_title_candidates_collected_without_ai_judgment(self):
+        # A title-derived collection is allowed, but the category remains unknown.
+        title="정보시스템개발서비스 관련 용역"
+        notice={**NOTICE,"title":title}
+        query=c._history_query(notice,{})[2]
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            if q["start"]!="20231108":return []
+            page=int(q["currentPage"])
+            start=(page-1)*20
+            return [{**ROW,"bidPbancUntyNo":f"R25BK{i:08d}",
+                     "bidPbancNm":title}
+                    for i in range(start+1,min(start+21,51))]
+        state,out=c.n04_history(None,notice,{},post,Live,date(2026,11,8))
+        self.assertTrue(query in title)
+        self.assertEqual(state,"verified")
+        self.assertEqual(out["candidate_record_count"],50)
+        self.assertTrue(out["collection_target_complete"])
+        self.assertEqual(out["verified_record_count"],0)
+        self.assertTrue(all(not x["official_classification_confirmed"] for x in out["records"]))
+        self.assertIn("historical_candidates_unclassified_final_ai_review",out["gaps"])
+        self.assertFalse(out["business_evaluation_performed"])
+
     def test_n04_ten_year_max_and_deduplicated_count(self):
         seen=[]
         def post(opener,url,payload,headers):
