@@ -249,3 +249,11 @@ body.p9-studio-modal-open{overflow:hidden!important}
   .p9-studio-fullscreen{padding:8px!important}
   .p9-studio-fullscreen #p9-shared-studio-frame{height:100%;min-height:0}
 }
+
+/* Real 9-stage launch remains visible above the shared Studio iframe.
+ * Authentication errors are shown immediately near the launch controls. */
+.p9-start-feedback{margin:6px 0 12px;padding:11px 14px;border-radius:8px;border:1px solid #aa7545;background:#fff4e5;color:#70431f;font-size:13px;line-height:1.45}
+.p9-start-feedback[hidden]{display:none!important}
+.p9-studio-toolbar-actions [data-testid="live-nine-run-top"]{white-space:nowrap;font-weight:700;min-height:36px}
+.p9-controls{margin-bottom:14px}
+@media(max-width:760px){.p9-studio-toolbar-actions [data-testid="live-nine-run-top"]{width:100%;order:-1}.p9-studio-toolbar-actions{align-items:stretch}}
