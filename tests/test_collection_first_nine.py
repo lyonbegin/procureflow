@@ -313,6 +313,19 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(out["opening_records"][0]["bid_no"],BID)
         self.assertEqual(out["observed_bidder_row_count"],0)
 
+    def test_n05_http_422_body_distinguishes_explicit_unpublished(self):
+        from urllib.error import HTTPError
+        from io import BytesIO
+        published=HTTPError(c.OPENING_DETAIL,422,"Unprocessable Entity",None,
+                            BytesIO(json.dumps({
+                               "ErrorMsg":"개찰결과 데이터가 존재하지 않습니다"}).encode("utf-8")))
+        ambiguous=HTTPError(c.OPENING_DETAIL,422,"Unprocessable Entity",None,
+                            BytesIO(b'{"ErrorMsg":"Unknown request parameter"}'))
+        self.assertEqual(c._n05_error(published),
+                         "official_422_no_published_opening_detail")
+        self.assertEqual(c._n05_error(ambiguous),
+                         "official_http_422_unclassified")
+
     def test_n05_pages_official_list_and_rejects_unrelated_rows(self):
         hist={"records":[{"bid_no":BID,"bid_ord":"000",
                          "query_period":{"from":"20250101","to":"20251231"}}]}
