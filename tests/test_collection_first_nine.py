@@ -403,6 +403,8 @@ class CollectFirstTests(unittest.TestCase):
         company=next(x for x in n6["company_records"]
                      if x["registration_number"]=="1234567890")
         self.assertEqual(company["bid_record_indexes"],[0,2])
+        self.assertEqual(n6["bid_history_records"][2]["source_detail_index"],0)
+        self.assertEqual(n6["bid_history_records"][2]["source_bidder_index"],2)
         self.assertEqual(len(n6["award_result_source_records"]),1)
         self.assertFalse(n6["award_result_source_records"][0]["final_award_verified"])
         self.assertFalse(n6["all_time_company_history_verified"])
