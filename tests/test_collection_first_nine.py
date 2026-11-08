@@ -102,7 +102,7 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(seen[0]["prdlstClsfNo"],"81111599")
         self.assertFalse(out["business_evaluation_performed"])
 
-    def test_n04_without_item_code_collects_labeled_title_candidates(self):
+    def test_n04_without_item_code_collects_labeled_agency_candidates(self):
         seen=[]
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
@@ -111,10 +111,10 @@ class CollectFirstTests(unittest.TestCase):
                 return [{**ROW,"bidPbancUntyNo":"R25BK01816186"}]
             return []
         status,out=c.n04_history(None,NOTICE,{"detail10":None},post,Live,date(2026,11,8))
-        self.assertEqual(out["query_mode"],"official_title_prefix")
+        self.assertEqual(out["query_mode"],"official_agency_name")
         self.assertEqual(out["candidate_record_count"],1)
         self.assertEqual(out["verified_record_count"],0)
-        self.assertEqual(out["records"][0]["match_basis"],"official_title_prefix")
+        self.assertEqual(out["records"][0]["match_basis"],"official_agency_name")
         self.assertFalse(out["records"][0]["official_classification_confirmed"])
         self.assertEqual(status,"partial")
         self.assertTrue(seen)
@@ -123,7 +123,7 @@ class CollectFirstTests(unittest.TestCase):
     def test_n04_does_not_treat_business_category_as_item_code(self):
         self.assertEqual(c._history_query(
             {"bid_no":BID,"bid_ord":"000","business_code":"조070001",
-             "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_title_prefix")
+             "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_agency_name")
 
     def test_n05_only_connected_official_bids_no_competitor_prediction(self):
         hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":CODE,
