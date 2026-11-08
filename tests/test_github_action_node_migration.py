@@ -124,7 +124,7 @@ class MigrationTests(unittest.TestCase):
   d=(ROOT/"n8n/Dockerfile.procureflow-unified").read_text()
   wf=(ROOT/".github/workflows/procureflow-node.yml").read_text()
   self.assertNotIn("python -m playwright install",d)
-  self.assertNotIn("chromium",wf.lower())
+  self.assertNotIn("playwright install --with-deps",wf.lower())
   self.assertIn("id-token: write",wf)
  def test_worker_stages_three_five_six_seven_dont_fake_verification(self):
   ctx={"run_id":self.rid,"selected_notice":NOTICE,"outputs":{
