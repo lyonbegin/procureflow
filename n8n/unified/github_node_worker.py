@@ -156,7 +156,8 @@ def execute(stage,context,base=ROOT):
                                   live._json_post,live,live._now().date())
         return status,{"selected_bid_no":(notice or {}).get("bid_no"),
             "detail10":(previous.get("N03") or {}).get("detail10"),
-            "requested_period":"ten_calendar_years"},value
+            "initial_years":3,"target_records":50,
+            "max_years":10,"requested_period":"three_years_extend_one_year_until_50"},value
     if stage=="N05":
         from collect_only_stages import n05_openings
         opener=live._client();live._once(opener)
@@ -210,6 +211,10 @@ def _safe_collected_counts(stage,status,output):
     elif stage=="N04":
         result["periods_checked"]=len(output.get("periods_checked") or [])
         result["periods_requested"]=output.get("periods_requested")
+        result["target_records"]=output.get("target_records",50)
+        result["target_reached"]=bool(output.get("target_reached"))
+        result["years_expanded"]=output.get("years_expanded")
+        result["candidate_records"]=output.get("candidate_record_count",0)
         result["verified_history_records"]=output.get("verified_record_count",0)
     elif stage=="N05":
         result["history_candidates"]=output.get("candidates",0)
