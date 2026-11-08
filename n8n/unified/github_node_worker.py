@@ -140,15 +140,24 @@ def execute(stage,context,base=ROOT):
         value["storage_folder"]=None
         value["manifest_path"]=None
         return status,inputs,value
-    # N03–N08 are collection-only. No HWP/PDF interpretation, company
-    # eligibility judgments, competitive predictions, pricing or Word drafts.
+    # N03 captures quoted HWP/PDF requirements without assessing company
+    # eligibility. N04–N08 remain collection/organization only.
     if stage=="N03":
         from collect_only_stages import n03_metadata
+        from n03_requirements_collect import collect as collect_requirements
         opener=live._client();live._once(opener)
         status,value=n03_metadata(opener,notice,live._json_post,live,live._now().date())
+        requirements_status,requirements=collect_requirements(
+            docs,lambda file:_read_original_for_n03(base,context["run_id"],file))
+        value["official_requirement_evidence"]=requirements
+        value["official_requirement_category_counts"]=requirements["category_counts"]
+        value["official_requirement_missing_categories"]=requirements["missing_categories"]
+        value["gaps"].extend(requirements["gaps"])
+        if requirements_status!="verified":status="partial"
         return status,{"selected_bid_no":(notice or {}).get("bid_no"),
             "selected_bid_ord":(notice or {}).get("bid_ord"),
-            "request":"official_exact_number_metadata_only"},value
+            "request":"collect_official_metadata_and_six_source_requirement_categories",
+            "N02_original_count":len(docs)},value
     if stage=="N04":
         from collect_only_stages import n04_history
         opener=live._client();live._once(opener)
@@ -210,6 +219,9 @@ def _safe_collected_counts(stage,status,output):
         result["official_record_found"]=bool(output.get("official_selected_record_found"))
         result["detail10_verified"]=bool(output.get("detail10_verified"))
         result["official_field_count"]=len(output.get("official_fields") or {})
+        result["requirement_source_files_extracted"]=(output.get("official_requirement_evidence") or {}).get("extracted_source_count",0)
+        result["requirement_category_counts"]=output.get("official_requirement_category_counts") or {}
+        result["requirement_missing_categories"]=output.get("official_requirement_missing_categories") or []
     elif stage=="N04":
         result["periods_checked"]=len(output.get("periods_checked") or [])
         result["periods_requested"]=output.get("periods_requested")
