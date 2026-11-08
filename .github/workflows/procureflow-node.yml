@@ -49,6 +49,21 @@ jobs:
             assert exc.code==403,(exc.code,body)
             assert 'GH_ACTION_RUN_NOT_FOUND' in body,(exc.code,body)
           print('GITHUB_ACTIONS_OIDC_AUTH_AND_UNKNOWN_RUN_REJECTION_PASS',flush=True)
+          # This historic 9-stage ID already appears in the public Actions
+          # run titles. Print non-sensitive totals only, never source documents.
+          old_id="1a7eb0da477343d39f82795d1debcd3e"
+          audit_url=base+"/api/procurement/public9/action-audit?run_id="+old_id
+          req=urllib.request.Request(audit_url,headers={
+            "Authorization":"Bearer "+token})
+          with urllib.request.urlopen(req,timeout=30) as response:
+            summary=json.load(response)
+          assert summary["run_id"]==old_id
+          assert summary["completed_steps"]==9
+          assert summary["contains_raw_company_documents"] is False
+          print('PROCFLOW_N01_N09_ACTUAL_PERSISTED_AUDIT',
+                json.dumps(summary,ensure_ascii=False,sort_keys=True),
+                flush=True)
+          print('PROCFLOW_NINE_NODE_REAL_PERSISTED_AUDIT_PASS',flush=True)
           PY
   run-one-node:
     if: github.event_name == 'workflow_dispatch'
