@@ -186,14 +186,37 @@ jobs:
               },ensure_ascii=False),flush=True)
               needed=("bidPbancNo","bidPbancOrd","bidClsfNo",
                       "bidPrgrsOrd","prcmBsneSeCd","bidPgstCd")
-              for item in entries[:3]:
-                  if not isinstance(item,dict):continue
+              print("N05_OFFICIAL_LIST_STATUSES",json.dumps([
+                  {"bid_no":row.get("bidPbancNo"),"status":row.get("bidPgstCd"),
+                   "business":row.get("prcmBsneSeCd")}
+                  for row in entries[:10] if isinstance(row,dict)
+              ],ensure_ascii=False),flush=True)
+              # Search up to four original pages to find a completed opening.
+              for page in range(2,5):
+                  form["dlSrchOnbsRsltClsfListInM"]["firstIndex"]=(page-1)*10+1
+                  form["dlSrchOnbsRsltClsfListInM"]["lastIndex"]=page*10
+                  extra=live._json_post(opener,OPENING_LIST,form,OPEN_HEADERS)
+                  batch=extra.get("onbsRsltClsfList") if isinstance(extra,dict) else None
+                  if isinstance(batch,list): entries.extend(batch)
+                  if not isinstance(batch,list) or len(batch)<10:break
+              options=[x for x in entries if isinstance(x,dict) and
+                  all(x.get(k) not in (None,"") for k in needed)]
+              # Prefer officially published statuses other than 유찰.
+              options.sort(key=lambda x:("유찰" in str(x.get("bidPgstCd") or ""),
+                                         "개찰" not in str(x.get("bidPgstCd") or "") and
+                                         "낙찰" not in str(x.get("bidPgstCd") or "")))
+              print("N05_OFFICIAL_OPENING_STATUS_COUNTS",json.dumps({
+                  "scanned_rows":len(entries),
+                  "status_counts":{str(x.get("bidPgstCd")):
+                      sum(1 for y in entries if isinstance(y,dict)
+                            and y.get("bidPgstCd")==x.get("bidPgstCd"))
+                      for x in options[:40]}
+              },ensure_ascii=False),flush=True)
+              for item in options[:3]:
                   print("N05_OFFICIAL_DETAIL_KEYS",json.dumps({
                       "bid_no":item.get("bidPbancNo"),
                       "source_values":{k:item.get(k) for k in needed if k!="bidPbancNo"}
                   },ensure_ascii=False),flush=True)
-                  if any(item.get(k) in (None,"") for k in needed):
-                      continue
                   result,errors=_n05_bidder_details(opener,live._json_post,
                       item["bidPbancNo"],item["bidPbancOrd"],item)
                   print("N05_OFFICIAL_DETAIL_PROBE",json.dumps({
@@ -202,7 +225,7 @@ jobs:
                       "detail_pages":result.get("pages_checked") if result else 0,
                       "errors":errors[:3]
                   },ensure_ascii=False),flush=True)
-                  break
+                  if result and result.get("bidders"):break
           except Exception as exc:
               print("N05_OFFICIAL_PROBE_ERROR",type(exc).__name__+":"+str(exc)[:140],flush=True)
           PY
