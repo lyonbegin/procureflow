@@ -300,7 +300,7 @@ def upload(auth,headers,data):
     return {"accepted":True,"saved":count==total,"bytes":count}
 
 def original(auth,run_id,seq):
-    """Read-only original access ONLY at N09 AI evaluation.
+    """Read-only original access at N03 source capture or N09 AI evaluation.
 
     N02 must have finished and the authenticated job must currently be
     pending. Never permit cross-run reads, arbitrary paths, or other stages.
@@ -309,7 +309,7 @@ def original(auth,run_id,seq):
     with LOCK:
         run=_state(run_id)
         pending=run.get("pending_stage")
-        if run.get("status")!="running" or pending!="N09":
+        if run.get("status")!="running" or pending not in ("N03","N09"):
             raise ValueError("ORIGINAL_READ_STAGE_NOT_AUTHORIZED")
         collection=next((s["output"] for s in run["steps"] if s["node"]=="N02"),None)
         if not collection:raise LookupError("ORIGINAL_COLLECTION_NOT_FOUND")
