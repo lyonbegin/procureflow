@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/collection-first-nine.yml
       - n8n/unified/collect_only_stages.py
+      - n8n/unified/n03_requirements_collect.py
       - n8n/unified/n09_final_ai.py
       - n8n/unified/github_node_worker.py
       - n8n/unified/github_actions_bridge.py
@@ -31,8 +32,69 @@ jobs:
           python -m unittest discover -s tests -p test_github_action_node_migration.py -v
       - name: Python compile + browser dependency boundary
         run: |
-          python -m py_compile n8n/unified/collect_only_stages.py n8n/unified/n09_final_ai.py n8n/unified/github_node_worker.py n8n/unified/github_actions_bridge.py
+          python -m py_compile n8n/unified/collect_only_stages.py n8n/unified/n03_requirements_collect.py n8n/unified/n09_final_ai.py n8n/unified/github_node_worker.py n8n/unified/github_actions_bridge.py
           echo 'COLLECTION_FIRST_N01_N08_N09_ONLY_AI_CONTRACT_PASS'
+  g2b-official-requirement-originals-once:
+    # Real N02 original download -> text extraction -> six source evidence families.
+    # On-demand only. This is not a simulated notice or acceptance of legal eligibility.
+    if: contains(github.event.head_commit.message, 'OFFICIAL_DOCUMENT_PROBE_ONCE')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install genuine official HWP/PDF source readers
+        run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
+      - name: Read actual official selected tender documents and capture requirement source evidence
+        run: |
+          python - <<'PY'
+          import json,sys,tempfile
+          from pathlib import Path
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          import n02_collect
+          from n03_requirements_collect import collect as capture
+          n02_collect.STORAGE_ROOT=Path(tempfile.mkdtemp(prefix='pf-n03-official-'))
+          selected={"bid_no":"R26BK01816186","bid_ord":"000","business_code":"03"}
+          opener=live._client()
+          live._once(opener)
+          original=n02_collect.collect(opener,selected)
+          print("N03_REAL_REQUIREMENTS_N02",json.dumps({
+            "notice":selected["bid_no"],
+            "source":"official_g2b_attachments",
+            "files":original["file_count"],
+            "file_types":original["file_types"],
+            "inventory_complete":original["official_attachment_inventory_complete"],
+            "errors":original["errors"],
+            "unexpected_missing_indices":original["unexpected_missing_indices"]
+          },ensure_ascii=False),flush=True)
+          if not original["files"]:
+              raise RuntimeError("N03_OFFICIAL_ORIGINALS_NOT_DOWNLOADED")
+          status,source=capture(original["files"],
+                 lambda file:Path(file["saved_path"]).read_bytes())
+          print("N03_REAL_REQUIREMENT_SOURCE_COUNTS",json.dumps({
+            "status":status,
+            "source_files_extracted":source["extracted_source_count"],
+            "source_files_expected":source["original_file_count"],
+            "six_source_category_counts":source["category_counts"],
+            "missing_categories":source["missing_categories"],
+            "file_summaries":[{
+              "file_seq":x["file_seq"],"sha256":x["sha256"],
+              "extracted":x["text_extracted"],"chars":x.get("text_chars",0),
+              "format":x.get("format"),"truncated":x["text_truncated"],
+              "error":x.get("extraction_error")
+            } for x in source["source_files"]],
+            "gaps":source["gaps"],
+            "business_evaluation_performed":source["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          if not source["extracted_source_count"]:
+              raise RuntimeError("N03_OFFICIAL_DOCUMENT_TEXT_NOT_EXTRACTED")
+          if not any(source["category_counts"].values()):
+              raise RuntimeError("N03_NO_REAL_REQUIREMENT_EVIDENCE_EXTRACTED")
+          PY
+
   g2b-selected-metadata:
     runs-on: ubuntu-24.04
     timeout-minutes: 7
