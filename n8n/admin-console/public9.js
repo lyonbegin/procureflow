@@ -5,7 +5,7 @@
 (function(){
  const FLOW='operations/PF00-public-nine-real.json';
  const STAGES=['최신 공고 수집·선정','공고·첨부 원본 다운로드','공고 공식 속성 수집','최근 3년부터 과거 공고 50건 수집',
-  '과거 개찰·낙찰 원본 수집','공급·인력 근거자료 수집','원가·가격 근거자료 수집','전체 수집자료 통합·AI 전달','AI 종합 분석·최종 평가'];
+  '과거 개찰·낙찰 원본 수집','업체별 과거 투찰·낙찰 이력 정리','품목·분류별 가격·수량 근거 정리','전체 수집자료 통합·AI 전달','AI 종합 분석·최종 평가'];
  const LABELS={verified:'검증 완료',running:'실행 중',partial:'부분 확인',blocked:'차단',
   source_error:'오류',not_executed:'미실행',waiting:'대기'};
  const PROBLEMS=['source_error','blocked','partial','not_executed'];
@@ -35,8 +35,8 @@
     if(s.node==='N03')return '공식 공고 속성 '+Object.keys(out.official_fields||{}).length+'개 수집 · 8자리 물품분류 '+(out.class8_verified?out.class8:'목록 미제공 · 검색 계속');
     if(s.node==='N04')return '최근 '+(out.years_searched||out.periods_checked?.length||0)+'년 조회 · 공식 과거 후보 '+(out.candidate_record_count||0)+'/'+(out.target_records||50)+'건 · 최대 '+(out.max_years||10)+'년 확대';
    if(s.node==='N05')return '후보 '+(out.candidates||0)+'건 중 조회 '+(out.attempted||out.checked||0)+'건 · 개찰 원본 '+(out.opening_records?.length||0)+'건 · 업체별 투찰 '+(out.observed_bidder_row_count||0)+'행';
-   if(s.node==='N06')return '공급·인력 관련 출처 목록 수집 · 누락 출처 '+gaps.length+'건';
-   if(s.node==='N07')return '원가·가격 원본 필드 '+(out.source_amounts?.length||0)+'건 수집 · 추천가격 산출 없음';
+   if(s.node==='N06')return '업체 그룹 '+(out.company_count||0)+'개 · 과거 업체별 투찰행 '+(out.bid_history_record_count||0)+'행 · 최종 낙찰확정 근거는 별도';
+   if(s.node==='N07')return '품목·분류 그룹 '+(out.classification_group_count||0)+'개 · 공식 가격필드 '+(out.source_amount_count||0)+'개 · 수량필드 '+(out.quantity_source_count||0)+'개';
    if(s.node==='N08')return '원본 '+(out.source_originals||0)+'개와 수집자료 통합 · AI 전달 준비';
    if(s.node==='N09'){
      if(out.ai_evaluation_performed)return '최종 AI 종합 보고서 생성 · 사람 검토 필요';
@@ -172,11 +172,11 @@
      if(s.status==='not_executed')return 'AI 미실행';
    }
    if(s.node==='N08'&&out.handoff_bundle&&!out.bundle_error)return '자료 통합 완료';
-   if(s.node==='N06'&&!out.supplier_quotation_original_count&&!out.company_workforce_original_count)return '외부 자료 미수집';
+   if(s.node==='N06')return s.status==='verified'?'업체별 원본 이력 정리 완료':'N05 업체별 이력 부족';
     if(s.node==='N04')return out.target_reached?'과거 공고 50건 수집 목표 달성':(out.years_searched?'후보 '+(out.candidate_record_count||0)+'/'+(out.target_records||50)+'건 · 연도 확대':'과거 공고 수집 대기');
    if(s.node==='N05')return !out.candidates?'과거 후보 없음':s.status==='verified'?'업체별 투찰 수집 완료':(out.observed_bidder_row_count?'투찰 일부 수집':'투찰 미수집 · 원인 확인');
     if(s.node==='N03')return s.status==='verified'?'공고 공식 속성 수집 완료':'공고 속성 일부 미수집';
-   if(s.node==='N07'&&Array.isArray(out.source_amounts))return '금액 '+out.source_amounts.length+'건 수집';
+   if(s.node==='N07'&&Array.isArray(out.source_amounts))return '가격 '+out.source_amounts.length+'개 · 수량 '+(out.quantity_source_count||0)+'개';
    return statusName(s.status);
  }
  function evidenceDetail(i,s){
@@ -189,8 +189,8 @@
       case 2:return '공식 상세 필드 '+Object.keys(o.official_fields||{}).length+'개 · 8자리 물품분류 '+(o.class8_verified?o.class8:'미제공(수집 계속)');
       case 3:return '최근 '+(o.years_searched||o.periods_checked?.length||0)+'년 조회(초기 '+(o.initial_years||3)+'년, 최대 '+(o.max_years||10)+'년) · 후보 '+(o.candidate_record_count||0)+'/'+(o.target_records||50)+'건';
      case 4:return '이력 후보 '+(o.candidates||0)+'건 · 조회 '+(o.attempted||o.checked||0)+'건 · 개찰 '+(o.opening_records?.length||0)+'건 · 업체별 투찰 '+(o.observed_bidder_row_count||0)+'행 · 미개찰·미조회 '+(o.not_published_count||0)+'건';
-     case 5:return '원본 목록 '+(o.official_originals_catalog?.length||0)+'개 · 외부 견적 '+(o.supplier_quotation_original_count||0)+'개 · 인력 '+(o.company_workforce_original_count||0)+'개';
-     case 6:return '공식 금액 필드 '+(o.source_amounts?.length||0)+'건 · 누락 '+missing+'건';
+     case 5:return '업체 그룹 '+(o.company_count||0)+'개 · 업체별 투찰행 '+(o.bid_history_record_count||0)+'개 · 낙찰결과 원본 '+(o.award_result_source_count||0)+'건';
+     case 6:return '품목분류 그룹 '+(o.classification_group_count||0)+'개 · 가격필드 '+(o.source_amount_count||0)+'개 · 수량필드 '+(o.quantity_source_count||0)+'개 · 누락 '+missing+'건';
      case 7:return o.handoff_bundle?'AI 전달 묶음 '+(o.bundle_bytes||0)+'바이트 · 수집 누락 '+missing+'건':'자료 통합 미완료';
      case 8:return o.ai_evaluation_performed?'AI 최종보고서 생성됨':(o.reason||'AI 분석 실행 결과 미확인');
      default:return '정보 없음';
