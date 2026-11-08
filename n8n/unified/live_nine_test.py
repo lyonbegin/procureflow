@@ -403,18 +403,23 @@ def _execute(run):
                      "continue_to":"N03"})
         _begin_stage(run,3)
         try:
-            joined="\n".join(texts)
-            found=[x for x in ("소프트웨어사업자","직접생산확인",
-                "입찰참가자격","중소기업","소기업","지역제한") if x in joined]
-            state["elig"]={"source":"downloaded_official_attachment_text_only",
-                "requirement_keywords":found,
-                "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
-                "document_text_chars":len(joined)}
-            _record(run,3,"partial" if found else "blocked",
-                    {"N02_downloaded_files":len(docs)},state["elig"])
+            from n03_eligibility import analyze
+            # Officially extracted N02 content only. Do not replace the text
+            # with saved DB rows or guessed qualification templates.
+            state["elig"]=analyze(docs,texts)
+            # N03 must remain partial until actual bidder-company originals
+            # are independently checked against these published requirements.
+            n03_status=("partial" if state["elig"]["document_requirement_extraction"]=="verified"
+                        else "blocked")
+            _record(run,3,n03_status,
+                    {"N02_downloaded_files":len(docs),
+                     "N02_extracted_text_files":len(texts),
+                     "selected_bid_no":run.get("case_bid_no")},
+                    state["elig"])
         except Exception as exc:
-            state["elig"]={"error":type(exc).__name__+":"+str(exc)[:180]}
-            _record(run,3,"source_error",{"source":"N02"},
+            state["elig"]={"error":type(exc).__name__+":"+str(exc)[:180],
+                           "company_eligibility_verified":False}
+            _record(run,3,"source_error",{"source":"N02_official_attachment_text"},
                     {**state["elig"],"continue_to":"N04"})
         _begin_stage(run,4)
         try:
