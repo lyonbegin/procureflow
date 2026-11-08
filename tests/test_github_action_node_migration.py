@@ -118,11 +118,10 @@ class MigrationTests(unittest.TestCase):
   self.assertEqual(Path(record["files"][0]["saved_path"]).read_bytes(),body)
   # N03 is the official eligibility-document reader, N09 verifies
   # immutable saved originals. Any other pending stage must be denied.
-  n03_original=bridge.original("Bearer unit-test-oidc",self.rid,1)
-  self.assertEqual(n03_original.read_bytes(),body)
-  self._result("N03","partial",{
-    "document_requirement_extraction":"verified",
-    "company_eligibility_verified":False})
+  with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
+   bridge.original("Bearer unit-test-oidc",self.rid,1)
+   self._result("N03","partial",{"detail10_verified":False,
+    "business_evaluation_performed":False})
   with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
    bridge.original("Bearer unit-test-oidc",self.rid,1)
   for i in range(4,9):self._result(f"N{i:02d}","partial",{"reason":"held"})
@@ -137,15 +136,16 @@ class MigrationTests(unittest.TestCase):
   self.assertNotIn("python -m playwright install",d)
   self.assertNotIn("playwright install --with-deps",wf.lower())
   self.assertIn("id-token: write",wf)
- def test_worker_stages_three_five_six_seven_dont_fake_verification(self):
+ def test_worker_collects_five_six_seven_without_assessment_or_price(self):
   ctx={"run_id":self.rid,"selected_notice":NOTICE,"outputs":{
-    "N01":NOTICE,"N02":{"files":[{"original_filename":"1.hwp"}]},
-    "N04":{"official_rows":0},"N06":{"status":"MISSING_COMPANY_COST_EVIDENCE"}}}
-  for stage,expected in [("N05","blocked"),("N06","blocked"),("N07","blocked")]:
+    "N01":NOTICE,"N02":{"files":[{"original_filename":"1.hwp","file_seq":1}]},
+    "N03":{"detail10_verified":False},"N04":{"records":[]},
+    "N05":{"opening_records":[]}}}
+  for stage in ("N05","N06","N07"):
    status,inputs,output=worker.execute(stage,ctx)
-   self.assertEqual(status,expected)
-   self.assertNotEqual(output.get("company_eligibility_verified"),True)
-   self.assertNotIn("recommended_bid",output) if stage!="N07" else self.assertIsNone(output["recommended_bid"])
+   self.assertEqual(status,"partial",(stage,output))
+   self.assertFalse(output["business_evaluation_performed"])
+   self.assertIsNone(output.get("recommended_bid"))
  def test_unauthorized_input_requires_real_oidc(self):
   with patch.object(bridge,"verify",side_effect=auth.GitHubOIDCError("UNAUTHORIZED")):
    with self.assertRaises(auth.GitHubOIDCError):
