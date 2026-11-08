@@ -86,6 +86,7 @@ with sync_playwright() as pw:
     iframe=page.locator("#p9-shared-studio-frame")
     iframe.wait_for(timeout=25000)
     assert iframe.count()==1,"Must embed ONE shared Studio instance"
+    assert page.locator('.p9-evidence-table tbody tr').count()==9, "Per-node evidence summary must show all nine nodes"
     assert iframe.get_attribute("src").startswith("/?workflow=operations%2FPF00-public-nine-real.json"),iframe.get_attribute("src")
     assert page.locator("[data-p9=flow]").count()==0,"Obsolete duplicate 3x3 execution flow must be removed"
     inner=page.frame_locator("#p9-shared-studio-frame")
@@ -126,6 +127,12 @@ with sync_playwright() as pw:
     assert inner.locator('.vue-flow__node[data-id="public9-07"] .studio-node.is-partial').count()==1
     assert inner.locator('.vue-flow__node[data-id="public9-09"] .studio-node.is-partial').count()==1
     assert page.locator("[data-p9=counter]").inner_text()=="진행된 단계 9 / 9"
+    evidence=page.locator('.p9-evidence-table').inner_text()
+    assert "10자리 분류 미확보" in evidence, "N03 classification missing must be explicit"
+    assert "외부 자료 미수집" in evidence, "N06 placeholder must not appear verified"
+    assert "AI 설정 필요" in evidence, "No AI credentials must show not configured"
+    assert "3개 원본" in evidence, "N02 must show actual original count"
+    assert page.locator('.p9-evidence-table tbody tr').count()==9
     assert page.locator(".p9-issue-row").count()==7
     page.screenshot(path=str(OUT/"05_mixed_errors_in_original_shared_editor.png"),full_page=True)
     page.locator('[data-public9="expand"]').click()
