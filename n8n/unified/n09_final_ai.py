@@ -76,9 +76,13 @@ def evaluate(previous,read_original,extract_text,request=None):
     model=os.environ.get("PROCUREFLOW_AI_MODEL","").strip()
     enabled=os.environ.get("PROCUREFLOW_AI_ENABLED","").strip()=="1"
     if not key or not model or not enabled:
-        return "partial",{"source":"N01_N08_handoff",
+        # No model call was made. A missing API credential is NOT partial
+        # AI analysis: represent the evaluation as unexecuted, with sources
+        # safely preserved and without pretending to have produced a report.
+        return "not_executed",{"source":"N01_N08_handoff",
             "ai_evaluation_performed":False,
             "reason":"N09_AI_API_NOT_CONFIGURED",
+            "evaluation_state":"not_started_missing_credentials",
             "original_manifest_count":len(files),
             "collection_gaps":bundle.get("collection_gaps",[])[:120],
             "next_required":"Set OPENAI_API_KEY, PROCUREFLOW_AI_MODEL and PROCUREFLOW_AI_ENABLED=1 in GitHub Actions secrets/variables",
