@@ -154,13 +154,13 @@ def _history_query(notice,n03):
     detail=(n03 or {}).get("detail10") if (n03 or {}).get("detail10_verified") else None
     if detail and re.fullmatch(r"\d{10}",str(detail)):
         return "official_item10",{"dtlsPrnmNo":detail},detail
+    agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
+    if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
     title=str(metadata.get("bidPbancNm") or notice.get("title") or "")
     # Search text is an official title prefix, not an AI relevance decision.
     title=re.sub(r"^[\s\[【(（][^\]】)）]{1,28}[\]】)）]\s*","",title).strip()
     token=re.sub(r"\s+","",title)[:6]
     if len(token)>=4:return "official_title_prefix",{"bidPbancNm":token},token
-    agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
-    if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
     return "no_supported_query",{},None
 
 
