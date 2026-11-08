@@ -18,6 +18,7 @@ on:
       - .github/workflows/procureflow-node.yml
       - n8n/unified/github_node_worker.py
       - n8n/unified/collect_only_stages.py
+      - n8n/unified/n03_requirements_collect.py
       - n8n/unified/n09_final_ai.py
       - tests/test_collection_first_nine.py
       - n8n/unified/github_actions_bridge.py
@@ -43,8 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install HWP/PDF readers and report generator only for N09
-        if: inputs.stage == 'N09'
+      - name: Install official HWP/PDF original text readers for N03 and N09
+        if: inputs.stage == 'N03' || inputs.stage == 'N09'
         run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
       - name: Run exactly one N01-N09 node and report signed result to Railway
         env:
