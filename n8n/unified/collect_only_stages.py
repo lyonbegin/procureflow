@@ -810,6 +810,12 @@ def n08_handoff(notice,previous):
                   "business_code","publication","budget") if notice},
             "originals":files,"stage_catalog":steps,
             "exact_detail10":(previous.get("N03") or {}).get("detail10"),
+            "official_requirement_source_evidence":(previous.get("N03") or {}).get(
+                "official_requirement_evidence",{}),
+            "official_requirement_category_counts":(previous.get("N03") or {}).get(
+                "official_requirement_category_counts",{}),
+            "official_requirement_missing_categories":(previous.get("N03") or {}).get(
+                "official_requirement_missing_categories",[]),
             "historical_notice_records":(previous.get("N04") or {}).get("records",[]),
             "opening_records":(previous.get("N05") or {}).get("opening_records",[]),
             "bidder_detail_records":(previous.get("N05") or {}).get("bidder_detail_records",[]),
