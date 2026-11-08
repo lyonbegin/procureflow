@@ -230,3 +230,38 @@ def read_manifest(path,notice=None):
         if (data.get("notice_bid_no"),data.get("notice_bid_ord"))!=(no,order):
             raise ValueError("N02_MANIFEST_NOTICE_MISMATCH")
     return data
+
+
+def verify_saved_files(report):
+    """Read back all originals from persistent storage for downstream handoff.
+
+    This is a binary integrity check, NOT document content evaluation.
+    """
+    if not isinstance(report,dict) or not report.get("manifest_path"):
+        raise ValueError("N02_MANIFEST_NOT_AVAILABLE_FOR_HANDOFF")
+    source={"bid_no":report["notice_bid_no"],"bid_ord":report["notice_bid_ord"],
+            "business_code":report["business_code"]}
+    saved=read_manifest(report["manifest_path"],source)
+    all_files=saved.get("files") or []
+    folder=Path(saved["storage_folder"]).resolve()
+    if not all_files or folder!=Path(report["storage_folder"]).resolve():
+        raise ValueError("N02_MANIFEST_EMPTY_OR_FOLDER_MISMATCH")
+    for f in all_files:
+        path=Path(f["saved_path"]).resolve()
+        if folder!=path.parent or not path.is_file():
+            raise ValueError("N02_SAVED_FILE_MISSING_OR_WRONG_FOLDER")
+        if path.stat().st_size!=f["size_bytes"]:
+            raise ValueError("N02_SAVED_FILE_BYTES_MISMATCH")
+        digest=sha256()
+        with path.open("rb") as source_file:
+            for buf in iter(lambda:source_file.read(1024*1024),b""):
+                digest.update(buf)
+        if digest.hexdigest()!=f["sha256"]:
+            raise ValueError("N02_SAVED_FILE_SHA256_MISMATCH")
+    return {
+      "manifest_path":str(Path(report["manifest_path"])),
+      "file_count":len(all_files),
+      "verified_saved_original_count":len(all_files),
+      "original_files_integrity_verified":True,
+      "content_analysis_performed":False,
+    }
