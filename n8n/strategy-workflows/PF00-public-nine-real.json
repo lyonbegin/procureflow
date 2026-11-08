@@ -1,6 +1,6 @@
 {
   "id": "PF00PUBLIC9REAL",
-  "name": "ProcureFlow · 공공입찰 9노드 · 원본 증빙 조회 / 실제 실행은 기존 Worker",
+  "name": "ProcureFlow · 9단계 수집 우선 / N09 AI 최종 평가 · GitHub Actions",
   "nodes": [
     {
       "id": "public9-trigger",
@@ -17,73 +17,39 @@
     },
     {
       "id": "public9-01",
-      "name": "01 · 최신 공고 조회",
-      "type": "n8n-nodes-base.httpRequest",
+      "name": "01 · 최신 공고 수집·선정",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         500,
         330
       ],
       "parameters": {
-        "method": "POST",
-        "url": "https://nuri.g2b.go.kr/nn/nnb/nnba/selectBidPbancList.do",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "{\"dlParamM\":{\"bidPbancNo\":\"R26BK01787028\",\"bidPbancOrd\":\"000\",\"bidPbancNm\":\"\",\"prcmBsneSeCd\":\"\",\"bidPbancPgstCd\":\"\",\"bidMthdCd\":\"\",\"pbancPstgStDt\":\"20261022\",\"pbancPstgEdDt\":\"20261107\",\"onbsPrnmntStDt\":\"\",\"onbsPrnmntEdDt\":\"\",\"recordCountPerPage\":\"20\",\"rowNum\":\"\",\"kbrdrId\":\"\",\"pbancInstUntyGrpNo\":\"\",\"pdngYn\":\"\",\"currentPage\":1,\"pbancSttsCd\":\"\",\"pbancKndCd\":\"\",\"stdCtrtMthdCd\":\"\",\"scsbdMthdCd\":\"\",\"untyGrpNo\":\"\",\"usrTyCd\":\"\",\"pbancPstgYn\":\"Y\",\"frgnrRprsvYn\":\"\"}}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Menu-Info",
-              "value": "{\"menuNo\":\"15401\",\"menuCangVal\":\"NNBA001_01\",\"bsneClsfCd\":\"%EC%97%85130031\",\"scrnNo\":\"00777\"}"
-            },
-            {
-              "name": "Target-Id",
-              "value": "btnS0001"
-            },
-            {
-              "name": "Usr-Id",
-              "value": "null"
-            },
-            {
-              "name": "Origin",
-              "value": "https://nuri.g2b.go.kr"
-            },
-            {
-              "name": "Referer",
-              "value": "https://nuri.g2b.go.kr/"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 18000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N01 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N01\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "실제 수집 N01: 공식 nuri.g2b.go.kr 공고 WebSquare POST. 매 실행 시 새 요청. 공식 응답 없으면 source_error; DB 조회 없음. 실행 시점 날짜는 통합 테스트 실행기에서 동적으로 설정.",
       "notesInFlow": true
     },
     {
       "id": "public9-02",
-      "name": "02 · 공고·첨부 원본",
-      "type": "n8n-nodes-base.httpRequest",
+      "name": "02 · 공고·첨부 원본 다운로드",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         810,
         330
       ],
       "parameters": {
-        "method": "GET",
-        "url": "https://www.g2b.go.kr/pn/pnp/pnpe/UntyAtchFile/downloadFile.do?bidPbancNo=R26BK01787028&bidPbancOrd=000&fileType=&fileSeq=1&prcmBsneSeCd=03",
-        "options": {
-          "timeout": 18000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N02 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N02\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "실제 수집 N02: 공식 다운로드 GET, 실행기가 fileSeq 1,2 각 1회 다운로드하고 원본 SHA256/바이트·파싱 결과만 메모리에 저장. HWP5, PDF, DOCX, HWPX만 파싱. 기존 DB·Worker 사용 안 함.",
       "notesInFlow": true
     },
     {
       "id": "public9-03",
-      "name": "03 · 자격·제출조건",
+      "name": "03 · 공식 공고 속성 수집",
       "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
@@ -92,57 +58,30 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const d=$input.first()?.json||{};const text=JSON.stringify(d);const keywords=['소프트웨어사업자','직접생산확인','입찰참가자격'].filter(s=>text.includes(s));return [{json:{source:'official_attachment_text_only',keywords,company_eligibility:'NOT_VERIFIED_NO_COMPANY_EVIDENCE',status:'partial',bid_submitted:false}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N03 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N03\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N03: N02에서 실제 다운로드한 원본의 참가자격·업종·제출 조건 확인. 자사 자격 자료가 없으면 미검증으로 종료. DB 조회 안 함.",
       "notesInFlow": true
     },
     {
       "id": "public9-04",
-      "name": "04 · 과거 개찰 검색",
-      "type": "n8n-nodes-base.httpRequest",
+      "name": "04 · 동일 분류 10년 공고 수집",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
         1430,
         330
       ],
       "parameters": {
-        "method": "POST",
-        "url": "https://www.g2b.go.kr/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "{\"dlSrchOnbsRsltClsfListInM\":{\"bidPbancNo\":\"\",\"bidPbancOrd\":\"\",\"bidPbancNm\":\"\",\"onbsYmdStr\":\"20261024\",\"onbsYmdEnd\":\"20261107\",\"prcmBsneSeCd\":\"0000 조070001 조070002 조070003 조070004 조070005\",\"frcpYn\":\"Y\",\"rsrvYn\":\"Y\",\"laseYn\":\"Y\",\"chkBsneAllYn\":\"Y\",\"lastIndex\":10,\"firstIndex\":1,\"inqEnd\":\"\",\"stepBarYn\":\"\",\"pbancKndCd\":\"공440002\"}}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Menu-Info",
-              "value": "{\"menuNo\":\"01522\",\"menuCangVal\":\"PBOC006_01\",\"bsneClsfCd\":\"%EC%97%85130028\",\"scrnNo\":\"02117\"}"
-            },
-            {
-              "name": "submissionid",
-              "value": "mf_wfm_container_selectOnbsRsltClsfList"
-            },
-            {
-              "name": "Usr-Id",
-              "value": "null"
-            },
-            {
-              "name": "Referer",
-              "value": "https://www.g2b.go.kr/"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 18000
-        }
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N04 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N04\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "실제 수집 N04: 공식 개찰 WebSquare 실시간 POST, 최근 최대 14일·첫 10건으로 제한. 정확한 10자리 세부종목의 서버 검색 조건은 현재 검증되지 않아 해당 결과를 8111159901 일치 건수라고 주장하지 않음. 10년 전체 수집·DB·Worker 없음.",
       "notesInFlow": true
     },
     {
       "id": "public9-05",
-      "name": "05 · 경쟁업체 분석",
+      "name": "05 · 과거 개찰·낙찰 원본 수집",
       "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
@@ -151,14 +90,14 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const h=$input.first()?.json||{};return [{json:{source:'official_websquare_live',observed_rows:h.official_rows??null,category_match_verified:false,competitor_ranking:null,confirmed_winner:null,status:'blocked_until_original_10digit_evidence'}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N05 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N05\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N05: N04의 공식 개찰 조회 결과만 분석. 원본 10자리 세부종목 매칭 없는 회사·가격은 경쟁통계에서 제외.",
       "notesInFlow": true
     },
     {
       "id": "public9-06",
-      "name": "06 · 수행·원가 조회",
+      "name": "06 · 공급·인력 근거자료 수집",
       "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
@@ -167,14 +106,14 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [{json:{status:'blocked_company_cost_not_available_from_public_g2b',company_cost:null,staff_cost:null,outsource_quote:null,source:'official_tender_documents_only'}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N06 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N06\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N06: 공식 원본 과업범위로 수행 요건 검토. 회사 자체 원가·인건비·외주견적은 나라장터 공개값이 아니므로 추정하지 않음.",
       "notesInFlow": true
     },
     {
       "id": "public9-07",
-      "name": "07 · 가격전략 검증",
+      "name": "07 · 원가·가격 근거 수집",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -183,14 +122,14 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [{json:{status:'blocked_without_verified_cost_and_eligibility',approved_bid_price:null,manual_review_required:true,bid_submitted:false}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N07 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N07\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N07: 공고 원본 기초금액과 검증된 자사 원가·자격이 모두 있어야만 가격전략 검증. 빈 값으로 낙찰가격을 창작하지 않음.",
       "notesInFlow": true
     },
     {
       "id": "public9-08",
-      "name": "08 · 서류·제안서 원본",
+      "name": "08 · 전체 수집자료 통합",
       "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
@@ -199,14 +138,14 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const d=$input.first()?.json||{};return [{json:{status:'review_draft_only',source:'live_original_metadata',document_submit:false,source_hash:d.sha256||null,docx_generated_by:'live_nine_test._document'}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N08 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N08\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N08: 서버 메모리의 이번 직접 수집 원본으로 Word 검토 초안 생성. 디스크/DB에 저장하지 않으며 서버 메모리에 보유; 다운로드 URL은 실행 ID에 한정.",
       "notesInFlow": true
     },
     {
       "id": "public9-09",
-      "name": "09 · 최종 실행기록",
+      "name": "09 · AI 종합 평가·보고서",
       "type": "n8n-nodes-base.code",
       "typeVersion": 4.2,
       "position": [
@@ -215,7 +154,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [{json:{status:'manual_review_required',automatic_collection_scheduler:false,database_reads:0,worker_calls:0,official_tender_submission:false,electronic_signature:false}}];"
+        "jsCode": "// 설계/노드 관리용입니다. 실행 상태는 Railway 컨트롤러가 관리하고\n// 실제 N09 작업은 GitHub Actions에서 실행합니다.\n// 여기서 평가하거나 모의 성공을 반환하지 않습니다.\nconst upstream=$input.first()?.json||{};\nreturn [{json:{...upstream,node:\"N09\",execution:\"github_actions_required\",executed_here:false,management_only:true,business_evaluation_performed:false}}];"
       },
       "notes": "N09: 실행기 메모리에 기록된 단계별 실제 INPUT·OUTPUT·원본 SHA256·실패 사유 검증. Worker Job ID가 아니라 이번 실행 전용 run_id.",
       "notesInFlow": true
@@ -226,95 +165,95 @@
       "main": [
         [
           {
-            "node": "01 · 최신 공고 조회",
+            "node": "01 · 최신 공고 수집·선정",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "01 · 최신 공고 조회": {
+    "01 · 최신 공고 수집·선정": {
       "main": [
         [
           {
-            "node": "02 · 공고·첨부 원본",
+            "node": "02 · 공고·첨부 원본 다운로드",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "02 · 공고·첨부 원본": {
+    "02 · 공고·첨부 원본 다운로드": {
       "main": [
         [
           {
-            "node": "03 · 자격·제출조건",
+            "node": "03 · 공식 공고 속성 수집",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "03 · 자격·제출조건": {
+    "03 · 공식 공고 속성 수집": {
       "main": [
         [
           {
-            "node": "04 · 과거 개찰 검색",
+            "node": "04 · 동일 분류 10년 공고 수집",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "04 · 과거 개찰 검색": {
+    "04 · 동일 분류 10년 공고 수집": {
       "main": [
         [
           {
-            "node": "05 · 경쟁업체 분석",
+            "node": "05 · 과거 개찰·낙찰 원본 수집",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "05 · 경쟁업체 분석": {
+    "05 · 과거 개찰·낙찰 원본 수집": {
       "main": [
         [
           {
-            "node": "06 · 수행·원가 조회",
+            "node": "06 · 공급·인력 근거자료 수집",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "06 · 수행·원가 조회": {
+    "06 · 공급·인력 근거자료 수집": {
       "main": [
         [
           {
-            "node": "07 · 가격전략 검증",
+            "node": "07 · 원가·가격 근거 수집",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "07 · 가격전략 검증": {
+    "07 · 원가·가격 근거 수집": {
       "main": [
         [
           {
-            "node": "08 · 서류·제안서 원본",
+            "node": "08 · 전체 수집자료 통합",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "08 · 서류·제안서 원본": {
+    "08 · 전체 수집자료 통합": {
       "main": [
         [
           {
-            "node": "09 · 최종 실행기록",
+            "node": "09 · AI 종합 평가·보고서",
             "type": "main",
             "index": 0
           }
@@ -329,7 +268,7 @@
   "pinData": {},
   "tags": [],
   "active": false,
-  "description": "실제 G2B 운영 API만 조회하는 편집 가능한 9개 업무노드. 원본 입찰 처리 실행은 관리자 보호된 기존 g2b_public_prepare Worker에서 수행하며 이 조회 그래프의 n8n 실행 ID와 Worker ID는 다름. 현재 R26BK01787028 한 건만 실업무 지원.",
+  "description": "기존 공용 Studio 9개 상위 실행노드. N01~N08 원본 수집·정리만, N09 최초 AI 종합 평가. 실제 동작은 Railway 작업 컨트롤러→GitHub Actions; 편집기 안 모의 코드로 실행 완료 처리하지 않음.",
   "meta": {
     "real_data_only": true,
     "simulation_only": false,
