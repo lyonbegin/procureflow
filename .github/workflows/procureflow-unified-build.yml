@@ -52,7 +52,8 @@ jobs:
           curl -fSs http://127.0.0.1:3000/api/studio/health >/tmp/studio-health.json
           cat /tmp/studio-health.json
           # Railway image must never contain a Chromium browser binary.
-          docker exec proc-unified test ! -d /ms-playwright
+          docker exec proc-unified sh -c '! command -v chromium && ! command -v chromium-browser && ! command -v google-chrome'
+          echo 'RAILWAY_HAS_NO_CHROMIUM_EXECUTABLE_PASS'
           # Without configured dispatch credential, fail closed instead of
           # silently crawling the official G2B from the Railway process.
           curl -fsS -c /tmp/pf_cookie http://127.0.0.1:3000/api/procurement/public9/live-run >/tmp/github-live-state.json
@@ -63,6 +64,8 @@ jobs:
             --data '{"mode":"auto"}' \
             -o /tmp/pf_dispatch_status.json -w '%{http_code}' \
             http://127.0.0.1:3000/api/procurement/public9/run-all)
+          echo "GITHUB_DISPATCH_WITHOUT_TOKEN_HTTP=$CODE"
+          cat /tmp/pf_dispatch_status.json
           test "$CODE" = "503"
           python -c 'import json;x=json.load(open("/tmp/pf_dispatch_status.json"));assert "GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED" in x["error"],x'
           echo 'RAILWAY_NO_CHROMIUM_NO_DIRECT_CRAWL_GITHUB_CREDENTIAL_FAIL_CLOSED_PASS'
