@@ -32,6 +32,116 @@ class FreshTest(unittest.TestCase):
         self.assertFalse(request_has_filter('{"title":"8111159901","dateSt":"20261101","dateEd":"20261104"}',
               "8111159901","2026-11-01","2026-11-04"))
 
+    def test_bounded_site_readiness_waits_for_delayed_websquare(self):
+        class Frame:
+            url="https://www.g2b.go.kr/"
+            def __init__(self):
+                self.calls=0
+            def is_detached(self):
+                return False
+            def evaluate(self,script):
+                self.calls+=1
+                return {"state":"complete","text":0,"controls":0} if self.calls<3 else (
+                    {"state":"complete","text":24,"controls":3})
+        class Page:
+            def __init__(self):
+                self.frames=[Frame()]
+                self.waits=[]
+            def wait_for_timeout(self,ms):
+                self.waits.append(ms)
+        page=Page()
+        self.assertTrue(__import__("g2b_bid_notice_site_search")._wait_for_site_rendered(page,2000))
+        self.assertEqual(len(page.waits),2)
+
+    def test_empty_site_after_bounded_wait_blocks(self):
+        class Frame:
+            url="https://www.g2b.go.kr/"
+            def is_detached(self):
+                return False
+            def evaluate(self,script):
+                return {"state":"complete","text":0,"controls":0}
+        class Page:
+            frames=[Frame()]
+            def wait_for_timeout(self,ms):
+                pass
+        self.assertFalse(__import__("g2b_bid_notice_site_search")._wait_for_site_rendered(Page(),1000))
+
+    def test_official_date_input_is_yyyymmdd_even_when_blank(self):
+        class Input:
+            def __init__(self):
+                self.entered=None
+            def fill(self, value, timeout=None):
+                self.entered=value
+            def press(self, key, timeout=None):
+                self.key=key
+        field=Input()
+        from g2b_bid_notice_site_search import _fill_date
+        self.assertEqual(_fill_date(field,"2026-11-04"),"20261104")
+        self.assertEqual(field.entered,"20261104")
+        self.assertEqual(field.key,"Tab")
+
+    def test_official_date_replay_preserves_10digit_and_other_fields(self):
+        from g2b_bid_notice_site_search import _verified_date_replay,SearchBlocked
+        from types import SimpleNamespace
+        import json
+        url="https://www.g2b.go.kr/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+        original={"dlBidPbancLstM":{"dtlsPrnmNo":"8111159901",
+                  "fromBidDt":"20261006","toBidDt":"20261104",
+                  "recordCountPerPage":"10","page":1}}
+        req=SimpleNamespace(url=url,method="POST",post_data=json.dumps(original))
+        payload=json.loads(_verified_date_replay(req,"8111159901","2026-11-01","2026-11-04"))
+        row=payload["dlBidPbancLstM"]
+        self.assertEqual(row["fromBidDt"],"20261101")
+        self.assertEqual(row["toBidDt"],"20261104")
+        self.assertEqual(row["dtlsPrnmNo"],"8111159901")
+        self.assertEqual(row["recordCountPerPage"],"10")
+        self.assertEqual(original["dlBidPbancLstM"]["fromBidDt"],"20261006")
+        with self.assertRaises(SearchBlocked):
+            _verified_date_replay(req,"8111159902","2026-11-01","2026-11-04")
+        req.url="https://example.com/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+        with self.assertRaises(SearchBlocked):
+            _verified_date_replay(req,"8111159901","2026-11-01","2026-11-04")
+
+    def test_actual_unified_notice_response_parses_public_rows(self):
+        from g2b_bid_notice_site_search import _response_records
+        body={"ErrorCode":0,"result":[
+            {"untyBidPbancNo":"R26BK01787028","untyBidPbancOrd":"000",
+             "bidPbancNm":"공식 테스트 공고명","oderInstUntyGrpNm":"공식 발주기관",
+             "pbancPstgDt":"20261027"}]}
+        rows,total=_response_records(body)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["bid_no"],"R26BK01787028")
+        self.assertEqual(rows[0]["agency"],"공식 발주기관")
+        self.assertEqual(rows[0]["direct_category_codes"],[])
+
+    def test_public_filtered_candidate_must_remain_category_unverified(self):
+        candidate={"bid_no":"R26BK01787028","bid_ord":"000",
+            "direct_category_codes":[],"raw":{"untyBidPbancNo":"R26BK01787028"},
+            "title":"공식 검색 결과","agency":"원본 기관","posted_on":"20261027"}
+        fake={"status":"partial_filtered_result","search_request_verified":True,
+              "matched_explicit_detail10":[],
+              "pending_original_detail10_verification":[candidate]}
+        with patch.object(site,"run_search",return_value=fake):
+            _,_,rows=site.search_one("8111159901","2026-10-01","2026-10-31")
+        self.assertEqual(len(rows),1)
+        self.assertFalse(rows[0]["original_category_evidence"])
+        self.assertTrue(rows[0]["official_filter_verified"])
+        self.assertEqual(rows[0]["posted_on"],"2026-10-27")
+
+    def test_server_rendered_public_notice_page_shows_real_db_items(self):
+        from fresh_g2b_api import live_notices
+        fake=[{"bid_no":"R26BM01022088","bid_ord":"000",
+               "title":"원격교육연수 이수자 정보관리시스템 고도화",
+               "agency":"조달청 대구지방조달청","category_verified":False,
+               "posted_on":None}]
+        with patch.object(store,"recent_notices",return_value=fake):
+            page=live_notices()
+        html=page.body.decode("utf-8")
+        self.assertIn("신규 DB 1건",html)
+        self.assertIn("R26BM01022088",html)
+        self.assertIn("원격교육연수",html)
+        self.assertIn("상세 분류 확인 대기",html)
+
     def test_file_discovery_hosts_only(self):
         self.assertTrue(site._official("https://www.g2b.go.kr/file/download.do"))
         self.assertFalse(site._official("https://example.com/bad.exe"))

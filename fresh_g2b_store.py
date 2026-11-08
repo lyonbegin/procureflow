@@ -146,7 +146,7 @@ def attempt(job_id,stage,status,bid_no="",bid_ord="",source_url="",error_kind=""
           (job_id,stage,status,bid_no,bid_ord,source_url,error_kind[:90]))
 
 def page_saved(job_id,w,endpoint,source_json,records,total):
-    """Store only independently verified exact-10 rows from the LIVE response."""
+    """Save live filtered search candidates, never conflate with detail-verified codes."""
     raw_sha=digest(source_json)
     saved=0
     with conn() as c:
@@ -156,7 +156,7 @@ def page_saved(job_id,w,endpoint,source_json,records,total):
           ON CONFLICT DO NOTHING""",(job_id,w["detail10"],w["start"],w["end"],
           w["page"],endpoint,raw_sha,total,len(records)))
         for x in records:
-            if x["detail10"]!=w["detail10"] or not x["original_category_evidence"]:
+            if x["detail10"]!=w["detail10"] or not x.get("official_filter_verified"):
                 continue
             bid,ord_=x["bid_no"],x["bid_ord"]
             row=x["raw"]
@@ -164,16 +164,16 @@ def page_saved(job_id,w,endpoint,source_json,records,total):
             result=c.execute("""INSERT INTO freshg2b.notices
               (bid_no,bid_ord,detail10,title,agency,posted_on,source_url,
                category_verified,original_json,response_sha)
-              VALUES(%s,%s,%s,%s,%s,%s,%s,true,%s::jsonb,%s)
+              VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
               ON CONFLICT (bid_no,bid_ord) DO UPDATE SET
                detail10=excluded.detail10,title=excluded.title,
                agency=excluded.agency,posted_on=excluded.posted_on,
                source_url=excluded.source_url,
-               category_verified=excluded.category_verified,
+               category_verified=(freshg2b.notices.category_verified OR excluded.category_verified),
                original_json=excluded.original_json,response_sha=excluded.response_sha,
                last_seen=now() RETURNING bid_no""",(bid,ord_,x["detail10"],
               x.get("title",""),x.get("agency",""),x.get("posted_on"),
-              endpoint,dump(row),sha)).fetchone()
+              endpoint,bool(x["original_category_evidence"]),dump(row),sha)).fetchone()
             c.execute("""INSERT INTO freshg2b.notice_versions
                (bid_no,bid_ord,response_sha,original_json,source_url)
                VALUES(%s,%s,%s,%s::jsonb,%s) ON CONFLICT DO NOTHING""",

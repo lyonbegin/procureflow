@@ -30,6 +30,7 @@ pre{white-space:pre-wrap;word-break:break-word;max-height:250px;overflow:auto;ba
 <a href="https://procureflow-n8n-native-canvas-production.up.railway.app/admin/index.html?section=public_nodes" target="_blank" rel="noopener">기존 노드 관리화면 ↗</a></div></div></header>
 <main class="wrap"><h1>나라장터 실제 검색 → 공고 원본 → 개찰·낙찰</h1>
 <p>기존 229건·기존 개찰·낙찰 데이터는 사용하지 않습니다. 신규 데이터는 나라장터 실제 요청으로 확인된 경우에만 저장됩니다.</p>
+<p><a href="/live-notices" style="font-size:15px;font-weight:750">실제 수집된 공고 전체 보기 (서버 출력)</a></p>
 <div id="health" class="alert">신규 DB 연결 확인 중…</div>
 <div class="grid">
 <section class="panel">
@@ -42,7 +43,7 @@ pre{white-space:pre-wrap;word-break:break-word;max-height:250px;overflow:auto;ba
 <div class="actions"><button class="primary" type="submit" id="searchButton">실제 사이트에서 검색 실행</button><button type="button" id="prevMonth">이전 월 지정</button></div>
 </form>
 <div id="searchInfo" class="alert">사이트 검색 전입니다. 첫 검색은 선택 기간의 마지막 월 1페이지를 조회합니다.</div>
-<div class="note">검색 결과에서 원본 행에 10자리 코드가 명시된 공고만 새 DB에 저장합니다. 차단·실패는 0건으로 판단하지 않습니다.</div>
+<div class="note">공식 10자리 검색 응답은 신규 DB에 저장하며, 원본 행에서 직접 세부품명을 확인하지 못한 공고는 별도로 '상세 확인 대기' 표시합니다. 차단·실패는 0건으로 판단하지 않습니다.</div>
 </div>
 <div class="panel-head"><div class="row"><h2>② 신규 수집 공고</h2><button id="refreshList">새로고침</button></div><p>새 독립 DB에 실제 수집된 공고만 나타납니다.</p></div>
 <div class="list" id="noticeList"><div class="alert">최초 DB는 비어 있습니다.</div></div>
@@ -81,6 +82,9 @@ async function loadList(){
       '<button class="item '+(state.selected?.bid_no===r.bid_no?"selected":"")+
       '" data-no="'+esc(r.bid_no)+'" data-ord="'+esc(r.bid_ord)+'">'+
       '<div class="name">'+esc(r.title||"공고명 원본 확인")+'</div>'+
+      '<div class="meta">'+(r.category_verified?
+       '<span class="badge">원본 10자리 확인</span>':
+       '<span class="badge grey">공식 필터 검색 · 세부품명 상세 확인 대기</span>')+'</div>'+
       '<div class="meta">'+esc(r.bid_no)+"-"+esc(r.bid_ord)+" · "+esc(r.detail10)+
       ' · '+esc(r.agency||"기관 미확인")+'<br>게시일 '+esc(r.posted_on||"미확인")+
       ' · 개찰집행 '+esc(r.opening_executions||0)+' · 첨부 '+esc(r.files||0)+'</div></button>').join(""):
@@ -92,7 +96,8 @@ async function select(no,ord){
     const d=await req("/api/fresh/notices/"+encodeURIComponent(no)+"/"+encodeURIComponent(ord));
     state.selected=d.notice;
     $("selectionBadge").textContent=d.notice.detail10;
-    $("selectedBlock").innerHTML='<strong>'+esc(d.notice.title)+'</strong><div class="meta">'+esc(no)+"-"+esc(ord)+
+    $("selectedBlock").innerHTML='<strong>'+esc(d.notice.title)+'</strong><div class="meta">'+
+      (d.notice.category_verified?'원본 10자리 확인':'공식 검색에서 조회됨 · 상세 세부품명 검증 대기')+'</div><div class="meta">'+esc(no)+"-"+esc(ord)+
       ' · '+esc(d.notice.agency)+' · '+esc(d.notice.detail10)+' · 공고일 '+esc(d.notice.posted_on||"미확인")+'</div>';
     $("selectedActions").hidden=false;
     const url="https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo="+encodeURIComponent(no)+"&bidPbancOrd="+encodeURIComponent(ord);
