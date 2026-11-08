@@ -154,13 +154,17 @@ def _history_query(notice,n03):
     detail=(n03 or {}).get("detail10") if (n03 or {}).get("detail10_verified") else None
     if detail and re.fullmatch(r"\d{10}",str(detail)):
         return "official_item10",{"dtlsPrnmNo":detail},detail
+    title=str(metadata.get("bidPbancNm") or notice.get("title") or "")
+    # Prefer a non-generic word already present in the official title.
+    # Place names/numbered project prefixes frequently match only the current
+    # announcement, while agency-name form filters may be ignored by G2B.
+    tokens=[x for x in re.findall(r"[가-힣A-Za-z]{4,}",title)
+            if x not in {"입찰공고","재공고","정정공고","긴급공고","용역공고","제안요청서"}]
+    if tokens:
+        term=max(tokens,key=len)
+        return "official_title_keyword",{"bidPbancNm":term},term
     agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
     if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
-    title=str(metadata.get("bidPbancNm") or notice.get("title") or "")
-    # Search text is an official title prefix, not an AI relevance decision.
-    title=re.sub(r"^[\s\[【(（][^\]】)）]{1,28}[\]】)）]\s*","",title).strip()
-    token=re.sub(r"\s+","",title)[:6]
-    if len(token)>=4:return "official_title_prefix",{"bidPbancNm":token},token
     return "no_supported_query",{},None
 
 
@@ -204,7 +208,7 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
                         matched=actual8==query
                     elif mode=="official_item10":
                         matched=actual10==query
-                    elif mode=="official_title_prefix":
+                    elif mode=="official_title_keyword":
                         matched=query.replace(" ","") in re.sub(r"\s+","",rowtitle)
                     else:
                         matched=(agency==query)
