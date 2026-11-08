@@ -79,6 +79,33 @@ def _download_saved(base,run_id,file):
             if size>150*1024*1024:raise ValueError("N09_ORIGINAL_EXCEEDS_LIMIT")
     return size==file["size_bytes"] and digest.hexdigest()==file["sha256"]
 
+def _read_original_for_n03(base,run_id,file):
+    """Fetch a saved N02 original using GitHub OIDC, verify before parsing."""
+    from n03_documents import MAX_ORIGINAL_SIZE,N03SourceError
+    size=file.get("size_bytes")
+    if not isinstance(size,int) or not 0<size<=MAX_ORIGINAL_SIZE:
+        raise N03SourceError("N03_ORIGINAL_SIZE_INVALID")
+    source=base+"/api/procurement/public9/action-original?"+urlencode({
+        "run_id":run_id,"file_seq":file["file_seq"]})
+    req=Request(source,headers={
+        "Authorization":"Bearer "+_get_oidc(base),
+        "User-Agent":"ProcureFlow-GitHub-Actions-N03"})
+    digest=sha256()
+    parts=[]
+    received=0
+    with urlopen(req,timeout=60) as response:
+        if response.status!=200:
+            raise N03SourceError("N03_SAVED_ORIGINAL_READ_HTTP_"+str(response.status))
+        while (chunk:=response.read(1024*1024)):
+            received+=len(chunk)
+            if received>size or received>MAX_ORIGINAL_SIZE:
+                raise N03SourceError("N03_SAVED_ORIGINAL_OVERFLOW")
+            parts.append(chunk)
+            digest.update(chunk)
+    if received!=size or digest.hexdigest()!=file.get("sha256"):
+        raise N03SourceError("N03_SAVED_ORIGINAL_SHA256_MISMATCH")
+    return b"".join(parts)
+
 def execute(stage,context,base=ROOT):
     """One independent GitHub Actions stage; result has only genuine evidence."""
     import live_nine_test as live
@@ -114,13 +141,16 @@ def execute(stage,context,base=ROOT):
         value["manifest_path"]=None
         return status,inputs,value
     if stage=="N03":
-        value={"status":"DEFERRED_TO_FINAL_ORIGINAL_FILE_EVALUATION",
-          "source":"N02_official_attachment_manifest",
-          "downloaded_files":len(docs),
-          "original_file_names":[f.get("original_filename") for f in docs],
-          "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
-          "company_eligibility_verified":False,"analysis_performed":False}
-        return ("partial" if docs else "blocked"),{"N02_original_file_count":len(docs)},value
+        from n03_documents import extract_requirements
+        original_blobs={file["file_seq"]:_read_original_for_n03(
+            base,context["run_id"],file) for file in docs}
+        status,value=extract_requirements(docs,original_blobs,live._extract)
+        return status,{
+            "N02_original_file_count":len(docs),
+            "N02_manifest_path":collection.get("manifest_path"),
+            "selected_bid_no":(notice or {}).get("bid_no"),
+            "request":"verified_saved_originals_source_evidence_only",
+        },value
     if stage=="N04":
         if not notice or not notice.get("bid_no"):
             return "blocked",inputs,{"error":"N04_SELECTED_NOTICE_REQUIRED"}
