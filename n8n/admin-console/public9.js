@@ -67,6 +67,24 @@
      if(fn)region.innerHTML=fn();
    });
    syncEmbeddedStudio();
+   syncStudioControls();
+ }
+ function syncStudioControls(){
+   // Never hide the start button. Keep its actual status visible *above*
+   // the common Studio iframe during refreshes, without reloading the graph.
+   const top=document.querySelector('[data-testid="live-nine-run-top"]');
+   if(top){
+     top.disabled=Boolean(st.submitting||live());
+     top.textContent=st.submitting?'실행 요청 확인 중…':live()?'9단계 실행 중':'▶ 9단계 실행 시작';
+   }
+   const banner=document.querySelector('[data-p9-start-feedback]');
+   if(banner){
+     const unavailable=st.run?.dispatch_ready===false;
+     const message=st.error||
+       (unavailable?'GitHub Actions 실행 권한이 아직 연결되지 않았습니다. 실행 버튼을 누르면 서버에서 연결 상태를 확인하고 정확한 오류를 표시합니다.':'');
+     banner.textContent=message;
+     banner.hidden=!message;
+   }
  }
  function syncEmbeddedStudio(){
    const frame=document.getElementById('p9-shared-studio-frame');
@@ -114,7 +132,12 @@
      await request('live-run');
      st.run=await request('run-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
      syncFollow();
-   }catch(e){st.error='실행 요청 실패: '+e.message;}
+   }catch(e){
+     const missing=/GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED|GITHUB_ACTIONS_DISPATCH_UNAVAILABLE/.test(e.message||'');
+     st.error=missing
+       ?'실행을 시작하지 못했습니다. Railway의 PROCUREFLOW_GITHUB_DISPATCH_TOKEN이 미설정되어 GitHub Actions에 작업을 요청할 권한이 없습니다. 인증정보를 등록한 뒤 다시 실행해 주십시오. Railway에서 크롤링을 대신 실행하지 않았습니다.'
+       :'실행 요청 실패: '+e.message;
+   }
    finally{st.submitting=false;renderView();}
  }
  function overview(){
@@ -146,10 +169,14 @@
      '<div class="p9-panel-heading p9-studio-toolbar"><div><h3>공용 n8n Studio · 노드 관리 및 실시간 실행</h3>'+
      '<p>기존 공용 노드 편집기입니다. 노드를 선택하거나 캔버스를 드래그하실 수 있으며, 실행상태가 노드에 직접 반영됩니다.</p></div>'+
      '<div class="p9-studio-toolbar-actions">'+
+     '<button class="btn primary" type="button" data-public9="run" data-testid="live-nine-run-top" '+((st.submitting||live())?'disabled':'')+'>'+
+       (st.submitting?'실행 요청 확인 중…':live()?'9단계 실행 중':'▶ 9단계 실행 시작')+'</button>'+
      '<button class="btn" type="button" data-public9="follow" aria-pressed="'+(!st.manualSelect?'true':'false')+'">'+
       (st.manualSelect?'현재 단계 다시 추적':'자동 추적 중')+'</button>'+
      '<button class="btn primary" type="button" data-public9="expand" aria-expanded="false" aria-label="전체 화면 확대">'+
      '<span data-p9="studio-size">전체 화면</span></button></div></div>'+
+     '<p class="p9-start-feedback" data-p9-start-feedback role="alert" '+((st.error||st.run?.dispatch_ready===false)?'':'hidden')+'>'+
+       esc(st.error||(st.run?.dispatch_ready===false?'GitHub Actions 실행 권한이 아직 연결되지 않았습니다. 실행 버튼을 누르면 서버에서 연결 상태를 확인하고 정확한 오류를 표시합니다.':''))+'</p>'+
      '<iframe id="p9-shared-studio-frame" data-testid="public9-shared-studio" title="기존 공용 n8n Studio 편집기 · 9개 실시간 실행 노드" loading="eager" src="'+src+'" allow="clipboard-write"></iframe>'+
      '<p class="p9-helper">현재 실행 중인 노드는 강조 표시되며, 차단·부분 확인·오류는 노드 자체에 표시됩니다. 확대해도 같은 캔버스가 유지됩니다.</p>'+
      '</section>';
@@ -230,12 +257,12 @@
       '<div class="p9-panel-heading"><div><h3>최신 미완료 공고 자동 실행</h3>'+
       '<p>N01~N08에서 가능한 자료를 수집·보관하고, N09에서만 AI가 분석합니다. 아직 누락된 공고는 재처리합니다.</p></div></div>'+
       '<div class="actions">'+
-      '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live()||st.run?.dispatch_ready===false)?'disabled':'')+
-      '>'+(st.run?.dispatch_ready===false?'GitHub Actions 인증 설정 필요':'▶ 최신 미완료 공고 자동 선정 · 9개 실행')+'</button>'+
+      '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live())?'disabled':'')+
+      '>▶ 최신 미완료 공고 자동 선정 · 9개 실행</button>'+
       '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
       '<button class="btn" data-public9="open">공용 노드 캔버스 전체 화면</button></div>'+
       '<p class="p9-helper">실행 버튼은 개별 GitHub Actions 노드를 순서대로 요청합니다. Railway는 UI·상태·원본 보관만 담당합니다. 중간 평가·자동 투찰은 수행하지 않습니다.</p>'+
-      (st.run?.dispatch_ready===false?'<div class="notice warn" role="alert">GitHub Actions 실행 인증이 설정되지 않아 실행할 수 없습니다. Railway에서 PROCUREFLOW_GITHUB_DISPATCH_TOKEN을 등록하셔야 합니다. Railway 자체 크롤링으로 대체하지 않습니다.</div>':'')+
+      (st.run?.dispatch_ready===false?'<div class="notice warn" role="alert">현재 인증정보가 없어 실제 실행은 실패할 수 있습니다. 버튼을 누르면 실제 실행 요청을 보내고, 실패 시 화면 상단에 원인을 안내합니다. Railway 자체 크롤링으로 대체하지 않습니다.</div>':'')+
       (st.error?'<div class="notice warn" role="alert">'+esc(st.error)+'</div>':'')+
       (st.run?.error?'<div class="notice warn" role="alert">서버 실행 오류: '+esc(st.run.error)+'</div>':'')+
       (stage(8)?.output?.ai_evaluation_performed?'<p class="p9-helper">N09 AI 보고서는 N09 노드를 선택해 OUTPUT에서 확인하실 수 있습니다. 최종 입찰참가 승인과 자동 투찰은 수행하지 않습니다.</p>':'')+
@@ -246,15 +273,15 @@
    return '<section class="hero p9-hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
     '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 공용 Studio 실행 관제</h2>'+
     '<p>실행 진행상태가 별도 흐름도가 아닌 공용 노드 관리 캔버스에 직접 표시됩니다.</p></section>'+
-    region('overview',overview)+studio()+region('issues',issues)+
-    region('inventory',inventory)+region('actions',actions)+
+    region('overview',overview)+region('actions',actions)+studio()+region('issues',issues)+
+    region('inventory',inventory)+
     region('inspector',inspector)+region('audit',audit);
  }
  function nodes(){
    return '<section class="hero p9-hero"><div class="kicker">SHARED N8N STUDIO · LIVE</div>'+
     '<h2>공용 노드 관리 · 실제 실행상태</h2><p>별도 복제 흐름도 없이 기존 Vue Flow 캔버스를 그대로 표시합니다.</p></section>'+
-    region('overview',overview)+studio()+region('issues',issues)+
-    region('inventory',inventory)+region('actions',actions)+region('inspector',inspector)+region('audit',audit);
+    region('overview',overview)+region('actions',actions)+studio()+region('issues',issues)+
+    region('inventory',inventory)+region('inspector',inspector)+region('audit',audit);
  }
  document.addEventListener('click',async ev=>{
    const el=ev.target.closest('[data-public9]');
