@@ -84,7 +84,8 @@ if src.count(marker)!=1:
 new='''    def do_GET(self):
         path = urlsplit(self.path).path
         if path in ("/api/procurement/public9/action-input",
-                    "/api/procurement/public9/action-original"):
+                    "/api/procurement/public9/action-original",
+                    "/api/procurement/public9/action-audit"):
             if WORKFLOW_DIR!="procure-workflows":
                 return self._json(404,{"error":"PROCUREMENT_ONLY"})
             try:
@@ -93,6 +94,8 @@ new='''    def do_GET(self):
                 q=parse_qs(urlsplit(self.path).query)
                 rid=(q.get("run_id") or [""])[0]
                 auth=self.headers.get("Authorization","")
+                if path.endswith("action-audit"):
+                    return self._json(200,bridge.audit(auth,rid))
                 if path.endswith("action-input"):
                     return self._json(200,bridge.context(auth,rid,(q.get("stage") or [""])[0]))
                 seq=int((q.get("file_seq") or ["0"])[0])
