@@ -120,4 +120,17 @@ jobs:
           assert len(history["periods_checked"])>=10
           assert history["total_responses"]>0
           assert history["business_evaluation_performed"] is False
+          from collect_only_stages import n05_openings
+          if history.get("records"):
+             status5,opening=n05_openings(opener,history,live._json_post,date(2026,11,8))
+             print("N05_LIVE_HISTORY_OPENING",json.dumps({
+                 "status":status5,
+                 "history_candidates":opening.get("candidates"),
+                 "checked":opening.get("checked"),
+                 "opening_records":len(opening.get("opening_records") or []),
+                 "gaps":opening.get("gaps",[])[:10],
+                 "source_notice_ids":[x.get("bid_no") for x in history["records"][:3]],
+                 "evaluation_performed":opening.get("business_evaluation_performed")
+             },ensure_ascii=False),flush=True)
+             assert opening["business_evaluation_performed"] is False
           PY
