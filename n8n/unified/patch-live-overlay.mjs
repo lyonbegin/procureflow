@@ -23,10 +23,10 @@ exact("h('span',props.data.stateSource==='execution_file'?",
 exact("        ...((meta.outputs||['main']).map((port,i)=>h(Handle,{type:'source'",
  "        ...((props.data.stateSource==='live_official'&&props.data.liveNineReason)?[h('div',{class:'live-nine-node-reason',title:props.data.liveNineReason},props.data.liveNineReason)]:[]),\n        ...((meta.outputs||['main']).map((port,i)=>h(Handle,{type:'source'",
  'CARD_REASON');
-exact('   selectedNodeId.value=node.id;selectedEdgeId.value=null;',
+exact('  selectedNodeId.value=node.id;selectedEdgeId.value=null;',
  '   selectedNodeId.value=node.id;selectedEdgeId.value=null;\n   if(liveNineEmbedded&&/^public9-0[1-9]$/.test(node.id)){\n      window.parent.postMessage({type:"procureflow:node-selected",node:"N"+node.id.slice(-2)},window.location.origin);\n   }',
  'NODE_MESSAGE');
-exact('   await refreshGraphState(file);\n    // Revalidate persisted run with project service',
+exact('   await refreshGraphState(file);\n   // Revalidate persisted run with project service',
  '   await refreshGraphState(file);\n    if(IS_PROCUREMENT&&file===LIVE_NINE_FLOW)await refreshLiveNine();\n    // Revalidate persisted run with project service',
  'REFRESH_AFTER_GRAPH_LOAD');
 const marker='<section v-if="IS_PROCUREMENT && stockFlow===\'operations/PF00-public-nine-real.json\'" data-testid="live-nine-progress"';
