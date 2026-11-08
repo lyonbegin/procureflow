@@ -721,6 +721,13 @@ def n07_price_sources(notice,metadata,history,opening,supply):
             "quantity_record_indexes":[]})
         nkey=bid+"-"+order
         if nkey not in group["notice_keys"]:group["notice_keys"].append(nkey)
+        # Preserve official winning-result price fields, if actually present.
+        # These remain raw source values, not verified signed contract awards.
+        result_fields=detail.get("bid_info_fields") or {}
+        for a in _field_sources(result_fields,amount_fields,
+                    detail.get("source") or OPENING_DETAIL,bid,order,code8,code10):
+            a["evidence_kind"]="unverified_official_award_result_field"
+            group["price_record_indexes"].append(len(amounts));amounts.append(a)
         for raw in detail.get("bidders") or []:
             if not isinstance(raw,dict):continue
             identity=_scalar(raw.get("bzmnRegNo") or raw.get("grpNm") or raw.get("fnlSucsfbdCorpNm"))
