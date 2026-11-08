@@ -122,16 +122,16 @@
    const verified=countOf('verified'),issues=problemSteps(),current=activeIndex();
    const title=live()?(current>=0?name(current)+' 실행 중':'다음 노드 실행 준비 중'):
      (r.status==='not_run'||!r.run_id?'아직 실행되지 않았습니다':
-       issues.length?'전체 실행 종료 · 검증 미완료 '+issues.length+'개':'전체 실행 종료 · 단계 상태 확인');
+       issues.length?'전체 수집 실행 종료 · 자료 확인 필요 '+issues.length+'개':'9단계 종료 · 최종 AI 결과 확인');
    const overall=live()?'running':!r.run_id?'waiting':issues.length?'partial':r.status==='failed'?'source_error':'verified';
    return '<section class="panel p9-overview" aria-label="9단계 전체 실행 현황">'+
     '<div class="p9-overview-heading"><div><div class="p9-eyebrow">실시간 실행 현황 · LIVE EXECUTION</div>'+
     '<h3 data-p9="headline">'+esc(title)+'</h3></div>'+
     '<span class="p9-status-pill p9-'+overall+'" data-p9="global-status" role="status">'+
     (live()?'<span class="p9-pulse" aria-hidden="true"></span>':'')+
-    esc(live()?'진행 중':r.status==='not_run'||!r.run_id?'대기':r.status==='completed_with_missing_evidence'?'증빙 미완료':r.status==='failed'?'실행 실패':r.status==='completed'?'전체 완료':'종료')+'</span></div>'+
+    esc(live()?'진행 중':r.status==='not_run'||!r.run_id?'대기':r.status==='completed_with_missing_evidence'?'수집 누락·AI 확인 필요':r.status==='failed'?'실행 실패':r.status==='completed'?'전체 완료':'종료')+'</span></div>'+
     '<div class="p9-progress-top"><strong data-p9="counter">진행된 단계 '+completed+' / 9</strong>'+
-    '<span>검증 완료 <b>'+verified+'</b> · 부분 확인 <b>'+countOf('partial')+'</b> · 차단 <b>'+countOf('blocked')+
+    '<span>완료 <b>'+verified+'</b> · 자료 일부 확인 <b>'+countOf('partial')+'</b> · 차단 <b>'+countOf('blocked')+
     '</b> · 오류 <b>'+countOf('source_error')+'</b></span></div>'+
     '<div class="p9-progress-track" role="progressbar" aria-label="9단계 실행 진행률" aria-valuemin="0" aria-valuemax="9" aria-valuenow="'+completed+'">'+
     '<div class="p9-progress-fill" style="width:'+(completed/9*100).toFixed(2)+'%"></div></div>'+
@@ -187,7 +187,7 @@
    if(!entries.length)return '<section class="panel p9-issues"><h3>문제 감지</h3><p class="p9-clear">'+
      (st.run?.run_id?'기록된 오류·차단·부분 확인이 없습니다.':'아직 실행 기록이 없습니다.')+'</p></section>';
    return '<section class="panel p9-issues" aria-label="확인 필요한 노드">'+
-     '<div class="p9-panel-heading"><div><h3>확인 필요한 노드 <span class="p9-issue-count">'+entries.length+'개</span></h3>'+
+     '<div class="p9-panel-heading"><div><h3>수집 누락·확인할 항목 <span class="p9-issue-count">'+entries.length+'개</span></h3>'+
      '<p>수집 누락·오류와 최종 AI 평가 미실행 사유를 확인할 수 있습니다.</p></div></div>'+
      '<div class="p9-issue-list">'+entries.map(s=>{
        const i=Number(s.node.slice(1))-1;
@@ -228,7 +228,7 @@
  function actions(){
    return '<section class="panel p9-controls">'+
       '<div class="p9-panel-heading"><div><h3>최신 미완료 공고 자동 실행</h3>'+
-      '<p>9개 노드가 모두 검증 완료된 공고만 건너뛰고, 미완료 공고는 재처리합니다.</p></div></div>'+
+      '<p>N01~N08에서 가능한 자료를 수집·보관하고, N09에서만 AI가 분석합니다. 아직 누락된 공고는 재처리합니다.</p></div></div>'+
       '<div class="actions">'+
       '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live()||st.run?.dispatch_ready===false)?'disabled':'')+
       '>'+(st.run?.dispatch_ready===false?'GitHub Actions 인증 설정 필요':'▶ 최신 미완료 공고 자동 선정 · 9개 실행')+'</button>'+
