@@ -6,7 +6,7 @@ Workflow UI reads only persistent JSON state. Never use previous DB bid records.
 """
 from __future__ import annotations
 import base64,copy
-from datetime import datetime
+from datetime import datetime,timedelta
 from hashlib import sha256
 import json,os,re,threading,uuid
 from pathlib import Path
@@ -112,6 +112,25 @@ def begin(sid,payload):
 def current(sid):
     with LOCK:
         r=_find_session(sid)
+        if r and r.get("status")=="running" and r.get("active_since"):
+            # Fail closed after an abandoned GitHub runner; do not let UI hang.
+            since=datetime.fromisoformat(r["active_since"])
+            if datetime.now(ZoneInfo("Asia/Seoul"))-since>timedelta(minutes=55):
+                stage=r.get("pending_stage")
+                if stage in STAGES and len(r["steps"])==int(stage[-2:])-1:
+                    r["steps"].append({"node":stage,"title":TITLES[int(stage[-2:])-1],
+                        "status":"source_error","input":{"source":"github_actions"},
+                        "output":{"error":"GITHUB_ACTIONS_CALLBACK_TIMEOUT_55_MINUTES"},
+                        "at":_now()})
+                    r["completed_steps"]=len(r["steps"])
+                    r["partial_steps"]+=1
+                r["status"]="failed"
+                r["error"]="GITHUB_ACTIONS_CALLBACK_TIMEOUT_55_MINUTES"
+                r["active_node"]=None
+                r["active_title"]=""
+                r["active_since"]=None
+                r["finished_at"]=_now()
+                _atomic(_run_path(r["run_id"]),r)
         return _public(r) if r else {"status":"not_run","mode":"github_actions_nine_nodes",
                                       "completed_steps":0,"steps":[]}
 
