@@ -65,7 +65,39 @@
    if(st.run?.status!=='running'&&p){st.selectedNode=STAGES.findIndex((_,i)=>id(i)===p.node);return;}
    if(resultSteps().length)st.selectedNode=Math.min(8,resultSteps().length-1);
  }
- function renderView(){if(window.Public9?.requestRender)window.Public9.requestRender();}
+ function renderView(){
+   // Keep the SAME Vue Flow iframe alive while its sibling status regions refresh.
+   // Rebuilding #content on each 1.8s poll would destroy drag/pan/editor state.
+   const regions=document.querySelectorAll('[data-p9-region]');
+   if(!regions.length){window.Public9?.requestRender?.();return;}
+   const fragments={overview,inventory,issues,actions,inspector,audit};
+   regions.forEach(region=>{
+     const fn=fragments[region.getAttribute('data-p9-region')];
+     if(fn)region.innerHTML=fn();
+   });
+   syncEmbeddedStudio();
+ }
+ function syncEmbeddedStudio(){
+   const frame=document.getElementById('p9-shared-studio-frame');
+   if(!frame||!frame.contentWindow)return;
+   frame.contentWindow.postMessage({
+     type:'procureflow:live-nine-state',run:st.run,
+     selectedNode:id(st.selectedNode),follow:!st.manualSelect
+   },location.origin);
+ }
+ function showStudioFullscreen(open){
+   const panel=document.getElementById('p9-shared-studio-panel');
+   if(!panel)return;
+   panel.classList.toggle('p9-studio-fullscreen',!!open);
+   panel.setAttribute('role',open?'dialog':'region');
+   panel.setAttribute('aria-modal',open?'true':'false');
+   document.body.classList.toggle('p9-studio-modal-open',!!open);
+   panel.querySelector('[data-public9="expand"]')?.setAttribute('aria-label',open?'전체 화면 닫기':'전체 화면 확대');
+   panel.querySelector('[data-public9="expand"]')?.setAttribute('aria-expanded',String(!!open));
+   panel.querySelector('[data-p9="studio-size"]')?.replaceChildren(document.createTextNode(open?'축소':'전체 화면'));
+   if(open)panel.querySelector('[data-public9="expand"]')?.focus();
+ }
+ 
  async function request(route,opts){
    const response=await fetch('/api/procurement/public9/'+route,{credentials:'same-origin',cache:'no-store',...opts});
    const data=await response.json().catch(()=>({error:'INVALID_JSON_RESPONSE'}));
@@ -117,34 +149,21 @@
        r.finished_at?'종료 시각 '+esc(clock(r.finished_at)):'실행 전')+'</span></div>'+
     '<p class="p9-helper">진행된 단계 수는 성공 건수가 아닙니다. 차단·부분 확인·오류는 각각 별도로 표시됩니다.</p></section>';
  }
- function flow(){
-   const r=st.run||{},active=activeIndex();
-   const cards=STAGES.map((title,i)=>{
-     const s=stage(i),v=phase(i),selected=st.selectedNode===i;
-     const note=v==='waiting'?'이전 단계 대기':v==='running'?'공식 사이트 확인 또는 자료 처리 중':preview(reason(s),112);
-     const arrow=i===2||i===5?'↓':i===3||i===4?'←':'→';
-     const arrived=i+1<9&&(stage(i+1)||active===i+1);
-     return '<li class="p9-flow-step p9-'+esc(v)+(selected?' p9-is-selected':'')+'" data-p9-node="'+id(i)+'">'+
-       '<button type="button" class="p9-flow-card" data-public9="node" data-index="'+i+'" aria-pressed="'+(selected?'true':'false')+
-       '" aria-label="'+esc(name(i)+' '+statusName(v)+' '+note)+'">'+
-       '<div class="p9-flow-top"><span class="p9-flow-num">'+id(i)+'</span>'+
-       '<span class="p9-state" data-p9-state="'+id(i)+'">'+(v==='running'?'<span class="p9-pulse" aria-hidden="true"></span>':'')+esc(statusName(v))+'</span></div>'+
-       '<strong>'+esc(title)+'</strong><span class="p9-flow-description">'+esc(note)+'</span>'+
-       (s?'<span class="p9-flow-time">'+esc(clock(s.at))+'</span>':'')+
-       '</button>'+
-       (i<8?'<span class="p9-flow-connector'+(arrived?' p9-connector-passed':'')+'" aria-hidden="true">'+arrow+'</span>':'')+'</li>';
-   }).join('');
-   return '<section class="panel p9-flow-panel" aria-label="실행 노드 연결 흐름">'+
-     '<div class="p9-panel-heading"><div><h3>9단계 실행 흐름</h3>'+
-     '<p>현재 진행 노드가 강조되며, 다음 노드로 이동하면 연결선과 상태가 즉시 바뀝니다.</p></div>'+
-     '<button type="button" class="btn small outline" data-public9="follow" aria-pressed="'+(!st.manualSelect?'true':'false')+'">'+
-     (st.manualSelect?'현재 단계 자동 추적':'자동 추적 중')+'</button></div>'+
-     '<ol class="p9-flow-grid" data-p9="flow" aria-label="N01부터 N09까지 순차 실행 상태">'+cards+'</ol>'+
-     '<div class="p9-legend" aria-label="상태 범례">'+
-      [['verified','검증 완료'],['running','실행 중'],['partial','부분 확인'],['blocked','차단'],['source_error','오류'],['waiting','대기']].map(x=>'<span><i class="p9-legend-dot p9-'+x[0]+'"></i>'+x[1]+'</span>').join('')+
-     '</div></section>';
+ function studio(){
+   const src='/?workflow='+encodeURIComponent(FLOW)+'&public9_embed=1';
+   return '<section class="panel p9-studio-panel" id="p9-shared-studio-panel" data-p9-studio-panel role="region" aria-label="공용 Studio 실시간 노드 관리 화면">'+
+     '<div class="p9-panel-heading p9-studio-toolbar"><div><h3>공용 n8n Studio · 노드 관리 및 실시간 실행</h3>'+
+     '<p>기존 공용 노드 편집기입니다. 노드를 선택하거나 캔버스를 드래그하실 수 있으며, 실행상태가 노드에 직접 반영됩니다.</p></div>'+
+     '<div class="p9-studio-toolbar-actions">'+
+     '<button class="btn" type="button" data-public9="follow" aria-pressed="'+(!st.manualSelect?'true':'false')+'">'+
+      (st.manualSelect?'현재 단계 다시 추적':'자동 추적 중')+'</button>'+
+     '<button class="btn primary" type="button" data-public9="expand" aria-expanded="false" aria-label="전체 화면 확대">'+
+     '<span data-p9="studio-size">전체 화면</span></button></div></div>'+
+     '<iframe id="p9-shared-studio-frame" data-testid="public9-shared-studio" title="기존 공용 n8n Studio 편집기 · 9개 실시간 실행 노드" loading="eager" src="'+src+'" allow="clipboard-write"></iframe>'+
+     '<p class="p9-helper">현재 실행 중인 노드는 강조 표시되며, 차단·부분 확인·오류는 노드 자체에 표시됩니다. 확대해도 같은 캔버스가 유지됩니다.</p>'+
+     '</section>';
  }
- function inventory(){
+  function inventory(){
    const out=stage(1)?.output;
    const files=Array.isArray(out?.files)?out.files:[];
    if(!out)return '';
@@ -192,7 +211,7 @@
  function inspector(){
    const i=st.selectedNode,s=stage(i),v=phase(i),r=st.run||{};
    return '<section class="panel p9-inspector" aria-label="선택 노드 상세 정보">'+
-    '<div class="p9-panel-heading"><div><h3>노드 상세 · '+esc(name(i))+'</h3>'+
+    '<div class="p9-panel-heading"><div><h3>선택 노드 실행 상세 · '+esc(name(i))+'</h3>'+
     '<p>상단 흐름도와 문제 목록에서 원하는 노드를 선택하실 수 있습니다.</p></div>'+
     '<span class="p9-status-pill p9-'+esc(v)+'">'+esc(statusName(v))+'</span></div>'+
     (s?'<p class="p9-inspector-reason">'+esc(reason(s))+'</p>'+
@@ -223,28 +242,27 @@
       '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live())?'disabled':'')+
       '>▶ 최신 미완료 공고 자동 선정 · 9개 실행</button>'+
       '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
-      '<button class="btn" data-public9="open">공용 Studio에서 9개 노드 열기</button></div>'+
+      '<button class="btn" data-public9="open">공용 노드 캔버스 전체 화면</button></div>'+
       '<p class="p9-helper">실행 버튼은 수동 검증용이며 공고 선택은 자동입니다. PostgreSQL 공고 데이터·외부 Worker·자동 투찰은 사용하지 않습니다.</p>'+
       (st.error?'<div class="notice warn" role="alert">'+esc(st.error)+'</div>':'')+
       (st.run?.error?'<div class="notice warn" role="alert">서버 실행 오류: '+esc(st.run.error)+'</div>':'')+
       (st.run?.run_id&&stage(7)?.output?.draft_generated?'<p><a class="btn" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(st.run.run_id)+'">Word 테스트 초안 내려받기</a></p>':'')+
      '</section>';
  }
+ function region(which,fn){return '<div data-p9-region="'+which+'">'+fn()+'</div>';}
  function main(){
    return '<section class="hero p9-hero"><div class="kicker">PUBLIC · LIVE 9 STAGE TEST</div>'+
-    '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 9단계 실시간 실행 관제</h2>'+
-    '<p>진행 중인 노드, 다음 단계로의 이동, 오류·차단 원인을 한 화면에서 확인하실 수 있습니다.</p></section>'+
-    overview()+flow()+inventory()+issues()+actions()+inspector()+audit();
+    '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 공용 Studio 실행 관제</h2>'+
+    '<p>실행 진행상태가 별도 흐름도가 아닌 공용 노드 관리 캔버스에 직접 표시됩니다.</p></section>'+
+    region('overview',overview)+studio()+region('issues',issues)+
+    region('inventory',inventory)+region('actions',actions)+
+    region('inspector',inspector)+region('audit',audit);
  }
  function nodes(){
-   return '<section class="hero p9-hero"><div class="kicker">LIVE · 9 NODES</div>'+
-    '<h2>공용 Studio · 현재 실행 상태</h2><p>아래 상태판은 관리센터와 동일한 공식 사이트 실시간 결과입니다.</p></section>'+
-    overview()+flow()+issues()+
-    '<section class="panel"><div class="actions"><button class="btn primary" data-page="public">관리센터 돌아가기</button>'+
-    '<button class="btn" data-public9="open">새 창에서 캔버스 열기</button></div>'+
-    '<iframe title="9개 업무 노드 편집기" loading="lazy" src="/?workflow='+encodeURIComponent(FLOW)+
-    '" style="width:100%;height:850px;border:1px solid #54708a;border-radius:12px"></iframe></section>'+
-    inspector()+audit();
+   return '<section class="hero p9-hero"><div class="kicker">SHARED N8N STUDIO · LIVE</div>'+
+    '<h2>공용 노드 관리 · 실제 실행상태</h2><p>별도 복제 흐름도 없이 기존 Vue Flow 캔버스를 그대로 표시합니다.</p></section>'+
+    region('overview',overview)+studio()+region('issues',issues)+
+    region('inventory',inventory)+region('actions',actions)+region('inspector',inspector)+region('audit',audit);
  }
  document.addEventListener('click',async ev=>{
    const el=ev.target.closest('[data-public9]');
@@ -252,19 +270,38 @@
    ev.preventDefault();ev.stopPropagation();
    if(el.dataset.public9==='run')await execute();
    else if(el.dataset.public9==='latest')await poll();
-   else if(el.dataset.public9==='open')window.open('/?workflow='+encodeURIComponent(FLOW),'_blank','noopener');
+   else if(el.dataset.public9==='open')showStudioFullscreen(true);
+   else if(el.dataset.public9==='expand')showStudioFullscreen(!document.getElementById('p9-shared-studio-panel')?.classList.contains('p9-studio-fullscreen'));
    else if(el.dataset.public9==='node'){
      st.selectedNode=Math.max(0,Math.min(8,Number(el.dataset.index)||0));
      st.manualSelect=true;renderView();
    }else if(el.dataset.public9==='follow'){
      st.manualSelect=false;syncFollow();renderView();
+     const panel=document.getElementById('p9-shared-studio-panel');
+     if(panel)panel.querySelector('[data-public9="follow"]').textContent='자동 추적 중';
    }
  });
- setInterval(()=>{if(live())void poll();},1800);
+ window.addEventListener('message',evt=>{
+   const frame=document.getElementById('p9-shared-studio-frame');
+   if(evt.origin!==location.origin||!frame||evt.source!==frame.contentWindow)return;
+   const data=evt.data;
+   if(data?.type==='procureflow:studio-ready'){syncEmbeddedStudio();return;}
+   if(data?.type==='procureflow:node-selected' && /^N0[1-9]$/.test(data.node)){
+     st.selectedNode=Number(data.node.slice(1))-1;
+     st.manualSelect=true;
+     renderView();
+   }
+ });
+ document.addEventListener('keydown',ev=>{
+   if(ev.key==='Escape'&&document.getElementById('p9-shared-studio-panel')?.classList.contains('p9-studio-fullscreen')){
+     ev.preventDefault();showStudioFullscreen(false);
+   }
+ });
+ setInterval(()=>{if(document.visibilityState==='visible')void poll();},live()?1800:3000);
  setInterval(()=>{
    const elapsed=document.querySelector('[data-p9-elapsed]');
    if(elapsed&&live())elapsed.textContent=duration(elapsed.getAttribute('data-p9-elapsed'));
  },1000);
- window.Public9={render:main,renderNodes:nodes,load,state:st};
+ window.Public9={render:main,renderNodes:nodes,load,state:st,syncEmbeddedStudio};
  load();
 })();
