@@ -100,4 +100,20 @@ jobs:
                 print("N04_LIVE_FILTER_PROBE",json.dumps({
                     "mode":name,"error":type(error).__name__+":"+str(error)[:80]
                 }),flush=True)
+          from collect_only_stages import n04_history
+          state,history=n04_history(opener,
+              {"bid_no":"R26BK01816186","bid_ord":"000"},
+              record,live._json_post,live,date(2026,11,8),max_pages=1)
+          print("N04_LIVE_HISTORY",json.dumps({
+              "status":state,"query_mode":history["query_mode"],
+              "periods_checked":len(history["periods_checked"]),
+              "responses":history["total_responses"],
+              "candidate_records":history.get("candidate_record_count"),
+              "verified_records":history.get("verified_record_count"),
+              "source_gaps":history["gaps"][:5],
+              "evaluation_performed":history["business_evaluation_performed"],
+          },ensure_ascii=False),flush=True)
+          assert len(history["periods_checked"])>=10
+          assert history["total_responses"]>0
+          assert history["business_evaluation_performed"] is False
           PY
