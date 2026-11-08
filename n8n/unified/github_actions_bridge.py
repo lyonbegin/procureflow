@@ -51,8 +51,9 @@ def _state(run_id):
     if not isinstance(run,dict):raise LookupError("GH_ACTION_RUN_NOT_FOUND")
     return run
 def _public(run):
-    return {k:v for k,v in run.items()
-            if k not in ("session_hash","uploads","dispatch_token","_private")}
+    return {**{k:v for k,v in run.items()
+            if k not in ("session_hash","uploads","dispatch_token","_private")},
+            "dispatch_ready":bool(os.environ.get("PROCUREFLOW_GITHUB_DISPATCH_TOKEN","").strip())}
 def _session_path(sid):return ROOT/"sessions"/(_sid(sid)+".json")
 def _find_session(sid):
     session=_read(_session_path(sid),{}) or {}
@@ -132,6 +133,7 @@ def current(sid):
                 r["finished_at"]=_now()
                 _atomic(_run_path(r["run_id"]),r)
         return _public(r) if r else {"status":"not_run","mode":"github_actions_nine_nodes",
+                                      "dispatch_ready":bool(os.environ.get("PROCUREFLOW_GITHUB_DISPATCH_TOKEN","").strip()),
                                       "completed_steps":0,"steps":[]}
 
 def document(sid,rid):
