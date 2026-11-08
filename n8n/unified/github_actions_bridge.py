@@ -24,9 +24,9 @@ REPO="lyonbegin/procureflow"
 BRANCH=os.environ.get("PROCUREFLOW_ACTIONS_REF","main")
 WORKFLOW="procureflow-node.yml"
 STAGES=tuple("N%02d"%n for n in range(1,10))
-TITLES=("공고 직접 조회","첨부 원본 다운로드","자격·원문 조건",
-        "개찰 원본 직접 조회","경쟁 정보 분석","수행·원가 근거",
-        "가격전략 검증","Word 검토 초안","독립 최종 검증")
+TITLES=("최신 공고 수집·선정","공고·첨부 원본 다운로드","공고 공식 속성 수집",
+        "동일 세부품명 10년 공고 수집","과거 개찰·낙찰 원본 수집","공급·인력 원본 자료 목록",
+        "원가·가격 근거자료 수집","전체 수집자료 통합·AI 전달","AI 종합 분석·최종 평가")
 LOCK=threading.RLock()
 MAX_STATE=2_000_000
 MAX_UPLOAD_CHUNK=2*1024*1024+1024
@@ -239,7 +239,7 @@ def upload(auth,headers,data):
     return {"accepted":True,"saved":count==total,"bytes":count}
 
 def original(auth,run_id,seq):
-    """Read-only original access for N03 evidence extraction and N09 integrity.
+    """Read-only original access ONLY at N09 AI evaluation.
 
     N02 must have finished and the authenticated job must currently be
     pending. Never permit cross-run reads, arbitrary paths, or other stages.
@@ -248,7 +248,7 @@ def original(auth,run_id,seq):
     with LOCK:
         run=_state(run_id)
         pending=run.get("pending_stage")
-        if run.get("status")!="running" or pending not in ("N03","N09"):
+        if run.get("status")!="running" or pending!="N09":
             raise ValueError("ORIGINAL_READ_STAGE_NOT_AUTHORIZED")
         collection=next((s["output"] for s in run["steps"] if s["node"]=="N02"),None)
         if not collection:raise LookupError("ORIGINAL_COLLECTION_NOT_FOUND")
