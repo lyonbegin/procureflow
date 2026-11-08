@@ -59,7 +59,7 @@ jobs:
           curl -fsS -c /tmp/pf_cookie http://127.0.0.1:3000/api/procurement/public9/live-run >/tmp/github-live-state.json
           python -c 'import json;x=json.load(open("/tmp/github-live-state.json"));assert x["mode"]=="github_actions_nine_nodes" and x["status"]=="not_run",x'
           CODE=$(curl -sS -b /tmp/pf_cookie \
-            -H 'Origin: http://127.0.0.1:3000' \
+            -H 'Origin: http://127.0.0.1' \
             -H 'Content-Type: application/json' \
             --data '{"mode":"auto"}' \
             -o /tmp/pf_dispatch_status.json -w '%{http_code}' \
