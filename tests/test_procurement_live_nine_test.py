@@ -134,20 +134,17 @@ class AutomaticProcurementStageTests(unittest.TestCase):
         self.assertEqual(rows[0]["business_code"],"03")
         self.assertEqual(p.call_args.args[2]["dlBidPbancLstM"]["currentPage"],"2")
 
-    def test_n02_attachment_uses_n01_selected_notice_not_old_case(self):
+    def test_n02_collector_is_handed_exact_n01_selected_notice(self):
+        import n02_collect
         chosen=notice(BID_B,"001")
-        received=[]
-        def fetch(_,url,*args,**kwargs):
-            received.append(url)
-            return b"%PDF-1.4 sample","application/pdf"
-        with patch.object(live,"_fetch",side_effect=fetch), \
-             patch.object(live,"_extract",return_value=("본문 텍스트","pdf")):
-            files,text=live._live_attachments(None,{},chosen)
-        self.assertEqual(len(files),2)
-        self.assertEqual(len(text),2)
-        self.assertTrue(all("bidPbancNo="+BID_B in u for u in received))
-        self.assertTrue(all("bidPbancOrd=001" in u for u in received))
-        self.assertTrue(all("R26BK01787028" not in u for u in received))
+        manifest={"notice_bid_no":BID_B,"notice_bid_ord":"001","file_count":3,
+                  "official_attachment_inventory_complete":True,
+                  "files":[{"original_filename":"공고문.hwp","file_seq":1}]}
+        with patch.object(n02_collect,"collect",return_value=manifest) as called:
+            result=live._live_attachments(None,{},chosen)
+        self.assertEqual(result,manifest)
+        self.assertEqual(called.call_args.args[1]["bid_no"],BID_B)
+        self.assertEqual(called.call_args.args[1]["bid_ord"],"001")
 
     def test_n02_requires_actual_n01_auto_selection(self):
         with self.assertRaisesRegex(ValueError,"N02_AUTO_SELECTED_NOTICE_REQUIRED"):
@@ -160,8 +157,12 @@ class AutomaticProcurementStageTests(unittest.TestCase):
         with patch.object(live,"_client",return_value=None), \
              patch.object(live,"_once"), \
              patch.object(live,"_live_notice",return_value=chosen), \
-             patch.object(live,"_live_attachments",return_value=([{
-                 "file_seq":1,"sha256":"0"*64,"bytes":120}],["입찰참가자격 소프트웨어사업자"])) as attachments, \
+             patch.object(live,"_live_attachments",return_value={
+                 "official_attachment_inventory_complete":True,
+                 "file_count":3,"downloaded":3,
+                 "manifest_path":"/data/n01/bids/R26BK01815798-001/attachment_manifest.json",
+                 "files":[{"file_seq":1,"original_filename":"입찰공고문.hwp",
+                           "size_bytes":120,"sha256":"0"*64}]}) as attachments, \
              patch.object(live,"_live_openings",return_value={"official_rows":1}), \
              patch.object(live,"_document",return_value=b"docx"):
             live._execute(job)
