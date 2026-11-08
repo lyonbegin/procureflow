@@ -4,8 +4,8 @@
 'use strict';
 (function(){
  const FLOW='operations/PF00-public-nine-real.json';
- const STAGES=['공고 직접 조회','첨부 원본 다운로드','자격·원문 조건','개찰 원본 조회',
-  '경쟁 정보 분석','수행·원가 근거','가격전략 검증','Word 검토 초안','독립 최종 검증'];
+ const STAGES=['최신 공고 수집·선정','공고·첨부 원본 다운로드','공고 공식 속성 수집','동일 세부품명 10년 공고 수집',
+  '과거 개찰·낙찰 원본 수집','공급·인력 근거자료 수집','원가·가격 근거자료 수집','전체 수집자료 통합·AI 전달','AI 종합 분석·최종 평가'];
  const LABELS={verified:'검증 완료',running:'실행 중',partial:'부분 확인',blocked:'차단',
   source_error:'오류',not_executed:'미실행',waiting:'대기'};
  const PROBLEMS=['source_error','blocked','partial','not_executed'];
@@ -28,35 +28,26 @@
  const preview=(v,max=125)=>{const t=String(v??'').replace(/\s+/g,' ').trim();return t.length>max?t.slice(0,max-1)+'…':t;};
  function reason(s){
    if(!s)return '선행 노드 완료 대기';
-   const out=s.output||{};
+   const out=s.output||{},gaps=out.gaps||out.collection_gaps||[];
    if(out.error)return String(out.error);
-   if(s.status==='blocked'){
-     if(out.status)return String(out.status);
-     return '필수 원본 또는 검증 근거가 부족하여 이 단계의 결과를 확정할 수 없습니다.';
+   if(s.node==='N01'&&s.status==='verified')return '공식 최신 미완료 공고 선정 · '+(out.bid_no||'');
+   if(s.node==='N02'&&s.status==='verified')return '공식 원본 '+(out.file_count??out.downloaded??0)+'개 보관 · 내용 분석 없음';
+   if(s.node==='N03')return out.detail10_verified?'공식 10자리 세부품명 '+out.detail10+' 확보 · 판단 없음':'공식 공고 속성 수집 · 10자리 세부품명 미확인';
+   if(s.node==='N04')return '10년 조회 기간 '+(out.periods_checked?.length||0)+'개 구간 · 정확한 분류 연결 공고 '+(out.verified_record_count||0)+'건 · 평가 없음';
+   if(s.node==='N05')return '과거 개찰 원본 '+(out.opening_records?.length||0)+'건 수집 · 개별 업체 평가 없음';
+   if(s.node==='N06')return '공급·인력 관련 출처 목록 수집 · 누락 출처 '+gaps.length+'건';
+   if(s.node==='N07')return '원가·가격 원본 필드 '+(out.source_amounts?.length||0)+'건 수집 · 추천가격 산출 없음';
+   if(s.node==='N08')return '원본 '+(out.source_originals||0)+'개와 수집자료 통합 · AI 전달 준비';
+   if(s.node==='N09'){
+     if(out.ai_evaluation_performed)return '최종 AI 종합 보고서 생성 · 사람 검토 필요';
+     return out.reason||'AI API 미설정 또는 최종 분석 미실행';
    }
-   if(s.status==='partial'){
-     if(s.node==='N04'&&out.source_query_verified===true){
-       if(out.matching_selected_notice===0)return '선택 공고 '+(out.bid_no||'')+'-'+(out.bid_ord||'000')+'의 개찰 기록 0건 (조회기간 내) · 10년 유사공고 이력 별도 검증 필요';
-       return '선택 공고 '+(out.bid_no||'')+'-'+(out.bid_ord||'000')+' 개찰 목록 '+(out.matching_selected_notice||0)+'건 직접 확인 · 개찰 상세/10년 이력 추가 검증 필요';
-     }
-     if(s.node==='N03'&&out.analysis_performed===false)return '첨부 원본 '+(out.downloaded_files||0)+'개 평가 단계로 이관 · 자격 판정 보류';
-     if(s.node==='N03'&&out.document_requirement_extraction==='verified')return '원문 자격요건 '+(out.qualification_rule_count||0)+'건 · 제출서류 '+(out.required_document_count||0)+'건 추출 완료 / 업체 자격증빙 미확인';
-     if(out.notice_list==='UNAVAILABLE')return out.notice_list_error||'공식 공고 목록 확인 실패 · 첨부만 확인';
-     if(out.company_eligibility)return String(out.company_eligibility);
-     if(out.exact_detail10_verified===false)return '세부품명 10자리의 정확한 이력 연결이 아직 검증되지 않았습니다.';
-     if(out.draft_only)return '검토용 초안만 생성 · 입찰서 최종 완료 아님';
-     if(s.node==='N09')return '9개 단계 중 일부의 근거가 부족하여 최종 검증을 완료하지 못했습니다.';
-     return String(out.status||out.warning||'일부 근거만 확인되어 추가 검증이 필요합니다.');
-   }
-   if(s.status==='source_error')return out.error||'GitHub Actions 노드 실행 또는 공식 사이트 조회 중 오류';
-   if(s.status==='not_executed')return String(out.error||'이전 단계 오류로 실행되지 않았습니다.');
-   if(s.status==='verified'){
-     if(s.node==='N01')return '공식 나라장터 최신 공고 확인 · '+String(out.bid_no||'');
-     if(s.node==='N02')return '원본 '+(out.downloaded??0)+'개 저장 · '+(out.file_names||[]).slice(0,3).join(', ')+(out.file_count>3?' 외 '+(out.file_count-3)+'개':'');
-     return '단계 결과 검증 완료';
-   }
-   return '실행 기록 확인';
+   if(s.status==='source_error')return 'GitHub Actions 자료 수집 또는 저장 오류';
+   if(s.status==='partial')return '일부 수집자료 미확인 · 다음 단계 수집은 계속';
+   if(s.status==='blocked')return '필수 데이터가 확보되지 않아 단계 수행 불가';
+   return '단계 결과 확인';
  }
+
  function syncFollow(){
    if(st.manualSelect)return;
    const a=activeIndex();
@@ -147,7 +138,7 @@
     '<div class="p9-overview-foot"><span>'+(r.case_bid_no?'선택 공고 <b>'+esc(r.case_bid_no)+'-'+esc(r.case_bid_ord||'000')+'</b>':'공고번호 자동 선택 대기')+'</span>'+
     '<span>'+(live()?'현재 단계 소요 <b data-p9-elapsed="'+esc(r.active_since||'')+'">'+esc(duration(r.active_since))+'</b>':
        r.finished_at?'종료 시각 '+esc(clock(r.finished_at)):'실행 전')+'</span></div>'+
-    '<p class="p9-helper">진행된 단계 수는 성공 건수가 아닙니다. 차단·부분 확인·오류는 각각 별도로 표시됩니다.</p></section>';
+    '<p class="p9-helper">N01~N08은 자료 수집·정리만 수행합니다. 입찰 관련 판단과 AI 평가는 N09에서만 수행합니다.</p></section>';
  }
  function studio(){
    const src='/?workflow='+encodeURIComponent(FLOW)+'&public9_embed=1';
@@ -197,7 +188,7 @@
      (st.run?.run_id?'기록된 오류·차단·부분 확인이 없습니다.':'아직 실행 기록이 없습니다.')+'</p></section>';
    return '<section class="panel p9-issues" aria-label="확인 필요한 노드">'+
      '<div class="p9-panel-heading"><div><h3>확인 필요한 노드 <span class="p9-issue-count">'+entries.length+'개</span></h3>'+
-     '<p>오류·차단·부분 확인 노드의 이유를 한 번에 확인할 수 있습니다.</p></div></div>'+
+     '<p>수집 누락·오류와 최종 AI 평가 미실행 사유를 확인할 수 있습니다.</p></div></div>'+
      '<div class="p9-issue-list">'+entries.map(s=>{
        const i=Number(s.node.slice(1))-1;
        return '<button class="p9-issue-row p9-'+esc(s.status)+'" type="button" data-public9="node" data-index="'+i+'">'+
@@ -205,14 +196,14 @@
        '<span class="p9-issue-text"><b>'+esc(STAGES[i]||s.title)+'</b><small>'+esc(preview(reason(s),210))+'</small></span>'+
        '<span class="p9-state">'+esc(statusName(s.status))+'</span></button>';
      }).join('')+'</div>'+
-     (live()?'<p class="p9-helper">실행은 다음 단계로 계속될 수 있습니다. 차단된 분석이 해결되었다는 의미는 아닙니다.</p>':'')+
+     (live()?'<p class="p9-helper">수집 누락은 그대로 기록하며 후속 수집을 중단하지 않습니다. 판단과 평가는 N09에서만 수행합니다.</p>':'')+
      '</section>';
  }
  function inspector(){
    const i=st.selectedNode,s=stage(i),v=phase(i),r=st.run||{};
    return '<section class="panel p9-inspector" aria-label="선택 노드 상세 정보">'+
     '<div class="p9-panel-heading"><div><h3>선택 노드 실행 상세 · '+esc(name(i))+'</h3>'+
-    '<p>상단 흐름도와 문제 목록에서 원하는 노드를 선택하실 수 있습니다.</p></div>'+
+    '<p>공용 Studio 노드 또는 수집 누락 목록에서 원하는 노드를 선택하실 수 있습니다.</p></div>'+
     '<span class="p9-status-pill p9-'+esc(v)+'">'+esc(statusName(v))+'</span></div>'+
     (s?'<p class="p9-inspector-reason">'+esc(reason(s))+'</p>'+
       '<div class="p9-detail-meta"><span>완료 시각 '+esc(clock(s.at))+'</span><span>공고 '+esc(r.case_bid_no||'아직 자동 선택되지 않음')+'</span>'+ (s.github_run_id && /^\d+$/.test(String(s.github_run_id))?'<span><a target="_blank" rel="noopener" href="https://github.com/lyonbegin/procureflow/actions/runs/'+esc(s.github_run_id)+'">Actions 실행 로그 ↗</a></span>':'')+'</div>'+
@@ -243,11 +234,11 @@
       '>'+(st.run?.dispatch_ready===false?'GitHub Actions 인증 설정 필요':'▶ 최신 미완료 공고 자동 선정 · 9개 실행')+'</button>'+
       '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
       '<button class="btn" data-public9="open">공용 노드 캔버스 전체 화면</button></div>'+
-      '<p class="p9-helper">실행 버튼은 개별 GitHub Actions 노드를 순서대로 요청합니다. Railway는 UI·상태·원본 보관만 담당하며 자동 투찰하지 않습니다.</p>'+
+      '<p class="p9-helper">실행 버튼은 개별 GitHub Actions 노드를 순서대로 요청합니다. Railway는 UI·상태·원본 보관만 담당합니다. 중간 평가·자동 투찰은 수행하지 않습니다.</p>'+
       (st.run?.dispatch_ready===false?'<div class="notice warn" role="alert">GitHub Actions 실행 인증이 설정되지 않아 실행할 수 없습니다. Railway에서 PROCUREFLOW_GITHUB_DISPATCH_TOKEN을 등록하셔야 합니다. Railway 자체 크롤링으로 대체하지 않습니다.</div>':'')+
       (st.error?'<div class="notice warn" role="alert">'+esc(st.error)+'</div>':'')+
       (st.run?.error?'<div class="notice warn" role="alert">서버 실행 오류: '+esc(st.run.error)+'</div>':'')+
-      (st.run?.run_id&&stage(7)?.output?.draft_generated?'<p><a class="btn" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(st.run.run_id)+'">Word 테스트 초안 내려받기</a></p>':'')+
+      (stage(8)?.output?.ai_evaluation_performed?'<p class="p9-helper">N09 AI 보고서는 N09 노드를 선택해 OUTPUT에서 확인하실 수 있습니다. 최종 입찰참가 승인과 자동 투찰은 수행하지 않습니다.</p>':'')+
      '</section>';
  }
  function region(which,fn){return '<div data-p9-region="'+which+'">'+fn()+'</div>';}
