@@ -19,7 +19,7 @@ from github_oidc import verify,GitHubOIDCError
 from n02_collect import STORAGE_ROOT,_safe_name,_kind
 
 ROOT=Path(os.environ.get("PROCUREFLOW_ACTION_STATE_ROOT","/data/n01/github-actions"))
-ACTIVE_FILE=ROOT/"active_run.json"
+def _active_path():return ROOT/"active_run.json"
 REPO="lyonbegin/procureflow"
 BRANCH=os.environ.get("PROCUREFLOW_ACTIONS_REF","main")
 WORKFLOW="procureflow-node.yml"
@@ -89,7 +89,7 @@ def begin(sid,payload):
         last=_find_session(sid)
         if last and last.get("status")=="running":
             raise ValueError("LIVE_RUN_ALREADY_ACTIVE")
-        occupied=_read(ACTIVE_FILE,{}) or {}
+        occupied=_read(_active_path(),{}) or {}
         previous_id=occupied.get("run_id")
         if previous_id:
             previous=_read(_run_path(previous_id),{}) or {}
@@ -107,7 +107,7 @@ def begin(sid,payload):
              "pending_stage":"N01","uploads":{},"github_action_runs":[],
              "db_reads":0,"worker_calls":0,"bid_submitted":False}
         _atomic(_run_path(rid),run)
-        _atomic(ACTIVE_FILE,{"run_id":rid})
+        _atomic(_active_path(),{"run_id":rid})
         _atomic(_session_path(sid),{"run_id":rid})
         try:
             run["dispatch"]=_dispatch(run,"N01")
