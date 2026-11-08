@@ -248,7 +248,7 @@ jobs:
           PY
 
   g2b-n05-fifty-candidate-live:
-    if: contains(github.event.head_commit.message, 'N05_FULL_LIVE_VERIFY')
+    if: contains(github.event.head_commit.message, 'N05_FULL_LIVE_VERIFY') || contains(github.event.head_commit.message, 'N06_N07_FULL_LIVE_VERIFY')
     runs-on: ubuntu-24.04
     timeout-minutes: 16
     steps:
@@ -299,4 +299,42 @@ jobs:
           },ensure_ascii=False),flush=True)
           assert output["attempted"]==min(50,len(history["records"]))
           assert output["business_evaluation_performed"] is False
+          from collect_only_stages import n06_supply_catalog,n07_price_sources,n08_handoff
+          state6,company=n06_supply_catalog(notice,{"files":[]},history,output)
+          state7,commodity=n07_price_sources(notice,metadata,history,output,company)
+          print("N06_N07_N05_REAL_SOURCE_PIVOT",json.dumps({
+              "n05_actual_bidder_rows":output["observed_bidder_row_count"],
+              "n06_status":state6,
+              "n06_company_groups":company["company_count"],
+              "n06_company_history_rows":company["bid_history_record_count"],
+              "n06_award_source_records":company["award_result_source_count"],
+              "n06_all_time_history_verified":company["all_time_company_history_verified"],
+              "n07_status":state7,
+              "n07_item_groups":commodity["classification_group_count"],
+              "n07_price_fields":commodity["source_amount_count"],
+              "n07_quantity_fields":commodity["quantity_source_count"],
+              "n07_awarded_prices_verified":commodity["awarded_price_records_verified"],
+              "n06_eval":company["business_evaluation_performed"],
+              "n07_eval":commodity["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          assert company["bid_history_record_count"]==output["observed_bidder_row_count"]
+          assert commodity["bidder_price_source_records"]==output["observed_bidder_row_count"]
+          assert not company["business_evaluation_performed"]
+          assert not commodity["business_evaluation_performed"]
+          _,bundle=n08_handoff(notice,{"N03":metadata,"N04":history,"N05":output,
+                    "N06":company,"N07":commodity})
+          if not bundle.get("handoff_bundle"):
+              raise RuntimeError("N08_REAL_SOURCE_HANDOFF_TOO_LARGE_OR_MISSING:"+str(bundle.get("bundle_error")))
+          forwarded=bundle["handoff_bundle"]
+          assert len(forwarded["company_bid_history_records"])==output["observed_bidder_row_count"]
+          assert len(forwarded["bidder_detail_records"])==len(output["bidder_detail_records"])
+          print("N08_N05_REAL_EVIDENCE_HANDOFF",json.dumps({
+              "n08_bundle_bytes":bundle["bundle_bytes"],
+              "n08_company_bid_rows":len(forwarded["company_bid_history_records"]),
+              "n08_original_bid_detail_documents":len(forwarded["bidder_detail_records"]),
+              "n08_item_amount_fields":len(forwarded["source_amount_fields"]),
+              "n08_item_quantity_fields":len(forwarded["item_quantity_source_fields"]),
+              "n08_ai_input_size_limit_450000_ok":bundle["bundle_bytes"]<450000
+          },ensure_ascii=False),flush=True)
+          assert bundle["bundle_bytes"]<450000
           PY
