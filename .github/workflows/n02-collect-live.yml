@@ -6,6 +6,10 @@ on:
       - .github/workflows/n02-collect-live.yml
       - n8n/unified/n02_collect.py
       - n8n/unified/live_nine_test.py
+      - n8n/unified/github_actions_bridge.py
+      - n8n/unified/github_node_worker.py
+      - n8n/unified/github_oidc.py
+      - tests/test_github_action_node_migration.py
       - tests/test_n02_collect_all_attachments.py
       - tests/test_procurement_live_nine_test.py
 permissions:
@@ -23,6 +27,10 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_n02_collect_all_attachments.py -v
           python -m unittest discover -s tests -p test_procurement_live_nine_test.py -v
+      - name: Test GitHub-hosted 9-node orchestration and file relay
+        run: |
+          python -m pip install --disable-pip-version-check "PyJWT[crypto]==2.10.1"
+          python -m unittest discover -s tests -p test_github_action_node_migration.py -v
       - name: Run actual N02 collector against official G2B for 3 representative bids
         env:
           PROCUREFLOW_ATTACHMENT_ROOT: /tmp/n02-live-bids
