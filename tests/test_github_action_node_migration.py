@@ -82,6 +82,11 @@ class MigrationTests(unittest.TestCase):
   self.assertEqual(len([s for s in state["steps"] if s["status"]=="blocked"]),3)
   self.assertEqual(n01_auto._load()["records"][BID+"-000"]["state"],"incomplete")
   self.assertEqual(state["steps"][8]["github_run_id"],"999444")
+ def test_second_browser_cannot_select_same_notice_while_first_is_running(self):
+  with self.assertRaisesRegex(ValueError,"LIVE_RUN_ALREADY_ACTIVE"):
+   bridge.begin("another-browser",{"mode":"auto"})
+  self.assertEqual(len(self.dispatched),1)
+  self.assertEqual(bridge.current(self.cookie)["active_node"],"N01")
  def test_stage_order_and_duplicate_callback_are_rejected(self):
   with self.assertRaisesRegex(ValueError,"ACTION_NOT_PENDING_FOR_RUN"):
    self._result("N02","verified",{})
