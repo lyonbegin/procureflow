@@ -29,6 +29,39 @@ class Live:
     def _now():
         return datetime(2026,11,8)
 class CollectFirstTests(unittest.TestCase):
+    def test_n03_reads_real_hashed_document_bytes_for_six_source_categories(self):
+        from n03_requirements_collect import collect as collect_original_requirements
+        raw=("\ufeff"
+             "별지 제1호 입찰참여신청서\n"
+             "과업 범위: 주민설명회 지원 및 관계기관 협의\n"
+             "평가 배점표: PT 50점, 인력 15점\n"
+             "입찰 참가자격: 정비사업전문관리업자\n"
+             "제출 마감: 2026년 11월 16일 오전 10시\n"
+             "제출 방법: 직접 방문 제출\n").encode("utf-8")
+        file={"file_seq":1,"sha256":hashlib.sha256(raw).hexdigest(),
+              "size_bytes":len(raw),"original_filename":"원본 입찰지침서.txt",
+              "source":"https://www.g2b.go.kr/official-example"}
+        status,report=collect_original_requirements([file],lambda f:raw)
+        self.assertEqual(status,"verified")
+        self.assertEqual(report["extracted_source_count"],1)
+        self.assertEqual(report["missing_categories"],[])
+        self.assertTrue(all(report["categories"][k] for k in (
+            "submission_forms","scope_of_work","evaluation_criteria",
+            "participation_requirements","submission_deadlines","submission_methods")))
+        self.assertEqual(report["categories"]["evaluation_criteria"][0]
+                         ["source_file_sha256"],file["sha256"])
+        self.assertIn("PT 50점",report["categories"]["evaluation_criteria"][0]["original_text"])
+        self.assertFalse(report["requirements_semantically_verified"])
+        self.assertFalse(report["business_evaluation_performed"])
+        self.assertFalse(report["all_mandatory_submissions_identified"])
+
+    def test_n03_no_originals_means_six_missing_not_fake_defaults(self):
+        from n03_requirements_collect import collect as collect_original_requirements
+        status,out=collect_original_requirements([],lambda _:b"")
+        self.assertEqual(status,"partial")
+        self.assertEqual(len(out["missing_categories"]),6)
+        self.assertEqual(sum(out["category_counts"].values()),0)
+
     def test_n03_only_official_metadata_no_document_analysis(self):
         seen=[]
         def post(opener,url,payload,headers):
