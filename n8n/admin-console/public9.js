@@ -239,11 +239,12 @@
       '<div class="p9-panel-heading"><div><h3>최신 미완료 공고 자동 실행</h3>'+
       '<p>9개 노드가 모두 검증 완료된 공고만 건너뛰고, 미완료 공고는 재처리합니다.</p></div></div>'+
       '<div class="actions">'+
-      '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live())?'disabled':'')+
-      '>▶ 최신 미완료 공고 자동 선정 · 9개 실행</button>'+
+      '<button class="btn primary" data-public9="run" data-testid="live-nine-run-all" '+((st.submitting||live()||st.run?.dispatch_ready===false)?'disabled':'')+
+      '>'+(st.run?.dispatch_ready===false?'GitHub Actions 인증 설정 필요':'▶ 최신 미완료 공고 자동 선정 · 9개 실행')+'</button>'+
       '<button class="btn" data-public9="latest">진행 상태 새로고침</button>'+
       '<button class="btn" data-public9="open">공용 노드 캔버스 전체 화면</button></div>'+
       '<p class="p9-helper">실행 버튼은 개별 GitHub Actions 노드를 순서대로 요청합니다. Railway는 UI·상태·원본 보관만 담당하며 자동 투찰하지 않습니다.</p>'+
+      (st.run?.dispatch_ready===false?'<div class="notice warn" role="alert">GitHub Actions 실행 인증이 설정되지 않아 실행할 수 없습니다. Railway에서 PROCUREFLOW_GITHUB_DISPATCH_TOKEN을 등록하셔야 합니다. Railway 자체 크롤링으로 대체하지 않습니다.</div>':'')+
       (st.error?'<div class="notice warn" role="alert">'+esc(st.error)+'</div>':'')+
       (st.run?.error?'<div class="notice warn" role="alert">서버 실행 오류: '+esc(st.run.error)+'</div>':'')+
       (st.run?.run_id&&stage(7)?.output?.draft_generated?'<p><a class="btn" href="/api/procurement/public9/live-docx?run_id='+encodeURIComponent(st.run.run_id)+'">Word 테스트 초안 내려받기</a></p>':'')+
