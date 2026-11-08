@@ -147,7 +147,7 @@ class AutomaticProcurementStageTests(unittest.TestCase):
         self.assertEqual(called.call_args.args[1]["bid_ord"],"001")
 
     def test_n02_requires_actual_n01_auto_selection(self):
-        with self.assertRaisesRegex(ValueError,"N02_AUTO_SELECTED_NOTICE_REQUIRED"):
+        with self.assertRaisesRegex(ValueError,"N02_SELECTED_NOTICE_REQUIRED"):
             live._live_attachments(None,{},None)
 
     def test_nine_executor_passes_new_auto_selected_tender_to_n02(self):
