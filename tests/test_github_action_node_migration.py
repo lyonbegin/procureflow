@@ -116,10 +116,16 @@ class MigrationTests(unittest.TestCase):
   self.assertEqual(record["file_count"],1)
   self.assertTrue(Path(record["manifest_path"]).exists())
   self.assertEqual(Path(record["files"][0]["saved_path"]).read_bytes(),body)
-  # The same original can only be read when N09 is the currently pending stage.
-  with self.assertRaisesRegex(ValueError,"ACTION_NOT_PENDING_FOR_RUN"):
+  # N03 is the official eligibility-document reader, N09 verifies
+  # immutable saved originals. Any other pending stage must be denied.
+  n03_original=bridge.original("Bearer unit-test-oidc",self.rid,1)
+  self.assertEqual(n03_original.read_bytes(),body)
+  self._result("N03","partial",{
+    "document_requirement_extraction":"verified",
+    "company_eligibility_verified":False})
+  with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
    bridge.original("Bearer unit-test-oidc",self.rid,1)
-  for i in range(3,9):self._result(f"N{i:02d}","partial",{"reason":"held"})
+  for i in range(4,9):self._result(f"N{i:02d}","partial",{"reason":"held"})
   original=bridge.original("Bearer unit-test-oidc",self.rid,1)
   self.assertEqual(original.read_bytes(),body)
   self._result("N09","partial",{"N02_persistent_file_handoff":{
