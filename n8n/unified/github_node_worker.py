@@ -163,7 +163,9 @@ def execute(stage,context,base=ROOT):
         opener=live._client();live._once(opener)
         status,value=n05_openings(opener,previous.get("N04"),
                                   live._json_post,live._now().date())
-        return status,{"N04_verified_historical_records":
+        return status,{"N04_collected_historical_candidates":
+            (previous.get("N04") or {}).get("candidate_record_count",0),
+            "N04_classification_verified_records":
             (previous.get("N04") or {}).get("verified_record_count",0)},value
     if stage=="N06":
         from collect_only_stages import n06_supply_catalog
