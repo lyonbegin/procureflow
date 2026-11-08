@@ -121,8 +121,12 @@ with sync_playwright() as pw:
     assert page.locator("#p9-shared-studio-panel.p9-studio-fullscreen").count()==0
     assert frame.evaluate("window.__iframePersistentInstance")=="SHARED_STUDIO_UNCHANGED","Closing fullscreen reloaded editor"
     # Trigger editor selection -> parent INPUT/OUTPUT inspector.
-    inner.locator('.vue-flow__node[data-id="public9-05"]').click(force=True,timeout=10000)
-    page.locator(".p9-inspector h3").get_by_text("N05").wait_for(timeout=10000)
+    # Focus the real VueFlow node first. Clicking the node wrapper midpoint
+    # can hit the inner toolbar, which intentionally stops propagation.
+    page.evaluate("document.getElementById('p9-shared-studio-frame').contentWindow.postMessage({type:'procureflow:focus-node',node:'N05'},location.origin)")
+    page.wait_for_timeout(500)
+    inner.locator('.vue-flow__node[data-id="public9-05"] .node-header').click(timeout=12000)
+    page.locator(".p9-inspector h3").get_by_text("N05").wait_for(timeout=15000)
     assert "HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED" in page.locator(".p9-inspector").inner_text()
     page.locator('[data-public9="latest"]').click()
     assert frame.evaluate("window.__iframePersistentInstance")=="SHARED_STUDIO_UNCHANGED","Polling reloaded editor"
