@@ -57,9 +57,21 @@ jobs:
           import n02_collect
           from n03_requirements_collect import collect as capture
           n02_collect.STORAGE_ROOT=Path(tempfile.mkdtemp(prefix='pf-n03-official-'))
-          selected={"bid_no":"R26BK01816186","bid_ord":"000","business_code":"03"}
+          selected={"bid_no":"R26BK01816186","bid_ord":"000"}
           opener=live._client()
           live._once(opener)
+          from collect_only_stages import n03_metadata
+          from datetime import date
+          metadata_status,metadata=n03_metadata(opener,selected,live._json_post,
+                                                  live,date(2026,11,8))
+          official_code=(metadata.get("official_fields") or {}).get("prcmBsneSeCd")
+          print("N03_REAL_REQUIREMENTS_OFFICIAL_BUSINESS_CODE",json.dumps({
+              "status":metadata_status,"business_code":official_code,
+              "business_field_verified":bool(metadata.get("official_selected_record_found"))
+          },ensure_ascii=False),flush=True)
+          if not official_code:
+              raise RuntimeError("N03_OFFICIAL_PROCUREMENT_BUSINESS_CODE_MISSING")
+          selected["business_code"]=official_code
           original=n02_collect.collect(opener,selected)
           print("N03_REAL_REQUIREMENTS_N02",json.dumps({
             "notice":selected["bid_no"],
