@@ -111,7 +111,10 @@ class CollectFirstTests(unittest.TestCase):
             "N03":{"detail10":CODE,"gaps":[]},
             "N04":{"records":[],"gaps":["history_not_yet_available"]}}
         state,out=c.n08_handoff(NOTICE,prev)
-        self.assertEqual(state,"partial")
+        self.assertEqual(state,"verified")
+        self.assertTrue(out["handoff_assembled"])
+        self.assertTrue(out["upstream_collection_incomplete"])
+        self.assertIn("N04:history_not_yet_available",out["collection_gaps"])
         self.assertEqual(out["source_originals"],1)
         self.assertEqual(out["handoff_bundle"]["exact_detail10"],CODE)
         self.assertFalse(out["ai_analysis_performed"])
@@ -125,7 +128,7 @@ class CollectFirstTests(unittest.TestCase):
             status,out=ai.evaluate(prev,lambda *_:(_ for _ in ()).throw(
                 AssertionError("N09_MUST_NOT_READ_WITHOUT_API_CONFIG")),
                 lambda *_:None)
-        self.assertEqual(status,"partial")
+        self.assertEqual(status,"not_executed")
         self.assertFalse(out["ai_evaluation_performed"])
         self.assertEqual(out["reason"],"N09_AI_API_NOT_CONFIGURED")
         self.assertFalse(out["bid_submitted"])
