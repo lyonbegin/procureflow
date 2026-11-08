@@ -216,6 +216,24 @@ class CollectFirstTests(unittest.TestCase):
         self.assertIn("historical_max_years_exhausted",out["gaps"])
         self.assertEqual(out["periods_checked"][-1]["from"],"20161108")
 
+    def test_n04_fifty_candidates_target_succeeds_with_nonexhaustive_page_gap(self):
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            age=int(q["start"][:4])
+            p=int(q["currentPage"])
+            return [{**ROW,"bidPbancUntyNo":f"R25BK{(age-2000)*10000+p*100+i:08d}"}
+                    for i in range(20)]
+        state,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+                                post,Live,date(2026,11,8),max_pages=3)
+        self.assertEqual(state,"verified")
+        self.assertTrue(out["target_reached"])
+        self.assertEqual(out["candidate_record_count"],50)
+        self.assertTrue(out["collection_target_complete"])
+        self.assertFalse(out["all_history_complete"])
+        self.assertTrue(any(g.startswith("history_period_page_limit:")
+                            for g in out["gaps"]))
+        self.assertEqual(out["years_searched"],3)
+
     def test_n04_page_limit_not_misreported_as_full_scan(self):
         def post(opener,url,payload,headers):
             return [{**ROW,"bidPbancUntyNo":f"R25BK{i:08d}"} for i in range(20)]
