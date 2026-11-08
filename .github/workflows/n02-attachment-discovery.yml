@@ -57,7 +57,10 @@ jobs:
                   print("N02_NETJSON",list(raw)[:12] if isinstance(raw,dict) else 'list', "bytes",len(txt),"key_matches",keys[:30],flush=True)
                 except Exception as e:print("N02_NET_PARSE_ERROR",str(e)[:80],flush=True)
             p.on('response',capture)
-            p.goto(root,wait_until='domcontentloaded',timeout=45000)
+            detail_url=root+'/link/PNPE027_01/single/?bidPbancNo='+target+'&bidPbancOrd=000'
+            response=p.goto(detail_url,wait_until='domcontentloaded',timeout=45000)
+            print('N02_DEEP_LINK',response.status if response else None,p.url,flush=True)
+            print('N02_DEEP_HTML',p.content()[:1400],flush=True)
             p.wait_for_timeout(3800)
             def info(tag):
               try:
