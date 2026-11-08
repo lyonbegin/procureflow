@@ -90,10 +90,24 @@ def _g2b_rows(opener,post,live,start,end,bid="",code="",page=1):
 def n03_metadata(opener,notice,post,live,today):
     """Official selected tender raw fields. A missing 10-digit class stays missing."""
     bid,order=_valid_notice(notice)
-    start=_year_back(today).strftime("%Y%m%d")
-    response=_g2b_rows(opener,post,live,start,today.strftime("%Y%m%d"),bid=bid)
-    matching=[row for row in response if _ident(row)==(bid,order)]
-    if len(matching)>1:raise ValueError("N03_OFFICIAL_SELECTED_NOTICE_AMBIGUOUS")
+    # A single 10-year first page cannot prove that a specific notice is absent.
+    # Search the most recent windows first, preserving exact bid number/order.
+    windows=list(reversed(list(_periods(today))))
+    checked=[]
+    matching=[]
+    for start,end in windows:
+        for page in range(1,MAX_HISTORY_PAGES_PER_YEAR+1):
+            response=_g2b_rows(opener,post,live,start,end,bid=bid,page=page)
+            checked.append({"start":start,"end":end,"page":page,"rows":len(response)})
+            matching.extend(row for row in response if _ident(row)==(bid,order))
+            if matching or len(response)<20:
+                break
+        if matching:
+            break
+    # Multiple returned rows may represent duplicate exact notice records.
+    # Reject incompatible values rather than silently selecting a row.
+    distinct={json.dumps(row,sort_keys=True,ensure_ascii=False) for row in matching}
+    if len(distinct)>1:raise ValueError("N03_OFFICIAL_SELECTED_NOTICE_AMBIGUOUS")
     found=matching[0] if matching else None
     fields=_pick(found,PUBLIC_FIELDS) if found else {}
     code,source_field=_classification(found) if found else (None,None)
@@ -104,7 +118,8 @@ def n03_metadata(opener,notice,post,live,today):
     return ("verified" if found and code else "partial"),{
        "source":BID_LIST,"retrieval_mode":"selected_notice_exact_number",
        "selected_bid_no":bid,"selected_bid_ord":order,
-       "query_window":{"start":start,"end":today.strftime("%Y%m%d")},
+       "query_windows_checked":checked,
+       "query_window":{"start":checked[-1]["start"],"end":checked[-1]["end"]} if checked else None,
        "official_selected_record_found":bool(found),
        "official_fields":fields,
        "detail10":code,"detail10_source_field":source_field,
