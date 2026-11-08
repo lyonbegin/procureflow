@@ -128,6 +128,9 @@ jobs:
                  "history_candidates":opening.get("candidates"),
                  "checked":opening.get("checked"),
                  "opening_records":len(opening.get("opening_records") or []),
+                 "bidder_detail_documents":len(opening.get("bidder_detail_records") or []),
+                 "actual_bidder_rows":sum(len(d.get("bidders") or [])
+                     for d in opening.get("bidder_detail_records") or []),
                  "gaps":opening.get("gaps",[])[:10],
                  "source_notice_ids":[x.get("bid_no") for x in history["records"][:3]],
                  "evaluation_performed":opening.get("business_evaluation_performed")
