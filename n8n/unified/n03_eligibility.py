@@ -31,6 +31,30 @@ def _evidence(seq,file_sha,start,end,text,kind):
     return {"category":kind,"text":_clean(text)[:450],"file_seq":seq,
             "source_file_sha256":file_sha,"line_start":start+1,"line_end":end+1}
 
+
+def _normalized_source_lines(raw):
+    """Reconstruct logical rows without inventing text.
+
+    Older pypdf releases sometimes concatenate '자격가. ...나. ...'
+    or '서류1. ...2. ...' without newlines. Insert boundaries
+    at visible original heading/bullet tokens. Evidence line numbers below
+    are logical extraction segments, NOT claims about printed PDF line numbers.
+    """
+    if not isinstance(raw,str):return []
+    raw=raw.replace("\u00a0"," ").replace("\u200b","").replace("\r\n","\n")
+    raw=re.sub(r"(?=【\s*제\s*\d+\s*조\s*】)","\n",raw)
+    raw=re.sub(r"(?<!\d)(\d{1,2})[.．]\s*(입찰\s*(?:참여\s*)?자격)\b",
+               r"\n\1. \2\n",raw)
+    raw=re.sub(r"(?<!\d)(\d{1,2})[.．]\s*(입찰\s*참여\s*신청\s*서류)",
+               r"\n\1. \2\n",raw)
+    # Bullet separator often follows a Korean character without space.
+    raw=re.sub(r"([가나다라마바사아자차카타파하])[.．]\s*(?=[가-힣「(（])",
+               r"\n\1. ",raw)
+    # Do not split dates of the form 2026.11.16: require Korean text or a
+    # parenthesized document heading after the item number.
+    raw=re.sub(r"(?<!\d)(\d{1,2})[.．]\s*(?=[가-힣「(（])",r"\n\1. ",raw)
+    return [_clean(item) for item in raw.splitlines() if _clean(item)]
+
 def analyze(files,texts):
     """Only positionally verified text extractions; no synthetic claims."""
     eligible_files=[x for x in files if isinstance(x,dict)
@@ -52,12 +76,14 @@ def analyze(files,texts):
         digest=str(info["sha256"])
         if not re.fullmatch("[0-9a-f]{64}",digest):
             raise ValueError("N03_INVALID_OFFICIAL_DOCUMENT_HASH")
-        lines=[_clean(x) for x in raw.splitlines()]
+        lines=_normalized_source_lines(raw)
         source_files.append({"file_seq":seq,"source_file_sha256":digest,
                              "text_sha256":sha256(raw.encode("utf-8")).hexdigest(),
                              "extracted_chars":len(raw),
                              "source":info.get("source"),
-                             "format":info.get("format")})
+                             "format":info.get("format") or info.get("file_type"),
+                             "original_filename":info.get("original_filename"),
+                             "evidence_line_basis":"normalized_extracted_text"})
         # Only accept participation requirements underneath an actual heading.
         for i,line in enumerate(lines):
             if not QUAL_HEADING.search(line):continue
@@ -127,6 +153,7 @@ def analyze(files,texts):
     return {
         "source":"downloaded_official_attachment_text_only",
         "document_requirement_extraction":"verified" if found else "not_verified",
+        "evidence_line_basis":"normalized_extracted_text",
         "qualification_rules":qualifications[:40],
         "required_documents":documents[:45],
         "procedural_conditions":procedures,
@@ -137,8 +164,8 @@ def analyze(files,texts):
         "document_text_chars":sum(len(t) for t in texts),
         "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
         "company_eligibility_verified":False,
-        "missing_company_evidence":["정비사업전문관리업 등록 증빙 등 공고 자격에 맞는 업체 증빙",
-                                    "실적·인력·재무·국세·지방세 및 기타 원문 요구서류"],
+        "missing_company_evidence":["공고에 명시된 업체 참가자격을 입증할 사업자·업종등록 등 원본 증빙",
+                                    "공고 요구 제출서류와 비교할 업체의 실적·인력·세금 관련 원본"],
         "reason":("OFFICIAL_DOCUMENT_REQUIREMENTS_EXTRACTED_COMPANY_EVIDENCE_UNAVAILABLE"
                  if found else "QUALIFICATION_SECTION_NOT_VERIFIED_IN_EXTRACTED_ORIGINALS")
     }
