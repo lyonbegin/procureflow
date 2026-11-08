@@ -357,10 +357,16 @@ def n05_openings(opener,history,post,today):
                                  ",".join(errors[:2])[:140])
     if len(candidates)>MAX_OPENING_LOOKUPS:
         value["gaps"].append("opening_lookup_limit_"+str(MAX_OPENING_LOOKUPS))
-    # An opening list alone does not enumerate bidders or establish the award.
-    value["gaps"].append("bidder_tender_amounts_and_signed_award_detail_not_yet_collected")
-    value["all_candidate_openings_collected"]=(value["checked"]==len(candidates)
-                                            and not any("lookup_failed" in g for g in value["gaps"]))
+    # A successful empty list response is not a collected opening/bidder result.
+    value["observed_bidder_row_count"]=sum(len(x.get("bidders") or [])
+                                        for x in value["bidder_detail_records"])
+    if not value["observed_bidder_row_count"]:
+        value["gaps"].append("bidder_amounts_not_collected")
+    # A winner field does not by itself prove a signed/final award.
+    value["gaps"].append("final_signed_award_detail_not_verified")
+    value["all_candidate_openings_collected"]=(
+        value["checked"]==len(candidates) and bool(value["opening_records"])
+        and not any("lookup_failed" in g for g in value["gaps"]))
     return "partial",value
 
 def n06_supply_catalog(notice,n02,history,opening):
