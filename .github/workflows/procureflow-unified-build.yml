@@ -54,20 +54,24 @@ jobs:
           docker logs proc-unified 2>&1 | grep 'UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION'
           docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HELD_DB_NOT_CONNECTED_OR_EMBEDDED_API_NOT_ENABLED'
           docker stop proc-unified
-      - name: Run real Chromium clicks INSIDE the tested unified Docker image
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser ONLY on GitHub Actions runner (never Railway image)
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Run real Chromium clicks from GitHub runner against the lightweight Docker service
         run: |
           mkdir -p artifacts/unified-live-ui
-          docker run -d --rm --name proc-unified-e2e \
-            -e PORT=3000 \
-            -e PROCUREFLOW_API_ORIGIN=https://procureflow-api-production.up.railway.app \
-            -v "$PWD/artifacts/unified-live-ui:/app/artifacts/unified-live-ui" \
-            procureflow-unified:ci
+          docker run -d --rm -p 3000:3000 --name proc-unified-e2e \
+            -e PORT=3000 procureflow-unified:ci
           for n in $(seq 1 40); do
-            if docker exec proc-unified-e2e python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:3000/health",timeout=2).read()' >/dev/null 2>&1; then break; fi
+            if curl -fSs http://127.0.0.1:3000/health >/dev/null; then break; fi
             sleep 2
           done
-          docker exec -e PROCUREFLOW_UI_BASE=https://procureflow-unified-studio-candidate-production.up.railway.app \
-            proc-unified-e2e python3 /app/tests/e2e_procureflow_unified_live_ui.py
+          PROCUREFLOW_UI_BASE=http://127.0.0.1:3000 \
+            python tests/e2e_procureflow_unified_live_ui.py
           docker stop proc-unified-e2e
       - name: Upload live UI screenshots and pass/fail JSON
         if: always()
