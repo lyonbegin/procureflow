@@ -40,7 +40,11 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     # Railway mounts existing draft volume as root, after image build.
-    subprocess.run(["chown", "-R", "studio:studio", "/data"], check=True)
+    # O(1) directory ownership setup: never scan thousands of stored bids at boot.
+    for directory in ("/data","/data/n01","/data/n01/github-actions",
+                      "/data/n01/bids"):
+        subprocess.run(["install","-d","-o","studio","-g","studio",directory],check=True)
+    print("UNIFIED_GITHUB_ACTIONS_CONTROL_PLANE_NO_RAILWAY_CRAWLING",flush=True)
     launch("studio", ["gosu", "studio", "python3", "-u", "/app/studio_server.py"],
            {"PORT": "3001"})
     database = bool(os.environ.get("DATABASE_URL"))
@@ -58,8 +62,8 @@ def main():
                          "--host", "127.0.0.1", "--port", "8002"])
     else:
         print("UNIFIED_FRESH_HOLD_ISOLATED_DATABASE_URL_NOT_CONFIGURED", flush=True)
-    # Absolutely no background collector/scheduler. Browser-initiated N01-N09
-    # uses direct_public9 on the Studio server only.
+    # Browser sends only GitHub Actions dispatch requests through Studio API.
+    # No Railway crawling, Playwright, document parsing or node execution.
     print("UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION", flush=True)
     launch("proxy", ["nginx", "-g", "daemon off;"])
     try:
