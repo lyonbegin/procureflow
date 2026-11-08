@@ -1,0 +1,70 @@
+name: ProcureFlow collection-first N01-N08, N09 AI-only verification
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/collection-first-nine.yml
+      - n8n/unified/collect_only_stages.py
+      - n8n/unified/n09_final_ai.py
+      - n8n/unified/github_node_worker.py
+      - n8n/unified/github_actions_bridge.py
+      - n8n/strategy-workflows/PF00-public-nine-real.json
+      - tests/test_collection_first_nine.py
+      - tests/test_github_action_node_migration.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collection-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Railway OIDC verifier test dependency (GitHub runner only)
+        run: python -m pip install --disable-pip-version-check 'PyJWT[crypto]==2.10.1'
+      - name: Validate no business judgments before N09 and preserved graph
+        run: |
+          python -m unittest discover -s tests -p test_collection_first_nine.py -v
+          python -m unittest discover -s tests -p test_github_action_node_migration.py -v
+      - name: Python compile + browser dependency boundary
+        run: |
+          python -m py_compile n8n/unified/collect_only_stages.py n8n/unified/n09_final_ai.py n8n/unified/github_node_worker.py n8n/unified/github_actions_bridge.py
+          echo 'COLLECTION_FIRST_N01_N08_N09_ONLY_AI_CONTRACT_PASS'
+  g2b-selected-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real G2B selected tender lookup (N03 source fields, not eligibility)
+        run: |
+          python - <<'PY'
+          import json,sys
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata
+          notice={"bid_no":"R26BK01816186","bid_ord":"000"}
+          opener=live._client()
+          live._once(opener)
+          status,out=n03_metadata(opener,notice,live._json_post,live,date(2026,11,8))
+          print("COLLECTION_FIRST_REAL_G2B_METADATA",json.dumps({
+              "stage":"N03","status":status,
+              "selected_record_found":out["official_selected_record_found"],
+              "detail10":out["detail10"],
+              "detail10_source_field":out["detail10_source_field"],
+              "source_keys":list(out["official_fields"]),
+              "gaps":out["gaps"],
+              "business_evaluation_performed":out["business_evaluation_performed"],
+          },ensure_ascii=False),flush=True)
+          assert out["selected_bid_no"]==notice["bid_no"]
+          assert out["business_evaluation_performed"] is False
+          assert "company_eligibility" not in out
+          assert status in ("verified","partial")
+          print("COLLECTION_FIRST_REAL_G2B_N03_NO_EVALUATION_PASS",flush=True)
+          PY
