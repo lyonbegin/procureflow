@@ -87,9 +87,9 @@ with sync_playwright() as pw:
     frame=iframe.element_handle().content_frame()
     frame.evaluate("window.__iframePersistentInstance='SHARED_STUDIO_UNCHANGED'")
     page.get_by_test_id("live-nine-run-all").click()
-    assert flow["post_count"]==1,"Admin run button must invoke single existing pipeline"
-    page.wait_for_function("() => document.querySelector('[data-p9=counter]')?.textContent?.includes('0 / 9')",timeout=12000)
     inner.locator('.vue-flow__node[data-id="public9-01"] .studio-node.is-running').wait_for(timeout=18000)
+    assert flow["post_count"]==1,"Admin run button must invoke single existing pipeline"
+    assert page.locator('[data-p9="counter"]').inner_text()=="진행된 단계 0 / 9"
     assert "실행 중" in inner.locator('.vue-flow__node[data-id="public9-01"] .node-footer').inner_text()
     page.screenshot(path=str(OUT/"02_n01_running_inside_original_canvas.png"),full_page=True)
     flow["phase"]=1
