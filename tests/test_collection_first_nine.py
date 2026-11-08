@@ -81,7 +81,7 @@ class CollectFirstTests(unittest.TestCase):
 
     def test_n04_actual_8_digit_item_matches_official_records(self):
         seen=[]
-        official={**ROW,"prdlstClsfNo":"81111599"}
+        official={**ROW,"prdlstClsfNo":"81111599","bidPbancUntyNo":"R25BK01816186"}
         official.pop("dtlsPrnmNo")
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
@@ -108,7 +108,7 @@ class CollectFirstTests(unittest.TestCase):
             q=payload["dlBidPbancLstM"]
             seen.append(dict(q))
             if q["start"]=="20251108":
-                return [ROW]
+                return [{**ROW,"bidPbancUntyNo":"R25BK01816186"}]
             return []
         status,out=c.n04_history(None,NOTICE,{"detail10":None},post,Live,date(2026,11,8))
         self.assertEqual(out["query_mode"],"official_title_prefix")
