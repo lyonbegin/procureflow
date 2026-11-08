@@ -375,6 +375,89 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(len(out["per_notice"]),50)
         self.assertFalse(out["business_evaluation_performed"])
 
+    def test_n06_company_history_preserves_all_observed_bid_and_award_source_rows(self):
+        history={"records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+            "class8":"81111599","detail10":None,"official_fields":{"bidPbancNm":"사업A"}}]}
+        opening={"opening_records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+                  "official_fields":{"scsbdAmt":"137000000","bidQntty":"4"}}],
+                 "bidder_detail_records":[{
+                    "bid_no":"R25BK00000001","bid_ord":"000","source":c.OPENING_DETAIL,
+                    "bid_info_fields":{"fnlSucsfbdCorpNm":"가업체","scsbdAmt":"137000000"},
+                    "source_page_sha256":["ab"*32],
+                    "bidClsfNo":"0","bidPrgrsOrd":"000",
+                    "bidders":[
+                        {"bzmnRegNo":"1234567890","grpNm":"가업체",
+                         "bdngAmt":"138000000","bdrt":"89.1","onbsRnkg":"1"},
+                        {"bzmnRegNo":"2234567890","grpNm":"나업체",
+                         "bdngAmt":"139000000","bdrt":"88.2","onbsRnkg":"2"},
+                        {"bzmnRegNo":"1234567890","grpNm":"가업체",
+                         "bdngAmt":"140000000","bdrt":"88.0","onbsRnkg":"3"}]}]}
+        s6,n6=c.n06_supply_catalog(NOTICE,{"files":[]},history,opening)
+        self.assertEqual(s6,"verified")
+        self.assertEqual(n6["company_count"],2)
+        self.assertEqual(n6["bid_history_record_count"],3)
+        self.assertEqual([x["bid_amount"] for x in n6["bid_history_records"]],
+                         ["138000000","139000000","140000000"])
+        self.assertEqual([x["bid_rate"] for x in n6["bid_history_records"]],
+                         ["89.1","88.2","88.0"])
+        company=next(x for x in n6["company_records"]
+                     if x["registration_number"]=="1234567890")
+        self.assertEqual(company["bid_record_indexes"],[0,2])
+        self.assertEqual(len(n6["award_result_source_records"]),1)
+        self.assertFalse(n6["award_result_source_records"][0]["final_award_verified"])
+        self.assertFalse(n6["all_time_company_history_verified"])
+        self.assertFalse(n6["business_evaluation_performed"])
+
+    def test_n07_groups_item_prices_and_quantities_not_company_summaries(self):
+        history={"records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+            "class8":"81111599","detail10":None,"official_fields":{
+               "bidPbancNm":"정보시스템 관련 사업","bidQntty":"4"}}]}
+        opening={"opening_records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+                  "official_fields":{"scsbdAmt":"137000000","bidQntty":"4"}}],
+                 "bidder_detail_records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+                   "source":c.OPENING_DETAIL,
+                   "bidders":[{"bzmnRegNo":"1234567890","grpNm":"가업체",
+                         "bdngAmt":"138000000","bdrt":"89.1"}]}]}
+        s7,n7=c.n07_price_sources(NOTICE,{"official_fields":{}},
+                                     history,opening,{})
+        self.assertEqual(s7,"verified")
+        self.assertEqual(n7["classification_group_count"],1)
+        self.assertEqual(n7["classification_groups"][0]["class8"],"81111599")
+        self.assertTrue(any(x["raw"]=="137000000" and x["field"]=="scsbdAmt"
+                            for x in n7["source_amounts"]))
+        self.assertTrue(any(x["raw"]=="138000000" and x["field"]=="bdngAmt"
+                            for x in n7["source_amounts"]))
+        self.assertTrue(any(x["raw"]=="4" and x["field"]=="bidQntty"
+                            for x in n7["price_quantity_records"]))
+        self.assertEqual(n7["awarded_price_records_verified"],0)
+        self.assertIsNone(n7["recommended_bid"])
+        self.assertFalse(n7["business_evaluation_performed"])
+
+    def test_n08_handoff_contains_both_company_and_commodity_original_evidence(self):
+        history={"records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+              "class8":"81111599","official_fields":{"bidPbancNm":"사업"}}]}
+        opening={"opening_records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+                  "official_fields":{"scsbdAmt":"137000000"}}],
+                 "bidder_detail_records":[{"bid_no":"R25BK00000001","bid_ord":"000",
+                   "source":c.OPENING_DETAIL,
+                   "bidders":[{"bzmnRegNo":"1234567890","grpNm":"가업체",
+                         "bdngAmt":"138000000"}]}]}
+        _,n6=c.n06_supply_catalog(NOTICE,{"files":[]},history,opening)
+        _,n7=c.n07_price_sources(NOTICE,{},history,opening,n6)
+        previous={"N02":{"files":[{"file_seq":1,"sha256":"a"*64,
+                          "size_bytes":123,"source":"official"}]},
+                  "N04":history,"N05":opening,"N06":n6,"N07":n7}
+        state,out=c.n08_handoff(NOTICE,previous)
+        self.assertEqual(state,"verified")
+        bundle=out["handoff_bundle"]
+        self.assertEqual(bundle["bidder_detail_records"][0]["bidders"][0]
+                         ["bdngAmt"],"138000000")
+        self.assertEqual(bundle["company_bid_history_records"][0]["bid_amount"],
+                         "138000000")
+        self.assertTrue(any(x["field"]=="scsbdAmt" for x in bundle["source_amount_fields"]))
+        self.assertEqual(len(bundle["company_records"]),1)
+        self.assertFalse(out["business_evaluation_performed"])
+
     def test_n06_n07_only_catalog_existing_sources(self):
         hist={"records":[{"bid_no":BID}]}
         n02={"files":[{"file_seq":1,"original_filename":"원본.hwp",
