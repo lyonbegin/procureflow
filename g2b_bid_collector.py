@@ -533,7 +533,9 @@ def collect(days=7,pages=1,categories=None,kinds=None,bid_numbers=None,
             "discovered":0,"errors":[],"bid_details":[],"final_winners":0,
             "window_start":first_day.isoformat(),
             "window_end":last_day.isoformat(),"page_start":page_start}
-    result["obsolete_rows_removed"]=remove_superseded_bid_rows()
+    # An explicit exact-ID collection must NEVER modify unrelated opening
+    # records. Global stale listing cleanup belongs only to listing sync.
+    result["obsolete_rows_removed"]=(0 if bid_numbers else remove_superseded_bid_rows())
     with sync_playwright() as driver:
         browser=driver.chromium.launch(headless=True,args=[
             "--no-sandbox","--disable-dev-shm-usage"])
