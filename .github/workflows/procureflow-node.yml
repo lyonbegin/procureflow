@@ -1,0 +1,69 @@
+name: ProcureFlow node executor (N01–N09 on GitHub, Railway UI only)
+run-name: ProcureFlow ${{ inputs.stage || 'validation' }} ${{ inputs.run_id || github.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Railway-issued random 32-character execution ID
+        required: true
+        type: string
+      stage:
+        description: Exactly one node to execute
+        required: true
+        type: choice
+        options: [N01, N02, N03, N04, N05, N06, N07, N08, N09]
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/procureflow-node.yml
+      - n8n/unified/github_node_worker.py
+      - n8n/unified/github_actions_bridge.py
+      - n8n/unified/github_oidc.py
+      - tests/test_github_action_node_migration.py
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: procureflow-nine-${{ inputs.run_id || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  run-one-node:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout isolated ProcureFlow production code
+        uses: actions/checkout@v4
+        with:
+          ref: feature/procureflow-unified-studio-20261107
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only file/document dependencies (no Chrome)
+        run: python -m pip install --disable-pip-version-check --no-cache-dir python-docx==1.2.0 pypdf==5.4.0 olefile==0.47
+      - name: Run exactly one N01-N09 node and report signed result to Railway
+        env:
+          PROCUREFLOW_RUN_ID: ${{ inputs.run_id }}
+          PROCUREFLOW_STAGE: ${{ inputs.stage }}
+          PROCUREFLOW_RELAY_URL: https://procureflow-unified-studio-candidate-production.up.railway.app
+          PYTHONPATH: n8n/unified
+        run: python -u n8n/unified/github_node_worker.py
+  unit-tests:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate all nine GitHub node contracts and dispatch control
+        run: python -m unittest discover -s tests -p test_github_action_node_migration.py -v
+      - name: Confirm Chrome is absent from runner
+        run: |
+          if grep -Ei "playwright install|chromium|selenium" .github/workflows/procureflow-node.yml; then
+            echo "Unexpected browser dependency" >&2
+            exit 1
+          fi
+          echo "GITHUB_ACTIONS_NINE_NODE_LIGHTWEIGHT_EXECUTOR_PASS"
