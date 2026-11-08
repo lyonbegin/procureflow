@@ -68,15 +68,15 @@ class CollectFirstTests(unittest.TestCase):
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
             seen.append((q["start"],q["end"],q["currentPage"]))
-            if q["start"]=="20251108":
+            if q["start"]=="20241108":
                 return [ROW]
             return []
         status,out=c.n03_metadata(None,NOTICE,post,Live,date(2026,11,8))
         self.assertEqual(status,"verified")
         self.assertEqual(out["detail10"],CODE)
         self.assertGreater(len(seen),1)
-        self.assertEqual(out["query_windows_checked"][0]["start"],"20261108")
-        self.assertEqual(out["query_windows_checked"][1]["start"],"20251108")
+        self.assertEqual(out["query_windows_checked"][0]["start"],"20251108")
+        self.assertEqual(out["query_windows_checked"][1]["start"],"20241108")
         self.assertFalse(out["business_evaluation_performed"])
 
     def test_n04_actual_8_digit_item_matches_official_records(self):
@@ -131,6 +131,79 @@ class CollectFirstTests(unittest.TestCase):
         self.assertEqual(c._history_query(
             {"bid_no":BID,"bid_ord":"000","business_code":"조070001",
              "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_title_keyword")
+
+    def test_n04_three_year_initial_window_and_fifty_unique(self):
+        seen=[]
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            seen.append((q["start"],int(q["currentPage"])))
+            if q["start"]!="20231108":return []
+            start=(int(q["currentPage"])-1)*20
+            return [{**ROW,"bidPbancUntyNo":f"R25BK{i:08d}"}
+                    for i in range(start+1,min(start+21,51))]
+        status,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+                                 post,Live,date(2026,11,8))
+        self.assertEqual(status,"verified")
+        self.assertEqual(out["initial_years"],3)
+        self.assertEqual(out["years_searched"],3)
+        self.assertEqual(len(out["periods_checked"]),3)
+        self.assertEqual(out["candidate_record_count"],50)
+        self.assertTrue(out["target_reached"])
+        self.assertEqual(out["periods_checked"][0]["from"],"20251108")
+        self.assertEqual(out["periods_checked"][2]["from"],"20231108")
+        self.assertEqual(out["periods_checked"][2]["pages_checked"],3)
+        self.assertEqual(out["periods_checked"][2]["cumulative_records"],50)
+        self.assertFalse(out["business_evaluation_performed"])
+
+    def test_n04_extends_one_year_at_a_time_until_fifty(self):
+        year_starts=("20251108","20241108","20231108","20221108")
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            n=year_starts.index(q["start"]) if q["start"] in year_starts else 9
+            if n==9:return []
+            count=20 if n==3 else 10
+            return [{**ROW,"bidPbancUntyNo":f"R25BK{n*100+i:08d}"}
+                    for i in range(1,count+1)]
+        status,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+                                 post,Live,date(2026,11,8))
+        self.assertEqual(status,"verified")
+        self.assertEqual(out["candidate_record_count"],50)
+        self.assertTrue(out["target_reached"])
+        self.assertEqual(out["years_expanded"],4)
+        self.assertEqual(out["years_searched"],4)
+        self.assertEqual(out["periods_checked"][3]["from"],"20221108")
+        self.assertEqual(out["periods_checked"][3]["to"],"20231107")
+        self.assertEqual(out["periods_checked"][3]["cumulative_records"],50)
+
+    def test_n04_ten_year_max_and_deduplicated_count(self):
+        seen=[]
+        def post(opener,url,payload,headers):
+            q=payload["dlBidPbancLstM"]
+            seen.append(q["start"])
+            # Even ten repeated responses count as a single historical notice.
+            return [{**ROW,"bidPbancUntyNo":"R25BK12345678"}]
+        state,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+                                post,Live,date(2026,11,8))
+        self.assertEqual(state,"partial")
+        self.assertEqual(out["years_searched"],10)
+        self.assertEqual(len(seen),10)
+        self.assertEqual(out["candidate_record_count"],1)
+        self.assertFalse(out["target_reached"])
+        self.assertIn("historical_target_not_reached:1/50",out["gaps"])
+        self.assertIn("historical_max_years_exhausted",out["gaps"])
+        self.assertEqual(out["periods_checked"][-1]["from"],"20161108")
+
+    def test_n04_page_limit_not_misreported_as_full_scan(self):
+        def post(opener,url,payload,headers):
+            return [{**ROW,"bidPbancUntyNo":f"R25BK{i:08d}"} for i in range(20)]
+        status,out=c.n04_history(None,NOTICE,{"detail10":CODE,"detail10_verified":True},
+                                 post,Live,date(2026,11,8),max_pages=1)
+        self.assertEqual(status,"partial")
+        self.assertFalse(out["all_history_complete"])
+        self.assertTrue(any(x.startswith("history_period_page_limit:") for x in out["gaps"]))
+
+    def test_n05_capacity_at_least_fifty(self):
+        self.assertGreaterEqual(c.MAX_OPENING_LOOKUPS,50)
 
     def test_n05_only_connected_official_bids_no_competitor_prediction(self):
         hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":CODE,
