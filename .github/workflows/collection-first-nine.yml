@@ -225,7 +225,24 @@ jobs:
                       "detail_pages":result.get("pages_checked") if result else 0,
                       "errors":errors[:3]
                   },ensure_ascii=False),flush=True)
-                  if result and result.get("bidders"):break
+                  if result and result.get("bidders"):
+                      from collect_only_stages import n05_openings
+                      history={"records":[{
+                          "bid_no":item["bidPbancNo"],
+                          "bid_ord":str(item["bidPbancOrd"]),
+                          "detail10":None,
+                          "query_period":{"from":"20261001","to":"20261108"}}]}
+                      state,out=n05_openings(opener,history,live._json_post,__import__("datetime").date(2026,11,8))
+                      print("N05_OFFICIAL_END_TO_END",json.dumps({
+                          "bid_no":item.get("bidPbancNo"),
+                          "status":state,
+                          "checked":out.get("checked"),
+                          "listing_pages":out.get("opening_list_pages"),
+                          "exact_opening_rows":len(out.get("opening_records") or []),
+                          "bidder_rows":out.get("observed_bidder_row_count"),
+                          "source_gaps":out.get("gaps",[])[:6]
+                      },ensure_ascii=False),flush=True)
+                      break
           except Exception as exc:
               print("N05_OFFICIAL_PROBE_ERROR",type(exc).__name__+":"+str(exc)[:140],flush=True)
           PY
