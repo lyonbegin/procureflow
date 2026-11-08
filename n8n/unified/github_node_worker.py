@@ -222,6 +222,10 @@ def _safe_collected_counts(stage,status,output):
         result["history_candidates"]=output.get("candidates",0)
         result["opening_queries_checked"]=output.get("checked",0)
         result["opening_records"]=len(output.get("opening_records") or [])
+        result["bidder_detail_documents"]=len(output.get("bidder_detail_records") or [])
+        result["bidder_rows"]=output.get("observed_bidder_row_count",0)
+        result["not_published_or_not_returned"]=output.get("not_published_count",0)
+        result["per_notice_attempted"]=output.get("attempted",0)
     elif stage=="N06":
         result["supplier_quotations"]=output.get("supplier_quotation_original_count",0)
         result["company_workforce_originals"]=output.get("company_workforce_original_count",0)
