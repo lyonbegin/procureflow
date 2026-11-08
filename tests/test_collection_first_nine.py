@@ -86,7 +86,7 @@ class CollectFirstTests(unittest.TestCase):
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
             seen.append(dict(q))
-            if q["fromBidDt"]=="20161108":
+            if q["start"]=="20161108":
                 return [official,{**official,"bidPbancUntyNo":"R26BK00000000",
                                   "prdlstClsfNo":"12345678"}]
             return []
@@ -107,7 +107,7 @@ class CollectFirstTests(unittest.TestCase):
         def post(opener,url,payload,headers):
             q=payload["dlBidPbancLstM"]
             seen.append(dict(q))
-            if q["fromBidDt"]=="20251108":
+            if q["start"]=="20251108":
                 return [ROW]
             return []
         status,out=c.n04_history(None,NOTICE,{"detail10":None},post,Live,date(2026,11,8))
