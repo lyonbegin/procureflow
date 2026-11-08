@@ -288,6 +288,7 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
     value["records"]=list(records.values())
     value["verified_record_count"]=len(records) if mode in ("official_item8","official_item10") else 0
     value["candidate_record_count"]=len(records)
+    value["collected_record_count"]=len(records)
     value["target_reached"]=len(records)>=target_records
     value["periods_requested"]=len(value["periods_checked"])
     value["years_searched"]=len(value["periods_checked"])
@@ -469,8 +470,9 @@ def n08_handoff(notice,previous):
     for stage in ("N01","N02","N03","N04","N05","N06","N07"):
         record=previous.get(stage) or {}
         steps[stage]={"source":record.get("source"),
-          "records":record.get("file_count",record.get("verified_record_count",
-            record.get("checked",record.get("source_amounts") and len(record["source_amounts"])))),
+          "records":record.get("collected_record_count",record.get("file_count",
+             record.get("verified_record_count",record.get("checked",
+               record.get("source_amounts") and len(record["source_amounts"]))))),
           "gaps":list(record.get("gaps") or [])[:40]}
         all_gaps.extend(stage+":"+str(x) for x in record.get("gaps") or [])
     files=[{"file_seq":x.get("file_seq"),"original_filename":x.get("original_filename"),
