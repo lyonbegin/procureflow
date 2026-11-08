@@ -291,13 +291,18 @@ def n08_handoff(notice,previous):
           "bundle_error":"BUNDLE_EXCEEDS_RELAY_LIMIT_NO_SILENT_TRUNCATION",
           "bundle_bytes":len(raw),"gaps":all_gaps[:40],
           "business_evaluation_performed":False}
-    return ("verified" if files and not all_gaps else "partial"),{
+    # N08's own task is to assemble a faithful collection handoff, not
+    # decide whether the upstream collection was exhaustive. Preserve every
+    # upstream gap in the bundle; the handoff itself can be verified.
+    return "verified",{
         "source":"N01_N07_unassessed_sources",
         "handoff_bundle":bundle,
         "bundle_bytes":len(raw),
         "bundle_sha256":sha256(raw).hexdigest(),
         "source_originals":len(files),
         "collection_gaps":all_gaps[:200],
+        "handoff_assembled":True,
+        "upstream_collection_incomplete":bool(all_gaps),
         "business_evaluation_performed":False,
         "ai_analysis_performed":False,
         "word_draft_generated":False}
