@@ -148,6 +148,67 @@ def current(sid):
                                       "dispatch_ready":bool(os.environ.get("PROCUREFLOW_GITHUB_DISPATCH_TOKEN","").strip()),
                                       "completed_steps":0,"steps":[]}
 
+def audit(auth,run_id):
+    """Read-only, authenticated, NON-SENSITIVE existing run evidence summary.
+
+    GitHub Actions OIDC mandatory. No full bidder records, filenames, company
+    evidence, document text, workflow secrets or paths are returned.
+    """
+    _verify_request(auth)
+    with LOCK:
+        run=_state(run_id)
+        stages=[]
+        for step in run.get("steps") or []:
+            node=step.get("node")
+            out=step.get("output") or {}
+            detail={}
+            if node=="N01":
+                detail={"selected_bid_no":out.get("bid_no"),
+                        "selected_bid_ord":out.get("bid_ord"),
+                        "official_fields_verified":out.get("official_fields_verified")}
+            elif node=="N02":
+                detail={"file_count":out.get("file_count"),
+                        "total_bytes":out.get("total_bytes"),
+                        "official_inventory_complete":out.get("official_attachment_inventory_complete")}
+            elif node=="N03":
+                detail={"official_record_found":out.get("official_selected_record_found"),
+                        "official_field_count":len(out.get("official_fields") or {}),
+                        "detail10":out.get("detail10") if out.get("detail10_verified") else None,
+                        "detail10_verified":out.get("detail10_verified")}
+            elif node=="N04":
+                detail={"requested_detail10":out.get("requested_detail10"),
+                        "periods_requested":out.get("periods_requested"),
+                        "periods_checked":len(out.get("periods_checked") or []),
+                        "verified_history_records":out.get("verified_record_count",0)}
+            elif node=="N05":
+                detail={"history_candidates":out.get("candidates",0),
+                        "opening_queries_checked":out.get("checked",0),
+                        "opening_records":len(out.get("opening_records") or [])}
+            elif node=="N06":
+                detail={"official_file_catalog":len(out.get("official_originals_catalog") or []),
+                        "supplier_quotations":out.get("supplier_quotation_original_count",0),
+                        "company_workforce_originals":out.get("company_workforce_original_count",0)}
+            elif node=="N07":
+                detail={"official_amount_fields":len(out.get("source_amounts") or []),
+                        "recommended_bid_generated":out.get("recommended_bid") is not None}
+            elif node=="N08":
+                detail={"handoff_assembled":bool(out.get("handoff_bundle") or out.get("handoff_assembled")),
+                        "bundled_originals":out.get("source_originals"),
+                        "bundle_bytes":out.get("bundle_bytes"),
+                        "upstream_collection_gaps":len(out.get("collection_gaps") or [])}
+            elif node=="N09":
+                detail={"ai_evaluation_performed":bool(out.get("ai_evaluation_performed")),
+                        "reason":out.get("reason"),
+                        "report_generated":bool(out.get("report_sha256"))}
+            stages.append({"node":node,"status":step.get("status"),
+                           "github_run_id":step.get("github_run_id"),
+                           "missing_sources":list(out.get("gaps") or out.get("collection_gaps") or [])[:25],
+                           "details":detail})
+        return {"run_id":run_id,"status":run.get("status"),
+                "completed_steps":len(stages),"stages":stages,
+                "audit_source":"railway_persisted_signed_node_results",
+                "contains_raw_company_documents":False}
+
 def document(sid,rid):
     with LOCK:
         r=_find_session(sid)
