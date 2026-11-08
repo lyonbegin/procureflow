@@ -168,7 +168,7 @@ def _history_query(notice,n03):
         # A unique project phrase can return just the selected bid. The last
         # four chars are still a literal substring of the official title,
         # and every official response is separately matched and provenance-tagged.
-        term=token[-4:] if len(token)>5 else token
+        term=token[-3:] if len(token)>5 else token
         return "official_title_keyword",{"bidPbancNm":term},term
     agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
     if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
