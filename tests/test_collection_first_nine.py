@@ -46,10 +46,23 @@ class CollectFirstTests(unittest.TestCase):
     def test_n03_missing_class_is_gap_not_synthetic_guess(self):
         status,out=c.n03_metadata(None,NOTICE,lambda *_:[{k:v for k,v in ROW.items() if k!="dtlsPrnmNo"}],
                                   Live,date(2026,11,8))
-        self.assertEqual(status,"partial")
+        self.assertEqual(status,"verified")  # N03 collected official metadata.
         self.assertIsNone(out["detail10"])
         self.assertFalse(out["detail10_verified"])
-        self.assertIn("official_10_digit_detail_class_not_verified",out["gaps"])
+        self.assertIsNone(out["class8"])
+        self.assertIn("official_8_digit_item_class_not_in_listing",out["gaps"])
+    def test_n03_accepts_official_8_digit_item_code_without_detail10(self):
+        official=dict(ROW)
+        official.pop("dtlsPrnmNo")
+        official["prdlstClsfNo"]="81111599"
+        status,out=c.n03_metadata(None,NOTICE,lambda *_:[official],
+                                  Live,date(2026,11,8))
+        self.assertEqual(status,"verified")
+        self.assertEqual(out["class8"],"81111599")
+        self.assertEqual(out["class8_source_field"],"prdlstClsfNo")
+        self.assertIsNone(out["detail10"])
+        self.assertFalse(out["business_evaluation_performed"])
+
     def test_n03_searches_beyond_first_year_window(self):
         seen=[]
         def post(opener,url,payload,headers):
