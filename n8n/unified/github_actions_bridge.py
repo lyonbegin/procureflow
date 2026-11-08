@@ -19,6 +19,7 @@ from github_oidc import verify,GitHubOIDCError
 from n02_collect import STORAGE_ROOT,_safe_name,_kind
 
 ROOT=Path(os.environ.get("PROCUREFLOW_ACTION_STATE_ROOT","/data/n01/github-actions"))
+ACTIVE_FILE=ROOT/"active_run.json"
 REPO="lyonbegin/procureflow"
 BRANCH=os.environ.get("PROCUREFLOW_ACTIONS_REF","main")
 WORKFLOW="procureflow-node.yml"
@@ -88,6 +89,14 @@ def begin(sid,payload):
         last=_find_session(sid)
         if last and last.get("status")=="running":
             raise ValueError("LIVE_RUN_ALREADY_ACTIVE")
+        occupied=_read(ACTIVE_FILE,{}) or {}
+        previous_id=occupied.get("run_id")
+        if previous_id:
+            previous=_read(_run_path(previous_id),{}) or {}
+            if previous.get("status")=="running":
+                started=datetime.fromisoformat(previous["started_at"])
+                if datetime.now(ZoneInfo("Asia/Seoul"))-started<timedelta(hours=8):
+                    raise ValueError("LIVE_RUN_ALREADY_ACTIVE")
         rid=uuid.uuid4().hex
         run={"run_id":rid,"status":"running","mode":"github_actions_nine_nodes",
              "selection_mode":"newest_incomplete_auto",
@@ -98,6 +107,7 @@ def begin(sid,payload):
              "pending_stage":"N01","uploads":{},"github_action_runs":[],
              "db_reads":0,"worker_calls":0,"bid_submitted":False}
         _atomic(_run_path(rid),run)
+        _atomic(ACTIVE_FILE,{"run_id":rid})
         _atomic(_session_path(sid),{"run_id":rid})
         try:
             run["dispatch"]=_dispatch(run,"N01")
@@ -107,6 +117,7 @@ def begin(sid,payload):
             run["error"]=str(exc)
             run["active_node"]=None
             _atomic(_run_path(rid),run)
+            _atomic(ACTIVE_FILE,{"run_id":None})
             raise RuntimeError("GITHUB_ACTIONS_DISPATCH_FAILED:"+str(exc)) from exc
         return _public(run)
 
@@ -132,6 +143,7 @@ def current(sid):
                 r["active_since"]=None
                 r["finished_at"]=_now()
                 _atomic(_run_path(r["run_id"]),r)
+                _atomic(ACTIVE_FILE,{"run_id":None})
         return _public(r) if r else {"status":"not_run","mode":"github_actions_nine_nodes",
                                       "dispatch_ready":bool(os.environ.get("PROCUREFLOW_GITHUB_DISPATCH_TOKEN","").strip()),
                                       "completed_steps":0,"steps":[]}
@@ -320,6 +332,7 @@ def receive(auth,payload):
             run["status"]="completed" if all(s["status"]=="verified" for s in run["steps"]) else "completed_with_missing_evidence"
             run["finished_at"]=_now()
             _atomic(_run_path(rid),run)
+            _atomic(ACTIVE_FILE,{"run_id":None})
             return {"accepted":True,"finished":True,"run_id":rid}
         next_stage=STAGES[int(stage[-2:])]
         run["pending_stage"]=next_stage
@@ -336,5 +349,6 @@ def receive(auth,payload):
             run["active_node"]=None
             run["finished_at"]=_now()
             _atomic(_run_path(rid),run)
+            _atomic(ACTIVE_FILE,{"run_id":None})
             return {"accepted":True,"next_stage":next_stage,"dispatch_failed":True}
         return {"accepted":True,"run_id":rid,"next_stage":next_stage}
