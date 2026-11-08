@@ -141,9 +141,68 @@ jobs:
                  "bidder_detail_documents":len(opening.get("bidder_detail_records") or []),
                  "actual_bidder_rows":sum(len(d.get("bidders") or [])
                      for d in opening.get("bidder_detail_records") or []),
+                 "not_published_or_not_returned":opening.get("not_published_count"),
+                 "per_notice":opening.get("per_notice",[])[:1],
                  "gaps":opening.get("gaps",[])[:10],
                  "source_notice_ids":[x.get("bid_no") for x in history["records"][:3]],
                  "evaluation_performed":opening.get("business_evaluation_performed")
              },ensure_ascii=False),flush=True)
              assert opening["business_evaluation_performed"] is False
+          PY
+
+  g2b-opening-source-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe real G2B opening listing, real row keys and read-only bidder detail
+        run: |
+          python - <<'PY'
+          import sys,json
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import (OPENING_LIST,OPEN_HEADERS,
+                  _n05_bidder_details)
+          opener=live._client()
+          live._once(opener)
+          form={"dlSrchOnbsRsltClsfListInM":{
+              "bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
+              "onbsYmdStr":"20261001","onbsYmdEnd":"20261108",
+              "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
+              "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
+              "firstIndex":1,"lastIndex":10,"inqEnd":"","stepBarYn":"",
+              "pbancKndCd":"공440002"}}
+          try:
+              rows=live._json_post(opener,OPENING_LIST,form,OPEN_HEADERS)
+              if not isinstance(rows,dict):raise ValueError("opening-list response not dictionary")
+              entries=rows.get("onbsRsltClsfList")
+              if not isinstance(entries,list):raise ValueError("opening-list entries missing")
+              print("N05_OFFICIAL_LIST_PROBE",json.dumps({
+                  "rows":len(entries),
+                  "first_row_fields":sorted(entries[0].keys()) if entries else []
+              },ensure_ascii=False),flush=True)
+              needed=("bidPbancNo","bidPbancOrd","bidClsfNo",
+                      "bidPrgrsOrd","prcmBsneSeCd","bidPgstCd")
+              for item in entries[:3]:
+                  if not isinstance(item,dict):continue
+                  print("N05_OFFICIAL_DETAIL_KEYS",json.dumps({
+                      "bid_no":item.get("bidPbancNo"),
+                      "source_values":{k:item.get(k) for k in needed if k!="bidPbancNo"}
+                  },ensure_ascii=False),flush=True)
+                  if any(item.get(k) in (None,"") for k in needed):
+                      continue
+                  result,errors=_n05_bidder_details(opener,live._json_post,
+                      item["bidPbancNo"],item["bidPbancOrd"],item)
+                  print("N05_OFFICIAL_DETAIL_PROBE",json.dumps({
+                      "bid_no":item.get("bidPbancNo"),
+                      "row_count":len(result["bidders"]) if result else 0,
+                      "detail_pages":result.get("pages_checked") if result else 0,
+                      "errors":errors[:3]
+                  },ensure_ascii=False),flush=True)
+                  break
+          except Exception as exc:
+              print("N05_OFFICIAL_PROBE_ERROR",type(exc).__name__+":"+str(exc)[:140],flush=True)
           PY
