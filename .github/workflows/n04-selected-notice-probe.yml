@@ -1,0 +1,49 @@
+name: N04 official selected notice opening request probe
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths: [.github/workflows/n04-selected-notice-probe.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe official opening list filtered for N01 actual selected notice
+        run: |
+          python3 - <<'PY'
+          import sys,json
+          from datetime import timedelta
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as g
+          opener=g._client()
+          g._once(opener)
+          current=g._now()
+          start=(current-timedelta(days=365)).strftime("%Y%m%d")
+          end=current.strftime("%Y%m%d")
+          base={"bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
+                "onbsYmdStr":start,"onbsYmdEnd":end,
+                "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
+                "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
+                "lastIndex":10,"firstIndex":1,"inqEnd":"","stepBarYn":"",
+                "pbancKndCd":"공440002"}
+          h={"Menu-Info":'{"menuNo":"01522","menuCangVal":"PBOC006_01","bsneClsfCd":"%EC%97%85130028","scrnNo":"02117"}',
+             "submissionid":"mf_wfm_container_selectOnbsRsltClsfList",
+             "Usr-Id":"null","Referer":g.OFFICIAL+"/"}
+          for bid,ord in [("R26BK01816186","000"),("R26BK01787028","000")]:
+            payload={"dlSrchOnbsRsltClsfListInM":{**base,"bidPbancNo":bid,"bidPbancOrd":ord}}
+            try:
+              obj=g._json_post(opener,g.OPENINGS,payload,h)
+              rows=obj.get("onbsRsltClsfList") if isinstance(obj,dict) else None
+              print("N04_EXACT_NOTICE_OPENING",bid,ord,"count",len(rows) if isinstance(rows,list) else None,
+                    "response_keys",list(obj)[:20] if isinstance(obj,dict) else "not_object",
+                    "row_samples",[{k:v for k,v in row.items() if k in
+                    ("bidPbancNo","bidPbancOrd","bidPbancNm","onbsYmd","prcmBsneSeCd","prdlstNo","prdlstNm")}
+                    for row in (rows or [])[:3]],flush=True)
+              assert isinstance(rows,list),"OFFICIAL_SCHEMA_INVALID"
+              assert not any(str(row.get("bidPbancNo") or "") not in ("",bid) for row in rows),"UNRELATED_BID_RETURNED"
+            except Exception as exc:
+              print("N04_EXACT_NOTICE_OPENING_ERROR",bid,type(exc).__name__,str(exc)[:500],flush=True)
+              raise
+          PY
