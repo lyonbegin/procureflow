@@ -32,8 +32,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install only file/document dependencies (no Chrome)
-        run: python -m pip install --disable-pip-version-check --no-cache-dir python-docx==1.2.0 pypdf==5.4.0 olefile==0.47
+      - name: Install Word dependency only for N08 (all other nodes stdlib only)
+        if: inputs.stage == 'N08'
+        run: python -m pip install --disable-pip-version-check --no-cache-dir python-docx==1.2.0
       - name: Run exactly one N01-N09 node and report signed result to Railway
         env:
           PROCUREFLOW_RUN_ID: ${{ inputs.run_id }}
