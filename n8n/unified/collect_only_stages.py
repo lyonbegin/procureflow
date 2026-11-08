@@ -143,62 +143,110 @@ def n03_metadata(opener,notice,post,live,today):
        "source_record_sha256":sha256(json.dumps(found or {},sort_keys=True,ensure_ascii=False).encode()).hexdigest(),
        "gaps":gaps,"business_evaluation_performed":False}
 
+def _history_query(notice,n03):
+    """Choose official item code first; otherwise a bounded source-grounded search.
+    Business category ('prcmBsneSeCd') is NOT an eight-digit item classification.
+    """
+    metadata=(n03 or {}).get("official_fields") or {}
+    code8=(n03 or {}).get("class8") if (n03 or {}).get("class8_verified") else None
+    if code8 and re.fullmatch(r"\d{8}",str(code8)):
+        return "official_item8",{"prdlstClsfNo":code8},code8
+    detail=(n03 or {}).get("detail10") if (n03 or {}).get("detail10_verified") else None
+    if detail and re.fullmatch(r"\d{10}",str(detail)):
+        return "official_item10",{"dtlsPrnmNo":detail},detail
+    title=str(metadata.get("bidPbancNm") or notice.get("title") or "")
+    # Search text is an official title prefix, not an AI relevance decision.
+    title=re.sub(r"^[\s\[【(（][^\]】)）]{1,28}[\]】)）]\s*","",title).strip()
+    token=re.sub(r"\s+","",title)[:6]
+    if len(token)>=4:return "official_title_prefix",{"bidPbancNm":token},token
+    agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
+    if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
+    return "no_supported_query",{},None
+
+
 def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PER_YEAR):
-    """10 calendar years of filtered official notices; strict field-by-field proof."""
+    """Collect historical candidates without requiring a 10-digit class.
+    Every official response is checked for the actual query predicate, because
+    an HTTP 200 may mean that the official site ignored a search filter.
+    """
     bid,order=_valid_notice(notice)
-    code=(n03 or {}).get("detail10") if (n03 or {}).get("detail10_verified") else None
-    periods=list(_periods(today))
-    result={"source":BID_LIST,"selected_bid_no":bid,"selected_bid_ord":order,
-            "requested_detail10":code,"periods_requested":len(periods),
-            "periods_checked":[],"records":[],"unverified_classification_count":0,
-            "total_responses":0,"all_history_complete":False,
-            "business_evaluation_performed":False,"gaps":[]}
-    if not code:
-        result["gaps"].append("exact_10_digit_class_required_for_10_year_search")
-        return "partial",result
-    records=[];truncated=False
-    for start,end in periods:
-        segment={"from":start,"to":end,"pages_checked":0,"returned_rows":0,
-                 "exact_code_rows":0,"complete":False}
+    mode,filter_fields,query=_history_query(notice,n03)
+    periods=list(reversed(list(_periods(today))))
+    value={"source":BID_LIST,"selected_bid_no":bid,"selected_bid_ord":order,
+           "query_mode":mode,"query_value":query,"requested_detail10":(n03 or {}).get("detail10"),
+           "requested_class8":(n03 or {}).get("class8"),"periods_requested":len(periods),
+           "periods_checked":[],"records":[],"unverified_classification_count":0,
+           "total_responses":0,"all_history_complete":False,
+           "business_evaluation_performed":False,"gaps":[]}
+    if mode=="no_supported_query":
+        value["gaps"].append("no_official_item_code_title_or_agency_for_history")
+        return "partial",value
+    records={};truncated=False
+    for date_start,date_end in periods:
+        segment={"from":date_start,"to":date_end,"pages_checked":0,
+                 "returned_rows":0,"candidate_rows":0,"complete":False}
         try:
             for page in range(1,max_pages+1):
-                rows=_g2b_rows(opener,post,live,start,end,code=code,page=page)
+                payload=live._g2b_bid_list_payload(date_start,date_end,"",page)
+                payload["dlBidPbancLstM"].update(filter_fields)
+                rows=post(opener,BID_LIST,payload,BID_HEADERS)
+                if not isinstance(rows,list) or len(rows)>20 or any(not isinstance(x,dict) for x in rows):
+                    raise ValueError("COLLECTION_OFFICIAL_BID_RESPONSE_SCHEMA_INVALID")
                 segment["pages_checked"]+=1
                 segment["returned_rows"]+=len(rows)
-                result["total_responses"]+=len(rows)
+                value["total_responses"]+=len(rows)
                 for row in rows:
-                    actual,field=_classification(row)
-                    if actual!=code:
-                        result["unverified_classification_count"]+=1
+                    actual8,field8=_classification8(row)
+                    actual10,field10=_classification(row)
+                    rowtitle=str(_scalar(row.get("bidPbancNm")) or "")
+                    agency=str(_scalar(row.get("dmstNm")) or "")
+                    if mode=="official_item8":
+                        matched=actual8==query
+                    elif mode=="official_item10":
+                        matched=actual10==query
+                    elif mode=="official_title_prefix":
+                        matched=query.replace(" ","") in re.sub(r"\s+","",rowtitle)
+                    else:
+                        matched=(agency==query)
+                    if not matched:
+                        value["unverified_classification_count"]+=1
                         continue
                     number,ordr=_ident(row)
                     if not number or not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",number):
                         continue
-                    record={"bid_no":number,"bid_ord":ordr,"detail10":actual,
-                            "detail10_source_field":field,"source":BID_LIST,
-                            "query_period":{"from":start,"to":end},
-                            "official_fields":_pick(row,PUBLIC_FIELDS)}
-                    segment["exact_code_rows"]+=1
-                    if len(records)<MAX_HISTORY_ROWS:records.append(record)
-                    else:truncated=True
+                    key=(number,ordr)
+                    item={"bid_no":number,"bid_ord":ordr,"detail10":actual10,
+                          "detail10_source_field":field10,"class8":actual8,
+                          "class8_source_field":field8,"source":BID_LIST,
+                          "match_basis":mode,"official_classification_confirmed":
+                               mode in ("official_item8","official_item10"),
+                          "query_period":{"from":date_start,"to":date_end},
+                          "official_fields":_pick(row,PUBLIC_FIELDS)}
+                    segment["candidate_rows"]+=1
+                    if key not in records:
+                        if len(records)<MAX_HISTORY_ROWS:records[key]=item
+                        else:truncated=True
                 if len(rows)<20:
                     segment["complete"]=True
                     break
             if not segment["complete"]:
-                result["gaps"].append("history_period_page_limit:"+start+"-"+end)
+                value["gaps"].append("history_period_page_limit:"+date_start+"-"+date_end)
         except Exception as exc:
             segment["error"]=type(exc).__name__+":"+str(exc)[:100]
-            result["gaps"].append("history_period_lookup_failed:"+start+"-"+end)
-        result["periods_checked"].append(segment)
-    if result["unverified_classification_count"]:
-        result["gaps"].append("official_rows_without_verified_matching_10_digit_code")
-    if truncated:result["gaps"].append("history_records_exceed_inline_result_limit")
-    result["records"]=records
-    result["verified_record_count"]=len(records)
-    result["records_truncated"]=truncated
-    result["all_history_complete"]=(all(x["complete"] for x in result["periods_checked"])
-        and not result["gaps"] and len(result["periods_checked"])==len(periods))
-    return ("verified" if result["all_history_complete"] else "partial"),result
+            value["gaps"].append("history_period_lookup_failed:"+date_start+"-"+date_end)
+        value["periods_checked"].append(segment)
+    if value["unverified_classification_count"]:
+        value["gaps"].append("source_rows_not_matching_query_predicate")
+    if truncated:value["gaps"].append("history_records_exceed_inline_result_limit")
+    if mode not in ("official_item8","official_item10"):
+        value["gaps"].append("historical_candidates_unclassified_manual_or_final_ai_review")
+    value["records"]=list(records.values())
+    value["verified_record_count"]=len(records) if mode in ("official_item8","official_item10") else 0
+    value["candidate_record_count"]=len(records)
+    value["records_truncated"]=truncated
+    value["all_history_complete"]=(all(p["complete"] for p in value["periods_checked"])
+        and len(value["periods_checked"])==len(periods) and not value["gaps"])
+    return ("verified" if value["all_history_complete"] else "partial"),value
 
 def n05_openings(opener,history,post,today):
     """Collect opening-list source records; never guess bidder or winner data."""
