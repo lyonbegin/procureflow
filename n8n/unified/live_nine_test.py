@@ -459,6 +459,15 @@ def _execute(run):
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "draft_generated":False,"continue_to":"N09"})
         _begin_stage(run,9)
+        try:
+            from n02_collect import verify_saved_files
+            state["original_files_handoff"]=verify_saved_files(state.get("collection"))
+        except Exception as exc:
+            state["original_files_handoff"]={
+                "original_files_integrity_verified":False,
+                "error":type(exc).__name__+":"+str(exc)[:170],
+                "content_analysis_performed":False,
+            }
         _record(run,9,"partial",{"stage_count":8,
                   "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
                   "N02_original_file_count":len(docs)},
@@ -469,6 +478,7 @@ def _execute(run):
                  "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
                  "N02_original_file_count":len(docs),
                  "N02_analysis_performed":False,
+                 "N02_persistent_file_handoff":state["original_files_handoff"],
                  "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":True,
                  "bid_submitted":False,"final_bid_approval":False})
         with GUARD:run["status"]="completed_with_missing_evidence"
