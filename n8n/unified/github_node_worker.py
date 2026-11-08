@@ -230,6 +230,8 @@ def _safe_collected_counts(stage,status,output):
         result["unique_company_groups"]=output.get("company_count",0)
         result["company_bid_history_rows"]=output.get("bid_history_record_count",0)
         result["award_source_documents"]=output.get("award_result_source_count",0)
+        result["opening_result_source_rows"]=output.get("opening_result_source_count",0)
+        result["confirmed_award_winner_count"]=output.get("confirmed_award_winner_count",0)
     elif stage=="N07":
         result["price_source_fields"]=output.get("source_amount_count",0)
         result["item_quantity_source_fields"]=output.get("quantity_source_count",0)
