@@ -773,9 +773,10 @@ def n08_handoff(notice,previous):
     for stage in ("N01","N02","N03","N04","N05","N06","N07"):
         record=previous.get(stage) or {}
         steps[stage]={"source":record.get("source"),
-          "records":record.get("collected_record_count",record.get("file_count",
+          "records":record.get("bid_history_record_count",record.get("source_amount_count",
+             record.get("collected_record_count",record.get("file_count",
              record.get("verified_record_count",record.get("checked",
-               record.get("source_amounts") and len(record["source_amounts"]))))),
+               record.get("source_amounts") and len(record["source_amounts"]))))))),
           "gaps":list(record.get("gaps") or [])[:40]}
         all_gaps.extend(stage+":"+str(x) for x in record.get("gaps") or [])
     files=[{"file_seq":x.get("file_seq"),"original_filename":x.get("original_filename"),
@@ -788,7 +789,13 @@ def n08_handoff(notice,previous):
             "exact_detail10":(previous.get("N03") or {}).get("detail10"),
             "historical_notice_records":(previous.get("N04") or {}).get("records",[]),
             "opening_records":(previous.get("N05") or {}).get("opening_records",[]),
+            "bidder_detail_records":(previous.get("N05") or {}).get("bidder_detail_records",[]),
+            "company_records":(previous.get("N06") or {}).get("company_records",[]),
+            "company_bid_history_records":(previous.get("N06") or {}).get("bid_history_records",[]),
+            "company_award_result_source_records":(previous.get("N06") or {}).get("award_result_source_records",[]),
+            "item_classification_groups":(previous.get("N07") or {}).get("classification_groups",[]),
             "source_amount_fields":(previous.get("N07") or {}).get("source_amounts",[]),
+            "item_quantity_source_fields":(previous.get("N07") or {}).get("price_quantity_records",[]),
             "collection_gaps":all_gaps[:200]}
     raw=json.dumps(bundle,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
     if len(raw)>1_200_000:
