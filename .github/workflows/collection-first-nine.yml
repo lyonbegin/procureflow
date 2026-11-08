@@ -246,3 +246,57 @@ jobs:
           except Exception as exc:
               print("N05_OFFICIAL_PROBE_ERROR",type(exc).__name__+":"+str(exc)[:140],flush=True)
           PY
+
+  g2b-n05-fifty-candidate-live:
+    if: contains(github.event.head_commit.message, 'N05_FULL_LIVE_VERIFY')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run actual N03 to N04 to N05 for the 50 bounded source-backed candidates
+        run: |
+          python - <<'PY'
+          import sys,json
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata,n04_history,n05_openings
+          notice={"bid_no":"R26BK01816186","bid_ord":"000"}
+          opener=live._client();live._once(opener)
+          _,metadata=n03_metadata(opener,notice,live._json_post,live,date(2026,11,8))
+          n04_status,history=n04_history(opener,notice,metadata,
+              live._json_post,live,date(2026,11,8),max_pages=3)
+          print("N05_50_OFFICIAL_HISTORY",json.dumps({
+              "status":n04_status,"candidate_count":len(history["records"]),
+              "years_searched":history["years_searched"],
+              "history_target_reached":history["target_reached"],
+              "classification_verified_count":history["verified_record_count"]
+          },ensure_ascii=False),flush=True)
+          if not history["records"]:raise RuntimeError("N05_NO_HISTORICAL_CANDIDATES")
+          status,output=n05_openings(opener,history,live._json_post,date(2026,11,8))
+          print("N05_50_OFFICIAL_LIVE_RESULT",json.dumps({
+              "status":status,"candidate_count":output["candidates"],
+              "attempted":output["attempted"],"checked":output["checked"],
+              "list_pages":output["opening_list_pages"],
+              "list_response_rows":output["opening_list_response_rows"],
+              "matched_opening_records":len(output["opening_records"]),
+              "bidder_detail_records":len(output["bidder_detail_records"]),
+              "observed_bidder_rows":output["observed_bidder_row_count"],
+              "not_published_or_not_returned":output["not_published_count"],
+              "per_notice_statuses":{
+                  label:sum(1 for item in output["per_notice"] if item["status"]==label)
+                  for label in sorted({item["status"] for item in output["per_notice"]})},
+              "error_type_counts":{
+                  label:sum(1 for gap in output["gaps"] if label in gap)
+                  for label in ("official_http_422_unclassified",
+                                "official_422_no_published_opening_detail",
+                                "opening_lookup_failed","opening_listing_page_limit",
+                                "official_opening_detail_keys_missing")},
+              "business_evaluation_performed":output["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          assert output["attempted"]==min(50,len(history["records"]))
+          assert output["business_evaluation_performed"] is False
+          PY
