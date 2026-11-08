@@ -1,6 +1,9 @@
 name: ProcureFlow node executor (N01–N09 on GitHub, Railway UI only)
 run-name: ProcureFlow ${{ inputs.stage || 'validation' }} ${{ inputs.run_id || github.sha }}
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/procureflow-node.yml]
   workflow_dispatch:
     inputs:
       run_id:
@@ -19,6 +22,34 @@ concurrency:
   group: procureflow-nine-${{ inputs.run_id || github.run_id }}
   cancel-in-progress: false
 jobs:
+  oidc-auth-smoke:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify real GitHub OIDC token accepted by deployed Railway input API
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error,urllib.parse
+          tok_url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
+          tok_url+=('&' if '?' in tok_url else '?')+'audience='+urllib.parse.quote('procureflow-action-worker')
+          req=urllib.request.Request(tok_url,headers={
+            'Authorization':'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req,timeout=15) as response:
+            token=json.loads(response.read())['value']
+          base="https://procureflow-unified-studio-candidate-production.up.railway.app"
+          target=base+'/api/procurement/public9/action-input?run_id='+'0'*32+'&stage=N01'
+          req=urllib.request.Request(target,headers={'Authorization':'Bearer '+token})
+          try:
+            with urllib.request.urlopen(req,timeout=20) as response:
+              raise AssertionError('Unregistered run must not be accepted: '+str(response.status))
+          except urllib.error.HTTPError as exc:
+            body=exc.read().decode(errors='replace')
+            print('GITHUB_OIDC_RAILWAY_STATUS',exc.code,body[:280],flush=True)
+            assert exc.code==403,(exc.code,body)
+            assert 'GH_ACTION_RUN_NOT_FOUND' in body,(exc.code,body)
+          print('GITHUB_ACTIONS_OIDC_AUTH_AND_UNKNOWN_RUN_REJECTION_PASS',flush=True)
+          PY
   run-one-node:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
