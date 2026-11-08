@@ -79,9 +79,9 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check playwright==1.52.0
           python -m playwright install --with-deps chromium
-      - name: Run real Chromium clicks from GitHub runner against the lightweight Docker service
+      - name: Check common Vue Flow iframe, 9-stage state, fullscreen and mobile from GitHub runner
         run: |
-          mkdir -p artifacts/unified-live-ui
+          mkdir -p artifacts/public9-live-dashboard
           docker run -d --rm -p 3000:3000 --name proc-unified-e2e \
             -e PORT=3000 procureflow-unified:ci
           for n in $(seq 1 40); do
@@ -89,12 +89,12 @@ jobs:
             sleep 2
           done
           PROCUREFLOW_UI_BASE=https://procureflow-unified-studio-candidate-production.up.railway.app \
-            python tests/e2e_procureflow_unified_live_ui.py
+            python tests/test_public9_live_flow_dashboard.py
           docker stop proc-unified-e2e
       - name: Upload live UI screenshots and pass/fail JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: procureflow-unified-live-ui-tests
-          path: artifacts/unified-live-ui/
+          name: procureflow-shared-nine-flow-tests
+          path: artifacts/public9-live-dashboard/
           if-no-files-found: warn
