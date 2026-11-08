@@ -215,6 +215,8 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
                     if not number or not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",number):
                         continue
                     key=(number,ordr)
+                    if key==(bid,order):
+                        continue  # The selected current notice is not historical evidence.
                     item={"bid_no":number,"bid_ord":ordr,"detail10":actual10,
                           "detail10_source_field":field10,"class8":actual8,
                           "class8_source_field":field8,"source":BID_LIST,
