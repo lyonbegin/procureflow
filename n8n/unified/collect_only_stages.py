@@ -753,8 +753,13 @@ def n07_price_sources(notice,metadata,history,opening,supply):
     # Historic bid amounts and opening/award fields must never be silently
     # promoted to final winning prices. Preserve original field names.
     gaps.append("signed_final_award_price_not_verified_from_N05_bidder_rows")
-    return ("verified" if amounts and group_map else "partial"),{
+    n05_price_fields=sum(1 for x in amounts if x.get("bid_no") and x.get("source") in
+        (OPENING_LIST,OPENING_DETAIL))
+    if not n05_price_fields:
+        gaps.append("N05_item_price_fields_not_collected")
+    return ("verified" if n05_price_fields and group_map else "partial"),{
         "source":"N05_openings_and_N04_item_classification",
+        "N05_item_price_field_count":n05_price_fields,
         "classification_groups":list(group_map.values()),
         "classification_group_count":len(group_map),
         "source_amounts":amounts,"source_amount_count":len(amounts),
