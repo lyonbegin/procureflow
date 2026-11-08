@@ -551,53 +551,198 @@ def n05_openings(opener,history,post,today):
     return ("verified" if value["all_candidate_openings_collected"]
             and value["observed_bidder_row_count"]>0 else "partial"),value
 
+def _bid_identity(row):
+    """Source-backed company grouping; avoid merging unnamed competitors."""
+    business=_scalar(row.get("bzmnRegNo"))
+    name=_scalar(row.get("grpNm") or row.get("fnlSucsfbdCorpNm"))
+    if business:
+        return "registration:"+business,"registration_number",business,name
+    if name:
+        return "name_unverified:"+name,"unverified_name",None,name
+    return None,"unidentified",None,None
+
+
 def n06_supply_catalog(notice,n02,history,opening):
-    """Register available official evidence + missing external source connectors."""
-    files=[{"file_seq":f.get("file_seq"),
-            "original_filename":f.get("original_filename"),
-            "sha256":f.get("sha256"),"source":f.get("source"),
-            "size_bytes":f.get("size_bytes")} for f in (n02 or {}).get("files") or []]
-    value={"source":"N01_N02_N04_N05_collected_records_only",
-           "official_originals_catalog":files,
-           "bid_subject":(notice or {}).get("title"),
-           "buyer":(notice or {}).get("agency"),
-           "history_candidate_count":len((history or {}).get("records") or []),
-           "opening_record_count":len((opening or {}).get("opening_records") or []),
-           "supplier_quotation_original_count":0,"company_workforce_original_count":0,
-           "source_connectors_checked":["official_N02_attached_originals"],
-           "gaps":["independent_supplier_quotation_source_not_connected",
-                   "actual_company_workforce_and_cost_source_not_connected"],
-           "business_evaluation_performed":False}
-    return "partial",value
+    """Organize every N05 bidder/tender observation BY COMPANY, unchanged.
+    No new supplier quotation or workforce search. No business evaluation.
+    """
+    details=list((opening or {}).get("bidder_detail_records") or [])
+    companies={}
+    ledger=[]
+    award_evidence=[]
+    unidentified=0
+    for detail in details:
+        bid,order=_valid_notice(detail)
+        provenance={"source":detail.get("source") or OPENING_DETAIL,
+                    "source_page_sha256":list(detail.get("source_page_sha256") or []),
+                    "bidClsfNo":detail.get("bidClsfNo"),
+                    "bidPrgrsOrd":detail.get("bidPrgrsOrd")}
+        for raw in detail.get("bidders") or []:
+            if not isinstance(raw,dict):
+                continue
+            key,ident,regno,name=_bid_identity(raw)
+            if not key:
+                unidentified+=1
+                key="unidentified:"+bid+"-"+order+":"+str(len(ledger))
+            rec={"bid_no":bid,"bid_ord":order,
+                 "company_key":key,"company_name":name,
+                 "registration_number":regno,
+                 "company_identity_basis":ident,
+                 "bid_amount":_scalar(raw.get("bdngAmt") or raw.get("sucsfbidAmt")),
+                 "bid_rate":_scalar(raw.get("bdrt") or raw.get("sucsfbidRate")),
+                 "bid_rank":_scalar(raw.get("onbsRnkg") or raw.get("bidprcRank")),
+                 "raw_bidder_fields":dict(raw),**provenance}
+            index=len(ledger)
+            ledger.append(rec)
+            if key not in companies:
+                companies[key]={"company_key":key,"company_name":name,
+                    "registration_number":regno,"identity_basis":ident,
+                    "bid_record_indexes":[],"participated_notice_keys":[],
+                    "award_source_record_indexes":[]}
+            company=companies[key]
+            company["bid_record_indexes"].append(index)
+            notice_key=bid+"-"+order
+            if notice_key not in company["participated_notice_keys"]:
+                company["participated_notice_keys"].append(notice_key)
+        # Explicit source fields are stored without asserting award finality.
+        fields=detail.get("bid_info_fields") or {}
+        if fields:
+            evidence={"bid_no":bid,"bid_ord":order,
+                      "source":provenance["source"],
+                      "source_page_sha256":provenance["source_page_sha256"],
+                      "raw_award_result_fields":dict(fields),
+                      "final_award_verified":False}
+            award_evidence.append(evidence)
+            names={v for k,v in fields.items()
+                   if k in ("fnlSucsfbdCorpNm","fnlBidWinnrNm") and v}
+            if len(names)==1:
+                target=next(iter(names))
+                for company in companies.values():
+                    if company["company_name"]==target and notice_key in company["participated_notice_keys"]:
+                        company["award_source_record_indexes"].append(len(award_evidence)-1)
+    files=[{"file_seq":f.get("file_seq"),"sha256":f.get("sha256"),
+            "source":f.get("source"),"size_bytes":f.get("size_bytes")}
+           for f in (n02 or {}).get("files") or []]
+    gaps=[]
+    if not ledger:gaps.append("no_N05_bidder_rows_to_organize")
+    if unidentified:gaps.append("bidder_identity_missing:"+str(unidentified))
+    if any(c["identity_basis"]=="unverified_name" for c in companies.values()):
+        gaps.append("company_names_not_verified_as_unique_registration_ids")
+    if not award_evidence:gaps.append("final_award_and_contract_source_records_not_observed_in_N05")
+    # N05 only covers the selected sample; do not claim a company's lifetime history.
+    gaps.append("company_all_time_bid_history_not_proven_beyond_N05_sample")
+    return ("verified" if ledger else "partial"),{
+        "source":"N05_official_bidder_detail_records",
+        "company_records":list(companies.values()),
+        "company_count":len(companies),"bid_history_records":ledger,
+        "bid_history_record_count":len(ledger),
+        "award_result_source_records":award_evidence,
+        "award_result_source_count":len(award_evidence),
+        "official_originals_catalog":files,
+        "N05_opening_document_count":len(details),
+        "registration_information_enriched":False,
+        "all_time_company_history_verified":False,
+        "gaps":gaps,
+        "business_evaluation_performed":False}
+
+
+def _field_sources(record,fields,source,bid=None,order=None,class8=None,detail10=None):
+    """Keep original numeric/quantity fields and labels, never calculate price."""
+    out=[]
+    for key in fields:
+        if record.get(key) not in (None,""):
+            out.append({"source":source,"bid_no":bid,"bid_ord":order,
+                        "class8":class8,"detail10":detail10,
+                        "field":key,"raw":_scalar(record[key])})
+    return out
+
 
 def n07_price_sources(notice,metadata,history,opening,supply):
-    """Collect source-backed numeric strings; NO cost assessment or bid price."""
-    amount_fields=("alotBgtAmt","bidPrspPrce","bdgtAmt","baseAmt")
+    """Organize N05 PRICE / QUANTITY / ITEM evidence by item classification.
+    N06 is a separate company view; neither stage predicts a winning bid.
+    """
+    historical=list((history or {}).get("records") or [])
+    history_map={(x.get("bid_no"),x.get("bid_ord") or "000"):x
+                 for x in historical if isinstance(x,dict)}
+    group_map={}
+    amounts=[]
+    quantities=[]
+    missing_class=0
+    opening_map={}
+    amount_fields=("scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate",
+                   "bidPrspPrce","alotBgtAmt","bdgtAmt","baseAmt")
+    quantity_fields=("qnty","quantity","bidQntty","bidQty","prdlstQty",
+                     "itemQty","unit","unitNm","prdlstNm","dtlsPrnmNm")
+    bidder_price_fields=("bdngAmt","sucsfbidAmt","bdrt","sucsfbidRate")
     fields=(metadata or {}).get("official_fields") or {}
-    vals=[]
-    for key in amount_fields:
-        if fields.get(key):
-            vals.append({"source":"N03_official_record","field":key,"raw":fields[key]})
-    for key in ("budget",):
-        if (notice or {}).get(key):
-            vals.append({"source":"N01_official_bid_list","field":key,
-                         "raw":_scalar(notice[key])})
-    for record in (opening or {}).get("opening_records") or []:
-        for field in ("scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate"):
-            raw=record.get("official_fields",{}).get(field)
-            if raw:
-                vals.append({"source":OPENING_LIST,"bid_no":record["bid_no"],
-                             "field":field,"raw":raw})
-    return "partial",{
-      "source":"official_collected_amount_field_strings_only",
-      "source_amounts":vals[:150],
-      "source_amounts_truncated":len(vals)>150,
-      "contract_source_fields":_pick(fields,
-         ("bidCtrtMthdCd","ctrtTyCd","scsbdMthdCd","odnLmtLgdngCd")),
-      "supplier_quotation_original_count":(supply or {}).get("supplier_quotation_original_count",0),
-      "gaps":["verified_company_cost_inputs_unavailable",
-              "bid_floor_rate_official_source_not_collected"],
-      "recommended_bid":None,"business_evaluation_performed":False}
+    amounts.extend(_field_sources(fields,amount_fields,"N03_official_record"))
+    amounts.extend(_field_sources(notice or {},("budget",),"N01_official_bid_list"))
+    for item in (opening or {}).get("opening_records") or []:
+        bid=item.get("bid_no")
+        order=item.get("bid_ord") or "000"
+        opening_map.setdefault((bid,order),[]).append(item)
+    for detail in (opening or {}).get("bidder_detail_records") or []:
+        if not isinstance(detail,dict):continue
+        bid,order=_valid_notice(detail)
+        history_row=history_map.get((bid,order)) or {}
+        official=history_row.get("official_fields") or {}
+        code8=history_row.get("class8") or _classification8(official)[0]
+        code10=history_row.get("detail10") or _classification(official)[0]
+        classification=code8 or "unclassified"
+        if not code8:missing_class+=1
+        group=group_map.setdefault(classification,{
+            "class8":code8,"classification_basis":
+                "official_record" if code8 else "unclassified_N04_candidate",
+            "notice_keys":[],"price_record_indexes":[],
+            "quantity_record_indexes":[]})
+        nkey=bid+"-"+order
+        if nkey not in group["notice_keys"]:group["notice_keys"].append(nkey)
+        for origin in opening_map.get((bid,order),[]):
+            raw=origin.get("official_fields") or {}
+            for a in _field_sources(raw,amount_fields,OPENING_LIST,bid,order,code8,code10):
+                group["price_record_indexes"].append(len(amounts)); amounts.append(a)
+            for q in _field_sources(raw,quantity_fields,OPENING_LIST,bid,order,code8,code10):
+                group["quantity_record_indexes"].append(len(quantities)); quantities.append(q)
+        for raw in detail.get("bidders") or []:
+            if not isinstance(raw,dict):continue
+            identity=_scalar(raw.get("bzmnRegNo") or raw.get("grpNm") or raw.get("fnlSucsfbdCorpNm"))
+            for a in _field_sources(raw,bidder_price_fields,
+                detail.get("source") or OPENING_DETAIL,bid,order,code8,code10):
+                a["source_company_identifier"]=identity
+                group["price_record_indexes"].append(len(amounts));amounts.append(a)
+            for q in _field_sources(raw,quantity_fields,
+                detail.get("source") or OPENING_DETAIL,bid,order,code8,code10):
+                group["quantity_record_indexes"].append(len(quantities));quantities.append(q)
+        for a in _field_sources(official,amount_fields,
+                               history_row.get("source") or BID_LIST,
+                               bid,order,code8,code10):
+            group["price_record_indexes"].append(len(amounts));amounts.append(a)
+        for q in _field_sources(official,quantity_fields,
+                               history_row.get("source") or BID_LIST,
+                               bid,order,code8,code10):
+            group["quantity_record_indexes"].append(len(quantities));quantities.append(q)
+    gaps=[]
+    if not group_map:gaps.append("no_N05_price_or_classification_history")
+    if missing_class:gaps.append("N05_opening_records_without_verified_item8_classification:"+str(missing_class))
+    if not quantities:gaps.append("item_quantity_not_provided_in_collected_N05_records")
+    # Historic bid amounts and opening/award fields must never be silently
+    # promoted to final winning prices. Preserve original field names.
+    gaps.append("signed_final_award_price_not_verified_from_N05_bidder_rows")
+    return ("verified" if amounts and group_map else "partial"),{
+        "source":"N05_openings_and_N04_item_classification",
+        "classification_groups":list(group_map.values()),
+        "classification_group_count":len(group_map),
+        "source_amounts":amounts,"source_amount_count":len(amounts),
+        "price_quantity_records":quantities,"quantity_source_count":len(quantities),
+        "awarded_price_records_verified":0,
+        "historical_opening_records":len((opening or {}).get("opening_records") or []),
+        "bidder_price_source_records":sum(len(x.get("bidders") or [])
+                         for x in (opening or {}).get("bidder_detail_records") or []),
+        "contract_source_fields":_pick(fields,
+            ("bidCtrtMthdCd","ctrtTyCd","scsbdMthdCd","odnLmtLgdngCd")),
+        "source_amounts_truncated":False,"recommended_bid":None,
+        "gaps":gaps,"business_evaluation_performed":False}
+
 
 def n08_handoff(notice,previous):
     """Create bounded provenance-rich AI intake manifest; never draft a bid."""
