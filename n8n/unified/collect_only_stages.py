@@ -636,7 +636,17 @@ def n06_supply_catalog(notice,n02,history,opening):
     if unidentified:gaps.append("bidder_identity_missing:"+str(unidentified))
     if any(c["identity_basis"]=="unverified_name" for c in companies.values()):
         gaps.append("company_names_not_verified_as_unique_registration_ids")
-    if not award_evidence:gaps.append("final_award_and_contract_source_records_not_observed_in_N05")
+    # Preserve every N05 opening / award-related source row even if the
+    # official response does not identify a final winning company.
+    opening_result_sources=[{
+        "bid_no":row.get("bid_no"),"bid_ord":row.get("bid_ord"),
+        "source":row.get("source") or OPENING_LIST,
+        "source_row_sha256":row.get("source_row_sha256"),
+        "raw_opening_result_fields":dict(row.get("official_fields") or {}),
+        "confirmed_company_link":False,"final_award_verified":False}
+        for row in (opening or {}).get("opening_records") or []
+        if isinstance(row,dict)]
+    if not award_evidence:gaps.append("confirmed_company_award_winner_not_observed_in_N05")
     # N05 only covers the selected sample; do not claim a company's lifetime history.
     gaps.append("company_all_time_bid_history_not_proven_beyond_N05_sample")
     return ("verified" if ledger else "partial"),{
@@ -646,6 +656,9 @@ def n06_supply_catalog(notice,n02,history,opening):
         "bid_history_record_count":len(ledger),
         "award_result_source_records":award_evidence,
         "award_result_source_count":len(award_evidence),
+        "opening_result_source_records":opening_result_sources,
+        "opening_result_source_count":len(opening_result_sources),
+        "confirmed_award_winner_count":0,
         "official_originals_catalog":files,
         "N05_opening_document_count":len(details),
         "registration_information_enriched":False,
