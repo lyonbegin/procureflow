@@ -269,33 +269,10 @@ def _live_attachments(opener,preload=None,notice=None):
     from n02_collect import collect
     return collect(opener,notice)
 
-def _live_openings(opener):
-    # Time-boxed selected-day live example. WebSquare server offers dates, not
-    # a verified original-exact10 category filter: NEVER claim category match.
-    today=_now()
-    start=(today-timedelta(days=14)).strftime("%Y%m%d")
-    end=today.strftime("%Y%m%d")
-    payload={"dlSrchOnbsRsltClsfListInM":{
-        "bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
-        "onbsYmdStr":start,"onbsYmdEnd":end,
-        "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
-        "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
-        "lastIndex":10,"firstIndex":1,"inqEnd":"","stepBarYn":"",
-        "pbancKndCd":"공440002"}}
-    headers={"Menu-Info":'{"menuNo":"01522","menuCangVal":"PBOC006_01","bsneClsfCd":"%EC%97%85130028","scrnNo":"02117"}',
-             "submissionid":"mf_wfm_container_selectOnbsRsltClsfList",
-             "Usr-Id":"null","Referer":OFFICIAL+"/"}
-    result=_json_post(opener,OPENINGS,payload,headers)
-    rows=result.get("onbsRsltClsfList") if isinstance(result,dict) else None
-    if not isinstance(rows,list):raise ValueError("OFFICIAL_OPENING_LIST_SCHEMA_INVALID")
-    return {"window":[start,end],"official_rows":len(rows),
-            "sample":[{"bid_no":str(r.get("bidPbancNo") or "")[:24],
-                       "bid_ord":str(r.get("bidPbancOrd") or "")[:8],
-                       "title":str(r.get("bidPbancNm") or "")[:180],
-                       "agency":str(r.get("dmstGrpNm") or r.get("dmstNm") or "")[:100]}
-                      for r in rows[:10] if isinstance(r,dict)],
-            "exact_detail10_verified":False,"complete_ten_year_history":False,
-            "source":OPENINGS}
+def _live_openings(opener,notice=None):
+    from n04_opening import lookup
+    return lookup(opener,notice,_json_post,_now)
+
 def _document(notice,files,assessment,openings,competition,cost,price):
     from docx import Document
     document=Document()
@@ -401,14 +378,16 @@ def _execute(run):
                 state["elig"])
         _begin_stage(run,4)
         try:
-            state["history"]=_live_openings(opener)
+            state["history"]=_live_openings(opener,state.get("notice"))
             _record(run,4,"partial",
-                    {"source":"live_official_opening_only","detail10":None,
-                     "note":"exact10 for auto-selected notice not verified yet"},
+                    {"source":"official_selected_notice_opening_query",
+                     "selected_bid_no":run.get("case_bid_no"),
+                     "selected_bid_ord":run.get("case_bid_ord"),
+                     "detail10":None},
                     state["history"])
         except Exception as exc:
             state["history"]=None
-            _record(run,4,"source_error",{"detail10":None},
+            _record(run,4,"source_error",{"detail10":None,"selected_bid_no":run.get("case_bid_no")},
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "source":OPENINGS,"continue_to":"N05"})
         _begin_stage(run,5)
