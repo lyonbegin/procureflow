@@ -161,7 +161,11 @@ def _history_query(notice,n03):
     tokens=[x for x in re.findall(r"[가-힣A-Za-z]{4,}",title)
             if x not in {"입찰공고","재공고","정정공고","긴급공고","용역공고","제안요청서"}]
     if tokens:
-        term=max(tokens,key=len)
+        token=max(tokens,key=len)
+        # A unique project phrase can return just the selected bid. The last
+        # four chars are still a literal substring of the official title,
+        # and every official response is separately matched and provenance-tagged.
+        term=token[-4:] if len(token)>5 else token
         return "official_title_keyword",{"bidPbancNm":term},term
     agency=str(metadata.get("dmstNm") or notice.get("agency") or "").strip()
     if len(agency)>=3:return "official_agency_name",{"dmstNm":agency},agency
