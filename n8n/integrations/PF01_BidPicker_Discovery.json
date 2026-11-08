@@ -1,0 +1,154 @@
+{
+  "name": "[PF01 보조] 입찰공고 알리미 검색 · 원본 증빙 대기",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "bp-child-trigger",
+      "name": "PF01 입력 수신",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "notes": "상위 PF01에서 Execute Workflow 노드로 호출. 새로운 공식 공고가 아닌 제3자 공고 발견 후보만 반환",
+      "notesInFlow": true
+    },
+    {
+      "id": "bp-configure",
+      "name": "01 · 검색 범위 제한",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const x=$input.first()?.json??{};const page=Number(x.page??1),size=Number(x.size??10);if(!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>30)throw new Error('Invalid bounded page/size');return [{json:{keyword:String(x.keyword??'').slice(0,160),region:String(x.region??'').slice(0,160),category:String(x.category??'').slice(0,160),task_type:String(x.task_type??'').slice(0,160),page,size,deadline_soon:x.deadline_soon===true,include_closed:x.include_closed===true,source:'bidpicker_third_party',bid_submitted:false}}];"
+      },
+      "notes": "API 입력 형식; 마감·지역·키워드 검색. 서드파티 공고만 발견, 실제 나라장터 공식 증빙은 PF04에서 별도 확보",
+      "notesInFlow": true
+    },
+    {
+      "id": "bp-search",
+      "name": "02 · 별도 Bridge 실검색",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BIDPICKER_BRIDGE_URL + '/api/bidpicker/search' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "keyword",
+              "value": "={{ $json.keyword }}"
+            },
+            {
+              "name": "region",
+              "value": "={{ $json.region }}"
+            },
+            {
+              "name": "category",
+              "value": "={{ $json.category }}"
+            },
+            {
+              "name": "task_type",
+              "value": "={{ $json.task_type }}"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            },
+            {
+              "name": "size",
+              "value": "={{ $json.size }}"
+            },
+            {
+              "name": "deadline_soon",
+              "value": "={{ $json.deadline_soon ?? false }}"
+            },
+            {
+              "name": "include_closed",
+              "value": "={{ $json.include_closed ?? false }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "notes": "n8n Header Auth Credential: Authorization=Bearer <BIDPICKER_BRIDGE_TOKEN>. Bridge URL은 n8n 서버 환경변수로 설정. n8n JSON 안에 토큰 저장 금지",
+      "notesInFlow": true
+    },
+    {
+      "id": "bp-gate",
+      "name": "03 · 공고번호·차수·출처 검증",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$input.first().json;if(r.source!=='bidpicker_third_party'||r.official_evidence_verified!==false||!Array.isArray(r.items))throw new Error('Third-party source contract mismatch');for(const n of r.items){if(!n.bid_no||!n.bid_seq||n.official_evidence_verified!==false)throw new Error('Bid identity/provenance invalid');}return [{json:{source:'bidpicker_third_party',discovered:r.items,checked:r.received,rejected:r.rejected||[],count:r.items.length,official_evidence_verified:false,requires_original_g2b_verification:true,bid_submitted:false,business_state:'DISCOVERY_ONLY'}}];"
+      },
+      "notes": "공식 원본 검증 전에는 입찰 준비 완료 처리 금지. 이후 PF04/05 원본 조사",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "PF01 입력 수신": {
+      "main": [
+        [
+          {
+            "node": "01 · 검색 범위 제한",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · 검색 범위 제한": {
+      "main": [
+        [
+          {
+            "node": "02 · 별도 Bridge 실검색",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · 별도 Bridge 실검색": {
+      "main": [
+        [
+          {
+            "node": "03 · 공고번호·차수·출처 검증",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}
