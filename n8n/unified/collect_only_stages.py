@@ -577,14 +577,14 @@ def n06_supply_catalog(notice,n02,history,opening):
     ledger=[]
     award_evidence=[]
     unidentified=0
-    for detail in details:
+    for detail_index,detail in enumerate(details):
         bid,order=_valid_notice(detail)
         notice_key=bid+"-"+order
         provenance={"source":detail.get("source") or OPENING_DETAIL,
                     "source_page_sha256":list(detail.get("source_page_sha256") or []),
                     "bidClsfNo":detail.get("bidClsfNo"),
                     "bidPrgrsOrd":detail.get("bidPrgrsOrd")}
-        for raw in detail.get("bidders") or []:
+        for bidder_index,raw in enumerate(detail.get("bidders") or []):
             if not isinstance(raw,dict):
                 continue
             key,ident,regno,name=_bid_identity(raw)
@@ -598,7 +598,9 @@ def n06_supply_catalog(notice,n02,history,opening):
                  "bid_amount":_scalar(raw.get("bdngAmt") or raw.get("sucsfbidAmt")),
                  "bid_rate":_scalar(raw.get("bdrt") or raw.get("sucsfbidRate")),
                  "bid_rank":_scalar(raw.get("onbsRnkg") or raw.get("bidprcRank")),
-                 "raw_bidder_fields":dict(raw),**provenance}
+                 "source_detail_index":detail_index,
+                 "source_bidder_index":bidder_index,
+                 "source":provenance["source"]}
             index=len(ledger)
             ledger.append(rec)
             if key not in companies:
