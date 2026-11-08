@@ -88,6 +88,30 @@ jobs:
           assert all(x["source_file_sha256"] in {f["sha256"] for f in source["files"]}
                      for x in result["qualification_rules"]+result["required_documents"])
           assert state=="partial" and result["company_eligibility_verified"] is False
+          # Execute the actual GitHub N03 job function against the exact same
+          # source originals. Only the transport is replaced by on-runner files,
+          # because the production Railway dispatch token is not provisioned.
+          from unittest.mock import patch
+          import github_node_worker
+          context={"run_id":"d"*32,"selected_notice":notice,
+                   "outputs":{"N02":source}}
+          with patch.object(github_node_worker,"_read_original_for_n03",
+                  side_effect=lambda relay,rid,file:original_data[file["file_seq"]]) as read:
+              job_status,job_input,job_output=github_node_worker.execute(
+                  "N03",context,base="https://procureflow-unified-studio-candidate-production.up.railway.app")
+          assert read.call_count==len(source["files"]),(read.call_count,len(source["files"]))
+          assert job_status==state=="partial",(job_status,state)
+          assert job_output["qualification_rule_count"]==result["qualification_rule_count"]
+          assert job_output["required_document_count"]==result["required_document_count"]
+          assert job_output["source_files"]==result["source_files"]
+          assert job_input["selected_bid_no"]==notice["bid_no"]
+          assert job_output["company_eligibility_verified"] is False
+          print("N03_GITHUB_NODE_EXECUTOR_REAL_ORIGINALS_PASS",json.dumps({
+               "files":read.call_count,"qualification_rules":job_output["qualification_rule_count"],
+               "required_documents":job_output["required_document_count"],
+               "stage":job_status,"company_eligibility_verified":False,
+               "transport":"runner_saved_source_bytes_test_adapter"
+          },ensure_ascii=False),flush=True)
           print("N03_GITHUB_ACTUAL_HWP_PDF_EVIDENCE_PASS",json.dumps({
             "qualification_rule_count":result["qualification_rule_count"],
             "required_document_count":result["required_document_count"],
