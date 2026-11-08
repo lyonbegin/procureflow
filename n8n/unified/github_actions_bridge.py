@@ -117,7 +117,7 @@ def begin(sid,payload):
             run["error"]=str(exc)
             run["active_node"]=None
             _atomic(_run_path(rid),run)
-            _atomic(ACTIVE_FILE,{"run_id":None})
+            _atomic(_active_path(),{"run_id":None})
             raise RuntimeError("GITHUB_ACTIONS_DISPATCH_FAILED:"+str(exc)) from exc
         return _public(run)
 
@@ -143,7 +143,7 @@ def current(sid):
                 r["active_since"]=None
                 r["finished_at"]=_now()
                 _atomic(_run_path(r["run_id"]),r)
-                _atomic(ACTIVE_FILE,{"run_id":None})
+                _atomic(_active_path(),{"run_id":None})
         return _public(r) if r else {"status":"not_run","mode":"github_actions_nine_nodes",
                                       "dispatch_ready":bool(os.environ.get("PROCUREFLOW_GITHUB_DISPATCH_TOKEN","").strip()),
                                       "completed_steps":0,"steps":[]}
@@ -332,7 +332,7 @@ def receive(auth,payload):
             run["status"]="completed" if all(s["status"]=="verified" for s in run["steps"]) else "completed_with_missing_evidence"
             run["finished_at"]=_now()
             _atomic(_run_path(rid),run)
-            _atomic(ACTIVE_FILE,{"run_id":None})
+            _atomic(_active_path(),{"run_id":None})
             return {"accepted":True,"finished":True,"run_id":rid}
         next_stage=STAGES[int(stage[-2:])]
         run["pending_stage"]=next_stage
@@ -349,6 +349,6 @@ def receive(auth,payload):
             run["active_node"]=None
             run["finished_at"]=_now()
             _atomic(_run_path(rid),run)
-            _atomic(ACTIVE_FILE,{"run_id":None})
+            _atomic(_active_path(),{"run_id":None})
             return {"accepted":True,"next_stage":next_stage,"dispatch_failed":True}
         return {"accepted":True,"run_id":rid,"next_stage":next_stage}
