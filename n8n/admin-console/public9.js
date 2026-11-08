@@ -175,7 +175,11 @@
    if(s.node==='N06')return s.status==='verified'?'업체별 원본 이력 정리 완료':'N05 업체별 이력 부족';
     if(s.node==='N04')return out.target_reached?'과거 공고 50건 수집 목표 달성':(out.years_searched?'후보 '+(out.candidate_record_count||0)+'/'+(out.target_records||50)+'건 · 연도 확대':'과거 공고 수집 대기');
    if(s.node==='N05')return !out.candidates?'과거 후보 없음':s.status==='verified'?'업체별 투찰 수집 완료':(out.observed_bidder_row_count?'투찰 일부 수집':'투찰 미수집 · 원인 확인');
-    if(s.node==='N03')return s.status==='verified'?'공고 공식 속성 수집 완료':'공고 속성 일부 미수집';
+    if(s.node==='N03'){
+      const counts=out.official_requirement_category_counts||{};
+      const found=Object.values(counts).reduce((sum,val)=>sum+(Number(val)||0),0);
+      return !found?'공고 원문 요구조건 미수집':(out.official_requirement_missing_categories||[]).length?'공고 요구조건 일부 미수집':'공고 원문 6개 분야 자료 수집';
+    }
    if(s.node==='N07'&&Array.isArray(out.source_amounts))return '가격 '+out.source_amounts.length+'개 · 수량 '+(out.quantity_source_count||0)+'개';
    return statusName(s.status);
  }
@@ -186,7 +190,14 @@
    switch(i){
      case 0:return o.bid_no?'공식 공고 '+String(o.bid_no):'공고 선정 결과 미확인';
      case 1:return (o.file_count??o.files?.length??0)+'개 원본'+(o.official_attachment_inventory_complete?' · 목록 확인':' · 목록 확인 필요');
-      case 2:return '공식 상세 필드 '+Object.keys(o.official_fields||{}).length+'개 · 8자리 물품분류 '+(o.class8_verified?o.class8:'미제공(수집 계속)');
+      case 2:{
+        const c=o.official_requirement_category_counts||{};
+        const tags=[['제출양식','submission_forms'],['과업','scope_of_work'],
+          ['평가배점','evaluation_criteria'],['참가자격','participation_requirements'],
+          ['제출기한','submission_deadlines'],['제출방법','submission_methods']];
+        return '공식 필드 '+Object.keys(o.official_fields||{}).length+'개 · 원문 추출 '+((o.official_requirement_evidence||{}).extracted_source_count||0)+'개 파일 · '+
+          tags.map(x=>x[0]+' '+(c[x[1]]||0)+'건').join(' · ');
+      }
       case 3:return '최근 '+(o.years_searched||o.periods_checked?.length||0)+'년 조회(초기 '+(o.initial_years||3)+'년, 최대 '+(o.max_years||10)+'년) · 후보 '+(o.candidate_record_count||0)+'/'+(o.target_records||50)+'건';
      case 4:return '이력 후보 '+(o.candidates||0)+'건 · 조회 '+(o.attempted||o.checked||0)+'건 · 개찰 '+(o.opening_records?.length||0)+'건 · 업체별 투찰 '+(o.observed_bidder_row_count||0)+'행 · 미개찰·미조회 '+(o.not_published_count||0)+'건';
      case 5:return '업체 그룹 '+(o.company_count||0)+'개 · 업체별 투찰행 '+(o.bid_history_record_count||0)+'개 · 낙찰결과 원본 '+(o.award_result_source_count||0)+'건';
