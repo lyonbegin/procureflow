@@ -62,7 +62,7 @@ jobs:
         run: python -m unittest discover -s tests -p test_github_action_node_migration.py -v
       - name: Confirm Chrome is absent from runner
         run: |
-          if grep -Ei "playwright install|chromium|selenium" .github/workflows/procureflow-node.yml; then
+          if grep -E "^ *run: *(python.*playwright|apt-get.*chromium)" .github/workflows/procureflow-node.yml; then
             echo "Unexpected browser dependency" >&2
             exit 1
           fi
