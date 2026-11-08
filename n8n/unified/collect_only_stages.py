@@ -294,7 +294,7 @@ def n08_handoff(notice,previous):
     # N08's own task is to assemble a faithful collection handoff, not
     # decide whether the upstream collection was exhaustive. Preserve every
     # upstream gap in the bundle; the handoff itself can be verified.
-    return "verified",{
+    return ("verified" if files else "partial"),{
         "source":"N01_N07_unassessed_sources",
         "handoff_bundle":bundle,
         "bundle_bytes":len(raw),
@@ -302,7 +302,7 @@ def n08_handoff(notice,previous):
         "source_originals":len(files),
         "collection_gaps":all_gaps[:200],
         "handoff_assembled":True,
-        "upstream_collection_incomplete":bool(all_gaps),
+        "upstream_collection_incomplete":bool(all_gaps) or not bool(files),
         "business_evaluation_performed":False,
         "ai_analysis_performed":False,
         "word_draft_generated":False}
