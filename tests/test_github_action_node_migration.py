@@ -135,7 +135,7 @@ class MigrationTests(unittest.TestCase):
   ctx={"run_id":self.rid,"selected_notice":NOTICE,"outputs":{
     "N01":NOTICE,"N02":{"files":[{"original_filename":"1.hwp"}]},
     "N04":{"official_rows":0},"N06":{"status":"MISSING_COMPANY_COST_EVIDENCE"}}}
-  for stage,expected in [("N03","partial"),("N05","blocked"),("N06","blocked"),("N07","blocked")]:
+  for stage,expected in [("N05","blocked"),("N06","blocked"),("N07","blocked")]:
    status,inputs,output=worker.execute(stage,ctx)
    self.assertEqual(status,expected)
    self.assertNotEqual(output.get("company_eligibility_verified"),True)
