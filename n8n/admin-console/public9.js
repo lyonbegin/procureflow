@@ -34,7 +34,7 @@
    if(s.node==='N02'&&s.status==='verified')return '공식 원본 '+(out.file_count??out.downloaded??0)+'개 보관 · 내용 분석 없음';
     if(s.node==='N03')return '공식 공고 속성 '+Object.keys(out.official_fields||{}).length+'개 수집 · 8자리 물품분류 '+(out.class8_verified?out.class8:'목록 미제공 · 검색 계속');
     if(s.node==='N04')return '최근 '+(out.years_searched||out.periods_checked?.length||0)+'년 조회 · 공식 과거 후보 '+(out.candidate_record_count||0)+'/'+(out.target_records||50)+'건 · 최대 '+(out.max_years||10)+'년 확대';
-   if(s.node==='N05')return '과거 개찰 원본 '+(out.opening_records?.length||0)+'건 수집 · 개별 업체 평가 없음';
+   if(s.node==='N05')return '후보 '+(out.candidates||0)+'건 중 조회 '+(out.attempted||out.checked||0)+'건 · 개찰 원본 '+(out.opening_records?.length||0)+'건 · 업체별 투찰 '+(out.observed_bidder_row_count||0)+'행';
    if(s.node==='N06')return '공급·인력 관련 출처 목록 수집 · 누락 출처 '+gaps.length+'건';
    if(s.node==='N07')return '원가·가격 원본 필드 '+(out.source_amounts?.length||0)+'건 수집 · 추천가격 산출 없음';
    if(s.node==='N08')return '원본 '+(out.source_originals||0)+'개와 수집자료 통합 · AI 전달 준비';
@@ -174,7 +174,7 @@
    if(s.node==='N08'&&out.handoff_bundle&&!out.bundle_error)return '자료 통합 완료';
    if(s.node==='N06'&&!out.supplier_quotation_original_count&&!out.company_workforce_original_count)return '외부 자료 미수집';
     if(s.node==='N04')return out.target_reached?'과거 공고 50건 수집 목표 달성':(out.years_searched?'후보 '+(out.candidate_record_count||0)+'/'+(out.target_records||50)+'건 · 연도 확대':'과거 공고 수집 대기');
-   if(s.node==='N05')return !out.candidates?'과거 공고 대기':s.status==='verified'?'개찰 수집 완료':'개찰 일부 수집';
+   if(s.node==='N05')return !out.candidates?'과거 후보 없음':s.status==='verified'?'업체별 투찰 수집 완료':(out.observed_bidder_row_count?'투찰 일부 수집':'투찰 미수집 · 원인 확인');
     if(s.node==='N03')return s.status==='verified'?'공고 공식 속성 수집 완료':'공고 속성 일부 미수집';
    if(s.node==='N07'&&Array.isArray(out.source_amounts))return '금액 '+out.source_amounts.length+'건 수집';
    return statusName(s.status);
@@ -188,7 +188,7 @@
      case 1:return (o.file_count??o.files?.length??0)+'개 원본'+(o.official_attachment_inventory_complete?' · 목록 확인':' · 목록 확인 필요');
       case 2:return '공식 상세 필드 '+Object.keys(o.official_fields||{}).length+'개 · 8자리 물품분류 '+(o.class8_verified?o.class8:'미제공(수집 계속)');
       case 3:return '최근 '+(o.years_searched||o.periods_checked?.length||0)+'년 조회(초기 '+(o.initial_years||3)+'년, 최대 '+(o.max_years||10)+'년) · 후보 '+(o.candidate_record_count||0)+'/'+(o.target_records||50)+'건';
-     case 4:return '이력 후보 '+(o.candidates||0)+'건 · 개찰 조회 '+(o.checked||0)+'건 · 개찰 원본 '+(o.opening_records?.length||0)+'건';
+     case 4:return '이력 후보 '+(o.candidates||0)+'건 · 조회 '+(o.attempted||o.checked||0)+'건 · 개찰 '+(o.opening_records?.length||0)+'건 · 업체별 투찰 '+(o.observed_bidder_row_count||0)+'행 · 미개찰·미조회 '+(o.not_published_count||0)+'건';
      case 5:return '원본 목록 '+(o.official_originals_catalog?.length||0)+'개 · 외부 견적 '+(o.supplier_quotation_original_count||0)+'개 · 인력 '+(o.company_workforce_original_count||0)+'개';
      case 6:return '공식 금액 필드 '+(o.source_amounts?.length||0)+'건 · 누락 '+missing+'건';
      case 7:return o.handoff_bundle?'AI 전달 묶음 '+(o.bundle_bytes||0)+'바이트 · 수집 누락 '+missing+'건':'자료 통합 미완료';
