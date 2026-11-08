@@ -155,7 +155,7 @@
     esc(live()?'진행 중':r.status==='not_run'||!r.run_id?'대기':r.status==='completed_with_missing_evidence'?'수집 누락·AI 확인 필요':r.status==='failed'?'실행 실패':r.status==='completed'?'전체 완료':'종료')+'</span></div>'+
     '<div class="p9-progress-top"><strong data-p9="counter">진행된 단계 '+completed+' / 9</strong>'+
     '<span>완료 <b>'+verified+'</b> · 자료 일부 확인 <b>'+countOf('partial')+'</b> · 차단 <b>'+countOf('blocked')+
-    '</b> · 오류 <b>'+countOf('source_error')+'</b></span></div>'+
+    '</b> · 미실행 <b>'+countOf('not_executed')+'</b> · 오류 <b>'+countOf('source_error')+'</b></span></div>'+
     '<div class="p9-progress-track" role="progressbar" aria-label="9단계 실행 진행률" aria-valuemin="0" aria-valuemax="9" aria-valuenow="'+completed+'">'+
     '<div class="p9-progress-fill" style="width:'+(completed/9*100).toFixed(2)+'%"></div></div>'+
     '<div class="p9-overview-foot"><span>'+(r.case_bid_no?'선택 공고 <b>'+esc(r.case_bid_no)+'-'+esc(r.case_bid_ord||'000')+'</b>':'공고번호 자동 선택 대기')+'</span>'+
@@ -166,14 +166,15 @@
  function stageStatusName(s){
    if(!s)return '대기';
    const out=s.output||{};
-   if(s.node==='N09'&&!out.ai_evaluation_performed){
+   if(s.node==='N09'){
+     if(out.ai_evaluation_performed)return s.status==='verified'?'AI 분석 완료':'AI 분석 완료·자료 누락';
      if(out.reason==='N09_AI_API_NOT_CONFIGURED')return 'AI 설정 필요';
      if(s.status==='not_executed')return 'AI 미실행';
    }
    if(s.node==='N08'&&out.handoff_bundle&&!out.bundle_error)return '자료 통합 완료';
    if(s.node==='N06'&&!out.supplier_quotation_original_count&&!out.company_workforce_original_count)return '외부 자료 미수집';
-   if(s.node==='N04'&&!out.requested_detail10)return '분류번호 대기';
-   if(s.node==='N05'&&!out.candidates)return '과거 공고 대기';
+   if(s.node==='N04')return !out.requested_detail10?'분류번호 대기':s.status==='verified'?'10년 수집 완료':'10년 수집 미완료';
+   if(s.node==='N05')return !out.candidates?'과거 공고 대기':s.status==='verified'?'개찰 수집 완료':'개찰 일부 수집';
    if(s.node==='N03'&&!out.detail10_verified)return '10자리 분류 미확보';
    if(s.node==='N07'&&Array.isArray(out.source_amounts))return '금액 '+out.source_amounts.length+'건 수집';
    return statusName(s.status);
