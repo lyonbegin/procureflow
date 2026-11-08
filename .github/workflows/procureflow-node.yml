@@ -63,13 +63,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install Word dependency only for N08 (all other nodes stdlib only)
-        if: inputs.stage == 'N08'
-        run: python -m pip install --disable-pip-version-check --no-cache-dir python-docx==1.2.0
+      - name: Install HWP/PDF readers only for final N09 AI stage
+        if: inputs.stage == 'N09'
+        run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
       - name: Run exactly one N01-N09 node and report signed result to Railway
         env:
           PROCUREFLOW_RUN_ID: ${{ inputs.run_id }}
           PROCUREFLOW_STAGE: ${{ inputs.stage }}
           PROCUREFLOW_RELAY_URL: https://procureflow-unified-studio-candidate-production.up.railway.app
           PYTHONPATH: n8n/unified
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROCUREFLOW_AI_MODEL: ${{ vars.PROCUREFLOW_AI_MODEL }}
+          PROCUREFLOW_AI_ENABLED: ${{ vars.PROCUREFLOW_AI_ENABLED }}
         run: python -u n8n/unified/github_node_worker.py
