@@ -88,7 +88,7 @@ jobs:
             if curl -fSs http://127.0.0.1:3000/health >/dev/null; then break; fi
             sleep 2
           done
-          PROCUREFLOW_UI_BASE=http://127.0.0.1:3000 \
+          PROCUREFLOW_UI_BASE=https://procureflow-unified-studio-candidate-production.up.railway.app \
             python tests/e2e_procureflow_unified_live_ui.py
           docker stop proc-unified-e2e
       - name: Upload live UI screenshots and pass/fail JSON
