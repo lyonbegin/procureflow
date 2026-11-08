@@ -130,7 +130,7 @@ class CollectFirstTests(unittest.TestCase):
     def test_n04_does_not_treat_business_category_as_item_code(self):
         self.assertEqual(c._history_query(
             {"bid_no":BID,"bid_ord":"000","business_code":"조070001",
-             "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_agency_name")
+             "title":"검사용역프로젝트","agency":"테스트기관"},{} )[0],"official_title_keyword")
 
     def test_n05_only_connected_official_bids_no_competitor_prediction(self):
         hist={"records":[{"bid_no":BID,"bid_ord":"000","detail10":CODE,
