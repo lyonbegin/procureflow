@@ -305,7 +305,10 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
     # notices, not AI relevance classification or an exhaustive archive scan.
     # The source match basis and missing classification remain explicit.
     value["collection_target_complete"]=bool(
-        value["target_reached"] and value["all_history_complete"])
+        value["target_reached"]
+        and not any(g.startswith("history_period_lookup_failed:") for g in value["gaps"]))
+    # A 50-record collection target can succeed without claiming every page
+    # of the last three years was scanned or the class was AI-confirmed.
     return ("verified" if value["collection_target_complete"] else "partial"),value
 
 def _n05_bidder_details(opener,post,bid,order,source=None):
