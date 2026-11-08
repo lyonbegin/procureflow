@@ -249,6 +249,7 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
     value["records"]=list(records.values())
     value["verified_record_count"]=len(records) if mode in ("official_item8","official_item10") else 0
     value["candidate_record_count"]=len(records)
+    if not records:value["gaps"].append("no_historical_candidate_collected")
     value["records_truncated"]=truncated
     value["all_history_complete"]=(all(p["complete"] for p in value["periods_checked"])
         and len(value["periods_checked"])==len(periods) and not value["gaps"])
