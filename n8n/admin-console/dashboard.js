@@ -30,7 +30,7 @@ const M=[
  ['staffing','민간 인력·단순 용역','수급·노무·운영·단가','♙','markets'],
  ['strategy','수주전략·제안서','가격·마진·제안서·판단 근거','◈','operations'],
  ['workflows','워크플로·노드 관제','공용 Studio · PF00~PF15 · A/B/C','⤴','operations'],
- ['tests','통합 실행 테스트센터','노드별 실제 Python 모의 처리·입출력','▶','operations'],
+ ['tests','공공입찰 실행 관제','공용 Studio · GitHub Actions N01~N09','▶','operations'],
  ['features','104기능·43블록 현황','7개 업무분야 계약·커버리지 점검','▦','verification'],
  ['audit','실행 이력·독립 감사','SQLite 실행 ID · 원본 · 오류 · HOLD','≋','verification'],
  ['infra','시스템·DB 상태','건수·연동·데이터 출처·안전제약','⚙','verification']
@@ -87,9 +87,9 @@ function header(){
  const a=typeGroup(state.page),hh=el('server-health');
  el('page-title').textContent=a[1];el('page-subtitle').textContent=a[2];
  el('breadcrumb').textContent='PROCUREFLOW / '+a[0].toUpperCase();
- hh.textContent=state.health?.status==='ok'
-  ?(state.health.projectAdapterConnected?'SQLite · 모의 노드 연결':'SQLite · 모의 노드 미연결')
-  :'연결 확인 필요';
+ hh.textContent=['overview','opportunities','public','public_nodes','workflows','tests','audit','strategy'].includes(state.page)&&state.market==='public'
+  ?'공용 Studio · GitHub Actions 실행 관제'
+  :(state.health?.status==='ok'?(state.health.projectAdapterConnected?'SQLite · 모의 노드 연결':'SQLite · 모의 노드 미연결'):'연결 확인 필요');
  hh.className='health '+(state.health?.status==='ok'&&state.health.projectAdapterConnected?'good':'bad');
 }
 function menu(){
