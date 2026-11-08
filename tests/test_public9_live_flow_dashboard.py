@@ -96,7 +96,13 @@ with sync_playwright() as pw:
     # Identity persists across parent status refreshes and full-screen toggle.
     frame=iframe.element_handle().content_frame()
     frame.evaluate("window.__iframePersistentInstance='SHARED_STUDIO_UNCHANGED'")
-    page.get_by_test_id("live-nine-run-all").click()
+    main_start=page.get_by_test_id("live-nine-run-all")
+    top_start=page.get_by_test_id("live-nine-run-top")
+    assert main_start.count()==1 and top_start.count()==1,"Start must be above the Studio and in its toolbar"
+    assert main_start.is_visible() and top_start.is_visible()
+    assert top_start.is_enabled(),"New start button must be clickable"
+    assert page.locator('.p9-controls').bounding_box()['y'] < iframe.bounding_box()['y'], "Start controls must precede large iframe"
+    top_start.click()
     inner.locator('.vue-flow__node[data-id="public9-01"] .studio-node.is-running').wait_for(timeout=18000)
     assert flow["post_count"]==1,"Admin run button must invoke single existing pipeline"
     assert page.locator('[data-p9="counter"]').inner_text()=="진행된 단계 0 / 9"
@@ -151,4 +157,31 @@ with sync_playwright() as pw:
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 4"),"Mobile horizontal overflow"
     page.screenshot(path=str(OUT/"07_mobile_shared_studio_embedded.png"),full_page=True)
     print("PUBLIC9_SHARED_STUDIO_IFRAME_MODAL_MOBILE_PASS",flush=True)
+    # Regression: no dispatch token must NOT hide or disable test initiation.
+    # The backend must give an honest error, which must be visible above iframe.
+    page2=ctx.new_page()
+    disconnected={"status":"not_run","mode":"github_actions_nine_nodes",
+                  "dispatch_ready":False,"completed_steps":0,"steps":[]}
+    page2.route("**/api/procurement/public9/live-run",
+      lambda route:route.fulfill(status=200,content_type="application/json",
+          body=json.dumps(disconnected,ensure_ascii=False)))
+    dispatched={"count":0}
+    def reject(route):
+        dispatched["count"]+=1
+        route.fulfill(status=503,content_type="application/json",body=json.dumps({
+            "error":"GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED_NO_RAILWAY_FALLBACK"}))
+    page2.route("**/api/procurement/public9/run-all",reject)
+    page2.goto(URL,wait_until="domcontentloaded",timeout=45000)
+    top=page2.get_by_test_id("live-nine-run-top")
+    top.wait_for(state="visible",timeout=20000)
+    assert top.is_enabled(),"Do not disable the start button because auth is absent"
+    assert "9단계 실행 시작" in top.inner_text()
+    top.click()
+    page2.locator('[data-p9-start-feedback]').get_by_text(
+        "PROCUREFLOW_GITHUB_DISPATCH_TOKEN",exact=False).wait_for(timeout=16000)
+    assert dispatched["count"]==1,"Start MUST send one real attempt; no staged success"
+    assert page2.get_by_test_id("live-nine-run-all").is_enabled()
+    assert "running" not in page2.locator('[data-p9="global-status"]').get_attribute("class")
+    page2.screenshot(path=str(OUT/"08_missing_auth_start_visible_error.png"),full_page=True)
+    print("PUBLIC9_START_BUTTON_ALWAYS_VISIBLE_AUTH_FAILURE_HONEST_PASS",flush=True)
     ctx.close();browser.close()
