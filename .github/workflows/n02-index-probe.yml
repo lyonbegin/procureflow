@@ -1,0 +1,48 @@
+name: N02 official attachment filenames and index probe
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths: [.github/workflows/n02-index-probe.yml]
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Inspect official G2B attachment headers and index gaps
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.parse,http.cookiejar,json
+          base='https://www.g2b.go.kr'
+          cases=[('R26BK01816186','000','22'),('R26BK01787028','000','03'),('R26BK01719764','000','03')]
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+          try:opener.open(base+'/',timeout=8).read(500)
+          except Exception as e:print('N02_HOME',type(e).__name__,flush=True)
+          for no,ordn,typ in cases:
+            for idx in range(1,10):
+              u=base+'/pn/pnp/pnpe/UntyAtchFile/downloadFile.do?'+urllib.parse.urlencode({'bidPbancNo':no,'bidPbancOrd':ordn,'fileType':'','fileSeq':idx,'prcmBsneSeCd':typ})
+              try:
+                req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0','Referer':base+'/'})
+                with opener.open(req,timeout=11) as resp:
+                  magic=resp.read(24)
+                  name=resp.headers.get('Content-Disposition','')[:250]
+                  length=resp.headers.get('Content-Length','')
+                  print('N02_PROBE',no,idx,'HTTP',resp.status,'TYPE',resp.headers.get('Content-Type'),'LEN',length,'CD',name,'MAGIC',magic.hex()[:20],flush=True)
+              except Exception as e:print('N02_PROBE_FAIL',no,idx,type(e).__name__,str(e)[:75],flush=True)
+          endpoint=base+'/fs/fsc/fscb/UntyAtchFile/selectUntyAtchFileList.do'
+          for no in ('R26BK01816186',''):
+            body={"dlUntyAtchFileM":{"untyAtchFileNo":no,"atchFileSqnos":"",
+                  "bsnePath":"PNPE","bsneClsfCd":"업130026",
+                  "tblNm":"PBANC_BID_PBANC","colNm":"ITEM_PBANC_UNTY_ATCH_FILE_NO",
+                  "webPathUse":"N","isScanEnabled":False,
+                  "atchFileKndCds":"첨020297,첨020417,첨020298,첨020299,첨020109",
+                  "kuploadId":"wq_uuid_4242_kupload_holder_upload","viewMode":"view"}}
+            try:
+              req=urllib.request.Request(endpoint,data=json.dumps(body,ensure_ascii=False).encode(),
+                    headers={'Content-Type':'application/json;charset=UTF-8','Accept':'application/json',
+                       'User-Agent':'Mozilla/5.0','Referer':base+'/','Origin':base})
+              with opener.open(req,timeout=15) as res:
+                data=res.read(6000)
+                print('N02_LIST_API',repr(no),res.status,res.headers.get('Content-Type'),data.decode(errors='replace')[:1700],flush=True)
+            except Exception as e:print('N02_LIST_API_ERROR',repr(no),type(e).__name__,str(e)[:200],flush=True)
+          PY
