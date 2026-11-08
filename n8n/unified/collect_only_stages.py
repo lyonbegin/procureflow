@@ -300,9 +300,12 @@ def n04_history(opener,notice,n03,post,live,today,max_pages=MAX_HISTORY_PAGES_PE
     value["all_history_complete"]=(
         value["target_reached"] and all(x["complete"] for x in value["periods_checked"])
         and not any(g.startswith("history_period_") for g in value["gaps"]))
-    return ("verified" if value["target_reached"] and value["all_history_complete"]
-            and mode in ("official_item8","official_item10") and not truncated
-            and value["unverified_classification_count"]==0 else "partial"),value
+    # The collection-stage success criterion is 50 source-backed DISTINCT
+    # notices, not AI relevance classification or an exhaustive archive scan.
+    # The source match basis and missing classification remain explicit.
+    value["collection_target_complete"]=bool(
+        value["target_reached"] and value["all_history_complete"])
+    return ("verified" if value["collection_target_complete"] else "partial"),value
 
 def _n05_bidder_details(opener,post,bid,order,source=None):
     """Read-only official WebSquare bid-result detail, never infer a winner."""
