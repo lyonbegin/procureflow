@@ -24,11 +24,14 @@ OPEN_HEADERS={
     "Usr-Id":"null","Referer":G2B+"/",
 }
 CLASS_CODES=("dtlsPrnmNo","dtlsPrnmCd","prdlstDetlNo","prdlstDetlCd")
+CLASS8_CODES=("prdlstClsfNo","prdlstClsfCd","prdctClsfNo","prodClsfNo")
+
 PUBLIC_FIELDS=(
     "bidPbancUntyNo","bidPbancNo","bidPbancUntyOrd","bidPbancOrd",
     "bidPbancNm","pbancPstgDt","dmstNm","oderInstUntyGrpNm",
     "oderInstUntyGrpNo","prcmBsneSeCd","prcmBsneSeCdNm",
     "dtlsPrnmNo","dtlsPrnmNm","prdlstDetlNo","prdlstDetlNm",
+    "prdlstClsfNo","prdlstClsfCd","prdctClsfNo","prodClsfNo",
     "alotBgtAmt","bidPrspPrce","bidDateType","pbancSttsNm",
     "ctrtTyCd","bidCtrtMthdCd","scsbdMthdCd","odnLmtLgdngCd",
     "fromBidDt","toBidDt","bdgtAmt","baseAmt","bidClseDt",
@@ -56,6 +59,16 @@ def _classification(item):
     unique={v for _,v in seen}
     if len(unique)!=1:return None,None
     return next(iter(unique)),next(k for k,v in seen if v in unique)
+def _classification8(item):
+    """Extract an 8-digit official item classification, never a business type code."""
+    if not isinstance(item,dict):return None,None
+    found=[(k,_scalar(item.get(k))) for k in CLASS8_CODES
+           if _scalar(item.get(k)) and re.fullmatch(r"\d{8}",_scalar(item.get(k)))]
+    detail10,source=_classification(item)
+    if detail10:found.append((source+":prefix8",detail10[:8]))
+    if len({v for _,v in found})!=1:return None,None
+    return found[0][1],found[0][0]
+
 def _ident(item):
     bid=_scalar(item.get("bidPbancUntyNo") or item.get("bidPbancNo"))
     order=_scalar(item.get("bidPbancUntyOrd") or item.get("bidPbancOrd") or "000")
@@ -88,7 +101,7 @@ def _g2b_rows(opener,post,live,start,end,bid="",code="",page=1):
     return rows
 
 def n03_metadata(opener,notice,post,live,today):
-    """Official selected tender raw fields. A missing 10-digit class stays missing."""
+    """Collect selected notice metadata; item classification is optional evidence."""
     bid,order=_valid_notice(notice)
     # A single 10-year first page cannot prove that a specific notice is absent.
     # Search the most recent windows first, preserving exact bid number/order.
@@ -111,17 +124,20 @@ def n03_metadata(opener,notice,post,live,today):
     found=matching[0] if matching else None
     fields=_pick(found,PUBLIC_FIELDS) if found else {}
     code,source_field=_classification(found) if found else (None,None)
+    code8,source8=_classification8(found) if found else (None,None)
     gaps=[]
     if not found:gaps.append("selected_notice_not_returned_by_official_exact_number_query")
-    if not code:gaps.append("official_10_digit_detail_class_not_verified")
+    if not code8:gaps.append("official_8_digit_item_class_not_in_listing")
     if not fields.get("pbancPstgDt"):gaps.append("official_publication_date_not_in_selected_record")
-    return ("verified" if found and code else "partial"),{
+    return ("verified" if found and fields else "partial"),{
        "source":BID_LIST,"retrieval_mode":"selected_notice_exact_number",
        "selected_bid_no":bid,"selected_bid_ord":order,
        "query_windows_checked":checked,
        "query_window":{"start":checked[-1]["start"],"end":checked[-1]["end"]} if checked else None,
        "official_selected_record_found":bool(found),
        "official_fields":fields,
+       "class8":code8,"class8_source_field":source8,
+       "class8_verified":bool(code8),
        "detail10":code,"detail10_source_field":source_field,
        "detail10_verified":bool(code),
        "source_record_sha256":sha256(json.dumps(found or {},sort_keys=True,ensure_ascii=False).encode()).hexdigest(),
