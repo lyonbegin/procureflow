@@ -266,6 +266,36 @@
      (!complete?'<p class="p9-helper">파일 수집 완료 여부가 확인되지 않았습니다. 실패나 누락을 원문 파일 수집 완료로 취급하지 않습니다.</p>':'')+
      '</section>';
  }
+ function requirementSources(){
+   const data=stage(2)?.output?.official_requirement_evidence;
+   if(!data)return '<section class="panel p9-requirements" aria-label="발주처 원문 요구조건">'+
+     '<h3>N03 · 발주처 원문 요구조건</h3><p>아직 원본문서의 제출양식·과업·배점·참가자격·기한·방법을 확보한 실행 결과가 없습니다.</p></section>';
+   const group=data.categories||{};
+   const categories=[
+      ['submission_forms','제출양식'],['scope_of_work','과업 내용'],
+      ['evaluation_criteria','평가배점·심사기준'],['participation_requirements','참가자격'],
+      ['submission_deadlines','제출기한'],['submission_methods','제출방법']
+   ];
+   const groups=categories.map(([key,label])=>{
+     const sources=Array.isArray(group[key])?group[key]:[];
+     const preview=sources.slice(0,8);
+     const rows=preview.map(e=>'<li style="margin:8px 0"><p style="white-space:pre-wrap;margin:0">'+
+       esc(e.original_text||'')+'</p><small>첨부 '+esc(e.file_seq)+' · '+
+       esc(e.filename||'원본 파일')+' · 논리행 '+esc(e.logical_line)+
+       ' · SHA '+esc(String(e.source_file_sha256||'').slice(0,12))+'</small></li>').join('');
+     return '<details class="p9-requirement-category" style="margin:10px 0"><summary><b>'+
+       esc(label)+'</b> · 원문 근거 '+sources.length+'건</summary>'+
+       (rows?'<ul style="padding-left:20px">'+rows+'</ul>':
+        '<p>원본문서에서 관련 구절을 확보하지 못했습니다.</p>')+
+       (sources.length>preview.length?'<p>처음 8건만 표시했습니다. 전체 근거는 N03 노드 OUTPUT에서 확인하실 수 있습니다.</p>':'')+
+       '</details>';
+   }).join('');
+   return '<section class="panel p9-requirements" aria-label="발주처 원문 요구조건">'+
+      '<div class="p9-panel-heading"><div><h3>N03 · 발주처 원문 요구조건</h3>'+
+      '<p>수집한 원문 구절 그대로 표시합니다. 참가 가능 여부·평가 점수·최종 제출 준비 여부를 판단하지 않습니다.</p></div></div>'+
+      '<p>첨부 '+(data.original_file_count||0)+'개 · 텍스트 추출 '+(data.extracted_source_count||0)+
+      '개 · 미수집 항목 '+(data.missing_categories||[]).length+'개</p>'+groups+'</section>';
+ }
  function issues(){
    const entries=problemSteps();
    if(!entries.length&&live())return '<section class="panel p9-issues"><h3>문제 감지</h3><p class="p9-clear">현재까지 보고된 오류·차단·부분 확인이 없습니다. 실행은 진행 중입니다.</p></section>';
@@ -332,14 +362,14 @@
     '<h2>공식 나라장터 → 최신 미완료 공고 자동 선택 → 공용 Studio 실행 관제</h2>'+
     '<p>실행 진행상태가 별도 흐름도가 아닌 공용 노드 관리 캔버스에 직접 표시됩니다.</p></section>'+
     region('overview',overview)+region('actions',actions)+region('evidence',evidence)+studio()+region('issues',issues)+
-    region('inventory',inventory)+
+    region('inventory',inventory)+region('requirements',requirementSources)+
     region('inspector',inspector)+region('audit',audit);
  }
  function nodes(){
    return '<section class="hero p9-hero"><div class="kicker">SHARED N8N STUDIO · LIVE</div>'+
     '<h2>공용 노드 관리 · 실제 실행상태</h2><p>별도 복제 흐름도 없이 기존 Vue Flow 캔버스를 그대로 표시합니다.</p></section>'+
     region('overview',overview)+region('actions',actions)+region('evidence',evidence)+studio()+region('issues',issues)+
-    region('inventory',inventory)+region('inspector',inspector)+region('audit',audit);
+    region('inventory',inventory)+region('requirements',requirementSources)+region('inspector',inspector)+region('audit',audit);
  }
  document.addEventListener('click',async ev=>{
    const el=ev.target.closest('[data-public9]');
