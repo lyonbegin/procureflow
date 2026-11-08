@@ -27,6 +27,14 @@ jobs:
           print('N03_DOCS',json.dumps(files,ensure_ascii=False)[:2500],flush=True)
           terms=r'입찰참가자격|참가자격|입찰자격|입찰참가|등록|유사용역|사업수행|사업실적|수행실적|용역실적|참여자격|경쟁입찰|공동수급|실적|인력|기술자|사무소|설립|사업자등록|사업자|법인|보증금|서류|개찰|제출기한|응모자격|자격요건|제안서|평가'
           for idx,body in enumerate(texts):
+              if idx==1:
+                  for ln,line in enumerate(body.splitlines()):
+                      if 34<=ln<=52 or 122<=ln<=142:
+                          t=re.sub(r'[\\t ]+',' ',line).strip()[:300]
+                          t=re.sub(r'[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}','[EMAIL]',t)
+                          t=re.sub(r'(?<!\\d)(?:0\\d{1,2}[- ]?)?\\d{3,4}[- ]\\d{4}(?!\\d)','[PHONE]',t)
+                          t=re.sub(r'(?<!\\d)\\d{6}[- ]?[1-4]\\d{6}(?!\\d)','[ID]',t)
+                          print('N03_TARGET_LINE',ln,repr(t),flush=True)
               lines=[re.sub(r'[\t ]+',' ',x).strip() for x in body.splitlines()]
               positions=[i for i,line in enumerate(lines) if re.search(terms,line)]
               print('N03_FILE',idx+1,'lines',len(lines),'matches',len(positions),'sha256',hashlib.sha256(body.encode()).hexdigest(),flush=True)
