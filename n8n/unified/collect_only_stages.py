@@ -37,6 +37,7 @@ PUBLIC_FIELDS=(
     "dtlsPrnmNo","dtlsPrnmNm","prdlstDetlNo","prdlstDetlNm",
     "prdlstClsfNo","prdlstClsfCd","prdctClsfNo","prodClsfNo",
     "alotBgtAmt","bidPrspPrce","bidDateType","pbancSttsNm",
+    "qnty","quantity","bidQntty","bidQty","prdlstQty","itemQty","unit","unitNm",
     "ctrtTyCd","bidCtrtMthdCd","scsbdMthdCd","odnLmtLgdngCd",
     "fromBidDt","toBidDt","bdgtAmt","baseAmt","bidClseDt",
 )
@@ -44,7 +45,9 @@ OPEN_FIELDS=("bidPbancNo","bidPbancOrd","bidPbancNm",
              "onbsYmd","onbsDt","onbsPrnmntDt","prcmBsneSeCd",
              "scsbdMthdCd","scsbdMthdNm","pbancSttsNm",
              "scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate",
-             "bidClsfNo","bidPrgrsOrd","bidPgstCd","dmstNm","demaInstNm")
+             "bidClsfNo","bidPrgrsOrd","bidPgstCd","dmstNm","demaInstNm",
+             "prdlstClsfNo","dtlsPrnmNo","qnty","quantity","bidQntty",
+             "bidQty","prdlstQty","itemQty","unit","unitNm","prdlstNm")
 MAX_HISTORY_ROWS=400
 MAX_HISTORY_PAGES_PER_YEAR=30
 MAX_OPENING_LOOKUPS=50
@@ -433,7 +436,10 @@ def _n05_bidder_details(opener,post,bid,order,source):
         allowed=("onbsRnkg","bidprcRank","grpNm","fnlSucsfbdCorpNm",
                  "bdngAmt","sucsfbidAmt","bdrt","sucsfbidRate",
                  "bzmnRegNo","bidPgstCd","fnlBidWinnrNm","bidWinnrNm",
-                 "nextRowYn","totCnt")
+                 "nextRowYn","totCnt",
+                 "qnty","quantity","bidQntty","bidQty","prdlstQty",
+                 "itemQty","unit","unitNm","prdlstNm","dtlsPrnmNm",
+                 "prdlstClsfNo","dtlsPrnmNo")
         for row in rows:
             if not isinstance(row,dict):
                 errors.append("N05_OFFICIAL_BID_DETAIL_ROW_INVALID")
@@ -573,6 +579,7 @@ def n06_supply_catalog(notice,n02,history,opening):
     unidentified=0
     for detail in details:
         bid,order=_valid_notice(detail)
+        notice_key=bid+"-"+order
         provenance={"source":detail.get("source") or OPENING_DETAIL,
                     "source_page_sha256":list(detail.get("source_page_sha256") or []),
                     "bidClsfNo":detail.get("bidClsfNo"),
@@ -601,7 +608,6 @@ def n06_supply_catalog(notice,n02,history,opening):
                     "award_source_record_indexes":[]}
             company=companies[key]
             company["bid_record_indexes"].append(index)
-            notice_key=bid+"-"+order
             if notice_key not in company["participated_notice_keys"]:
                 company["participated_notice_keys"].append(notice_key)
         # Explicit source fields are stored without asserting award finality.
@@ -668,7 +674,6 @@ def n07_price_sources(notice,metadata,history,opening,supply):
     amounts=[]
     quantities=[]
     missing_class=0
-    opening_map={}
     amount_fields=("scsbdAmt","scsbdPrce","scsbidAmt","scsbidRate",
                    "bidPrspPrce","alotBgtAmt","bdgtAmt","baseAmt")
     quantity_fields=("qnty","quantity","bidQntty","bidQty","prdlstQty",
@@ -681,6 +686,29 @@ def n07_price_sources(notice,metadata,history,opening,supply):
         bid=item.get("bid_no")
         order=item.get("bid_ord") or "000"
         opening_map.setdefault((bid,order),[]).append(item)
+    # Some notices publish an opening/award row but no bidder detail.
+    # Keep their price, item and quantity fields rather than dropping them.
+    for origin in (opening or {}).get("opening_records") or []:
+        if not isinstance(origin,dict):continue
+        bid=origin.get("bid_no")
+        order=origin.get("bid_ord") or "000"
+        history_row=history_map.get((bid,order)) or {}
+        official=history_row.get("official_fields") or {}
+        raw=origin.get("official_fields") or {}
+        code8=history_row.get("class8") or _classification8(official)[0] or _classification8(raw)[0]
+        code10=history_row.get("detail10") or _classification(official)[0] or _classification(raw)[0]
+        classification=code8 or "unclassified"
+        group=group_map.setdefault(classification,{
+            "class8":code8,"classification_basis":
+                "official_record" if code8 else "unclassified_N04_candidate",
+            "notice_keys":[],"price_record_indexes":[],
+            "quantity_record_indexes":[]})
+        key=bid+"-"+order
+        if key not in group["notice_keys"]:group["notice_keys"].append(key)
+        for a in _field_sources(raw,amount_fields,OPENING_LIST,bid,order,code8,code10):
+            group["price_record_indexes"].append(len(amounts));amounts.append(a)
+        for q in _field_sources(raw,quantity_fields,OPENING_LIST,bid,order,code8,code10):
+            group["quantity_record_indexes"].append(len(quantities));quantities.append(q)
     for detail in (opening or {}).get("bidder_detail_records") or []:
         if not isinstance(detail,dict):continue
         bid,order=_valid_notice(detail)
@@ -697,12 +725,6 @@ def n07_price_sources(notice,metadata,history,opening,supply):
             "quantity_record_indexes":[]})
         nkey=bid+"-"+order
         if nkey not in group["notice_keys"]:group["notice_keys"].append(nkey)
-        for origin in opening_map.get((bid,order),[]):
-            raw=origin.get("official_fields") or {}
-            for a in _field_sources(raw,amount_fields,OPENING_LIST,bid,order,code8,code10):
-                group["price_record_indexes"].append(len(amounts)); amounts.append(a)
-            for q in _field_sources(raw,quantity_fields,OPENING_LIST,bid,order,code8,code10):
-                group["quantity_record_indexes"].append(len(quantities)); quantities.append(q)
         for raw in detail.get("bidders") or []:
             if not isinstance(raw,dict):continue
             identity=_scalar(raw.get("bzmnRegNo") or raw.get("grpNm") or raw.get("fnlSucsfbdCorpNm"))
