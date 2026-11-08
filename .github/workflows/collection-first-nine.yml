@@ -94,6 +94,10 @@ jobs:
                 print("N04_LIVE_FILTER_PROBE",json.dumps({
                     "mode":name,"valid_list":isinstance(rows,list),
                     "rows":len(rows) if isinstance(rows,list) else None,
+                    "matched_field":sum(1 for row in rows if isinstance(row,dict) and
+                        str(row.get(key) or "").strip()==str(val).strip()) if isinstance(rows,list) else None,
+                    "matched_agency":sum(1 for row in rows if isinstance(row,dict) and
+                        row.get("dmstNm")==fields.get("dmstNm")) if isinstance(rows,list) else None,
                     "example_key_names":list(rows[0].keys())[:14] if isinstance(rows,list) and rows else []
                 },ensure_ascii=False),flush=True)
              except Exception as error:
