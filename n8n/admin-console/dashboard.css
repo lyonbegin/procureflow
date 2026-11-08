@@ -229,3 +229,23 @@ pre{margin:0}
   .p9-inventory-meta{justify-content:flex-start;padding-left:34px}
   .p9-inventory-path{padding-left:34px}
 }
+
+
+/* PUBLIC9 embeds the SINGLE shared Vue Flow editor, no duplicate 3x3 canvas. */
+.p9-studio-panel{margin-bottom:14px;position:relative;isolation:isolate}
+.p9-studio-toolbar{align-items:center}
+.p9-studio-toolbar-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#p9-shared-studio-frame{display:block;width:100%;height:min(75vh,850px);min-height:560px;border:1px solid #3d5875;border-radius:10px;background:#f5f8fc}
+body.p9-studio-modal-open{overflow:hidden!important}
+.p9-studio-fullscreen{position:fixed!important;inset:0!important;z-index:10000!important;display:flex;flex-direction:column;gap:8px;max-width:none!important;width:100vw!important;height:100dvh!important;overflow:hidden;margin:0!important;padding:14px 17px!important;border-radius:0!important;background:#101e31!important;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}
+.p9-studio-fullscreen .p9-studio-toolbar{flex:none;margin-bottom:2px}
+.p9-studio-fullscreen #p9-shared-studio-frame{height:100%;min-height:0;flex:1;border-radius:8px}
+.p9-studio-fullscreen .p9-helper{flex:none;margin-top:0!important}
+.p9-studio-toolbar h3{margin:0}
+@media(max-width:760px){
+  #p9-shared-studio-frame{height:66vh;min-height:475px}
+  .p9-studio-toolbar{flex-wrap:wrap;gap:12px}
+  .p9-studio-toolbar-actions{width:100%}
+  .p9-studio-fullscreen{padding:8px!important}
+  .p9-studio-fullscreen #p9-shared-studio-frame{height:100%;min-height:0}
+}
