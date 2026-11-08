@@ -2,7 +2,7 @@
 
 Runs only after an explicit Studio button click. Official public G2B endpoints
 are contacted afresh; no API-key/Worker/PG/Chromium or cron,
-no bidding, signing, submissions or server-side persistence. Stage results
+no bidding, signing or submissions; N02 originals persist in /data/n01. Stage results
 are held in bounded session-scoped process memory for the browser UI.
 """
 from __future__ import annotations
@@ -262,37 +262,13 @@ def _live_notice(opener,preload=None):
     return _official_g2b_search(opener)
 
 def _live_attachments(opener,preload=None,notice=None):
-    if not isinstance(notice,dict) or not notice.get("bid_no"):
-        raise ValueError("N02_AUTO_SELECTED_NOTICE_REQUIRED")
-    bid_no=notice["bid_no"];bid_ord=notice.get("bid_ord") or "000"
-    business_code=notice.get("business_code") or "03"
-    out=[];texts=[]
-    for seq in (1,2):
-        qs=urlencode({"bidPbancNo":bid_no,"bidPbancOrd":bid_ord,"fileType":"",
-                      "fileSeq":seq,"prcmBsneSeCd":business_code})
-        address=ATTACH+"?"+qs
-        try:
-            if preload and seq in preload:
-                raw,ctype=preload[seq]
-            else:
-                raw,ctype=_fetch(opener,address,None,
-                     {"Accept":"application/octet-stream,*/*","Referer":OFFICIAL+"/"})
-            if raw[:20].lower().lstrip().startswith((b"<html",b"<!doctype")):
-                raise ValueError("OFFICIAL_RETURNED_HTML_NOT_DOCUMENT")
-            digest=sha256(raw).hexdigest()
-            item={"file_seq":seq,"source":address,"sha256":digest,
-                  "bytes":len(raw),"content_type":ctype}
-            try:
-                value,kind=_extract(raw,ctype)
-                if not value.strip():raise ValueError("EXTRACTED_TEXT_EMPTY")
-                item["format"]=kind;item["text_chars"]=len(value)
-                texts.append(value)
-            except Exception as exc:
-                item["extraction_error"]=type(exc).__name__+":"+str(exc)[:100]
-            out.append(item)
-        except Exception as exc:
-            out.append({"file_seq":seq,"source":address,"error":type(exc).__name__+":"+str(exc)[:110]})
-    return out,texts
+    """N02: download and SAVE all official bid notice originals, no interpretation.
+
+    The returned manifest is the sole artifact handed to later stages.
+    """
+    from n02_collect import collect
+    return collect(opener,notice)
+
 def _live_openings(opener):
     # Time-boxed selected-day live example. WebSquare server offers dates, not
     # a verified original-exact10 category filter: NEVER claim category match.
@@ -387,40 +363,42 @@ def _execute(run):
                      "continue_to":"N02"})
         _begin_stage(run,2)
         try:
-            docs,texts=_live_attachments(opener,preload,state.get("notice"))
+            collection=_live_attachments(opener,preload,state.get("notice"))
+            state["collection"]=collection
+            docs=collection.get("files",[])
+            texts=[]
             state["docs"]=docs
-            _record(run,2,"verified" if any("sha256" in v for v in docs)
-                    else "source_error",
+            complete=collection.get("official_attachment_inventory_complete") is True
+            status=("verified" if complete else "partial" if docs else "source_error")
+            _record(run,2,status,
                     {"bid_no":run.get("case_bid_no"),"bid_ord":run.get("case_bid_ord"),
-                     "request":"official_attachments_1_2"},
-                    {"files":docs,"downloaded":sum("sha256" in v for v in docs),
-                     "text_extracted_files":len(texts)})
+                     "request":"download_and_save_all_original_attachments"},
+                    collection)
         except Exception as exc:
             docs,texts=[],[]
             state["docs"]=docs
+            state["collection"]={"error":type(exc).__name__+":"+str(exc)[:180],
+                                 "official_attachment_inventory_complete":False}
             _record(run,2,"source_error",{"bid_no":run.get("case_bid_no")},
-                    {"error":type(exc).__name__+":"+str(exc)[:180],
-                     "continue_to":"N03"})
+                    {**state["collection"],"continue_to":"N03"})
         _begin_stage(run,3)
-        try:
-            from n03_eligibility import analyze
-            # Officially extracted N02 content only. Do not replace the text
-            # with saved DB rows or guessed qualification templates.
-            state["elig"]=analyze(docs,texts)
-            # N03 must remain partial until actual bidder-company originals
-            # are independently checked against these published requirements.
-            n03_status=("partial" if state["elig"]["document_requirement_extraction"]=="verified"
-                        else "blocked")
-            _record(run,3,n03_status,
-                    {"N02_downloaded_files":len(docs),
-                     "N02_extracted_text_files":len(texts),
-                     "selected_bid_no":run.get("case_bid_no")},
-                    state["elig"])
-        except Exception as exc:
-            state["elig"]={"error":type(exc).__name__+":"+str(exc)[:180],
-                           "company_eligibility_verified":False}
-            _record(run,3,"source_error",{"source":"N02_official_attachment_text"},
-                    {**state["elig"],"continue_to":"N04"})
+        # N03 will evaluate the saved original files only after its own
+        # downstream implementation is separately approved. N02 never parses
+        # documents, decides eligibility or pretends to have evaluated them.
+        state["elig"]={
+            "status":"DEFERRED_TO_FINAL_ORIGINAL_FILE_EVALUATION",
+            "source":"N02_official_attachment_manifest",
+            "attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+            "downloaded_files":len(docs),
+            "original_file_names":[x.get("original_filename") for x in docs],
+            "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
+            "company_eligibility_verified":False,
+            "analysis_performed":False,
+        }
+        _record(run,3,"partial" if docs else "blocked",
+                {"N02_manifest_path":state["elig"]["attachment_manifest_path"],
+                 "N02_original_file_count":len(docs)},
+                state["elig"])
         _begin_stage(run,4)
         try:
             state["history"]=_live_openings(opener)
@@ -481,11 +459,16 @@ def _execute(run):
                     {"error":type(exc).__name__+":"+str(exc)[:180],
                      "draft_generated":False,"continue_to":"N09"})
         _begin_stage(run,9)
-        _record(run,9,"partial",{"stage_count":8},
+        _record(run,9,"partial",{"stage_count":8,
+                  "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+                  "N02_original_file_count":len(docs)},
                 {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
                  "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
                  "source_errors":sum(s["status"]=="source_error" for s in run["steps"]),
                  "live_official_sources":[G2B_BID_LIST,ATTACH,OPENINGS],
+                 "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+                 "N02_original_file_count":len(docs),
+                 "N02_analysis_performed":False,
                  "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":True,
                  "bid_submitted":False,"final_bid_approval":False})
         with GUARD:run["status"]="completed_with_missing_evidence"
