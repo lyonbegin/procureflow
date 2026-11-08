@@ -120,7 +120,7 @@ class MigrationTests(unittest.TestCase):
   # immutable saved originals. Any other pending stage must be denied.
   with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
    bridge.original("Bearer unit-test-oidc",self.rid,1)
-   self._result("N03","partial",{"detail10_verified":False,
+  self._result("N03","partial",{"detail10_verified":False,
     "business_evaluation_performed":False})
   with self.assertRaisesRegex(ValueError,"ORIGINAL_READ_STAGE_NOT_AUTHORIZED"):
    bridge.original("Bearer unit-test-oidc",self.rid,1)
