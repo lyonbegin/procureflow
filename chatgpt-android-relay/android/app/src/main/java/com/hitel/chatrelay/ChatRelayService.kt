@@ -51,8 +51,8 @@ class ChatRelayService : AccessibilityService() {
         socket?.close(1000, "Reconnect")
         socket = null
         val prefs = getSharedPreferences("relay", MODE_PRIVATE)
-        val url = prefs.getString("url", "") ?: ""
-        val token = prefs.getString("token", "") ?: ""
+        val url = prefs.getString("url", "").orEmpty().ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" }
+        val token = prefs.getString("token", "").orEmpty().ifBlank { "dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn" }
         if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) {
             setConnectionState("설정 미완료", "WebSocket URL 또는 Android 토큰이 없습니다")
             return
