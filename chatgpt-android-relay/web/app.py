@@ -20,6 +20,15 @@ consoles: set[WebSocket] = set()
 device: WebSocket | None = None
 pending: dict[str, dict[str, Any]] = {}
 recent: deque[dict[str, Any]] = deque(maxlen=30)
+last_command: dict[str, Any] = {"stage": "idle"}
+
+async def timeout_command(command_id: str):
+    await asyncio.sleep(50)
+    if command_id in pending:
+        pending.pop(command_id, None)
+        last_command.update({"id": command_id, "stage": "timeout"})
+        await broadcast(event("command.error", id=command_id,
+                              reason="Android did not confirm the command within 50 seconds"))
 
 def token_equals(a: str, b: str) -> bool:
     return bool(b) and hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
@@ -51,7 +60,9 @@ async def download_controller():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "deviceOnline": device is not None, "consoleCount": len(consoles)}
+    return {"status": "ok", "deviceOnline": device is not None,
+            "consoleCount": len(consoles),
+            "lastCommand": {"stage": last_command.get("stage", "idle")}}
 
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
@@ -78,10 +89,12 @@ async def socket(ws: WebSocket):
             if device is not None and device is not ws:
                 await device.close(code=1001)
             device = ws
+            print("[relay] Android authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
         else:
             consoles.add(ws)
+            print("[relay] Web console authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="console", deviceOnline=device is not None))
             for packet in list(recent):
                 await transmit(ws, packet)
@@ -115,19 +128,33 @@ async def socket(ws: WebSocket):
                         await transmit(ws, event("command.error", id=cmd_id, reason="Android device offline"))
                         continue
                     pending[cmd_id] = {"action": action, "created": time.monotonic()}
+                    last_command.update({"id": cmd_id, "stage": "accepted"})
+                    print(f"[relay] command accepted action={action} id={cmd_id[:8]}", flush=True)
+                    await transmit(ws, event("command.accepted", id=cmd_id, action=action))
                     try:
                         await transmit(device, event("command", id=cmd_id, action=action, payload=payload))
+                        last_command["stage"] = "forwarded"
+                        print(f"[relay] command forwarded id={cmd_id[:8]}", flush=True)
                         await broadcast(event("command.queued", id=cmd_id, action=action))
+                        asyncio.create_task(timeout_command(cmd_id))
                     except Exception:
                         pending.pop(cmd_id, None)
                         await transmit(ws, event("command.error", id=cmd_id, reason="Device transport failed"))
                 elif role == "device":
-                    if kind in {"command.result", "command.error"}:
+                    if kind in {"command.received", "command.progress", "command.result", "command.error"}:
                         cmd_id = str(msg.get("id", ""))[:80]
                         if cmd_id not in pending:
                             continue
-                        pending.pop(cmd_id, None)
-                        await broadcast({"type": kind, "id": cmd_id, "result": msg.get("result"), "reason": msg.get("reason"), "ts": round(time.time()*1000)})
+                        if kind in {"command.received", "command.progress"}:
+                            stage = str(msg.get("stage", "received"))[:100]
+                            last_command.update({"id": cmd_id, "stage": stage})
+                            print(f"[relay] Android stage={stage} id={cmd_id[:8]}", flush=True)
+                            await broadcast(event(kind, id=cmd_id, stage=stage))
+                        else:
+                            pending.pop(cmd_id, None)
+                            last_command.update({"id": cmd_id, "stage": "done" if kind == "command.result" else "failed"})
+                            print(f"[relay] Android completed type={kind} id={cmd_id[:8]}", flush=True)
+                            await broadcast({"type": kind, "id": cmd_id, "result": msg.get("result"), "reason": msg.get("reason"), "ts": round(time.time()*1000)})
                     elif kind == "ui.snapshot":
                         nodes = msg.get("nodes", [])
                         if isinstance(nodes, list):
