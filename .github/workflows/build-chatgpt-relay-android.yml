@@ -7,6 +7,9 @@ on:
       - 'chatgpt-android-relay/android/**'
       - '.github/workflows/build-chatgpt-relay-android.yml'
   workflow_dispatch:
+concurrency:
+  group: chatgpt-relay-android-single-publisher
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,18 +43,32 @@ jobs:
           path: chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Publish APK for direct Railway download
+      - name: Publish latest tested APK for Railway download, retrying branch races
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin "$GITHUB_REF_NAME"
-          git checkout -B "$GITHUB_REF_NAME" "origin/$GITHUB_REF_NAME"
-          mkdir -p chatgpt-android-relay/web/static
-          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
-          git add -f chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
-          if git diff --cached --quiet; then
-            echo "APK already matches published version"
-          else
-            git commit -m "build: publish installable controller APK for direct download"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
+          SRC=chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$SRC"
+          sha256sum "$SRC"
+          cp "$SRC" /tmp/chatgpt-relay-current.apk
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "$GITHUB_REF_NAME"
+            git checkout -B "$GITHUB_REF_NAME" "origin/$GITHUB_REF_NAME"
+            mkdir -p chatgpt-android-relay/web/static
+            cp /tmp/chatgpt-relay-current.apk chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
+            git add -f chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
+            if git diff --cached --quiet; then
+              echo 'Already published exact APK bytes'
+              exit 0
+            fi
+            git commit -m 'build: publish ChatGPT Relay Controller v0.2 send fix'
+            if git push origin "HEAD:$GITHUB_REF_NAME"; then
+              echo "Published send fix APK on attempt $attempt"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Publishing APK failed after five ref-safe retries' >&2
+          exit 1
