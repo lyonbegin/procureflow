@@ -31,7 +31,14 @@ class ChatRelayService : AccessibilityService() {
         super.onServiceConnected()
         active = true
         instance = this
+        setConnectionState("접근성 서비스 실행 중 · 소켓 연결 준비")
         connectFromPrefs()
+    }
+
+    private fun setConnectionState(value: String, error: String = "") {
+        getSharedPreferences("relay", MODE_PRIVATE).edit()
+            .putString("socket_state", value)
+            .putString("socket_error", error.take(300)).apply()
     }
 
     fun connectFromPrefs() {
@@ -42,20 +49,50 @@ class ChatRelayService : AccessibilityService() {
         val prefs = getSharedPreferences("relay", MODE_PRIVATE)
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
-        if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) return
+        if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) {
+            setConnectionState("설정 미완료", "WebSocket URL 또는 Android 토큰이 없습니다")
+            return
+        }
+        setConnectionState("WebSocket 연결 시도 중")
         val request = Request.Builder().url(url).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(JSONObject().put("type","auth").put("role","device").put("deviceId","android-main").put("token",token).toString())
+                if (g != generation) return
+                setConnectionState("WebSocket 개설됨 · 서버 인증 대기")
+                webSocket.send(JSONObject().put("type", "auth")
+                    .put("role", "device").put("deviceId", "android-main")
+                    .put("token", token).toString())
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (g != generation) return
                 try {
-                    val data=JSONObject(text)
-                    if (data.optString("type")=="command") main.post { performCommand(data) }
-                } catch(e: Exception) { sendLog("Bad server message: ${e.javaClass.simpleName}") }
+                    val data = JSONObject(text)
+                    when (data.optString("type")) {
+                        "auth.ok" -> setConnectionState("연결 성공 · Android 인증 완료")
+                        "auth.error" -> {
+                            setConnectionState("인증 실패", data.optString("reason", "TOKEN 오류"))
+                            webSocket.close(1000, "Auth rejected")
+                        }
+                        "command" -> main.post { performCommand(data) }
+                        else -> { }
+                    }
+                } catch(e: Exception) {
+                    setConnectionState("응답 해석 실패", e.message ?: e.javaClass.simpleName)
+                }
             }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { scheduleReconnect(g) }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { scheduleReconnect(g) }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (g == generation) {
+                    setConnectionState("소켓 연결 실패 · 재연결 예정", "${t.javaClass.simpleName}: ${t.message ?: ""}")
+                    scheduleReconnect(g)
+                }
+            }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (g == generation) {
+                    if (reason == "Auth rejected") return
+                    setConnectionState("소켓 종료 · 재연결 예정", "종료 코드 $code: $reason")
+                    scheduleReconnect(g)
+                }
+            }
         })
     }
 
@@ -179,6 +216,7 @@ class ChatRelayService : AccessibilityService() {
         socket?.close(1000,"Service ended")
         socket=null
         instance=null
+        setConnectionState("접근성 서비스 종료됨", "안드로이드 설정에서 접근성을 다시 확인하십시오")
         super.onDestroy()
     }
 }
