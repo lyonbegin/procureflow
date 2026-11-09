@@ -107,6 +107,86 @@ jobs:
               raise RuntimeError("N03_NO_REAL_REQUIREMENT_EVIDENCE_EXTRACTED")
           PY
 
+  official-source-export-once:
+    if: contains(github.event.head_commit.message, 'OFFICIAL_SOURCE_EXPORT_ONCE')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install original HWP and PDF readers
+        run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
+      - name: Download and export all selected official source attachments and text
+        run: |
+          python - <<'PY'
+          import os,sys,json,hashlib,shutil,base64,re
+          from pathlib import Path
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import n02_collect
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata
+          from n03_requirements_collect import _extract_source,_logical_lines,collect
+          dest=Path('official-source-export')
+          rawdir=dest/'originals'
+          textdir=dest/'extracted_text'
+          rawdir.mkdir(parents=True,exist_ok=True);textdir.mkdir(parents=True,exist_ok=True)
+          n02_collect.STORAGE_ROOT=dest/'runtime'
+          opener=live._client();live._once(opener)
+          selected={"bid_no":"R26BK01816186","bid_ord":"000"}
+          stat,meta=n03_metadata(opener,selected,live._json_post,live,date(2026,11,9))
+          code=(meta.get('official_fields') or {}).get('prcmBsneSeCd')
+          if not code:raise RuntimeError("OFFICIAL_SOURCE_NO_PROCURMENT_TYPE")
+          selected['business_code']=code
+          result=n02_collect.collect(opener,selected)
+          (dest/'notice_metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2))
+          (dest/'official_attachment_manifest.json').write_text(
+             json.dumps({k:v for k,v in result.items() if k not in ('storage_folder','manifest_path')},
+                        ensure_ascii=False,indent=2))
+          if not result['files']:raise RuntimeError('NO_ORIGINALS')
+          requirements_status,requirements=collect(result['files'],
+                                   lambda x:Path(x['saved_path']).read_bytes())
+          (dest/'n03_requirement_excerpts.json').write_text(json.dumps(requirements,ensure_ascii=False,indent=2))
+          (dest/'README.txt').write_text("Official G2B source R26BK01816186-000; original files with SHA-256; extracted text is a research copy, not official signed document. Some layout/figures may be missing. No bidder identity or financial values are fabricated.",encoding='utf-8')
+          export=[]
+          for i,src in enumerate(result['files'],1):
+             b=Path(src['saved_path']).read_bytes()
+             fname=src['original_filename']
+             shutil.copyfile(src['saved_path'],rawdir/f'{i:02d}__{fname}')
+             try:
+                full,kind,truncated=_extract_source(b)
+                normalized=_logical_lines(full)
+                filename=f'{i:02d}__source_lines.txt'
+                (textdir/filename).write_text('\n'.join(f'{j+1:05d} | {line}' for j,line in enumerate(normalized)),encoding='utf-8')
+                export.append({"seq":i,"filename":fname,"sha256":src["sha256"],"format":kind,
+                   "truncated":truncated,"lines":len(normalized),"chars":len(full),
+                   "text_path":str(textdir/filename)})
+                # Content available to owner in logs for authoring, preserving
+                # line identity. JSON escapes protect log structure.
+                for offset in range(0,len(normalized),24):
+                   print("SOURCE_SEGMENT",json.dumps({"seq":i,"from_line":offset+1,
+                       "rows":[{"line":j+1,"text":normalized[j]}
+                                for j in range(offset,min(offset+24,len(normalized)))]},
+                       ensure_ascii=False,separators=(',',':')),flush=True)
+             except Exception as err:
+                export.append({"seq":i,"filename":fname,"sha256":src["sha256"],
+                  "error":type(err).__name__+":"+str(err)[:130]})
+          (dest/'text_index.json').write_text(json.dumps(export,ensure_ascii=False,indent=2))
+          print("OFFICIAL_SOURCE_EXPORT_SUMMARY",json.dumps({"notice":selected,"files":export,
+               "requirements_status":requirements_status,"requirement_source_counts":requirements["category_counts"],
+               "missing_categories":requirements["missing_categories"]},ensure_ascii=False),flush=True)
+          PY
+      - name: Upload official originals and all extracted source lines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procureflow-R26BK01816186-originals-and-text
+          path: official-source-export/
+          retention-days: 30
+          if-no-files-found: error
+
   g2b-selected-metadata:
     runs-on: ubuntu-24.04
     timeout-minutes: 7
