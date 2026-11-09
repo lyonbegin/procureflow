@@ -18,9 +18,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK platform
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          fi
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
