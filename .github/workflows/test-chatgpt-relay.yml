@@ -1,0 +1,30 @@
+name: Test ChatGPT Relay WebSocket and Web Inputs
+on:
+  push:
+    branches:
+      - feature/chatgpt-android-relay-20261110
+    paths:
+      - 'chatgpt-android-relay/web/**'
+      - '.github/workflows/test-chatgpt-relay.yml'
+  workflow_dispatch:
+jobs:
+  relay-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test real FastAPI WebSocket relay with fake Android client
+        run: |
+          python -m pip install -r chatgpt-android-relay/web/requirements.txt httpx==0.28.1
+          cd chatgpt-android-relay/web
+          python tests/test_relay.py
+      - name: Test browser send button and Enter paths using DOM events
+        run: |
+          cd chatgpt-android-relay/web
+          npm install --no-save jsdom@25
+          node tests/test_browser.mjs
