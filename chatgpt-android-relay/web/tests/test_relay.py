@@ -1,6 +1,8 @@
 import os
 import uuid
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ.setdefault("CONSOLE_TOKEN", "test-console-token")
 os.environ.setdefault("DEVICE_TOKEN", "test-device-token")
