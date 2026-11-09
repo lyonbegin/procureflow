@@ -2,7 +2,7 @@ import os,json,secrets
 from datetime import datetime,timezone
 from pathlib import Path
 from fastapi import FastAPI,Header,HTTPException,Query
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel,Field
 from db import session,initialize
@@ -22,7 +22,7 @@ app.include_router(n8n_job_bridge_router)
 
 # n8n is the ONLY workflow editor and engine. Legacy React Flow and the
 # Python DAG simulation API are not mounted.
-from n8n_landing import launcher, scenario_editor_url
+from n8n_landing import launcher, scenario_editor_url, editor_base, shared_editor_ready, official_workflow_url
 
 @app.on_event("startup")
 def startup():
@@ -72,10 +72,36 @@ def home():
     return launcher()
 
 
-@app.get("/flow", response_class=HTMLResponse)
+@app.get("/flow")
 def n8n_workflow_landing():
-    """Retired React Flow URL now shows the n8n-only launcher."""
+    """Retired React Flow URL never serves another canvas renderer."""
+    if shared_editor_ready():
+        return RedirectResponse(editor_base(), status_code=307)
     return launcher()
+
+
+@app.get("/editor")
+def official_n8n_editor_redirect():
+    """Canonical, gated entrance to the one official n8n Vue editor."""
+    if not shared_editor_ready():
+        raise HTTPException(503, "Shared n8n editor not verified for live rollout")
+    return RedirectResponse(editor_base(), status_code=307)
+
+
+@app.get("/editor/workflow/{workflow_id}")
+def official_n8n_workflow_redirect(workflow_id: str):
+    url = official_workflow_url(workflow_id)
+    if not shared_editor_ready():
+        raise HTTPException(503, "Shared n8n editor not verified for live rollout")
+    if not url:
+        raise HTTPException(404, "Unknown officially imported workflow ID")
+    return RedirectResponse(url, status_code=307)
+
+
+@app.get("/n8n/native-preview")
+def legacy_n8n_preview_redirect():
+    """Never render the former standalone Vue Flow preview."""
+    return official_n8n_editor_redirect()
 
 
 @app.get("/n8n/progress",response_class=HTMLResponse)

@@ -120,10 +120,16 @@ def ensure_schema():
            matched int NOT NULL DEFAULT 0,
            checked int NOT NULL DEFAULT 0,
            page_cursor int NOT NULL DEFAULT 1,
+           expected_total bigint,
            last_error text NOT NULL DEFAULT '',
            updated_at timestamptz NOT NULL DEFAULT now(),
            PRIMARY KEY(case_bid_no,first_day)
         )""")
+        # Existing deployments may have created the window table before
+        # the cross-invocation totalCount snapshot was introduced. Migration
+        # is additive; legacy partial rows remain unverified until restarted.
+        con.execute("""ALTER TABLE procureflow.g2b_case_10yr_windows
+          ADD COLUMN IF NOT EXISTS expected_total bigint""")
         for year in range(2016,2027):
             for month in range(1,13):
                 if (year,month)<(2016,10) or (year,month)>(2026,10):continue
