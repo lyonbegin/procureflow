@@ -1,0 +1,131 @@
+name: N02 G2B official attachment inventory discovery
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths: [.github/workflows/n02-attachment-discovery.yml]
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch official list row details
+        run: |
+          python - <<'PY'
+          import json,sys
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as g
+          opener=g._client();g._once(opener)
+          headers={
+            "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
+            "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
+            "Target-Id":"btnS0004","Usr-Id":"null",
+            "Origin":g.OFFICIAL,"Referer":g.OFFICIAL+"/"}
+          raw=g._json_post(opener,g.G2B_BID_LIST,g._g2b_bid_list_payload("20261101","20261108","R26BK01816186"),headers)
+          for row in raw[:1]:
+            print("N02_G2B_LIST_FIELDS",json.dumps({k:str(v)[:160] for k,v in row.items() if v},ensure_ascii=False)[:6000],flush=True)
+          PY
+      - name: Install Chromium
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Inspect live official notice detail and attachment network
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          import re,json
+          root="https://www.g2b.go.kr"
+          target="R26BK01816186"
+          with sync_playwright() as pw:
+            b=pw.chromium.launch(headless=True,args=["--no-sandbox","--disable-dev-shm-usage"])
+            c=b.new_context(locale='ko-KR',timezone_id='Asia/Seoul',accept_downloads=False)
+            p=c.new_page()
+            def capture(resp):
+              u=resp.url
+              if not u.startswith(root) or not re.search(r'BidPbac|BidPbanc|Atch|atch|File|file',u,re.I):return
+              print("N02_NET",resp.status,u.split("?")[0][-170:],flush=True)
+              if 'json' in (resp.headers.get('content-type') or '').lower():
+                try:
+                  raw=resp.json()
+                  txt=json.dumps(raw,ensure_ascii=False)
+                  keys=re.findall(r'[^",:{}\[\]]{0,45}(?:file|atch|첨부|다운로드)[^",:{}\[\]]{0,45}',txt,re.I)
+                  print("N02_NETJSON",list(raw)[:12] if isinstance(raw,dict) else 'list', "bytes",len(txt),"key_matches",keys[:30],flush=True)
+                except Exception as e:print("N02_NET_PARSE_ERROR",str(e)[:80],flush=True)
+            p.on('response',capture)
+            detail_url=root+'/link/PNPE027_01/single/?bidPbancNo='+target+'&bidPbancOrd=000'
+            response=p.goto(detail_url,wait_until='domcontentloaded',timeout=45000)
+            print('N02_DEEP_LINK',response.status if response else None,p.url,flush=True)
+            print('N02_DEEP_HTML',p.content()[:1400],flush=True)
+            p.wait_for_timeout(3800)
+            def info(tag):
+              try:
+                return p.evaluate(r"""() => ({
+                  forms:[...document.querySelectorAll('input')].filter(e=>e.getClientRects().length).slice(0,36).map(e=>({id:e.id,name:e.name,ph:e.placeholder,title:e.title,value:e.value?.slice(0,35)})),
+                  buttons:[...document.querySelectorAll('button,a')].filter(e=>e.getClientRects().length&&/검색|공고|상세|조회|열기/.test(e.innerText||e.title||'')).slice(0,40).map(e=>({id:e.id,t:(e.innerText||e.title||'').trim().slice(0,42)})),
+                  rows:[...document.querySelectorAll('tr')].filter(e=>(e.innerText||'').includes('R26BK')).slice(0,5).map(e=>({t:e.innerText.slice(0,170),html:e.outerHTML.slice(0,600)}))
+                })""")
+              except Exception as e:return {'error':str(e)}
+            print("N02_UI_LANDING",json.dumps(info('landing'),ensure_ascii=False)[:13000],flush=True)
+            # Search through actual visible official input labelled 공고번호.
+            candidates=p.locator('input[id*="bidPbancNo"],input[id*="BidPbancNo"],input[title*="공고번호"],input[placeholder*="공고번호"]')
+            print("N02_SEARCH_INPUT_COUNT",candidates.count(),flush=True)
+            filled=False
+            for k in range(min(candidates.count(),10)):
+              item=candidates.nth(k)
+              if item.is_visible() and item.is_enabled():
+                print("N02_SEARCH_INPUT",item.get_attribute('id'),flush=True)
+                item.fill(target,timeout=2000);filled=True;break
+            if not filled:
+              print("N02_NO_OFFICIAL_SEARCH_FIELD",flush=True)
+            else:
+              options=p.locator('button[id*="btnS0004"],button:has-text("검색하기"),a:has-text("검색하기")')
+              done=False
+              for k in range(min(10,options.count())):
+                try:
+                  x=options.nth(k)
+                  if x.is_visible():
+                    print("N02_SEARCH_BUTTON",x.get_attribute('id'),flush=True)
+                    x.click(timeout=3000);done=True;break
+                except Exception:pass
+              if not done:print("N02_SEARCH_BUTTON_MISSING",flush=True)
+              p.wait_for_timeout(3000)
+              print("N02_UI_SEARCHED",json.dumps(info('search'),ensure_ascii=False)[:9000],flush=True)
+              for fr in p.frames:
+                try:
+                  hits=fr.locator('text='+target)
+                  print("N02_RESULT_HITS",fr.url[:120],hits.count(),flush=True)
+                  for k in range(min(hits.count(),6)):
+                    x=hits.nth(k)
+                    print("N02_RESULT_TARGET",x.evaluate('(e)=>({tag:e.tagName,id:e.id,html:e.parentElement?.outerHTML.slice(0,1600),text:e.textContent.slice(0,150)})'),flush=True)
+                except Exception as e:print("N02_RESULT_ERROR",str(e)[:140],flush=True)
+              clicked=False
+              for fr in p.frames:
+                for loc in [fr.get_by_text(target,exact=True),fr.locator('tr').filter(has_text=target),fr.locator('a').filter(has_text=target)]:
+                  try:
+                    for k in range(min(loc.count(),4)):
+                      el=loc.nth(k)
+                      if not el.is_visible():continue
+                      print("N02_CLICK_ROW",el.evaluate('(e)=>({tag:e.tagName,id:e.id,text:e.innerText?.slice(0,110)})'),flush=True)
+                      el.click(timeout=2200);clicked=True;break
+                    if clicked:break
+                  except Exception as e:print("N02_CLICK_ROW_ERROR",str(e)[:150],flush=True)
+                if clicked:break
+              p.wait_for_timeout(3000)
+              print("N02_AFTER_CLICK_PAGES",[(z.url,z.title()[:60]) for z in c.pages],flush=True)
+              for pg in c.pages[:3]:
+                for fr in pg.frames[:4]:
+                  try:
+                    result=fr.evaluate(r"""() => ({
+                      body:(document.body?.innerText||'').slice(0,4700),
+                      links:[...document.querySelectorAll('a,button')].filter(e=>/첨부|다운|hwp|pdf|hwpx|zip|xlsx|docx/i.test((e.innerText||'')+" "+(e.title||'')+" "+(e.href||''))).slice(0,70).map(e=>({tag:e.tagName,id:e.id,label:(e.innerText||e.title||'').slice(0,130),href:e.getAttribute('href'),onclick:e.getAttribute('onclick')})),
+                      file_fields:[...document.querySelectorAll('input')].filter(e=>/file|atch|첨부/i.test(e.name+" "+e.id)).slice(0,35).map(e=>({id:e.id,value:e.value.slice(0,130)}))
+                    })""")
+                    print("N02_DETAIL_DOM",fr.url[:150],json.dumps(result,ensure_ascii=False)[:14000],flush=True)
+                  except Exception as e:print("N02_DETAIL_ERROR",str(e)[:160],flush=True)
+            c.close();b.close()
+          PY

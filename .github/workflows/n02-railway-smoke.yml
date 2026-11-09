@@ -1,0 +1,89 @@
+name: N02 real Railway persistent original files and manifest
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/n02-railway-smoke.yml
+permissions:
+  contents: read
+jobs:
+  real-service-download:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - name: Run production Railway live N01/N02 and check every saved original
+        run: |
+          python3 - <<'PY'
+          import json,time,urllib.request,urllib.error,http.cookiejar
+          root="https://procureflow-unified-studio-candidate-production.up.railway.app"
+          cookie=http.cookiejar.CookieJar()
+          op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie))
+          def request(route,payload=None):
+              body=None if payload is None else json.dumps(payload).encode()
+              h={"Accept":"application/json","User-Agent":"ProcureFlow-N02-railway-smoke"}
+              if body is not None:h.update({"Content-Type":"application/json",
+                                            "Origin":root,"Referer":root+"/admin/index.html?section=public"})
+              with op.open(urllib.request.Request(root+route,data=body,headers=h,
+                      method="POST" if body is not None else "GET"),timeout=30) as rsp:
+                  return rsp.status,json.loads(rsp.read(5000000))
+          request("/api/procurement/public9/live-run")
+          assert cookie,"NO_RAILWAY_SESSION_COOKIE"
+          deadline=time.monotonic()+220
+          accepted=None
+          while time.monotonic()<deadline:
+              try:
+                  status,accepted=request("/api/procurement/public9/run-all",{"mode":"auto"})
+                  assert status==202,(status,accepted)
+                  break
+              except urllib.error.HTTPError as e:
+                  msg=e.read().decode(errors="replace")[:400]
+                  if e.code==409 and "LIVE_RUN_ALREADY_ACTIVE" in msg:
+                      print("N02_RAILWAY_EXISTING_JOB_IN_PROGRESS",flush=True)
+                      time.sleep(6)
+                      continue
+                  raise RuntimeError(f"RUN_POST_HTTP_{e.code}:{msg}")
+          assert accepted and accepted.get("run_id"),"NO_EXECUTION_ACCEPTED"
+          run=accepted["run_id"]
+          print("N02_RAILWAY_RUN_ACCEPTED",run,flush=True)
+          n01=n02=n09=None
+          while time.monotonic()<deadline:
+              _,data=request("/api/procurement/public9/live-run")
+              assert data.get("run_id")==run,(run,data.get("run_id"))
+              stages={s["node"]:s for s in data.get("steps",[])}
+              n01=stages.get("N01")
+              n02=stages.get("N02")
+              n09=stages.get("N09")
+              if n02 and n09:break
+              if data.get("status") not in ("running",):
+                  raise RuntimeError("RUN_STOPPED_BEFORE_N09:"+json.dumps(data,ensure_ascii=False)[:1000])
+              time.sleep(2)
+          assert n01 and n02 and n09,"EXECUTION_N01_N02_N09_MISSING"
+          assert n01["status"]=="verified",n01
+          assert n02["status"]=="verified",n02
+          o=n02["output"]
+          print("N02_RAILWAY_FILES",json.dumps({
+             "run_id":run,"bid_no":n01["output"].get("bid_no"),
+             "saved_file_count":o.get("file_count"),
+             "file_names":o.get("file_names"),
+             "storage_folder":o.get("storage_folder"),
+             "manifest_path":o.get("manifest_path"),
+             "complete":o.get("official_attachment_inventory_complete"),
+             "handoff":n09.get("output",{}).get("N02_persistent_file_handoff")
+          },ensure_ascii=False)[:3700],flush=True)
+          assert n02["input"]["bid_no"]==n01["output"]["bid_no"]
+          assert n02["input"]["bid_ord"]==n01["output"]["bid_ord"]
+          assert o.get("downloaded",0)>=3,o
+          assert o.get("file_count")==len(o.get("files",[])),o
+          assert o.get("official_attachment_inventory_complete") is True,o
+          assert o.get("analysis_performed") is False,o
+          assert all(f.get("saved") and f.get("size_bytes",0)>0
+                     and f.get("saved_path","").startswith("/data/n01/bids/")
+                     and f.get("original_filename")
+                     and len(f.get("sha256",""))==64 for f in o["files"]),o
+          assert o["manifest_path"].startswith("/data/n01/bids/"),o
+          h=n09["output"]["N02_persistent_file_handoff"]
+          assert h["original_files_integrity_verified"] is True,h
+          assert h["verified_saved_original_count"]==o["file_count"],h
+          assert h["content_analysis_performed"] is False,h
+          print("N02_RAILWAY_SAVED_ALL_ORIGINALS_AND_N09_MANIFEST_HANDOFF_PASS",run,flush=True)
+          PY

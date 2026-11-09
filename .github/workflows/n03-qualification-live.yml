@@ -1,0 +1,24 @@
+name: Archived N03 document-parser experiment (not an execution node)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archived-parser-not-in-n03:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure N03–N08 never perform qualification review
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source=Path("n8n/unified/github_node_worker.py").read_text()
+          a=source.index('    if stage=="N03":')
+          b=source.index('    if stage=="N09":',a)
+          early=source[a:b]
+          assert "n03_eligibility" not in early
+          assert "extract_requirements" not in early
+          assert "company_eligibility" not in early
+          assert "live._extract" not in early
+          print("ARCHIVED_N03_ANALYSIS_MOVED_TO_N09_ONLY_PASS")
+          PY

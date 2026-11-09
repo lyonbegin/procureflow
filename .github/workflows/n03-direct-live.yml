@@ -1,0 +1,55 @@
+name: N03 source evidence extraction and official G2B reality check
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/n03-direct-live.yml
+      - n8n/unified/n03_eligibility.py
+      - n8n/unified/live_nine_test.py
+      - tests/test_n03_qualification_evidence.py
+permissions:
+  contents: read
+jobs:
+  n03-evidence-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: New N03 eligibility and source-manifest unit tests
+        run: python -m unittest discover -s tests -p test_n03_qualification_evidence.py -v
+      - run: python -m pip install olefile pypdf python-docx
+      - name: Execute real N03 function over official G2B HWP and PDF
+        run: |
+          python - <<'PY'
+          import sys,json
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          import n03_eligibility as n03
+          op=live._client();live._once(op)
+          docs,texts=live._live_attachments(op,notice={
+              "bid_no":"R26BK01816186","bid_ord":"000","business_code":"22"})
+          assert len(texts)==2,(docs,[len(t) for t in texts])
+          out=n03.analyze(docs,texts)
+          assert out["source"]=="downloaded_official_attachment_text_only"
+          assert out["document_requirement_extraction"]=="verified",out
+          assert out["qualification_rule_count"]>=3,out["qualification_rules"]
+          assert out["required_document_count"]>=12,out["required_documents"]
+          assert any("정비사업전문관리업자" in x["text"] for x in out["qualification_rules"]),out["qualification_rules"]
+          assert any("공동참여 불가" in x["text"] for x in out["qualification_rules"]),out["qualification_rules"]
+          assert any(x["number"]==12 and "등록증" in x["text"] for x in out["required_documents"]),out["required_documents"]
+          assert out["company_eligibility_verified"] is False
+          assert out["company_eligibility"]=="NOT_VERIFIED_NO_COMPANY_ORIGINAL"
+          assert len(out["source_files"])==2
+          assert all(x["source_file_sha256"] and x["file_seq"] for x in out["qualification_rules"])
+          print("N03_REAL_OFFICIAL_REQUIREMENT_EXTRACTION_PASS",json.dumps({
+            "bid_no":"R26BK01816186","qualification_rule_count":out["qualification_rule_count"],
+            "required_document_count":out["required_document_count"],
+            "source_file_count":len(out["source_files"]),
+            "deadline_evidence_count":len(out["bid_deadlines"]),
+            "company_eligibility_verified":out["company_eligibility_verified"],
+            "requirements":[x["text"][:95] for x in out["qualification_rules"][:3]]
+          },ensure_ascii=False),flush=True)
+          PY

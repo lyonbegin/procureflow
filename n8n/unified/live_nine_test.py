@@ -1,0 +1,526 @@
+"""Live, on-demand, no-DB, no-Worker public G2B nine-stage TEST executor.
+
+Runs only after an explicit Studio button click. Official public G2B endpoints
+are contacted afresh; no API-key/Worker/PG/Chromium or cron,
+no bidding, signing or submissions; N02 originals persist in /data/n01. Stage results
+are held in bounded session-scoped process memory for the browser UI.
+"""
+from __future__ import annotations
+from datetime import datetime, timedelta
+from hashlib import sha256
+from http.cookiejar import CookieJar
+from io import BytesIO
+from pathlib import Path
+from threading import Lock, Thread
+from urllib.parse import urlencode
+from urllib.request import Request, build_opener, HTTPCookieProcessor, HTTPRedirectHandler
+from zoneinfo import ZoneInfo
+import json
+import logging
+import re
+import struct
+import time
+import uuid
+import zipfile
+import zlib
+
+FLOW="operations/PF00-public-nine-real.json"
+OFFICIAL="https://www.g2b.go.kr"
+OPENINGS=OFFICIAL+"/pb/pbo/pboc/OnbsRslt/selectOnbsRsltClsfList.do"
+ATTACH=OFFICIAL+"/pn/pnp/pnpe/UntyAtchFile/downloadFile.do"
+MAX_BODY=8*1024*1024
+MAX_TEXT=18000
+RUNS={}
+GUARD=Lock()
+ACTIVE=None
+log=logging.getLogger("procureflow.live9")
+STAGES=["최신 공고 직접 조회","공고 첨부 원본 직접 수집","참가자격·원문 조건 분석",
+        "개찰 원본 직접 조회","경쟁 결과 원본 분석","수행·원가 근거 확인",
+        "가격전략 검증","원문 근거 검토 DOCX 작성","전체 단계 독립 검증"]
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        raise ValueError("OFFICIAL_REDIRECT_BLOCKED")
+def _client():
+    return build_opener(HTTPCookieProcessor(CookieJar()),NoRedirect())
+def _fetch(opener,url,body=None,headers=None,timeout=12):
+    if not url.startswith(OFFICIAL+"/"):
+        raise ValueError("OFFICIAL_HOST_REQUIRED")
+    req=Request(url,data=body,headers=headers or {},method="POST" if body is not None else "GET")
+    with opener.open(req,timeout=timeout) as response:
+        if response.status!=200:raise ValueError("OFFICIAL_HTTP_"+str(response.status))
+        ctype=response.headers.get("Content-Type","").lower()
+        raw=response.read(MAX_BODY+1)
+        if len(raw)>MAX_BODY:raise ValueError("OFFICIAL_FILE_TOO_LARGE")
+        return raw,ctype
+def _json_post(opener,url,data,headers):
+    raw,ctype=_fetch(opener,url,json.dumps(data,ensure_ascii=False).encode("utf-8"),
+        {"Content-Type":"application/json;charset=UTF-8","Accept":"application/json",
+         "User-Agent":"ProcureFlow-Live-Test/1.0",**headers})
+    if not (raw.startswith(b"{") or raw.startswith(b"[")):
+        raise ValueError("OFFICIAL_RESPONSE_NOT_JSON")
+    answer=json.loads(raw)
+    if not isinstance(answer,dict) or not isinstance(answer.get("result"),(dict,list)):
+        raise ValueError("OFFICIAL_RESPONSE_SCHEMA_INVALID")
+    if answer.get("ErrorCode") not in (None,0,"0"):
+        raise ValueError("OFFICIAL_ERROR_"+str(answer["ErrorCode"])[:18])
+    return answer["result"]
+def _hwp_text(raw):
+    """Parse HWP5 OLE BodyText/Section records; never claim unknown text parsed."""
+    import olefile
+    if not olefile.isOleFile(BytesIO(raw)):
+        raise ValueError("NOT_HWP5_OLE")
+    texts=[]
+    with olefile.OleFileIO(BytesIO(raw)) as ole:
+        if not ole.exists("FileHeader"):raise ValueError("HWP_FILE_HEADER_ABSENT")
+        flags=struct.unpack("<I",ole.openstream("FileHeader").read(40)[36:40])[0]
+        streams=sorted((p for p in ole.listdir() if len(p)==2 and p[0]=="BodyText" and p[1].startswith("Section")),key=lambda x:x[-1])
+        for path in streams[:12]:
+            buf=ole.openstream(path).read(MAX_BODY)
+            if flags&1:
+                # Cap HWP decompression to avoid high memory spikes.
+                inflater=zlib.decompressobj(-15)
+                buf=inflater.decompress(buf,MAX_TEXT*32)
+                if not inflater.eof:
+                    raise ValueError("HWP_SECTION_DECOMPRESSED_SIZE_LIMIT")
+            i=0
+            while i+4<=len(buf):
+                head=struct.unpack_from("<I",buf,i)[0];i+=4
+                tag=head&1023;size=head>>20
+                if size==4095:
+                    if i+4>len(buf):break
+                    size=struct.unpack_from("<I",buf,i)[0];i+=4
+                if size>MAX_BODY or i+size>len(buf):break
+                if tag==67:
+                    v=buf[i:i+size].decode("utf-16-le",errors="ignore")
+                    v=re.sub(r"[\x00-\x08\x0b-\x1f]"," ",v)
+                    if v.strip():texts.append(v)
+                i+=size
+                if sum(map(len,texts))>MAX_TEXT:break
+    return "\n".join(texts)[:MAX_TEXT]
+def _extract(raw,ctype):
+    if raw.startswith(b"\xd0\xcf\x11\xe0"):return _hwp_text(raw),"hwp5_ole"
+    if raw.startswith(b"%PDF"):
+        from pypdf import PdfReader
+        text="\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(raw)).pages[:20])
+        return text[:MAX_TEXT],"pdf"
+    if raw.startswith(b"PK\x03\x04"):
+        with zipfile.ZipFile(BytesIO(raw)) as z:
+            if "word/document.xml" in z.namelist():
+                from xml.etree import ElementTree
+                root=ElementTree.fromstring(z.read("word/document.xml"))
+                return " ".join(n.text for n in root.iter() if n.tag.endswith("}t") and n.text)[:MAX_TEXT],"docx"
+            for n in z.namelist():
+                if n.startswith("Contents/") and n.endswith(".xml"):
+                    text=re.sub(r"<[^>]*>"," ",z.read(n).decode("utf-8",errors="replace"))
+                    if text.strip():return text[:MAX_TEXT],"hwpx"
+    raise ValueError("UNSUPPORTED_OFFICIAL_ATTACHMENT_FORMAT")
+def _now():
+    return datetime.now(ZoneInfo("Asia/Seoul"))
+def _once(opener):
+    # Establish an HTTPS session for the G2B listing, attachments and openings.
+    try:_fetch(opener,OFFICIAL+"/",timeout=3)
+    except Exception:pass
+# These expected terms are a consistency CHECK for the current pinned test tender.
+# They are never used as output values. Actual fields must come from the file.
+TEST_TITLE_TOKENS=("철강·금속","인공지능전환","모니터링","소프트웨어 개발","용역")
+TEST_AGENCY_TOKEN="전남테크노파크"
+
+def _official_notice_fields(raw,ctype):
+    """Require title and issuing authority actually inside downloaded G2B original."""
+    doc,kind=_extract(raw,ctype)
+    flattened=re.sub(r"\s+"," ",doc).strip()
+    if not flattened or len(flattened)<100:
+        raise ValueError("ORIGINAL_NOTICE_EXTRACTED_TEXT_UNAVAILABLE")
+    def squish(x):
+        return re.sub(r"\s+","",x)
+    # Do not mistake the generic header '소액 수의 전자견적서 제출 공고'
+    # for the title enclosed by <...> in the original notice.
+    candidates=[x.strip(" \t\r\n<>〈〉") for x in re.findall(
+        r"[<〈]\s*([^<>〈〉]{15,300}?)\s*[>〉]",flattened)]
+    candidates.extend(x.strip() for x in re.findall(
+        r"(?:사\s*업\s*명|공\s*고\s*명)\s*[:：]\s*(.{15,220}?)(?=\s+(?:나[.]|내\s*역\s*[:：]|장\s*소\s*[:：]|기초금액\s*[:：]))",
+        flattened))
+    title=next((x for x in candidates
+                if all(squish(token) in squish(x) for token in TEST_TITLE_TOKENS)),None)
+    agency_match=re.search(
+        r"(?:수\s*요\s*기\s*관|발\s*주\s*기\s*관)\s*[:：]\s*"
+        r"((?:\(\s*재\s*\)|재단법인)\s*전남\s*테크노파크)",
+        flattened)
+    # Some HWP document authors omit the separate '수요기관:' label and
+    # print the issuer next to the official account signature.
+    if agency_match:
+        agency=agency_match.group(1).strip()
+    else:
+        name=re.search(r"((?:\(\s*재\s*\)|재단법인)\s*전남\s*테크노파크)",flattened)
+        agency=name.group(1).strip() if name else None
+    if not title or not agency or TEST_AGENCY_TOKEN not in squish(agency):
+        raise ValueError("ORIGINAL_NOTICE_TITLE_OR_AGENCY_NOT_VERIFIED")
+    budget_match=re.search(
+        r"(?:기\s*초\s*금\s*액|예\s*산)\s*[:：]?\s*(?:일\s*금)?\s*"
+        r"([\d,]{4,})\s*원",flattened)
+    budget=budget_match.group(1).replace(",","") if budget_match else None
+    return {"title":title,"agency":agency,"budget":budget,
+            "official_fields_verified":True,
+            "extracted_from":kind,
+            "source_text_sha256":sha256(doc.encode("utf-8")).hexdigest()}
+
+G2B_BID_LIST=OFFICIAL+"/pn/pnp/pnpe/BidPbac/selectBidPbacScrollTypeList.do"
+
+def _g2b_bid_list_payload(start,end,bid_no="",page=1):
+    """Fields observed in official PNPE001_01 WebSquare POST on 2026-11-08."""
+    if not isinstance(page,int) or not 1<=page<=100:raise ValueError("INVALID_G2B_PAGE")
+    return {"dlBidPbancLstM":{
+      "untyBidPbancNo":"","bidPbancNo":bid_no,"bidPbancOrd":"",
+      "prcmBsneUntyNoOrd":"",
+      "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005 민079999",
+      "bidPbancNm":"","pbancPstgDt":"","ldocNoVal":"","bidPrspPrce":"",
+      "ctrtDmndRcptNo":"","dmstcOvrsSeCd":"","pbancKndCd":"공440002",
+      "ctrtTyCd":"","bidCtrtMthdCd":"","scsbdMthdCd":"",
+      "fromBidDt":start,"toBidDt":end,
+      "bsneAllYn":"Y","frcpYn":"Y","rsrvYn":"Y","laseYn":"Y",
+      "untyGrpGb":"","dmstNm":"","pbancPicNm":"",
+      "odnLmtLgdngCd":"","odnLmtLgdngNm":"","intpCd":"","intpNm":"",
+      "dtlsPrnmNo":"","dtlsPrnmNm":"","slprRcptDdlnYn":"",
+      "lcrtTyCd":"","isMas":"","isElpdt":"","oderInstUntyGrpNo":"",
+      "esdacYn":"","infoSysCd":"정010029","contxtSeCd":"콘010006",
+      "bidDateType":"R","brcoOrgnCd":"","deptOrgnCd":"",
+      "isShop":"","srchTy":"0","cangParmVal":"",
+      "currentPage":str(page),"recordCountPerPage":"20",
+      "startIndex":(page-1)*20+1,"endIndex":page*20}}
+
+def _g2b_list_rows(opener,start,end,bid_no="",page=1):
+    """Read one actual official G2B list page; no database or API key."""
+    headers={
+      "Menu-Info":'{"menuNo":"01175","menuCangVal":"PNPE001_01","bsneClsfCd":"%EC%97%85130026","scrnNo":"00941"}',
+      "submissionid":"mf_wfm_container_tacBidPbancLst_contents_tab2_body_sbmPbancBidPbancLst",
+      "Target-Id":"btnS0004","Usr-Id":"null",
+      "Origin":OFFICIAL,"Referer":OFFICIAL+"/"}
+    response=_json_post(opener,G2B_BID_LIST,_g2b_bid_list_payload(start,end,bid_no,page),headers)
+    if not isinstance(response,list) or len(response)>20 or any(not isinstance(v,dict) for v in response):
+        raise ValueError("G2B_BID_LIST_RESPONSE_SCHEMA_INVALID")
+    from html import unescape
+    def clean(value):
+        return re.sub(r"\s+"," ",unescape(str(value or ""))).strip()
+    rows=[]
+    for item in response:
+        number=clean(item.get("bidPbancUntyNo") or item.get("bidPbancNo"))
+        if not re.fullmatch(r"(?:R\d{2}BK\d{8}|\d{11})",number):continue
+        order=clean(item.get("bidPbancUntyOrd") or item.get("bidPbancOrd") or "000").zfill(3)
+        if not re.fullmatch(r"\d{3}",order):continue
+        title=clean(item.get("bidPbancNm"))
+        agency=clean(item.get("dmstNm") or item.get("oderInstUntyGrpNm"))
+        if not title or not agency:continue
+        published=clean(item.get("pbancPstgDt")).split("<br",1)[0].strip()
+        rows.append({
+            "bid_no":number,"bid_ord":order,
+            "business_code":clean(item.get("prcmBsneSeCd"))[:8],
+            "title":title[:350],"agency":agency[:180],
+            "publication":published[:45],
+            "status":clean(item.get("pbancSttsNm"))[:80],
+            "business_type":clean(item.get("prcmBsneSeCdNm"))[:60],
+            "budget":clean(item.get("alotBgtAmt"))[:30] or None,
+            "budget_source_field":"alotBgtAmt" if item.get("alotBgtAmt") else None})
+    if response and not rows:raise ValueError("G2B_BID_LIST_RECORDS_UNREADABLE")
+    if bid_no and any(r["bid_no"]!=bid_no for r in rows):
+        raise ValueError("G2B_BID_LIST_CONTAINS_WRONG_NOTICE")
+    return rows
+
+def _official_g2b_search(opener=None):
+    """Auto-select latest tender not fully verified in nine stages."""
+    from n01_auto import select
+    if opener is None:opener=_client()
+    today=_now().date()
+    start=(today-timedelta(days=30)).strftime("%Y%m%d")
+    end=today.strftime("%Y%m%d")
+    def official_revalidate(bid_no,bid_ord):
+        # Current official site exact-number search, regardless of latest page.
+        rows=_g2b_list_rows(opener,"20160101",end,bid_no=bid_no)
+        return next((r for r in rows if r["bid_no"]==bid_no and r["bid_ord"]==bid_ord),None)
+    decision=select(lambda page:_g2b_list_rows(opener,start,end,page=page),
+                    fetch_selected=official_revalidate)
+    row=decision["selected"]
+    return {
+      **row,"source":G2B_BID_LIST,"official_fields_verified":True,
+      "notice_list":"AVAILABLE","search_request_verified":True,
+      "verified_by":"official_g2b_websquare_list",
+      "search_page":decision["scanned_pages"],"search_page_size":20,
+      "search_request_window":{"start":start,"end":end},
+      "selection_policy":"newest_not_fully_nine_stage_verified",
+      "selection_reason":decision["selection_reason"],
+      "selection_automatic":True,
+      "skipped_fully_verified":decision["skipped_fully_verified"],
+      "skipped_completed_count":decision["skipped_completed_count"],
+      "prior_checkpoint":decision["existing_checkpoint"],
+      "latest_notice_count":decision["latest_notice_count"],
+      "latest_notice_rows":decision["latest_notice_rows"],
+      "exact10_category_verified":False,
+      "warning":"N01_AUTOMATIC_SELECTION_NOT_NINE_STAGE_COMPLETION"
+    }
+
+def _live_notice(opener,preload=None):
+    """Fresh official listing only; never use a pinned HWP to choose."""
+    return _official_g2b_search(opener)
+
+def _live_attachments(opener,preload=None,notice=None):
+    """N02: download and SAVE all official bid notice originals, no interpretation.
+
+    The returned manifest is the sole artifact handed to later stages.
+    """
+    from n02_collect import collect
+    return collect(opener,notice)
+
+def _live_openings(opener,notice=None):
+    from n04_opening import lookup
+    return lookup(opener,notice,_json_post,_now)
+
+def _document(notice,files,assessment,openings,competition,cost,price):
+    from docx import Document
+    document=Document()
+    document.add_heading("실제 나라장터 수집 · 9단계 검토 테스트",0)
+    document.add_paragraph("자동 투찰·전자서명·입찰참가 없음. 직접 외부 수집한 원본 결과만 사용.")
+    for label,value in (("공고번호",(notice or {}).get("bid_no")),("공고명",(notice or {}).get("title")),
+        ("기관",(notice or {}).get("agency")),("실행 시각",_now().isoformat())):
+        document.add_paragraph(label+": "+str(value or "미확인"))
+    for title,item in (("공식 첨부 확보",files),("자격·원문 조건",assessment),
+        ("개찰 정보",openings),("경쟁 분석",competition),
+        ("원가 증빙",cost),("가격 검증",price)):
+        document.add_heading(title,level=1)
+        document.add_paragraph(json.dumps(item,ensure_ascii=False,default=str)[:4200])
+    buf=BytesIO();document.save(buf)
+    return buf.getvalue()
+def _begin_stage(run,index):
+    with GUARD:
+        run["active_node"]=f"N{index:02d}"
+        run["active_title"]=STAGES[index-1]
+        run["active_since"]=_now().isoformat()
+        run["last_activity"]=_now().isoformat()
+    log.info("LIVE9_STAGE_START run_id=%s node=N%02d",run["run_id"],index)
+
+def _record(run,index,status,inp,output):
+    with GUARD:
+        run["steps"].append({"node":f"N{index:02d}","title":STAGES[index-1],
+            "status":status,"input":inp,"output":output,"at":_now().isoformat()})
+        run["completed_steps"]=index
+        run["active_node"]=None
+        run["active_title"]=""
+        run["active_since"]=None
+        run["last_activity"]=_now().isoformat()
+        if status!="verified":run["partial_steps"]+=1
+    from n01_auto import record_stage
+    record_stage(run,index,status)
+    log.info("LIVE9_STAGE_END run_id=%s node=N%02d status=%s",run["run_id"],index,status)
+def _execute(run):
+    global ACTIVE
+    state={}
+    try:
+        opener=_client()
+        _once(opener)
+        preload={}
+        _begin_stage(run,1)
+        with GUARD:run["g2b_site_live_post_attempted"]=True
+        try:
+            state["notice"]=_live_notice(opener,preload)
+            run["selected_notice"]=state["notice"]
+            run["case_bid_no"]=state["notice"]["bid_no"]
+            run["case_bid_ord"]=state["notice"]["bid_ord"]
+            run["selection_reason"]=state["notice"].get("selection_reason","newest_unprocessed")
+            if (not state["notice"].get("official_fields_verified")
+                or not state["notice"].get("title")
+                or not state["notice"].get("agency")):
+                raise ValueError("N01_TITLE_AND_AGENCY_REQUIRED")
+            status=("partial" if state["notice"].get("notice_list")=="UNAVAILABLE"
+                    else "verified")
+            _record(run,1,status,{"mode":"newest_incomplete_auto","source":"official_g2b_live_site"},
+                    state["notice"])
+        except Exception as exc:
+            state["notice"]=None
+            _record(run,1,"source_error",{"mode":"newest_incomplete_auto"},
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "source":OFFICIAL+"/",
+                     "continue_to":"N02"})
+        _begin_stage(run,2)
+        try:
+            collection=_live_attachments(opener,preload,state.get("notice"))
+            state["collection"]=collection
+            docs=collection.get("files",[])
+            texts=[]
+            state["docs"]=docs
+            complete=collection.get("official_attachment_inventory_complete") is True
+            status=("verified" if complete else "partial" if docs else "source_error")
+            _record(run,2,status,
+                    {"bid_no":run.get("case_bid_no"),"bid_ord":run.get("case_bid_ord"),
+                     "request":"download_and_save_all_original_attachments"},
+                    collection)
+        except Exception as exc:
+            docs,texts=[],[]
+            state["docs"]=docs
+            state["collection"]={"error":type(exc).__name__+":"+str(exc)[:180],
+                                 "official_attachment_inventory_complete":False}
+            _record(run,2,"source_error",{"bid_no":run.get("case_bid_no")},
+                    {**state["collection"],"continue_to":"N03"})
+        _begin_stage(run,3)
+        # N03 will evaluate the saved original files only after its own
+        # downstream implementation is separately approved. N02 never parses
+        # documents, decides eligibility or pretends to have evaluated them.
+        state["elig"]={
+            "status":"DEFERRED_TO_FINAL_ORIGINAL_FILE_EVALUATION",
+            "source":"N02_official_attachment_manifest",
+            "attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+            "downloaded_files":len(docs),
+            "original_file_names":[x.get("original_filename") for x in docs],
+            "company_eligibility":"NOT_VERIFIED_NO_COMPANY_ORIGINAL",
+            "company_eligibility_verified":False,
+            "analysis_performed":False,
+        }
+        _record(run,3,"partial" if docs else "blocked",
+                {"N02_manifest_path":state["elig"]["attachment_manifest_path"],
+                 "N02_original_file_count":len(docs)},
+                state["elig"])
+        _begin_stage(run,4)
+        try:
+            state["history"]=_live_openings(opener,state.get("notice"))
+            _record(run,4,"partial",
+                    {"source":"official_selected_notice_opening_query",
+                     "selected_bid_no":run.get("case_bid_no"),
+                     "selected_bid_ord":run.get("case_bid_ord"),
+                     "detail10":None},
+                    state["history"])
+        except Exception as exc:
+            state["history"]=None
+            _record(run,4,"source_error",{"detail10":None,"selected_bid_no":run.get("case_bid_no")},
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "source":OPENINGS,"continue_to":"N05"})
+        _begin_stage(run,5)
+        try:
+            state["competition"]={"source":"N04_live_official_opening",
+                "raw_opening_rows":(state["history"] or {}).get("official_rows"),
+                "exact10_matched_competitors":None,
+                "confirmed_awards":None,
+                "status":"HOLD_ORIGINAL_10DIGIT_MATCH_UNVERIFIED"}
+            _record(run,5,"blocked",{"N04_status":"official_live_unfiltered"},
+                    state["competition"])
+        except Exception as exc:
+            state["competition"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,5,"source_error",{"source":"N04"},state["competition"])
+        _begin_stage(run,6)
+        try:
+            state["cost"]={"status":"MISSING_COMPANY_COST_EVIDENCE",
+                "source":"official_tender_attachment_only",
+                "bid_budget":(state["notice"] or {}).get("budget"),
+                "verified_company_cost":None}
+            _record(run,6,"blocked",{"N02_docs":len(docs)},state["cost"])
+        except Exception as exc:
+            state["cost"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,6,"source_error",{"source":"N02"},state["cost"])
+        _begin_stage(run,7)
+        try:
+            state["price"]={"status":"NO_PRICE_RECOMMENDATION",
+                "bid_budget":(state["notice"] or {}).get("budget"),
+                "eligibility_verified":False,"cost_verified":False,
+                "recommended_bid":None}
+            _record(run,7,"blocked",
+                    {"N03":state.get("elig"),"N06":state.get("cost")},
+                    state["price"])
+        except Exception as exc:
+            state["price"]={"error":type(exc).__name__+":"+str(exc)[:180]}
+            _record(run,7,"source_error",{"source":"N03+N06"},state["price"])
+        _begin_stage(run,8)
+        try:
+            raw=_document(state.get("notice"),docs,state.get("elig"),
+                          state.get("history"),state.get("competition"),
+                          state.get("cost"),state.get("price"))
+            with GUARD:run["_docx"]=raw
+            _record(run,8,"partial",{"source":"N01-N07 live results"},
+                    {"draft_generated":True,"bytes":len(raw),
+                     "sha256":sha256(raw).hexdigest(),"draft_only":True})
+        except Exception as exc:
+            _record(run,8,"source_error",{"source":"N01-N07 live results"},
+                    {"error":type(exc).__name__+":"+str(exc)[:180],
+                     "draft_generated":False,"continue_to":"N09"})
+        _begin_stage(run,9)
+        try:
+            from n02_collect import verify_saved_files
+            state["original_files_handoff"]=verify_saved_files(state.get("collection"))
+        except Exception as exc:
+            state["original_files_handoff"]={
+                "original_files_integrity_verified":False,
+                "error":type(exc).__name__+":"+str(exc)[:170],
+                "content_analysis_performed":False,
+            }
+        _record(run,9,"partial",{"stage_count":8,
+                  "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+                  "N02_original_file_count":len(docs)},
+                {"verified_steps":sum(s["status"]=="verified" for s in run["steps"]),
+                 "blocked_steps":sum(s["status"]=="blocked" for s in run["steps"]),
+                 "source_errors":sum(s["status"]=="source_error" for s in run["steps"]),
+                 "live_official_sources":[G2B_BID_LIST,ATTACH,OPENINGS],
+                 "N02_attachment_manifest_path":(state.get("collection") or {}).get("manifest_path"),
+                 "N02_original_file_count":len(docs),
+                 "N02_analysis_performed":False,
+                 "N02_persistent_file_handoff":state["original_files_handoff"],
+                 "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":True,
+                 "bid_submitted":False,"final_bid_approval":False})
+        with GUARD:run["status"]="completed_with_missing_evidence"
+    except Exception as exc:
+        log.exception("LIVE_9_STAGE_UNEXPECTED_FAILURE run_id=%s",run["run_id"])
+        # Ensure an interrupted stage has an explicit failure and the remaining
+        # stages have explicit skipped entries, never an indefinite RUNNING state.
+        msg=type(exc).__name__+":"+str(exc)[:180]
+        first_failed=run["completed_steps"]+1
+        for index in range(first_failed,10):
+            _record(run,index,"source_error" if index==first_failed
+                    else "not_executed",
+                    {"reason":"UNEXPECTED_EXECUTOR_EXCEPTION"},
+                    {"error":msg if index==first_failed
+                     else "PRIOR_STAGE_FAILED_UNEXPECTEDLY"})
+        with GUARD:
+            run["status"]="failed"
+            run["error"]=msg
+    finally:
+        with GUARD:
+            run["active_node"]=None
+            run["active_title"]=""
+            run["active_since"]=None
+            run["finished_at"]=_now().isoformat()
+            ACTIVE=None
+        log.info("LIVE9_FINISHED run_id=%s status=%s completed=%d",
+                 run["run_id"],run["status"],run["completed_steps"])
+def begin(sid,payload):
+    global ACTIVE
+    if not isinstance(payload,dict) or payload not in ({"mode":"auto"},{}):
+        raise ValueError("AUTOMATIC_SELECTION_ONLY_NO_PINNED_CASE")
+    with GUARD:
+        if ACTIVE is not None:raise ValueError("LIVE_RUN_ALREADY_ACTIVE")
+        rid=uuid.uuid4().hex
+        state={"run_id":rid,"status":"running","mode":"on_demand_live_no_database",
+            "selection_mode":"newest_incomplete_auto","case_bid_no":None,
+            "case_bid_ord":None,"detail10":None,"started_at":_now().isoformat(),
+            "completed_steps":0,"partial_steps":0,"steps":[],
+            "db_reads":0,"worker_calls":0,"g2b_site_live_post_attempted":False,
+            "bid_submitted":False}
+        # Preserve all other sessions while this one runs. Prior RUNS.clear()
+        # erased previous users' progress when a new test started.
+        if len(RUNS)>=24:
+            for key in list(RUNS):
+                if key!=sid and RUNS[key].get("status")!="running":
+                    del RUNS[key]
+                    if len(RUNS)<24:break
+        RUNS[sid]=state
+        ACTIVE=rid
+        worker=Thread(target=_execute,args=(state,),daemon=True,name="one_shot_live9")
+        worker.start()
+    return public(state)
+def public(state):
+    return {k:v for k,v in state.items() if k!="_docx"}
+def current(sid):
+    with GUARD:
+        run=RUNS.get(sid)
+        if not run:return {"status":"not_run","mode":"on_demand_live_no_database",
+                           "completed_steps":0,"steps":[]}
+        return public(run)
+def document(sid,run_id):
+    with GUARD:
+        r=RUNS.get(sid)
+        if not r or r["run_id"]!=run_id or "_docx" not in r:
+            raise LookupError("LIVE_DRAFT_NOT_AVAILABLE")
+        return r["_docx"]

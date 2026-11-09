@@ -1,0 +1,100 @@
+name: ProcureFlow unified shared Studio container verification
+on:
+  push:
+    branches:
+      - feature/procureflow-unified-studio-20261107
+  pull_request:
+    paths:
+      - n8n/Dockerfile.procureflow-unified
+      - n8n/unified/**
+      - n8n/admin-console/**
+      - n8n/strategy-runtime/**
+      - fresh_g2b*
+      - focused_g2b*
+      - main.py
+      - worker.py
+
+jobs:
+  unified-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the new nine-step runner never calls DB, Worker or Chrome
+        run: python -m unittest discover -s tests -p 'test_procurement_live_nine_test.py' -v
+      - name: Compile all business servers, orchestration and adapters
+        run: |
+          python -m py_compile n8n/unified/run.py n8n/unified/patch-server.py n8n/unified/procurement_auto_test.py n8n/unified/live_nine_test.py main.py worker.py fresh_g2b_app.py \
+            fresh_g2b_store.py fresh_g2b_site.py focused_g2b.py g2b_bid_notice_site_search.py \
+            n8n/strategy-runtime/procurement_live_gateway.py
+      - name: Verify no legacy n8n engine is installed in unified image definition
+        run: |
+          ! grep -E 'FROM n8nio/n8n|n8n worker --|redis-server' n8n/Dockerfile.procureflow-unified
+          grep -q 'UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION' n8n/unified/run.py
+          grep -q 'PF00-public-nine-real.json' n8n/unified/patch-catalog.mjs
+      - name: Build the real common Studio and unified G2B container
+        run: docker build --progress=plain -f n8n/Dockerfile.procureflow-unified -t procureflow-unified:ci .
+      - name: Run isolated UI container without Railway credentials or Worker
+        run: |
+          docker run -d --rm -p 3000:3000 --name proc-unified -e PORT=3000 procureflow-unified:ci
+          for n in $(seq 1 40); do
+            if curl -fSs http://127.0.0.1:3000/health >/tmp/health.json; then break; fi
+            sleep 2
+          done
+          cat /tmp/health.json
+          curl -fSs http://127.0.0.1:3000/admin/index.html >/tmp/admin.html
+          grep -q '신규 공고' /tmp/admin.html
+          curl -fSs 'http://127.0.0.1:3000/?workflow=operations%2FPF00-public-nine-real.json' >/tmp/editor.html
+          curl -fSs http://127.0.0.1:3000/procure-workflows/operations/PF00-public-nine-real.json >/tmp/flow.json
+          python -c 'import json;w=json.load(open("/tmp/flow.json"));assert w["meta"]["business_node_count"]==9 and not w["meta"]["simulation_only"]'
+          curl -fSs http://127.0.0.1:3000/api/studio/health >/tmp/studio-health.json
+          cat /tmp/studio-health.json
+          # Railway image must never contain a Chromium browser binary.
+          docker exec proc-unified sh -c '! command -v chromium && ! command -v chromium-browser && ! command -v google-chrome'
+          echo 'RAILWAY_HAS_NO_CHROMIUM_EXECUTABLE_PASS'
+          # Without configured dispatch credential, fail closed instead of
+          # silently crawling the official G2B from the Railway process.
+          curl -fsS -c /tmp/pf_cookie http://127.0.0.1:3000/api/procurement/public9/live-run >/tmp/github-live-state.json
+          python -c 'import json;x=json.load(open("/tmp/github-live-state.json"));assert x["mode"]=="github_actions_nine_nodes" and x["status"]=="not_run",x'
+          CODE=$(curl -sS -b /tmp/pf_cookie \
+            -H 'Origin: http://127.0.0.1' \
+            -H 'Content-Type: application/json' \
+            --data '{"mode":"auto"}' \
+            -o /tmp/pf_dispatch_status.json -w '%{http_code}' \
+            http://127.0.0.1:3000/api/procurement/public9/run-all)
+          echo "GITHUB_DISPATCH_WITHOUT_TOKEN_HTTP=$CODE"
+          cat /tmp/pf_dispatch_status.json
+          test "$CODE" = "503"
+          python -c 'import json;x=json.load(open("/tmp/pf_dispatch_status.json"));assert "GITHUB_DISPATCH_TOKEN_NOT_CONFIGURED" in x["error"],x'
+          echo 'RAILWAY_NO_CHROMIUM_NO_DIRECT_CRAWL_GITHUB_CREDENTIAL_FAIL_CLOSED_PASS'
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_NO_WORKER_NO_AUTOMATIC_COLLECTION'
+          docker logs proc-unified 2>&1 | grep 'UNIFIED_API_HELD_DB_NOT_CONNECTED_OR_EMBEDDED_API_NOT_ENABLED'
+          docker stop proc-unified
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser ONLY on GitHub Actions runner (never Railway image)
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.52.0
+          python -m playwright install --with-deps chromium
+      - name: Check common Vue Flow iframe, 9-stage state, fullscreen and mobile from GitHub runner
+        run: |
+          mkdir -p artifacts/public9-live-dashboard
+          docker run -d --rm -p 3000:3000 --name proc-unified-e2e \
+            -e PORT=3000 procureflow-unified:ci
+          for n in $(seq 1 40); do
+            if curl -fSs http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 2
+          done
+          PROCUREFLOW_UI_BASE=https://procureflow-unified-studio-candidate-production.up.railway.app \
+            python tests/test_public9_live_flow_dashboard.py
+          docker stop proc-unified-e2e
+      - name: Upload live UI screenshots and pass/fail JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procureflow-shared-nine-flow-tests
+          path: artifacts/public9-live-dashboard/
+          if-no-files-found: warn

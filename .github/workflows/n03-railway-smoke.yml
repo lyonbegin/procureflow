@@ -1,0 +1,81 @@
+name: N03 REAL RAILWAY document requirements and evidence smoke
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths: [.github/workflows/n03-railway-smoke.yml]
+permissions:
+  contents: read
+jobs:
+  n03-railway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - name: Execute real deployed Railway pipeline and check N03 actual output
+        run: |
+          python3 - <<'PY'
+          import json,time,urllib.request,urllib.error,http.cookiejar
+          base="https://procureflow-unified-studio-candidate-production.up.railway.app"
+          jar=http.cookiejar.CookieJar()
+          client=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          def call(route,body=None):
+              raw=None if body is None else json.dumps(body).encode("utf-8")
+              h={"Accept":"application/json","User-Agent":"ProcureFlow-N03-live-check"}
+              if raw is not None:
+                  h.update({"Origin":base,"Referer":base+"/admin/index.html?section=public",
+                            "Content-Type":"application/json"})
+              req=urllib.request.Request(base+route,data=raw,headers=h,method="POST" if raw is not None else "GET")
+              with client.open(req,timeout=30) as rsp:
+                  return rsp.status,json.loads(rsp.read(2000000))
+          _,s=call("/api/procurement/public9/live-run")
+          assert jar,"SESSION_COOKIE_REQUIRED"
+          start=None; deadline=time.monotonic()+230
+          while time.monotonic()<deadline:
+              try:
+                  code,start=call("/api/procurement/public9/run-all",{"mode":"auto"})
+                  assert code==202,(code,start)
+                  break
+              except urllib.error.HTTPError as e:
+                  error=e.read().decode(errors="replace")[:350]
+                  if e.code==409 and "LIVE_RUN_ALREADY_ACTIVE" in error:
+                      time.sleep(7)
+                      continue
+                  raise RuntimeError(f"POST {e.code}: {error}")
+          assert start and start.get("run_id"),"N03_RUN_NOT_ACCEPTED"
+          rid=start["run_id"]
+          print("N03_RAILWAY_RUN",rid,flush=True)
+          n01=n02=n03=None
+          while time.monotonic()<deadline:
+              _,state=call("/api/procurement/public9/live-run")
+              assert state.get("run_id")==rid,"RUN_SESSION_CHANGED"
+              steps={s["node"]:s for s in state.get("steps",[])}
+              if "N03" in steps:
+                  n01,n02,n03=(steps.get("N01"),steps.get("N02"),steps.get("N03"))
+                  break
+              time.sleep(2)
+          assert n01 and n02 and n03,"N01_N02_N03_NOT_ALL_REACHED"
+          assert n01["status"]=="verified",n01
+          assert n02["status"]=="verified",n02
+          out=n03.get("output") or {}
+          print("N03_RAILWAY_DETAILS",json.dumps({
+             "run":rid,"bid_no":n01["output"].get("bid_no"),
+             "n03_status":n03["status"],
+             "source":out.get("source"),
+             "document_requirement_extraction":out.get("document_requirement_extraction"),
+             "qualification_rule_count":out.get("qualification_rule_count"),
+             "required_document_count":out.get("required_document_count"),
+             "company_eligibility_verified":out.get("company_eligibility_verified"),
+             "reason":out.get("reason"),
+             "source_files":len(out.get("source_files",[])),
+             "error":out.get("error")
+          },ensure_ascii=False),flush=True)
+          assert n03["status"]=="partial",("N03_STAGE_NOT_PARTIAL",n03)
+          assert out.get("document_requirement_extraction")=="verified",out
+          assert out.get("qualification_rule_count",0)>=3,out
+          assert out.get("required_document_count",0)>=12,out
+          assert len(out.get("source_files",[]))==2,out
+          assert out.get("company_eligibility_verified") is False,out
+          assert out.get("company_eligibility")=="NOT_VERIFIED_NO_COMPANY_ORIGINAL",out
+          assert all("source_file_sha256" in rule for rule in out.get("qualification_rules",[])),out
+          assert n02["input"]["bid_no"]==n01["output"]["bid_no"],(n01,n02)
+          print("N03_RAILWAY_LIVE_DOCUMENT_EXTRACTION_PASS",rid,flush=True)
+          PY

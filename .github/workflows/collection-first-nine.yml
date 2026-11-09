@@ -1,0 +1,494 @@
+name: ProcureFlow collection-first N01-N08, N09 AI-only verification
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/collection-first-nine.yml
+      - n8n/unified/collect_only_stages.py
+      - n8n/unified/n03_requirements_collect.py
+      - n8n/unified/n09_final_ai.py
+      - n8n/unified/github_node_worker.py
+      - n8n/unified/github_actions_bridge.py
+      - n8n/strategy-workflows/PF00-public-nine-real.json
+      - tests/test_collection_first_nine.py
+      - tests/test_github_action_node_migration.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collection-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Railway OIDC verifier test dependency (GitHub runner only)
+        run: python -m pip install --disable-pip-version-check 'PyJWT[crypto]==2.10.1'
+      - name: Validate no business judgments before N09 and preserved graph
+        run: |
+          python -m unittest discover -s tests -p test_collection_first_nine.py -v
+          python -m unittest discover -s tests -p test_github_action_node_migration.py -v
+      - name: Python compile + browser dependency boundary
+        run: |
+          python -m py_compile n8n/unified/collect_only_stages.py n8n/unified/n03_requirements_collect.py n8n/unified/n09_final_ai.py n8n/unified/github_node_worker.py n8n/unified/github_actions_bridge.py
+          echo 'COLLECTION_FIRST_N01_N08_N09_ONLY_AI_CONTRACT_PASS'
+  g2b-official-requirement-originals-once:
+    # Real N02 original download -> text extraction -> six source evidence families.
+    # On-demand only. This is not a simulated notice or acceptance of legal eligibility.
+    if: contains(github.event.head_commit.message, 'OFFICIAL_DOCUMENT_PROBE_ONCE')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install genuine official HWP/PDF source readers
+        run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
+      - name: Read actual official selected tender documents and capture requirement source evidence
+        run: |
+          python - <<'PY'
+          import json,sys,tempfile
+          from pathlib import Path
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          import n02_collect
+          from n03_requirements_collect import collect as capture
+          n02_collect.STORAGE_ROOT=Path(tempfile.mkdtemp(prefix='pf-n03-official-'))
+          selected={"bid_no":"R26BK01816186","bid_ord":"000"}
+          opener=live._client()
+          live._once(opener)
+          from collect_only_stages import n03_metadata
+          from datetime import date
+          metadata_status,metadata=n03_metadata(opener,selected,live._json_post,
+                                                  live,date(2026,11,8))
+          official_code=(metadata.get("official_fields") or {}).get("prcmBsneSeCd")
+          print("N03_REAL_REQUIREMENTS_OFFICIAL_BUSINESS_CODE",json.dumps({
+              "status":metadata_status,"business_code":official_code,
+              "business_field_verified":bool(metadata.get("official_selected_record_found"))
+          },ensure_ascii=False),flush=True)
+          if not official_code:
+              raise RuntimeError("N03_OFFICIAL_PROCUREMENT_BUSINESS_CODE_MISSING")
+          selected["business_code"]=official_code
+          original=n02_collect.collect(opener,selected)
+          print("N03_REAL_REQUIREMENTS_N02",json.dumps({
+            "notice":selected["bid_no"],
+            "source":"official_g2b_attachments",
+            "files":original["file_count"],
+            "file_types":original["file_types"],
+            "inventory_complete":original["official_attachment_inventory_complete"],
+            "errors":original["errors"],
+            "unexpected_missing_indices":original["unexpected_missing_indices"]
+          },ensure_ascii=False),flush=True)
+          if not original["files"]:
+              raise RuntimeError("N03_OFFICIAL_ORIGINALS_NOT_DOWNLOADED")
+          status,source=capture(original["files"],
+                 lambda file:Path(file["saved_path"]).read_bytes())
+          print("N03_REAL_REQUIREMENT_SOURCE_COUNTS",json.dumps({
+            "status":status,
+            "source_files_extracted":source["extracted_source_count"],
+            "source_files_expected":source["original_file_count"],
+            "six_source_category_counts":source["category_counts"],
+            "missing_categories":source["missing_categories"],
+            "file_summaries":[{
+              "file_seq":x["file_seq"],"sha256":x["sha256"],
+              "extracted":x["text_extracted"],"chars":x.get("text_chars",0),
+              "format":x.get("format"),"truncated":x["text_truncated"],
+              "error":x.get("extraction_error")
+            } for x in source["source_files"]],
+            "gaps":source["gaps"],
+            "business_evaluation_performed":source["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          if not source["extracted_source_count"]:
+              raise RuntimeError("N03_OFFICIAL_DOCUMENT_TEXT_NOT_EXTRACTED")
+          if not any(source["category_counts"].values()):
+              raise RuntimeError("N03_NO_REAL_REQUIREMENT_EVIDENCE_EXTRACTED")
+          PY
+
+  official-source-export-once:
+    if: contains(github.event.head_commit.message, 'OFFICIAL_SOURCE_EXPORT_ONCE')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install original HWP and PDF readers
+        run: python -m pip install --disable-pip-version-check --no-cache-dir olefile==0.47 pypdf==5.4.0
+      - name: Download and export all selected official source attachments and text
+        run: |
+          python - <<'PY'
+          import os,sys,json,hashlib,shutil,base64,re
+          from pathlib import Path
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import n02_collect
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata
+          from n03_requirements_collect import _extract_source,_logical_lines,collect
+          dest=Path('official-source-export')
+          rawdir=dest/'originals'
+          textdir=dest/'extracted_text'
+          rawdir.mkdir(parents=True,exist_ok=True);textdir.mkdir(parents=True,exist_ok=True)
+          n02_collect.STORAGE_ROOT=dest/'runtime'
+          opener=live._client();live._once(opener)
+          selected={"bid_no":"R26BK01816186","bid_ord":"000"}
+          stat,meta=n03_metadata(opener,selected,live._json_post,live,date(2026,11,9))
+          code=(meta.get('official_fields') or {}).get('prcmBsneSeCd')
+          if not code:raise RuntimeError("OFFICIAL_SOURCE_NO_PROCURMENT_TYPE")
+          selected['business_code']=code
+          result=n02_collect.collect(opener,selected)
+          (dest/'notice_metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2))
+          (dest/'official_attachment_manifest.json').write_text(
+             json.dumps({k:v for k,v in result.items() if k not in ('storage_folder','manifest_path')},
+                        ensure_ascii=False,indent=2))
+          if not result['files']:raise RuntimeError('NO_ORIGINALS')
+          requirements_status,requirements=collect(result['files'],
+                                   lambda x:Path(x['saved_path']).read_bytes())
+          (dest/'n03_requirement_excerpts.json').write_text(json.dumps(requirements,ensure_ascii=False,indent=2))
+          (dest/'README.txt').write_text("Official G2B source R26BK01816186-000; original files with SHA-256; extracted text is a research copy, not official signed document. Some layout/figures may be missing. No bidder identity or financial values are fabricated.",encoding='utf-8')
+          export=[]
+          for i,src in enumerate(result['files'],1):
+             b=Path(src['saved_path']).read_bytes()
+             fname=src['original_filename']
+             shutil.copyfile(src['saved_path'],rawdir/f'{i:02d}__{fname}')
+             try:
+                full,kind,truncated=_extract_source(b)
+                normalized=_logical_lines(full)
+                filename=f'{i:02d}__source_lines.txt'
+                (textdir/filename).write_text('\n'.join(f'{j+1:05d} | {line}' for j,line in enumerate(normalized)),encoding='utf-8')
+                export.append({"seq":i,"filename":fname,"sha256":src["sha256"],"format":kind,
+                   "truncated":truncated,"lines":len(normalized),"chars":len(full),
+                   "text_path":str(textdir/filename)})
+                # Content available to owner in logs for authoring, preserving
+                # line identity. JSON escapes protect log structure.
+                for offset in range(0,len(normalized),24):
+                   print("SOURCE_SEGMENT",json.dumps({"seq":i,"from_line":offset+1,
+                       "rows":[{"line":j+1,"text":normalized[j]}
+                                for j in range(offset,min(offset+24,len(normalized)))]},
+                       ensure_ascii=False,separators=(',',':')),flush=True)
+             except Exception as err:
+                export.append({"seq":i,"filename":fname,"sha256":src["sha256"],
+                  "error":type(err).__name__+":"+str(err)[:130]})
+          (dest/'text_index.json').write_text(json.dumps(export,ensure_ascii=False,indent=2))
+          print("OFFICIAL_SOURCE_EXPORT_SUMMARY",json.dumps({"notice":selected,"files":export,
+               "requirements_status":requirements_status,"requirement_source_counts":requirements["category_counts"],
+               "missing_categories":requirements["missing_categories"]},ensure_ascii=False),flush=True)
+          PY
+      - name: Upload official originals and all extracted source lines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: procureflow-R26BK01816186-originals-and-text
+          path: official-source-export/
+          retention-days: 30
+          if-no-files-found: error
+
+  g2b-selected-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Real G2B selected tender lookup (N03 source fields, not eligibility)
+        run: |
+          python - <<'PY'
+          import json,sys
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata
+          notice={"bid_no":"R26BK01816186","bid_ord":"000"}
+          opener=live._client()
+          live._once(opener)
+          status,out=n03_metadata(opener,notice,live._json_post,live,date(2026,11,8))
+          print("COLLECTION_FIRST_REAL_G2B_METADATA",json.dumps({
+              "stage":"N03","status":status,
+              "selected_record_found":out["official_selected_record_found"],
+              "detail10":out["detail10"],
+              "detail10_source_field":out["detail10_source_field"],
+              "source_keys":list(out["official_fields"]),
+              "gaps":out["gaps"],
+              "business_evaluation_performed":out["business_evaluation_performed"],
+          },ensure_ascii=False),flush=True)
+          assert out["selected_bid_no"]==notice["bid_no"]
+          assert out["business_evaluation_performed"] is False
+          assert "company_eligibility" not in out
+          assert status in ("verified","partial")
+          print("COLLECTION_FIRST_REAL_G2B_N03_NO_EVALUATION_PASS",flush=True)
+          PY
+      - name: Probe actual N04 broad search filters (read-only)
+        run: |
+          python - <<'PY'
+          import sys,json
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import BID_LIST,BID_HEADERS,n03_metadata
+          opener=live._client();live._once(opener)
+          _,record=n03_metadata(opener,{"bid_no":"R26BK01816186","bid_ord":"000"},
+                               live._json_post,live,date(2026,11,8))
+          fields=record["official_fields"]
+          searches=[
+             ("agency_code","oderInstUntyGrpNo",fields.get("oderInstUntyGrpNo")),
+             ("agency_name","dmstNm",fields.get("dmstNm")),
+             ("title_short","bidPbancNm",(fields.get("bidPbancNm") or "")[:10]),
+          ]
+          for name,key,val in searches:
+             if not val:continue
+             payload=live._g2b_bid_list_payload("20251108","20261108",page=1)
+             payload["dlBidPbancLstM"][key]=val
+             try:
+                rows=live._json_post(opener,BID_LIST,payload,BID_HEADERS)
+                print("N04_LIVE_FILTER_PROBE",json.dumps({
+                    "mode":name,"valid_list":isinstance(rows,list),
+                    "rows":len(rows) if isinstance(rows,list) else None,
+                    "matched_field":sum(1 for row in rows if isinstance(row,dict) and
+                        str(row.get(key) or "").strip()==str(val).strip()) if isinstance(rows,list) else None,
+                    "matched_agency":sum(1 for row in rows if isinstance(row,dict) and
+                        row.get("dmstNm")==fields.get("dmstNm")) if isinstance(rows,list) else None,
+                    "example_key_names":list(rows[0].keys())[:14] if isinstance(rows,list) and rows else []
+                },ensure_ascii=False),flush=True)
+             except Exception as error:
+                print("N04_LIVE_FILTER_PROBE",json.dumps({
+                    "mode":name,"error":type(error).__name__+":"+str(error)[:80]
+                }),flush=True)
+          from collect_only_stages import n04_history
+          state,history=n04_history(opener,
+              {"bid_no":"R26BK01816186","bid_ord":"000"},
+              record,live._json_post,live,date(2026,11,8),max_pages=3)
+          print("N04_LIVE_HISTORY",json.dumps({
+              "status":state,"query_mode":history["query_mode"],
+              "periods_checked":len(history["periods_checked"]),
+              "initial_years":history.get("initial_years"),
+              "years_expanded":history.get("years_expanded"),
+              "target_records":history.get("target_records"),
+              "target_reached":history.get("target_reached"),
+              "scan_page_cap":3,
+              "responses":history["total_responses"],
+              "candidate_records":history.get("candidate_record_count"),
+              "verified_records":history.get("verified_record_count"),
+              "source_gaps":history["gaps"][:5],
+              "evaluation_performed":history["business_evaluation_performed"],
+          },ensure_ascii=False),flush=True)
+          assert 3<=len(history["periods_checked"])<=10
+          assert history["total_responses"]>0
+          assert history["business_evaluation_performed"] is False
+          from collect_only_stages import n05_openings
+          if history.get("records"):
+             # N04 is tested across the full policy; limit this separate N05
+             # smoke to one source-backed sample so CI does not perform 50
+             # independent full bidder-detail requests.
+             n05_sample={**history,"records":history["records"][:1]}
+             status5,opening=n05_openings(opener,n05_sample,live._json_post,date(2026,11,8))
+             print("N05_LIVE_HISTORY_OPENING",json.dumps({
+                 "status":status5,
+                 "history_candidates":opening.get("candidates"),
+                 "smoke_sample_limit":1,
+                 "checked":opening.get("checked"),
+                 "opening_records":len(opening.get("opening_records") or []),
+                 "bidder_detail_documents":len(opening.get("bidder_detail_records") or []),
+                 "actual_bidder_rows":sum(len(d.get("bidders") or [])
+                     for d in opening.get("bidder_detail_records") or []),
+                 "not_published_or_not_returned":opening.get("not_published_count"),
+                 "per_notice":opening.get("per_notice",[])[:1],
+                 "gaps":opening.get("gaps",[])[:10],
+                 "source_notice_ids":[x.get("bid_no") for x in history["records"][:3]],
+                 "evaluation_performed":opening.get("business_evaluation_performed")
+             },ensure_ascii=False),flush=True)
+             assert opening["business_evaluation_performed"] is False
+          PY
+
+  g2b-opening-source-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe real G2B opening listing, real row keys and read-only bidder detail
+        run: |
+          python - <<'PY'
+          import sys,json
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import (OPENING_LIST,OPEN_HEADERS,
+                  _n05_bidder_details)
+          opener=live._client()
+          live._once(opener)
+          form={"dlSrchOnbsRsltClsfListInM":{
+              "bidPbancNo":"","bidPbancOrd":"","bidPbancNm":"",
+              "onbsYmdStr":"20261001","onbsYmdEnd":"20261108",
+              "prcmBsneSeCd":"0000 조070001 조070002 조070003 조070004 조070005",
+              "frcpYn":"Y","rsrvYn":"Y","laseYn":"Y","chkBsneAllYn":"Y",
+              "firstIndex":1,"lastIndex":10,"inqEnd":"","stepBarYn":"",
+              "pbancKndCd":"공440002"}}
+          try:
+              rows=live._json_post(opener,OPENING_LIST,form,OPEN_HEADERS)
+              if not isinstance(rows,dict):raise ValueError("opening-list response not dictionary")
+              entries=rows.get("onbsRsltClsfList")
+              if not isinstance(entries,list):raise ValueError("opening-list entries missing")
+              print("N05_OFFICIAL_LIST_PROBE",json.dumps({
+                  "rows":len(entries),
+                  "first_row_fields":sorted(entries[0].keys()) if entries else []
+              },ensure_ascii=False),flush=True)
+              needed=("bidPbancNo","bidPbancOrd","bidClsfNo",
+                      "bidPrgrsOrd","prcmBsneSeCd","bidPgstCd")
+              print("N05_OFFICIAL_LIST_STATUSES",json.dumps([
+                  {"bid_no":row.get("bidPbancNo"),"status":row.get("bidPgstCd"),
+                   "business":row.get("prcmBsneSeCd")}
+                  for row in entries[:10] if isinstance(row,dict)
+              ],ensure_ascii=False),flush=True)
+              # Search up to four original pages to find a completed opening.
+              for page in range(2,5):
+                  form["dlSrchOnbsRsltClsfListInM"]["firstIndex"]=(page-1)*10+1
+                  form["dlSrchOnbsRsltClsfListInM"]["lastIndex"]=page*10
+                  extra=live._json_post(opener,OPENING_LIST,form,OPEN_HEADERS)
+                  batch=extra.get("onbsRsltClsfList") if isinstance(extra,dict) else None
+                  if isinstance(batch,list): entries.extend(batch)
+                  if not isinstance(batch,list) or len(batch)<10:break
+              options=[x for x in entries if isinstance(x,dict) and
+                  all(x.get(k) not in (None,"") for k in needed)]
+              # Prefer officially published statuses other than 유찰.
+              options.sort(key=lambda x:("유찰" in str(x.get("bidPgstCd") or ""),
+                                         "개찰" not in str(x.get("bidPgstCd") or "") and
+                                         "낙찰" not in str(x.get("bidPgstCd") or "")))
+              print("N05_OFFICIAL_OPENING_STATUS_COUNTS",json.dumps({
+                  "scanned_rows":len(entries),
+                  "status_counts":{str(x.get("bidPgstCd")):
+                      sum(1 for y in entries if isinstance(y,dict)
+                            and y.get("bidPgstCd")==x.get("bidPgstCd"))
+                      for x in options[:40]}
+              },ensure_ascii=False),flush=True)
+              for item in options[:3]:
+                  print("N05_OFFICIAL_DETAIL_KEYS",json.dumps({
+                      "bid_no":item.get("bidPbancNo"),
+                      "source_values":{k:item.get(k) for k in needed if k!="bidPbancNo"}
+                  },ensure_ascii=False),flush=True)
+                  result,errors=_n05_bidder_details(opener,live._json_post,
+                      item["bidPbancNo"],item["bidPbancOrd"],item)
+                  print("N05_OFFICIAL_DETAIL_PROBE",json.dumps({
+                      "bid_no":item.get("bidPbancNo"),
+                      "row_count":len(result["bidders"]) if result else 0,
+                      "detail_pages":result.get("pages_checked") if result else 0,
+                      "errors":errors[:3]
+                  },ensure_ascii=False),flush=True)
+                  if result and result.get("bidders"):
+                      from collect_only_stages import n05_openings
+                      history={"records":[{
+                          "bid_no":item["bidPbancNo"],
+                          "bid_ord":str(item["bidPbancOrd"]),
+                          "detail10":None,
+                          "query_period":{"from":"20261001","to":"20261108"}}]}
+                      state,out=n05_openings(opener,history,live._json_post,__import__("datetime").date(2026,11,8))
+                      print("N05_OFFICIAL_END_TO_END",json.dumps({
+                          "bid_no":item.get("bidPbancNo"),
+                          "status":state,
+                          "checked":out.get("checked"),
+                          "listing_pages":out.get("opening_list_pages"),
+                          "exact_opening_rows":len(out.get("opening_records") or []),
+                          "bidder_rows":out.get("observed_bidder_row_count"),
+                          "source_gaps":out.get("gaps",[])[:6]
+                      },ensure_ascii=False),flush=True)
+                      break
+          except Exception as exc:
+              print("N05_OFFICIAL_PROBE_ERROR",type(exc).__name__+":"+str(exc)[:140],flush=True)
+          PY
+
+  g2b-n05-fifty-candidate-live:
+    if: contains(github.event.head_commit.message, 'N05_FULL_LIVE_VERIFY') || contains(github.event.head_commit.message, 'N06_N07_FULL_LIVE_VERIFY')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run actual N03 to N04 to N05 for the 50 bounded source-backed candidates
+        run: |
+          python - <<'PY'
+          import sys,json
+          from datetime import date
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          from collect_only_stages import n03_metadata,n04_history,n05_openings
+          notice={"bid_no":"R26BK01816186","bid_ord":"000"}
+          opener=live._client();live._once(opener)
+          _,metadata=n03_metadata(opener,notice,live._json_post,live,date(2026,11,8))
+          n04_status,history=n04_history(opener,notice,metadata,
+              live._json_post,live,date(2026,11,8),max_pages=3)
+          print("N05_50_OFFICIAL_HISTORY",json.dumps({
+              "status":n04_status,"candidate_count":len(history["records"]),
+              "years_searched":history["years_searched"],
+              "history_target_reached":history["target_reached"],
+              "classification_verified_count":history["verified_record_count"]
+          },ensure_ascii=False),flush=True)
+          if not history["records"]:raise RuntimeError("N05_NO_HISTORICAL_CANDIDATES")
+          status,output=n05_openings(opener,history,live._json_post,date(2026,11,8))
+          print("N05_50_OFFICIAL_LIVE_RESULT",json.dumps({
+              "status":status,"candidate_count":output["candidates"],
+              "attempted":output["attempted"],"checked":output["checked"],
+              "list_pages":output["opening_list_pages"],
+              "list_response_rows":output["opening_list_response_rows"],
+              "matched_opening_records":len(output["opening_records"]),
+              "bidder_detail_records":len(output["bidder_detail_records"]),
+              "observed_bidder_rows":output["observed_bidder_row_count"],
+              "not_published_or_not_returned":output["not_published_count"],
+              "per_notice_statuses":{
+                  label:sum(1 for item in output["per_notice"] if item["status"]==label)
+                  for label in sorted({item["status"] for item in output["per_notice"]})},
+              "error_type_counts":{
+                  label:sum(1 for gap in output["gaps"] if label in gap)
+                  for label in ("official_http_422_unclassified",
+                                "official_422_no_published_opening_detail",
+                                "opening_lookup_failed","opening_listing_page_limit",
+                                "official_opening_detail_keys_missing")},
+              "business_evaluation_performed":output["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          assert output["attempted"]==min(50,len(history["records"]))
+          assert output["business_evaluation_performed"] is False
+          from collect_only_stages import n06_supply_catalog,n07_price_sources,n08_handoff
+          state6,company=n06_supply_catalog(notice,{"files":[]},history,output)
+          state7,commodity=n07_price_sources(notice,metadata,history,output,company)
+          print("N06_N07_N05_REAL_SOURCE_PIVOT",json.dumps({
+              "n05_actual_bidder_rows":output["observed_bidder_row_count"],
+              "n06_status":state6,
+              "n06_company_groups":company["company_count"],
+              "n06_company_history_rows":company["bid_history_record_count"],
+              "n06_award_source_records":company["award_result_source_count"],
+              "n06_all_time_history_verified":company["all_time_company_history_verified"],
+              "n07_status":state7,
+              "n07_item_groups":commodity["classification_group_count"],
+              "n07_price_fields":commodity["source_amount_count"],
+              "n07_quantity_fields":commodity["quantity_source_count"],
+              "n07_awarded_prices_verified":commodity["awarded_price_records_verified"],
+              "n06_eval":company["business_evaluation_performed"],
+              "n07_eval":commodity["business_evaluation_performed"]
+          },ensure_ascii=False),flush=True)
+          assert company["bid_history_record_count"]==output["observed_bidder_row_count"]
+          assert commodity["bidder_price_source_records"]==output["observed_bidder_row_count"]
+          assert not company["business_evaluation_performed"]
+          assert not commodity["business_evaluation_performed"]
+          _,bundle=n08_handoff(notice,{"N03":metadata,"N04":history,"N05":output,
+                    "N06":company,"N07":commodity})
+          if not bundle.get("handoff_bundle"):
+              raise RuntimeError("N08_REAL_SOURCE_HANDOFF_TOO_LARGE_OR_MISSING:"+str(bundle.get("bundle_error")))
+          forwarded=bundle["handoff_bundle"]
+          assert len(forwarded["company_bid_history_records"])==output["observed_bidder_row_count"]
+          assert len(forwarded["bidder_detail_records"])==len(output["bidder_detail_records"])
+          print("N08_N05_REAL_EVIDENCE_HANDOFF",json.dumps({
+              "n08_bundle_bytes":bundle["bundle_bytes"],
+              "n08_company_bid_rows":len(forwarded["company_bid_history_records"]),
+              "n08_original_bid_detail_documents":len(forwarded["bidder_detail_records"]),
+              "n08_item_amount_fields":len(forwarded["source_amount_fields"]),
+              "n08_item_quantity_fields":len(forwarded["item_quantity_source_fields"]),
+              "n08_ai_input_size_limit_450000_ok":bundle["bundle_bytes"]<450000
+          },ensure_ascii=False),flush=True)
+          assert bundle["bundle_bytes"]<450000
+          PY

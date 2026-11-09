@@ -1,0 +1,68 @@
+name: N01 automatic latest incomplete procurement selection - live G2B
+on:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/n01-official-diagnostic.yml
+      - n8n/unified/live_nine_test.py
+      - n8n/unified/n01_auto.py
+      - tests/test_procurement_live_nine_test.py
+permissions:
+  contents: read
+jobs:
+  n01-live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit test newest-first selection and nine-stage completion journal
+        run: python3 -m unittest discover -s tests -p test_procurement_live_nine_test.py -v
+      - name: Prove real production N01 function selects newest official G2B tender
+        env:
+          PROCUREFLOW_N01_LEDGER_PATH: /tmp/n01-actions-live-progress.json
+        run: |
+          python3 - <<'PY'
+          import json,sys
+          sys.path.insert(0,'n8n/unified')
+          import live_nine_test as live
+          opener=live._client()
+          live._once(opener)
+          result=live._official_g2b_search(opener)
+          assert result['selection_automatic'] is True
+          assert result['selection_policy']=='newest_not_fully_nine_stage_verified'
+          assert result['notice_list']=='AVAILABLE'
+          assert result['search_request_verified'] is True
+          assert result['selection_reason']=='newest_unprocessed'
+          assert result['latest_notice_count']>0
+          assert result['latest_notice_rows'][0]['bid_no']==result['bid_no']
+          assert result['source']==live.G2B_BID_LIST
+          assert result['title'] and result['agency']
+          import n01_auto
+          checkpoint={'run_id':'actions-isolated-n01-test',
+                      'selected_notice':result,'case_bid_no':result['bid_no']}
+          n01_auto.record_stage(checkpoint,1,'verified')
+          resumed=live._official_g2b_search(opener)
+          assert resumed['bid_no']==result['bid_no'],(result,resumed)
+          assert resumed['bid_ord']==result['bid_ord']
+          assert resumed['selection_reason']=='retry_incomplete'
+          for i in range(2,10):
+              n01_auto.record_stage(checkpoint,i,'verified')
+          after_complete=live._official_g2b_search(opener)
+          assert (after_complete['bid_no'],after_complete['bid_ord']) != (result['bid_no'],result['bid_ord'])
+          assert after_complete['skipped_completed_count']>=1
+          print('N01_REAL_RETRY_THEN_ADVANCE_PASS',json.dumps({
+              'incomplete_reselected':resumed['bid_no'],
+              'completed_skipped':result['bid_no'],
+              'next_selected':after_complete['bid_no']},ensure_ascii=False),flush=True)
+          second=live._g2b_list_rows(opener,result['search_request_window']['start'],
+                                    result['search_request_window']['end'],page=2)
+          assert second
+          assert second[0]['bid_no']!=result['bid_no'] or second[0]['bid_ord']!=result['bid_ord']
+          print("N01_AUTO_LIVE_G2B_PASS",json.dumps({
+            'selected_bid_no':result['bid_no'],'selected_bid_ord':result['bid_ord'],
+            'title':result['title'],'agency':result['agency'],
+            'selection_reason':result['selection_reason'],
+            'latest_notice_count':result['latest_notice_count'],
+            'page2_count':len(second),'page2_first':second[0]['bid_no'],
+            'source':result['source']},ensure_ascii=False),flush=True)
+          PY

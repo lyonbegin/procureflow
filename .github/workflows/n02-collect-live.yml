@@ -1,0 +1,71 @@
+name: N02 actual official all-attachment download and durable-manifest tests
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/procureflow-unified-studio-20261107]
+    paths:
+      - .github/workflows/n02-collect-live.yml
+      - n8n/unified/n02_collect.py
+      - n8n/unified/live_nine_test.py
+      - n8n/unified/github_actions_bridge.py
+      - n8n/unified/github_node_worker.py
+      - n8n/unified/github_oidc.py
+      - tests/test_github_action_node_migration.py
+      - tests/test_n02_collect_all_attachments.py
+      - tests/test_procurement_live_nine_test.py
+permissions:
+  contents: read
+jobs:
+  n02-live-originals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test source collection and automatic handoff (no cached originals)
+        run: |
+          python -m unittest discover -s tests -p test_n02_collect_all_attachments.py -v
+          python -m unittest discover -s tests -p test_procurement_live_nine_test.py -v
+      - name: Test GitHub-hosted 9-node orchestration and file relay
+        run: |
+          python -m pip install --disable-pip-version-check "PyJWT[crypto]==2.10.1"
+          python -m unittest discover -s tests -p test_github_action_node_migration.py -v
+      - name: Run actual N02 collector against official G2B for 3 representative bids
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROCUREFLOW_ATTACHMENT_ROOT: /tmp/n02-live-bids
+        run: |
+          python3 - <<'PY'
+          import sys,json
+          from pathlib import Path
+          sys.path.insert(0,'n8n/unified')
+          import n02_collect
+          import live_nine_test as g
+          op=g._client();g._once(op)
+          cases=[
+            ("R26BK01816186","000","22",3),
+            ("R26BK01787028","000","03",4),
+            ("R26BK01719764","000","03",4),
+          ]
+          for no,order,business,expected in cases:
+              out=n02_collect.collect(op,{"bid_no":no,"bid_ord":order,"business_code":business})
+              print("N02_ACTUAL_FILE_COLLECTION",json.dumps({
+                  "bid_no":no,"file_count":out["file_count"],"expected":expected,
+                  "inventory_complete":out["official_attachment_inventory_complete"],
+                  "files":[{"file_seq":f["file_seq"],"name":f["original_filename"],
+                            "type":f["file_type"],"bytes":f["size_bytes"],
+                            "sha256":f["sha256"],"saved":Path(f["saved_path"]).is_file()}
+                            for f in out["files"]],
+                  "saved_manifest":Path(out["manifest_path"]).is_file(),
+              },ensure_ascii=False),flush=True)
+              assert out["file_count"]==expected,out
+              assert out["official_attachment_inventory_complete"],out
+              assert out["analysis_performed"] is False
+              assert len(out["files"])==len(out["file_names"])
+              assert all(Path(f["saved_path"]).stat().st_size==f["size_bytes"] for f in out["files"])
+              assert all(f["filename_from_official_header"] for f in out["files"])
+              assert n02_collect.read_manifest(out["manifest_path"])["file_count"]==expected
+              print("N02_REAL_OFFICIAL_ALL_FILES_PASSED",no,expected,flush=True)
+          PY

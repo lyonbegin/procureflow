@@ -2,7 +2,7 @@ import os,json,secrets
 from datetime import datetime,timezone
 from pathlib import Path
 from fastapi import FastAPI,Header,HTTPException,Query
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel,Field
 from db import session,initialize
@@ -22,7 +22,7 @@ app.include_router(n8n_job_bridge_router)
 
 # n8n is the ONLY workflow editor and engine. Legacy React Flow and the
 # Python DAG simulation API are not mounted.
-from n8n_landing import launcher, scenario_editor_url, editor_base, shared_editor_ready, official_workflow_url
+from n8n_landing import launcher, scenario_editor_url
 
 @app.on_event("startup")
 def startup():
@@ -72,36 +72,10 @@ def home():
     return launcher()
 
 
-@app.get("/flow")
+@app.get("/flow", response_class=HTMLResponse)
 def n8n_workflow_landing():
-    """Retired React Flow URL never serves another canvas renderer."""
-    if shared_editor_ready():
-        return RedirectResponse(editor_base(), status_code=307)
+    """Retired React Flow URL now shows the n8n-only launcher."""
     return launcher()
-
-
-@app.get("/editor")
-def official_n8n_editor_redirect():
-    """Canonical, gated entrance to the one official n8n Vue editor."""
-    if not shared_editor_ready():
-        raise HTTPException(503, "Shared n8n editor not verified for live rollout")
-    return RedirectResponse(editor_base(), status_code=307)
-
-
-@app.get("/editor/workflow/{workflow_id}")
-def official_n8n_workflow_redirect(workflow_id: str):
-    url = official_workflow_url(workflow_id)
-    if not shared_editor_ready():
-        raise HTTPException(503, "Shared n8n editor not verified for live rollout")
-    if not url:
-        raise HTTPException(404, "Unknown officially imported workflow ID")
-    return RedirectResponse(url, status_code=307)
-
-
-@app.get("/n8n/native-preview")
-def legacy_n8n_preview_redirect():
-    """Never render the former standalone Vue Flow preview."""
-    return official_n8n_editor_redirect()
 
 
 @app.get("/n8n/progress",response_class=HTMLResponse)
@@ -583,6 +557,1197 @@ def queue_historical_bid_window(req:BidHistoricalWindow,
             RETURNING id
         """,(source,json.dumps(cfg))).fetchone()["id"]
     return {"job_id":jid,"source":source,"state":"queued","config":cfg}
+
+
+# Public-procurement search-first endpoints. These reuse production case,
+# original document and opening-result tables. No mock, new n8n engine or bid.
+@app.get("/public-search",response_class=HTMLResponse)
+def public_selected_search_workbench():
+    """Real stored G2B data and original files; not the A01 fixture canvas."""
+    return (Path(__file__).parent/"static/public-search.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/g2b/public/notices")
+def actual_public_notice_list(q: str = Query("",max_length=120),
+                              status: str = Query("all",pattern="^(all|open|closed)$"),
+                              limit: int = Query(30,ge=1,le=100),
+                              offset: int = Query(0,ge=0,le=10000)):
+    """Read latest ACTUAL G2B notices from original DB before selecting a case.
+
+    Listing is not a Worker execution. The existing single-case pipeline only
+    supports R26BK01787028 and is explicitly labelled for every result.
+    """
+    from g2b_search_first import _json_row
+    from g2b_case_10y import CASE_BID
+    predicates = ["source='g2b'",
+                  "external_id ~ '^R[0-9]{2}BK[0-9]{8}$'"]
+    params = []
+    if q.strip():
+        if any(ord(ch)<32 for ch in q):
+            raise HTTPException(400,"INVALID_NOTICE_SEARCH_TEXT")
+        term = "%" + q.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_") + "%"
+        predicates.append("(title ILIKE %s OR agency ILIKE %s OR external_id ILIKE %s)")
+        params.extend([term,term,term])
+    if status=="open":
+        predicates.append(
+          "deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND "
+          "left(deadline,10)>=to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
+    elif status=="closed":
+        predicates.append(
+          "deadline ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}' AND "
+          "left(deadline,10)<to_char(now() AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD')")
+    where = " WHERE " + " AND ".join(predicates)
+    with session() as con:
+        total=con.execute(
+          "SELECT count(*)::int AS n FROM procureflow.tenders"+where,
+          tuple(params)).fetchone()["n"]
+        rows=con.execute(
+          """SELECT external_id AS bid_no,title,agency,category,
+                    notice_date,deadline,method,status,source_url,last_seen
+             FROM procureflow.tenders""" + where +
+          " ORDER BY notice_date DESC,last_seen DESC,external_id DESC LIMIT %s OFFSET %s",
+          tuple(params+[limit,offset])).fetchall()
+    items=[]
+    for item in rows:
+        data=_json_row(item)
+        data["bid_ord"]="000"
+        data["preparation_engine"]=(
+            "existing_selected_case" if data["bid_no"]==CASE_BID
+            else "not_yet_connected_to_one_case_engine")
+        data["can_run_full_evidence"]=data["bid_no"]==CASE_BID
+        items.append(data)
+    if items:
+        items[0]["is_latest"]=offset==0
+    return {"source":"actual_procureflow_postgresql_g2b_notices",
+            "items":items,"total":total,
+            "filters":{"q":q,"status":status,"limit":limit,"offset":offset},
+            "default_latest_bid_no":items[0]["bid_no"] if items else None,
+            "automated_collection_claim":False,"bid_submitted":False}
+
+
+@app.get("/api/g2b/public/selected/search")
+def public_selected_search(start: str | None = None, end: str | None = None,
+                           detail10: str = "8111159901",
+                           kind: str = Query("all",pattern="^(all|opening|award)$"),
+                           agency: str = Query("",max_length=100),
+                           limit: int = Query(50,ge=1,le=200),
+                           offset: int = Query(0,ge=0,le=50000)):
+    from g2b_search_first import filters, actual_case_workbench
+    try:
+        selection=filters(detail10=detail10,start=start,end=end,kind=kind,
+                          agency=agency,limit=limit,offset=offset)
+        return actual_case_workbench(
+           selection.start,selection.end,selection.kind,selection.agency,
+           selection.limit,selection.offset)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/strategy")
+def selected_actual_competition_strategy(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Real source-backed bidder comparison for ALL filter matches, not page 1.
+
+    Never equate opening rank with a final award, assume decade completeness,
+    infer company qualifications, or produce a made-up recommended bid price.
+    """
+    from g2b_real_strategy import analyze_competition
+    try:
+        return analyze_competition(start=start,end=end,agency=agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/preparation")
+def selected_actual_preparation(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Nine REAL public tender work steps. 10-year analytics is advisory, not HOLD."""
+    from g2b_real_strategy import actual_preparation
+    try:
+        return actual_preparation(start,end,agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/proposal")
+def public_source_backed_proposal():
+    """Existing real case+documents review without legacy 121-month bootstrap."""
+    from g2b_bid_package import proposal_contents
+    return proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+
+
+@app.get("/api/g2b/public/selected/proposal.docx")
+def public_source_backed_proposal_docx():
+    """Source-backed real review document; not a signed bid or finalized proposal."""
+    from fastapi.responses import Response
+    from g2b_bid_package import proposal_contents,draft_docx
+    from g2b_search_first import single_case_material
+    from g2b_real_strategy import analyze_competition
+    case=single_case_material()
+    competition=analyze_competition(case=case)
+    contents=proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+    raw,_=draft_docx(contents=contents,strategy=competition,
+                     source_clauses=case.get("source_clauses",[]))
+    return Response(content=raw,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":"attachment; filename=ProcureFlow-G2B-Actual-Review.docx",
+                 "X-ProcureFlow-Draft-Only":"true"})
+
+
+class PublicFilteredCollection(BaseModel):
+    start: str
+    end: str
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+    max_notices: int = Field(2,ge=1,le=3)
+
+
+@app.get("/api/g2b/public/selected/search/websquare-preview")
+def public_websquare_exact10_preview(
+    start: str = Query("2016-10-24"),
+    end: str = Query("2026-10-22"),
+    detail10: str = Query("8111159901",pattern=r"^\d{10}$"),
+    agency: str = Query("",max_length=100),
+    max_notices: int = Query(3,ge=1,le=3)):
+    """Read-only exact-10 original-index filter; G2B per-ID web lookup is Worker-only.
+
+    Does NOT claim the external bid-publication website accepted a 10-digit
+    server-side search field. Do not infer 10-year completeness from preview.
+    """
+    from g2b_search_first import filters,preview_filtered_gaps
+    try:
+        s=filters(detail10=detail10,start=start,end=end,
+                  agency=agency,kind="all")
+        return preview_filtered_gaps(s,max_notices=max_notices)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.post("/api/g2b/public/selected/search/collect")
+def collect_public_filtered(req:PublicFilteredCollection,
+                            authorization:str|None=Header(None)):
+    """Only queued original-G2B opening fetch of few already 10digit-verified ids.
+
+    Does not collect 121 months of notice candidates or run a mock scenario.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    try:
+        selection=filters(detail10=req.detail10,start=req.start,end=req.end,
+                          kind="all",agency=req.agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    config={"bid_no":selection.bid_no,"detail10":selection.detail10,
+      "start":selection.start.isoformat(),"end":selection.end.isoformat(),
+      "agency":selection.agency,"max_notices":req.max_notices}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+          WHERE source='g2b_filtered' AND state IN ('queued','running')
+          LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Another filtered source query is running")
+        row=con.execute("""INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('g2b_filtered',%s::jsonb,%s) RETURNING id""",
+          (json.dumps(config,ensure_ascii=False),
+           "Real selected G2B opening by exact original 10-digit/date filter")).fetchone()
+    return {"job_id":row["id"],"source":"g2b_filtered",
+            "state":"queued","filters":config,"bid_submitted":False}
+
+
+class PublicRealPrepareRequest(BaseModel):
+    start: str = Field("2016-10-24",pattern=r"^\d{4}-\d\d-\d\d$")
+    end: str = Field("2026-10-22",pattern=r"^\d{4}-\d\d-\d\d$")
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+
+
+@app.post("/api/g2b/public/selected/prepare")
+def queue_real_selected_preparation(req:PublicRealPrepareRequest,
+                                    authorization:str|None=Header(None)):
+    """Queue existing Worker to execute nine REAL bid-analysis/prep stages.
+
+    A successful queue operation is not an execution and NEVER a bid submission.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    from g2b_public_workflow import ensure_schema
+    try:
+        f=filters(detail10=req.detail10,start=req.start,end=req.end,
+                  agency=req.agency,kind="opening")
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    ensure_schema()
+    cfg={"bid_no":f.bid_no,"detail10":f.detail10,
+         "start":f.start.isoformat(),"end":f.end.isoformat(),
+         "agency":f.agency}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+            WHERE source='g2b_public_prepare' AND state IN('queued','running')
+            LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Public one-tender preparation already running")
+        row=con.execute("""INSERT INTO procureflow.jobs(
+            source,config,message)
+            VALUES('g2b_public_prepare',%s::jsonb,%s) RETURNING id""",
+            (json.dumps(cfg,ensure_ascii=False),
+             "9-stage real one-tender G2B source/strategy/draft preparation, not a simulation")).fetchone()
+    return {"job_id":row["id"],"queued":True,
+            "worker_source":"g2b_public_prepare","case_bid_no":f.bid_no,
+            "already_executed":False,"bid_submitted":False}
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/latest")
+def latest_real_selected_preparation_job():
+    """Resume original production DB stage IDs and source-backed doc after reload."""
+    from g2b_public_workflow import latest_actual_job
+    return latest_actual_job()
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}")
+def real_selected_preparation_job(job_id:int):
+    from g2b_public_workflow import read_actual_job
+    try:
+        return read_actual_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}/draft.docx")
+def real_selected_preparation_review_draft(job_id:int):
+    from g2b_public_workflow import read_saved_docx,DRAFT_MEDIA
+    from fastapi.responses import Response
+    try:
+        binary,digest=read_saved_docx(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    return Response(content=binary,media_type=DRAFT_MEDIA,
+        headers={"Content-Disposition":
+           "attachment; filename=ProcureFlow-Actual-G2B-Review-"+str(job_id)+".docx",
+           "X-ProcureFlow-Draft-Only":"true",
+           "X-ProcureFlow-Original-SHA256":digest})
+
+
+@app.get("/api/analysis/summary")
+def analysis_summary():
+    """Aggregated live counts for the existing FastAPI dashboard.
+
+    Public procurement, explicit development requests and hiring leads are
+    kept separate. The sector labels describe the collected sample only;
+    they are not national procurement statistics.
+    """
+    with session() as conn:
+        public=conn.execute("""
+            SELECT source,category,count(*) AS count
+            FROM procureflow.tenders
+            WHERE source IN ('g2b','kapt') AND category IN ('물품','일반용역')
+            GROUP BY source,category ORDER BY source,category
+        """).fetchall()
+        market=conn.execute("""
+            SELECT source,kind,count(*) AS count
+            FROM procureflow.market_records
+            WHERE source IN ('freemoa','freemoa_partners','freemoa_portfolios',
+                             'wanted_gigs','kmong_enterprise','work24')
+            GROUP BY source,kind ORDER BY source,kind
+        """).fetchall()
+        sectors=conn.execute("""
+            SELECT kind,
+                   COALESCE(NULLIF(meta->>'service_area',''),'unclassified') AS service_area,
+                   count(*) AS count
+            FROM procureflow.market_records
+            WHERE source IN ('freemoa','kmong_enterprise','wanted_gigs','work24')
+              AND kind IN ('development_demand','job_demand')
+            GROUP BY kind,service_area ORDER BY count DESC,service_area
+        """).fetchall()
+        providers=conn.execute("""
+            SELECT COALESCE(NULLIF(meta->>'information_provider',''),'unknown')
+                       AS provider,count(*) AS count
+            FROM procureflow.market_records
+            WHERE source='work24' AND kind='job_demand'
+            GROUP BY provider ORDER BY count DESC,provider
+        """).fetchall()
+        recent=conn.execute("""
+            SELECT id,source,state,checked,added,duplicates,created_at
+            FROM procureflow.jobs
+            ORDER BY id DESC LIMIT 8
+        """).fetchall()
+    return {"status":"ok","public":public,"market":market,
+            "service_areas":sectors,"work24_providers":providers,
+            "recent_jobs":recent,
+            "scope":"stored_records_not_national_statistics"}
+
+
+@app.get("/api/market/records")
+def market_records(source:str="",kind:str="",q:str="",demand_type:str="",service_area:str="",limit:int=Query(50,ge=1,le=200),
+                   offset:int=Query(0,ge=0),authorization:str|None=Header(None)):
+    guard(authorization)
+    if source and source not in MARKET_SOURCES:raise HTTPException(400,"Unsupported source")
+    where=["source NOT IN ('daangn','kmong','soomgo')"];args=[]
+    if source:where.append("source=%s");args.append(source)
+    if source=="freemoa_portfolios":
+        where.append("(coalesce(meta->>'origin','')<>'public_javascript_portfolio_modal' "
+                     "OR coalesce(meta->>'verified_project_summary','false')='true' "
+                     "OR body ILIKE '%%프로젝트 요약%%')")
+    if kind:where.append("kind=%s");args.append(kind)
+    if q:where.append("(title ILIKE %s OR body ILIKE %s)");args.extend([f"%{q}%"]*2)
+    if demand_type:where.append("meta->>'demand_type'=%s");args.append(demand_type)
+    if service_area:where.append("meta->>'service_area'=%s");args.append(service_area)
+    condition=" WHERE "+" AND ".join(where) if where else ""
+    with session() as c:
+        n=c.execute("SELECT count(*) AS n FROM procureflow.market_records"+condition,args).fetchone()['n']
+        records=c.execute("SELECT source,kind,source_id,title,url,LEFT(body,1000) AS excerpt,meta,first_seen,last_seen FROM procureflow.market_records"+
+            condition+" ORDER BY last_seen DESC LIMIT %s OFFSET %s",args+[limit,offset]).fetchall()
+    return {"total":n,"items":records}
+
+
+@app.get("/simulate",response_class=HTMLResponse)
+def simulation_web():
+    """Read-only case evaluation. Never redirects to a bid submission form."""
+    return (Path(__file__).parent/"static/simulate.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/simulation/preview")
+def bid_simulation_preview(source:str=Query(...,pattern="^(g2b|kapt)$"),
+                           external_id:str=Query(...,min_length=1,max_length=120),
+                           authorization:str|None=Header(None)):
+    guard(authorization)
+    from bid_simulation import preview
+    try:
+        result=preview(session,source,external_id)
+        if source=="kapt" and external_id=="20261020165014951":
+            from bid_price_engine import build_price_model
+            cost=build_price_model()
+            result["preliminary_price_model"]={
+               "monthly_krw":cost["totals"]["monthly_total_krw"],
+               "annual_krw":cost["totals"]["annual_total_krw"],
+               "status":cost["validity"],
+               "submission_ready":False,
+               "model_url":"/api/simulation/price-preview",
+               "proposal_url":"/api/simulation/proposal-draft",
+               "editor_url":"/prepare"
+            }
+            for step in result["stages"]:
+                if step["id"]=="cost_and_price":
+                    step["state"]="partial"
+                    step["observation"]="공고 OCR 원가 시나리오 계산 완료: 연 "+str(
+                        cost["totals"]["annual_total_krw"])+"원 (비확정, 원본·실비 미검증)"
+                    step["required_next"]="원본 지정 산출서, 직책수당, 보험·VAT, 대체인력 및 협력사 원가 검증"
+                if step["id"]=="final_documents":
+                    step["observation"]="8개 사업제안서 구간 작성 초안; 업체명·자격·인력·장비·서류 원본 미확정"
+        return result
+    except LookupError as exc:
+        raise HTTPException(404,str(exc))
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
+
+@app.get("/browser",response_class=HTMLResponse)
+def browser_diagnostics_dashboard():
+    return (Path(__file__).parent/"static/browser.html").read_text(encoding="utf-8")
+
+
+class BrowserProbeRun(BaseModel):
+    source:str=Field("kapt",pattern="^kapt$")
+    external_id:str=Field(...,min_length=14,max_length=20)
+
+
+@app.post("/api/browser/probes")
+def request_browser_probe(req:BrowserProbeRun,authorization:str|None=Header(None)):
+    """Bounded official K-apt public-only browser, no free-form URL or actions."""
+    # Keep browser execution privileged even when legacy TEST_MODE=1.
+    admin=os.getenv("ADMIN_TOKEN","")
+    supplied=(authorization or "").removeprefix("Bearer ").strip()
+    if not admin:raise HTTPException(503,"ADMIN_TOKEN not configured")
+    if not secrets.compare_digest(supplied,admin):
+        raise HTTPException(401,"Administrator authorization required")
+    from db import ensure_browser_diagnostics
+    from browser_diagnostics import validate_id
+    try:validate_id(req.external_id)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    ensure_browser_diagnostics()
+    with session() as db:
+        active=db.execute("SELECT id FROM procureflow.jobs WHERE source='browser_probe' AND state IN ('queued','running') LIMIT 1").fetchone()
+        if active:raise HTTPException(409,"Browser diagnostic job already active: "+str(active["id"]))
+        jid=db.execute("""
+          INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('browser_probe',%s::jsonb,'Public K-apt readonly screenshot/DOM/network probe')
+          RETURNING id
+        """,(json.dumps(req.model_dump(),ensure_ascii=False),)).fetchone()["id"]
+    return {"job_id":jid,"state":"queued","mode":"READ_ONLY_NO_BID_ACTIONS"}
+
+
+@app.get("/api/browser/probes")
+def browser_probe_list():
+    with session() as db:
+        rows=db.execute("""
+          SELECT j.id,j.state,j.config->>'external_id' AS notice_id,j.checked,
+                 j.added,j.created_at,j.started_at,j.finished_at,
+                 left(j.last_error,400) AS last_error,
+                 coalesce(r.report->>'status','') AS browser_status,
+                 coalesce(r.report->>'participation_gate','') AS gate
+          FROM procureflow.jobs j
+          LEFT JOIN procureflow.browser_reports r ON r.job_id=j.id
+          WHERE j.source='browser_probe'
+          ORDER BY j.id DESC LIMIT 20
+        """).fetchall()
+    return {"items":rows,"engine":"internal_playwright","public_only":True,
+            "submission_actions_allowed":False}
+
+
+@app.get("/api/browser/probes/{job_id}")
+def browser_probe_detail(job_id:int):
+    with session() as db:
+        job=db.execute("""
+          SELECT id,state,config->>'external_id' AS notice_id,
+                 checked,added,created_at,started_at,finished_at,
+                 message,left(last_error,600) AS last_error
+          FROM procureflow.jobs WHERE id=%s AND source='browser_probe'
+        """,(job_id,)).fetchone()
+        if not job:raise HTTPException(404,"Browser diagnostic job not found")
+        report=db.execute("SELECT report FROM procureflow.browser_reports WHERE job_id=%s",(job_id,)).fetchone()
+        captures=db.execute("""
+          SELECT stage,created_at,octet_length(image) AS bytes,snapshot
+          FROM procureflow.browser_captures
+          WHERE job_id=%s ORDER BY created_at,stage
+        """,(job_id,)).fetchall()
+    return {
+        "job":job, "report": report["report"] if report else None,
+        "captures":[{**r,"screenshot_url":f"/api/browser/images/{job_id}/{r['stage']}"}
+                    for r in captures],
+        "unsafe_actions_executed":False
+    }
+
+
+@app.get("/api/browser/images/{job_id}/{stage}")
+def browser_screenshot(job_id:int,stage:str):
+    from fastapi.responses import Response
+    if stage not in ("public_list","notice_detail","attachments_area","before_participation"):
+        raise HTTPException(404,"Unknown capture stage")
+    with session() as db:
+        r=db.execute("""
+          SELECT image,content_type FROM procureflow.browser_captures
+          WHERE job_id=%s AND stage=%s
+        """,(job_id,stage)).fetchone()
+    if not r or not r["image"]:raise HTTPException(404,"Screenshot not available")
+    return Response(content=bytes(r["image"]),media_type=r["content_type"],
+                    headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/api/browser/probes/{job_id}/summary")
+def browser_probe_summary(job_id:int):
+    """Compact JSON intended for direct automated QA and AI analysis."""
+    with session() as db:
+        j=db.execute("""
+          SELECT id,state,config->>'external_id' AS notice_id,
+                 checked,added,last_error,finished_at
+          FROM procureflow.jobs
+          WHERE id=%s AND source='browser_probe'
+        """,(job_id,)).fetchone()
+        if not j:raise HTTPException(404,"Browser probe not found")
+        rr=db.execute("SELECT report FROM procureflow.browser_reports WHERE job_id=%s",(job_id,)).fetchone()
+        captures=db.execute("""
+          SELECT stage,octet_length(image) AS image_bytes,snapshot
+          FROM procureflow.browser_captures WHERE job_id=%s
+          ORDER BY created_at,stage
+        """,(job_id,)).fetchall()
+    report=rr["report"] if rr else {}
+    return {
+      "job":j, "status":report.get("status"),
+      "unsafe_actions_executed":False,
+      "blocked_network":report.get("blocked_network",[])[:50],
+      "errors":report.get("errors",[])[:25],
+      "screens":[
+        {"step":c["stage"],"image_bytes":c["image_bytes"],
+         "image_url":f"/api/browser/images/{job_id}/{c['stage']}",
+         "title":c["snapshot"].get("title"),
+         "content_length":c["snapshot"].get("content_length"),
+         "text_excerpt":c["snapshot"].get("text","")[:1600],
+         "attachment_links":c["snapshot"].get("link_candidates",[])[:20],
+         "controls":c["snapshot"].get("controls",[])[:35],
+         "tables":c["snapshot"].get("tables",[])[:3]}
+        for c in captures
+      ]
+    }
+
+
+@app.get("/api/browser/image-chunk/{job_id}/{stage}")
+def browser_image_chunk(job_id:int,stage:str,
+                        offset:int=Query(0,ge=0,le=2000000),
+                        size:int=Query(22000,ge=1,le=30000)):
+    """Base64 image chunks for AI clients that can read JSON but not binary URLs.
+
+    Only public K-apt screenshots, bounded chunks. Never runs a new browser.
+    """
+    import base64
+    if stage not in ("public_list","notice_detail","attachments_area","before_participation"):
+        raise HTTPException(404,"Unknown screenshot stage")
+    with session() as db:
+        row=db.execute("""
+          SELECT image FROM procureflow.browser_captures
+          WHERE job_id=%s AND stage=%s
+        """,(job_id,stage)).fetchone()
+    if not row or not row["image"]:raise HTTPException(404,"Screenshot not stored")
+    b64=base64.b64encode(bytes(row["image"])).decode("ascii")
+    return {"job_id":job_id,"stage":stage,
+            "offset":offset,"total":len(b64),
+            "base64_chunk":b64[offset:offset+size],
+            "has_more":offset+size<len(b64),
+            "content_type":"image/jpeg"}
+
+
+@app.get("/prepare",response_class=HTMLResponse)
+def proposal_and_price_simulator_web():
+    """Standalone staged pricing and written technical proposal review."""
+    return (Path(__file__).parent/"static/bid_prepare.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/simulation/price-preview")
+def tender_evidence_price_preview(
+    external_id:str="20261020165014951",
+    role_allowance_krw:int=Query(0,ge=0,le=1000000),
+    relief_staff_monthly_krw:int=Query(0,ge=0,le=3000000),
+    admin_pct:str=Query("3",min_length=1,max_length=8),
+    profit_pct:str=Query("3",min_length=1,max_length=8),
+    common_cost_scope:str=Query("site",pattern="^(site|each_worker)$"),
+):
+    from bid_price_engine import NOTICE_ID,build_price_model
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified cost schedule for this notice")
+    try:
+        return build_price_model(
+            role_allowance_krw=role_allowance_krw,
+            relief_staff_monthly_krw=relief_staff_monthly_krw,
+            admin_pct=admin_pct,profit_pct=profit_pct,
+            common_cost_scope=common_cost_scope)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/simulation/price-scenarios")
+def tender_pricing_scenarios(external_id:str="20261020165014951"):
+    from bid_price_engine import NOTICE_ID,price_scenarios
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified cost schedule for this notice")
+    return {"notice_id":NOTICE_ID, "scenarios":price_scenarios(),
+            "bid_ready":False,"submitted":False}
+
+
+@app.get("/api/simulation/proposal-draft")
+def tender_proposal_draft(external_id:str="20261020165014951"):
+    from bid_price_engine import NOTICE_ID,proposal_draft
+    if external_id != NOTICE_ID:
+        raise HTTPException(404,"No verified requirements for this notice")
+    return proposal_draft()
+
+
+@app.get("/api/workbench/overview")
+def procurement_workbench_overview(
+    q:str=Query("",max_length=200),source:str=Query("",max_length=10),
+    category:str=Query("",max_length=15),
+    filter_state:str=Query("all",max_length=24),
+    limit:int=Query(50,ge=1,le=100),
+    offset:int=Query(0,ge=0,le=1000000)):
+    """Public tender metadata and evidence counts. R..DD orders are excluded."""
+    from workbench import overview
+    return overview(q=q,source=source,category=category,
+                    filter_state=filter_state,limit=limit,offset=offset)
+
+
+@app.get("/api/workbench/case")
+def procurement_workbench_case(
+    source:str=Query(...,pattern="^(kapt|g2b)$"),
+    external_id:str=Query(...,min_length=3,max_length=120)):
+    """Actual stored evidence and outstanding requirements for one bid."""
+    from workbench import case_detail
+    try:
+        return case_detail(source,external_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+
+
+class WorkbenchAction(BaseModel):
+    source:str=Field(...,pattern="^(kapt|g2b)$")
+    external_id:str=Field(...,min_length=3,max_length=120)
+    action:str=Field(...,pattern="^(start|pause|resume)$")
+
+
+@app.post("/api/workbench/cases/action")
+def procurement_workbench_action(req:WorkbenchAction,
+                               authorization:str|None=Header(None)):
+    """Explicitly authorized workflow tracking and read-only K-apt capture."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from workbench import change_workflow
+    try:
+        return change_workflow(req.source,req.external_id,req.action)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/agents",response_class=HTMLResponse)
+def autonomous_agent_monitor():
+    """Live autonomous three-agent operations display (no user clicks needed)."""
+    return (Path(__file__).parent/"static/agents.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/agents/live")
+def autonomous_agents_live(
+    event_limit:int=Query(90,ge=1,le=200),
+):
+    """PostgreSQL-backed near-real-time agent status, cases, and event log."""
+    from agent_orchestrator import AGENT_COUNT,PHASES
+    with session() as db:
+        slots=db.execute("""
+            SELECT a.slot_id,a.enabled,a.status,a.source,a.external_id,
+              a.owner_id,a.phase,a.phase_label,a.progress,a.phase_total,
+              a.current_action,a.last_error,a.started_at,a.heartbeat_at,
+              a.lease_until,a.finished_cases,a.updated_at,
+              t.title,t.agency,t.category,t.deadline,t.notice_date,
+              c.state AS case_state,c.attempt AS case_attempt,
+              c.verified AS case_verified,c.partial AS case_partial,
+              c.missing AS case_missing,c.next_attempt_at,
+              c.notes AS case_notes
+            FROM procureflow.agent_slots a
+            LEFT JOIN procureflow.tenders t
+              ON t.source=a.source AND t.external_id=a.external_id
+            LEFT JOIN procureflow.agent_cases c
+              ON c.source=a.source AND c.external_id=a.external_id
+            ORDER BY a.slot_id
+        """).fetchall()
+        events=db.execute("""
+            SELECT id,slot_id,source,external_id,level,step,message,
+                   meta,created_at
+            FROM procureflow.agent_events
+            ORDER BY id DESC LIMIT %s
+        """,(event_limit,)).fetchall()
+        case_counts=db.execute("""
+            SELECT state,count(*) AS total FROM procureflow.agent_cases
+            GROUP BY state ORDER BY state
+        """).fetchall()
+        recent_cases=db.execute("""
+            SELECT c.source,c.external_id,t.title,t.agency,c.state,c.attempt,
+                   c.verified,c.partial,c.missing,c.last_step,
+                   c.last_finished_at,c.next_attempt_at,c.last_error
+            FROM procureflow.agent_cases c
+            JOIN procureflow.tenders t
+              ON t.source=c.source AND t.external_id=c.external_id
+            ORDER BY COALESCE(c.last_started_at,c.first_assigned_at) DESC
+            LIMIT 35
+        """).fetchall()
+    return {
+        "service":"procureflow-agents",
+        "maximum_agents":AGENT_COUNT,
+        "desired_concurrency":sum(1 for x in slots if x["enabled"]),
+        "activated_agents":sum(1 for x in slots if x["enabled"]),
+        "available_additions":sum(1 for x in slots if not x["enabled"]),
+        "actual_running":sum(x["status"]=="running" for x in slots),
+        "current_time_utc":datetime.now(timezone.utc).isoformat(),
+        "refresh_interval_seconds":3,
+        "slots":slots,
+        "steps":[{"id":key,"label":label,"index":i+1}
+                 for i,(key,label) in enumerate(PHASES)],
+        "event_items":events,
+        "case_counts":case_counts,
+        "recent_cases":recent_cases,
+        "AI_called":False,
+        "proposal_submitted":False,
+        "bid_participation_clicked":False,
+        "read_only_public_browser":True,
+        "case_done_means":"one_acquisition_pass_not_final_submission",
+    }
+
+
+@app.post("/api/agents/add")
+def add_autonomous_tender_agent(authorization:str|None=Header(None)):
+    """Only this explicit authorized user gesture activates ONE agent."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from agent_orchestrator import activate_one
+    try:
+        return activate_one()
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from None
+
+
+@app.post("/api/agents/{slot_id}/stop")
+def stop_autonomous_tender_agent(slot_id:int,authorization:str|None=Header(None)):
+    """User can disable one slot; current read-only case finishes safely."""
+    token=os.getenv("ADMIN_TOKEN","")
+    candidate=(authorization or "").removeprefix("Bearer ").strip()
+    if not token:raise HTTPException(503,"ADMIN_TOKEN is not configured")
+    if not secrets.compare_digest(candidate,token):
+        raise HTTPException(401,"Administrator authorization required")
+    from agent_orchestrator import deactivate_one
+    try:
+        return deactivate_one(slot_id)
+    except ValueError as exc:
+        raise HTTPException(409,str(exc)) from None
+
+
+@app.get("/api/g2b/similarity/backtest")
+def g2b_similarity_backtest():
+    """Read-only historical walk-forward benchmark on real G2B PostgreSQL.
+
+    Official opening dates only; no synthetic tender data, no background agent,
+    no database mutations, and no auth-required write operation.
+    """
+    from g2b_similarity import run_postgres_backtest
+    return run_postgres_backtest()
+
+
+
+@app.get("/api/g2b/similarity/notice")
+def g2b_historical_similarity_notice(
+    bid_no:str=Query(...,min_length=12,max_length=16),
+    bid_ord:str=Query("000",min_length=3,max_length=3)):
+    """Explain one real historical G2B execution; strictly prior opening data."""
+    from g2b_similarity import analyze_one_historical_bid
+    try:
+        return analyze_one_historical_bid(bid_no,bid_ord)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+
+@app.get("/api/g2b/categories/source-probe")
+def g2b_category_source_probe(limit:int=Query(2,ge=1,le=5)):
+    """Read-only verification of explicit classification fields in official G2B response."""
+    from g2b_category_probe import probe_categories
+    return probe_categories(limit)
+
+
+@app.get("/api/g2b/categories/coverage")
+def g2b_categories_coverage():
+    from g2b_categories import coverage
+    return coverage()
+
+
+@app.get("/api/g2b/categories/similar")
+def g2b_categories_similar(
+    bid_no:str|None=None,bid_ord:str="000",
+    detail_code:str|None=None,limit:int=Query(50,ge=1,le=200)):
+    from g2b_categories import exact_matches
+    try:
+        return exact_matches(bid_no,bid_ord,detail_code,limit)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/categories/official-notice-probe")
+def g2b_official_notice_probe():
+    """Read-only official notice page field diagnostics."""
+    from g2b_category_probe import probe_official_notice_detail
+    return probe_official_notice_detail()
+
+
+@app.get("/api/g2b/cases/R26BK01787028/history10y")
+def g2b_selected_bid_history_10y(limit:int=Query(100,ge=1,le=1000)):
+    """Selected tender only. Exact category 81111599, nationwide 2016-2026."""
+    from g2b_case_10y import status
+    return status(limit)
+
+
+# ---- G2B 104-feature, one-case evidence-gated procurement workbench ----
+@app.get("/api/g2b/full/status")
+def full_g2b_feature_status():
+    from g2b_feature_registry import FEATURES,features_by_group
+    from g2b_official_notices import sync_status
+    from g2b_case_engine import dashboard
+    x=dashboard()
+    return {"catalog_size":len(FEATURES),"case":x["case"]["bid_no"],
+            "notice_ingestion":sync_status(),"phases":x["phases"],
+            "counts":{
+              "verified":sum(t["acceptance_state"]=="verified" for t in x["feature_acceptance"]),
+              "partial":sum(t["acceptance_state"]=="partial" for t in x["feature_acceptance"]),
+              "missing":sum(t["acceptance_state"]=="missing" for t in x["feature_acceptance"])
+            },"complete":x["all_104_verified"],
+            "submitted":False}
+
+@app.get("/api/g2b/full/case")
+def full_g2b_selected_case():
+    from g2b_case_engine import dashboard
+    return dashboard()
+
+@app.get("/api/g2b/full/notices/status")
+def full_g2b_notice_status():
+    from g2b_official_notices import sync_status
+    return sync_status()
+
+@app.get("/api/g2b/full/documents")
+def full_g2b_doc_status():
+    from g2b_documents import list_documents
+    return list_documents("R26BK01787028","000")
+
+@app.get("/api/g2b/full/readiness")
+def full_g2b_readiness():
+    from g2b_case_engine import readiness_check
+    return readiness_check()
+
+@app.get("/api/g2b/full/price")
+def full_g2b_price():
+    from g2b_bid_package import documented_price_scenarios
+    return documented_price_scenarios()
+
+@app.get("/api/g2b/full/proposal")
+def full_g2b_proposal():
+    from g2b_bid_package import proposal_contents
+    return proposal_contents()
+
+@app.get("/api/g2b/full/proposal.docx")
+def full_g2b_proposal_docx():
+    from g2b_bid_package import draft_docx
+    from fastapi.responses import Response
+    binary,data=draft_docx()
+    return Response(content=binary,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":"attachment; filename=ProcureFlow-G2B-Draft.docx",
+                 "X-ProcureFlow-Draft-Only":"true"})
+
+class FullBidAction(BaseModel):
+    phase:str=Field("all",pattern="^(all|discover|notice|ten_year|opening_details|exact_outcomes|documents|evidence|readiness)$")
+
+@app.post("/api/g2b/full/run")
+def full_g2b_run(req:FullBidAction,authorization:str|None=Header(None)):
+    guard(authorization)
+    with session() as db:
+        active=db.execute("""SELECT id FROM procureflow.jobs
+              WHERE source='g2b_full_case'
+              AND state IN ('queued','running') LIMIT 1""").fetchone()
+        if active:raise HTTPException(409,"G2B selected case already processing")
+        config={"bid_no":"R26BK01787028","phase":req.phase}
+        jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
+              VALUES('g2b_full_case',%s::jsonb,%s) RETURNING id""",
+              (json.dumps(config,ensure_ascii=False),
+               "G2B 104-stage selected tender workflow")).fetchone()["id"]
+    return {"job_id":jid,"queued":True,"bid_no":"R26BK01787028","submitted":False}
+
+class FullEvidenceInput(BaseModel):
+    kind:str=Field(...,min_length=3,max_length=60)
+    reference:str=Field(...,min_length=1,max_length=150)
+    source_url:str=""
+    structured:dict=Field(default_factory=dict)
+
+@app.post("/api/g2b/full/evidence")
+def full_case_evidence_input(req:FullEvidenceInput,authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_case_engine import add_evidence
+    try:
+        # Manual content is recorded as received, not falsely 'official verified'.
+        return add_evidence("R26BK01787028",req.kind,req.reference,
+                            req.source_url,req.structured,False)
+    except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+class FullDecisionInput(BaseModel):
+    kind:str=Field(...,min_length=3,max_length=60)
+    key:str=Field(...,min_length=1,max_length=100)
+    value:dict=Field(default_factory=dict)
+
+@app.post("/api/g2b/full/decision")
+def full_case_decision_input(req:FullDecisionInput,authorization:str|None=Header(None)):
+    guard(authorization)
+    from g2b_case_engine import put_decision
+    try:return put_decision("R26BK01787028",req.kind,req.key,req.value)
+    except ValueError as exc:raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/g2b-104-api",response_class=HTMLResponse)
+def g2b_individual_feature_api_inspector():
+    """Inspect the inputs, evidence and independently queued run of each function."""
+    return (Path(__file__).parent/"static/g2b-feature-api.html").read_text(encoding="utf-8")
+
+
+@app.get("/g2b-104",response_class=HTMLResponse)
+def g2b_full_104_dashboard():
+    """Actual 104-feature progress, never a fake completed bid."""
+    return (Path(__file__).parent/"static/g2b-104.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/g2b/full/schedule")
+def g2b_full_g2b_scheduled_status():
+    from g2b_full_schedule import KEY
+    from g2b_official_notices import api_key
+    with session() as c:
+        row=c.execute("SELECT value,updated_at FROM procureflow.settings WHERE key=%s",(KEY,)).fetchone()
+    return {"enabled":True,"official_api_key_present":bool(api_key()),
+            "secondary_public_category_crawler_active":False,
+            "ten_year_exact_outcome_collector_active":True,
+            "target_detail_product_code":"8111159901",
+            "case":"R26BK01787028",
+            "state":dict(row) if row else {},
+            "official_10_year_complete":False,
+            "ready_for_bid_submission":False}
+
+
+@app.get("/api/g2b/full/category-index")
+def g2b_full_category_index_progress():
+    """Read the actual selected bid's public category search cursor and last jobs."""
+    with session() as con:
+        cursor=con.execute("""SELECT value,updated_at FROM procureflow.settings
+              WHERE key='g2b:single:81111599:secondary_index_cursor'""").fetchone()
+        jobs=con.execute("""SELECT id,state,added,checked,last_error,finished_at
+              FROM procureflow.jobs WHERE source='g2b_full_case'
+              AND config->>'phase'='ten_year'
+              ORDER BY id DESC LIMIT 6""").fetchall()
+        count=con.execute("""SELECT count(*) AS n FROM
+              procureflow.g2b_case_10yr_history
+              WHERE case_bid_no='R26BK01787028'
+                AND classification8='81111599'""").fetchone()["n"]
+    return {"selected_bid":"R26BK01787028","category8":"81111599",
+            "historical_notices_stored":count,
+            "cursor":dict(cursor) if cursor else None,
+            "last_ten_year_jobs":jobs,
+            "official_ten_year_coverage_complete":False,
+            "secondary_index_not_full_official_coverage":True}
+
+
+@app.get("/api/g2b/full/original-text")
+def g2b_full_original_text(file_id:str=Query(...,pattern="^official_attached_[1-4]$")):
+    """Actual publicly issued selected notice attachment, extracted from stored bytes."""
+    with session() as c:
+        x=c.execute("""SELECT file_id,filename,sha256,extraction_state,
+                       extracted_text,url FROM procureflow.g2b_case_documents
+                       WHERE bid_no='R26BK01787028' AND file_id=%s""",
+                       (file_id,)).fetchone()
+    if not x:raise HTTPException(404,"Original document not in database")
+    return {"bid_no":"R26BK01787028","file_id":x["file_id"],
+            "filename":x["filename"],"source_url":x["url"],
+            "sha256":x["sha256"],"state":x["extraction_state"],
+            "text":x["extracted_text"][:22000],
+            "truncated":len(x["extracted_text"])>22000}
+
+
+@app.get("/api/g2b/full/scope")
+def g2b_full_actual_scope():
+    """Two real HWP+XLSX workstreams; allocated budgets are NOT supplier quotes."""
+    with session() as con:
+        row=con.execute("""SELECT state,structured,source_url,content_sha,recorded_at
+             FROM procureflow.g2b_case_evidence
+             WHERE bid_no='R26BK01787028'
+             AND evidence_type='scope_requirements'
+             AND reference='hwp_real_scope'""").fetchone()
+    if not row:
+        return {"status":"waiting_for_original_scope_analysis",
+                "bid_no":"R26BK01787028","actual_costs_known":False}
+    return {"status":"source_verified","case":"R26BK01787028",
+            "scope":row["structured"],"source_url":row["source_url"],
+            "content_sha":row["content_sha"],"recorded_at":row["recorded_at"],
+            "actual_supplier_costs_verified":False,"submitted":False}
+
+
+@app.get("/api/g2b/full/historical-opening-matches")
+def g2b_case_exact_verified_historical_bids(limit:int=Query(100,ge=1,le=500)):
+    """Backward-compatible path returns only real 8111159901 results."""
+    from g2b_exact_outcome_history import actual_result_status
+    return actual_result_status(limit)
+
+@app.get("/api/g2b/full/historical-opening-enrichment")
+def g2b_full_official_opening_enrichment_status():
+    """Actual official Nuri per-notice read outcomes, including no-result/error."""
+    from g2b_historical_detail_enrich import ensure_schema
+    ensure_schema()
+    with session() as con:
+        totals=con.execute("""SELECT status,count(*) AS notices,
+                 sum(bidders) AS bidder_rows,
+                 count(*) FILTER(WHERE winner_verified) AS winners
+               FROM procureflow.g2b_case_opening_enrich_audit
+               GROUP BY status ORDER BY status""").fetchall()
+        examples=con.execute("""SELECT bid_no,status,attempt_count,bidders,
+                   winner_verified,error,updated_at
+               FROM procureflow.g2b_case_opening_enrich_audit
+               ORDER BY updated_at DESC LIMIT 20""").fetchall()
+    return {"case":"R26BK01787028","official_nuri_detail":True,
+            "results":totals,"recent_checked":examples,
+            "rank_1_not_confirmed_winner":True}
+
+
+@app.get("/api/g2b/full/exact-outcomes")
+def g2b_10_year_actual_opening_and_final_awards(
+        limit:int=Query(150,ge=1,le=1000)):
+    """Actual bid/award evidence ONLY for official-original verified 8111159901."""
+    from g2b_exact_outcome_history import actual_result_status
+    return actual_result_status(limit)
+@app.get("/api/g2b/public/selected/strategy")
+def selected_actual_competition_strategy(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Real source-backed bidder comparison for ALL filter matches, not page 1.
+
+    Never equate opening rank with a final award, assume decade completeness,
+    infer company qualifications, or produce a made-up recommended bid price.
+    """
+    from g2b_real_strategy import analyze_competition
+    try:
+        return analyze_competition(start=start,end=end,agency=agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/preparation")
+def selected_actual_preparation(
+    start: str | None = None, end: str | None = None,
+    agency: str = Query("",max_length=100)):
+    """Nine REAL public tender work steps. 10-year analytics is advisory, not HOLD."""
+    from g2b_real_strategy import actual_preparation
+    try:
+        return actual_preparation(start,end,agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/proposal")
+def public_source_backed_proposal():
+    """Existing real case+documents review without legacy 121-month bootstrap."""
+    from g2b_bid_package import proposal_contents
+    return proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+
+
+@app.get("/api/g2b/public/selected/proposal.docx")
+def public_source_backed_proposal_docx():
+    """Source-backed real review document; not a signed bid or finalized proposal."""
+    from fastapi.responses import Response
+    from g2b_bid_package import proposal_contents,draft_docx
+    from g2b_search_first import single_case_material
+    from g2b_real_strategy import analyze_competition
+    case=single_case_material()
+    competition=analyze_competition(case=case)
+    contents=proposal_contents(readiness_override={
+        "status":"source_review","phases":[],"not_a_submission":True})
+    raw,_=draft_docx(contents=contents,strategy=competition,
+                     source_clauses=case.get("source_clauses",[]))
+    return Response(content=raw,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":"attachment; filename=ProcureFlow-G2B-Actual-Review.docx",
+                 "X-ProcureFlow-Draft-Only":"true"})
+
+
+class PublicFilteredCollection(BaseModel):
+    start: str
+    end: str
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+    max_notices: int = Field(2,ge=1,le=3)
+
+
+@app.post("/api/g2b/public/selected/search/collect")
+def collect_public_filtered(req:PublicFilteredCollection,
+                            authorization:str|None=Header(None)):
+    """Only queued original-G2B opening fetch of few already 10digit-verified ids.
+
+    Does not collect 121 months of notice candidates or run a mock scenario.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    try:
+        selection=filters(detail10=req.detail10,start=req.start,end=req.end,
+                          kind="all",agency=req.agency)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    config={"bid_no":selection.bid_no,"detail10":selection.detail10,
+      "start":selection.start.isoformat(),"end":selection.end.isoformat(),
+      "agency":selection.agency,"max_notices":req.max_notices}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+          WHERE source='g2b_filtered' AND state IN ('queued','running')
+          LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Another filtered source query is running")
+        row=con.execute("""INSERT INTO procureflow.jobs(source,config,message)
+          VALUES ('g2b_filtered',%s::jsonb,%s) RETURNING id""",
+          (json.dumps(config,ensure_ascii=False),
+           "Real selected G2B opening by exact original 10-digit/date filter")).fetchone()
+    return {"job_id":row["id"],"source":"g2b_filtered",
+            "state":"queued","filters":config,"bid_submitted":False}
+
+
+class PublicRealPrepareRequest(BaseModel):
+    start: str = Field("2016-10-24",pattern=r"^\d{4}-\d\d-\d\d$")
+    end: str = Field("2026-10-22",pattern=r"^\d{4}-\d\d-\d\d$")
+    detail10: str = Field("8111159901",pattern=r"^\d{10}$")
+    agency: str = Field("",max_length=100)
+
+
+@app.post("/api/g2b/public/selected/prepare")
+def queue_real_selected_preparation(req:PublicRealPrepareRequest,
+                                    authorization:str|None=Header(None)):
+    """Queue existing Worker to execute nine REAL bid-analysis/prep stages.
+
+    A successful queue operation is not an execution and NEVER a bid submission.
+    """
+    guard(authorization)
+    from g2b_search_first import filters
+    from g2b_public_workflow import ensure_schema
+    try:
+        f=filters(detail10=req.detail10,start=req.start,end=req.end,
+                  agency=req.agency,kind="opening")
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+    ensure_schema()
+    cfg={"bid_no":f.bid_no,"detail10":f.detail10,
+         "start":f.start.isoformat(),"end":f.end.isoformat(),
+         "agency":f.agency}
+    with session() as con:
+        active=con.execute("""SELECT id FROM procureflow.jobs
+            WHERE source='g2b_public_prepare' AND state IN('queued','running')
+            LIMIT 1""").fetchone()
+        if active:
+            raise HTTPException(409,"Public one-tender preparation already running")
+        row=con.execute("""INSERT INTO procureflow.jobs(
+            source,config,message)
+            VALUES('g2b_public_prepare',%s::jsonb,%s) RETURNING id""",
+            (json.dumps(cfg,ensure_ascii=False),
+             "9-stage real one-tender G2B source/strategy/draft preparation, not a simulation")).fetchone()
+    return {"job_id":row["id"],"queued":True,
+            "worker_source":"g2b_public_prepare","case_bid_no":f.bid_no,
+            "already_executed":False,"bid_submitted":False}
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/latest")
+def latest_real_selected_preparation_job():
+    """Resume original production DB stage IDs and source-backed doc after reload."""
+    from g2b_public_workflow import latest_actual_job
+    return latest_actual_job()
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}")
+def real_selected_preparation_job(job_id:int):
+    from g2b_public_workflow import read_actual_job
+    try:
+        return read_actual_job(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
+
+
+@app.get("/api/g2b/public/selected/prepare-jobs/{job_id}/draft.docx")
+def real_selected_preparation_review_draft(job_id:int):
+    from g2b_public_workflow import read_saved_docx,DRAFT_MEDIA
+    from fastapi.responses import Response
+    try:
+        binary,digest=read_saved_docx(job_id)
+    except LookupError as exc:
+        raise HTTPException(404,str(exc)) from None
+    return Response(content=binary,media_type=DRAFT_MEDIA,
+        headers={"Content-Disposition":
+           "attachment; filename=ProcureFlow-Actual-G2B-Review-"+str(job_id)+".docx",
+           "X-ProcureFlow-Draft-Only":"true",
+           "X-ProcureFlow-Original-SHA256":digest})
 
 
 @app.get("/api/analysis/summary")

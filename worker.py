@@ -10,7 +10,7 @@ signal.signal(signal.SIGINT,lambda *_:globals().__setitem__('STOP',True))
 
 def get_next_job():
     with session() as db:
-        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_feature' THEN 0 WHEN source='g2b_full_case' THEN 1 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
+        row=db.execute("SELECT id,source,config FROM procureflow.jobs WHERE state='queued' AND source NOT IN ('market_daangn','market_kmong','market_soomgo') ORDER BY CASE WHEN source='g2b_feature' THEN 0 WHEN source='g2b_public_prepare' THEN 0 WHEN source='g2b_filtered' THEN 1 WHEN source='g2b_full_case' THEN 1 WHEN source='g2b_single_case_10y' THEN 1 WHEN source='g2b_category_secondary' THEN 1 WHEN source='browser_probe' THEN 2 WHEN source='kapt' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1").fetchone()
         if row:db.execute("UPDATE procureflow.jobs SET state='running',started_at=now(),message='Starting original V13.1/V14 collector' WHERE id=%s",(row['id'],))
         return row
 
@@ -240,20 +240,10 @@ def main():
             logging.info("G2B_EXACT_10YR_OUTCOME_JOB=%s",jid)
     from g2b_case_10y import ensure_schema as ensure_10y_case_schema
     ensure_10y_case_schema()
-    # The user selected exactly one current G2B tender and a ten-year
-    # category-only historical window. Never select other cases automatically.
-    with session() as db:
-        marker="g2b-single-case-81111599-seed-20261024-v3"
-        claim=db.execute("""INSERT INTO procureflow.settings(key,value)
-             VALUES (%s,%s::jsonb) ON CONFLICT(key) DO NOTHING RETURNING key
-             """,(marker,'{"bid_no":"R26BK01787028","category8":"81111599","years":10}')).fetchone()
-        if claim:
-            jid=db.execute("""INSERT INTO procureflow.jobs(source,config,message)
-              VALUES ('g2b_single_case_10y',%s::jsonb,%s) RETURNING id
-              """,(json.dumps({"bid_no":"R26BK01787028","category":"81111599",
-                                "limit":13}),
-                  "User-selected G2B notice: 10-year exact 81111599 category historical seed")).fetchone()["id"]
-            logging.info("G2B_SINGLE_CASE_10Y_SEED_JOB job=%s",jid)
+    # Legacy 8-digit historical notice seed was explicitly superseded by the
+    # selected bid's exact 10-digit ORIGINAL verification and official
+    # WebSquare per-notice opening/final-award lookup. Do not autoqueue it.
+    logging.info("G2B_LEGACY_8DIGIT_HISTORICAL_SEED_DISABLED exact_10_only")
     # User-requested one-time category backfill for existing historical G2B
     # notices. Separate from the stopped tender-agent reassignment service.
     with session() as db:
@@ -655,6 +645,55 @@ def main():
                                        "state":state,
                                        "run_id":result.get('run_id')
                                      },ensure_ascii=False))
+                    elif job['source']=='g2b_public_prepare':
+                        from g2b_public_workflow import run_actual_public_case
+                        cfg=job.get('config') or {}
+                        if not isinstance(cfg,dict):
+                            raise ValueError('Production public preparation job requires JSON object')
+                        outcome=run_actual_public_case(int(job['id']),cfg)
+                        update(job['id'],
+                               checked=int(outcome['actual_worker_stages']),
+                               added=0,
+                               message=json.dumps({
+                                   'status':outcome['status'],
+                                   'actual_steps':outcome['actual_worker_stages'],
+                                   'draft_generated':outcome['draft_generated'],
+                                   'source':'existing_real_g2b_postgresql',
+                                   'n8n_execution_id':None},
+                                   ensure_ascii=False)[:450])
+                        done(job['id'],'completed_partial' if not outcome['errors']
+                             else 'failed',
+                             json.dumps(outcome,ensure_ascii=False,default=str))
+                        logging.info('G2B_PUBLIC_REAL_9_STAGE_WORKER %s',
+                                     json.dumps(outcome,ensure_ascii=False,default=str)[:2500])
+                    elif job['source']=='g2b_filtered':
+                        from g2b_search_first import filters,collect_filtered_gaps
+                        cfg=job.get('config') or {}
+                        if not isinstance(cfg,dict):
+                            raise ValueError('Filtered G2B config must be JSON object')
+                        selected=filters(
+                            bid_no=cfg.get('bid_no',''),
+                            detail10=cfg.get('detail10',''),
+                            start=cfg.get('start'),
+                            end=cfg.get('end'),
+                            agency=cfg.get('agency',''),
+                            kind='all')
+                        result=collect_filtered_gaps(
+                            selected,max_notices=int(cfg.get('max_notices',2)))
+                        update(job['id'],checked=int(result.get('selected',0)),
+                               added=int(result.get('new_records',0)),
+                               message=json.dumps({
+                                   'status':result.get('status'),
+                                   'actual_records_seen':result.get('actual_opening_rows_seen',0),
+                                   'selected':result.get('selected',0),
+                                   'saved':result.get('actual_saved_records',0),
+                                   'explicit_final_awards':result.get('explicit_final_awards',0),
+                                   'error_count':len(result.get('errors',[]))
+                               },ensure_ascii=False)[:450])
+                        done(job['id'],'completed_partial',
+                             json.dumps(result,ensure_ascii=False,default=str))
+                        logging.info('G2B_FILTERED_ACTUAL_RESULT %s',
+                                     json.dumps(result,ensure_ascii=False,default=str)[:2300])
                     elif job['source']=='g2b_full_case':
                         import g2b_full_runner
                         cfg=job.get('config') or {}
@@ -683,19 +722,16 @@ def main():
                                                 result['results'].items()}},
                                                  ensure_ascii=False))
                     elif job['source']=='g2b_single_case_10y':
-                        import g2b_case_10y
-                        cfg=job.get('config') or {}
-                        observed=g2b_case_10y.ingest_observed_secondary_sources()
-                        result=g2b_case_10y.ingest_known_secondary(
-                            limit=cfg.get('limit',13))
-                        result['historical_indexed']=observed['inserted_or_refreshed']
-                        update(job['id'],checked=result['attempted'],
-                               added=result['saved']+observed['inserted_or_refreshed'],
-                               message=json.dumps(result,ensure_ascii=False)[:450])
-                        done(job['id'],'completed' if result['saved'] else 'completed_partial',
-                             json.dumps(result,ensure_ascii=False))
-                        logging.info("G2B_SINGLE_CASE_10Y_RESULT %s",
-                                     json.dumps(result,ensure_ascii=False)[:5400])
+                        # Stale queued jobs must never start the superseded
+                        # 8-digit parent-category history ingestion.
+                        cancelled={"status":"cancelled_obsolete_8digit_history",
+                          "reason":"USE_VERIFIED_ORIGINAL_10DIGIT_WEB_SQUARE_FILTERED_JOB",
+                          "source":"legacy_g2b_single_case_10y","actual_requests":0,
+                          "bid_submitted":False}
+                        done(job['id'],'cancelled',
+                             json.dumps(cancelled,ensure_ascii=False))
+                        logging.info("G2B_OBSOLETE_8DIGIT_JOB_SKIPPED job=%s",
+                                     job['id'])
                     elif job['source']=='g2b_category_secondary':
                         import g2b_secondary_category
                         cfg=job.get('config') or {}
