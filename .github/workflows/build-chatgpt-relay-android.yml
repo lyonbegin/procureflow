@@ -42,12 +42,12 @@ jobs:
 
       - name: Publish APK for direct Railway download
         run: |
-          mkdir -p chatgpt-android-relay/web/static
-          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin "$GITHUB_REF_NAME"
           git checkout -B "$GITHUB_REF_NAME" "origin/$GITHUB_REF_NAME"
+          mkdir -p chatgpt-android-relay/web/static
+          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
           git add -f chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
           if git diff --cached --quiet; then
             echo "APK already matches published version"
