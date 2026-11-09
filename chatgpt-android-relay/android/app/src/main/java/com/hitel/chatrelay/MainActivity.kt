@@ -56,13 +56,13 @@ class MainActivity : Activity() {
         val url = EditText(this).apply {
             setSingleLine()
             hint = "wss://...up.railway.app/ws"
-            setText(prefs.getString("url", ""))
+            setText(prefs.getString("url", "").orEmpty().ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" })
         }
         val token = EditText(this).apply {
             setSingleLine()
             hint = "DEVICE_TOKEN"
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("token", ""))
+            setText(prefs.getString("token", "").orEmpty().ifBlank { "dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn" })
         }
         root.addView(label("ChatGPT 원격 제어 앱 · 연결 진단"))
         root.addView(label("Railway WebSocket 주소"))
