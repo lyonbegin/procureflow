@@ -1,9 +1,12 @@
 package com.hitel.chatrelay
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Rect
+import android.graphics.Path
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -23,6 +26,7 @@ class ChatRelayService : AccessibilityService() {
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private var socket: WebSocket? = null
     private var active = false
+    private var pendingSendId: String? = null
     private var lastSnapshot = 0L
     private var generation = 0
     private val chatPackage = "com.openai.chatgpt"
@@ -154,27 +158,236 @@ class ChatRelayService : AccessibilityService() {
         return output
     }
 
+    // Both the web submit button and Enter use chat.send. The Android side must
+    // resolve the icon in the *current* ChatGPT view, not inject a keyboard key
+    // or rely on an English contentDescription that may be absent.
     private fun sendChat(id: String, text: String) {
-        if(text.isBlank()) { done(id,false,"Empty input"); return }
-        val all=nodes(rootInActiveWindow)
-        val inputs=all.filter { it.isEditable && it.isVisibleToUser }
-        val input=inputs.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
-        if(input==null) { done(id,false,"ChatGPT input field not found; request ui.snapshot"); snapshot(); return }
-        val args=Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,text) }
-        if(!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)) { done(id,false,"ACTION_SET_TEXT failed"); return }
-        main.postDelayed({
-            val candidates=nodes(rootInActiveWindow).filter { n ->
-                n.isVisibleToUser && n.isClickable &&
-                listOf("send","submit","전송","보내기").any { word ->
-                    ((n.contentDescription?.toString() ?: "")+" "+(n.text?.toString() ?: "")).lowercase().contains(word)
-                }
+        if (pendingSendId != null) {
+            done(id, false, "Another message is still being submitted")
+            return
+        }
+        if (text.isBlank()) { done(id, false, "Empty input"); return }
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != chatPackage) {
+            done(id, false, "ChatGPT window not active")
+            return
+        }
+        val input = composerInput(nodes(root))
+        if (input == null) {
+            done(id, false, "ChatGPT editable composer not found")
+            snapshot()
+            return
+        }
+        pendingSendId = id
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            pendingSendId = null
+            done(id, false, "ACTION_SET_TEXT failed")
+            return
+        }
+        sendLog("Composer text inserted; resolving actual ChatGPT submit action")
+        main.postDelayed({ submitAfterText(id, text, 0) }, 350)
+    }
+
+    private fun composerInput(all: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
+        return all.filter { it.isEditable && it.isVisibleToUser && it.isEnabled }
+            .maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+    }
+
+    private fun isClickTarget(n: AccessibilityNodeInfo): Boolean {
+        return n.isVisibleToUser && n.isEnabled &&
+            (n.isClickable || n.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })
+    }
+
+    private fun accessibleLabel(n: AccessibilityNodeInfo): String {
+        return listOf(
+            n.contentDescription?.toString() ?: "",
+            n.viewIdResourceName ?: "",
+            n.text?.toString() ?: "",
+            n.actionList.mapNotNull { it.label?.toString() }.joinToString(" ")
+        ).joinToString(" ").lowercase()
+    }
+
+    private fun findSendTarget(
+        all: List<AccessibilityNodeInfo>,
+        input: AccessibilityNodeInfo
+    ): Pair<AccessibilityNodeInfo, String>? {
+        val ir = Rect().also { input.getBoundsInScreen(it) }
+        val dp = resources.displayMetrics.density
+        val exclusion = listOf("voice", "microphone", "record", "attach", "photo", "camera",
+            "stop", "cancel", "close", "back", "dictate", "음성", "녹음", "마이크", "첨부", "취소", "중지")
+        fun valid(n: AccessibilityNodeInfo): Boolean {
+            val r = Rect().also { n.getBoundsInScreen(it) }
+            return isClickTarget(n) && r.width() > 0 && r.height() > 0 &&
+                r.bottom >= ir.top - (95 * dp).toInt()
+        }
+        fun distance(n: AccessibilityNodeInfo): Int {
+            val r = Rect().also { n.getBoundsInScreen(it) }
+            return kotlin.math.abs(r.centerX() - ir.right) +
+                kotlin.math.abs(r.centerY() - ir.bottom)
+        }
+
+        // Search labels, resource IDs, and custom action labels, then select
+        // the clickable ancestor. Prefer the control adjacent to the composer.
+        val named = ArrayList<AccessibilityNodeInfo>()
+        for (n in all) {
+            val label = accessibleLabel(n)
+            if (exclusion.any { label.contains(it) }) continue
+            if (listOf("send", "submit", "전송", "보내기", "전달").none { label.contains(it) }) continue
+            var clickable: AccessibilityNodeInfo? = n
+            var depth = 0
+            while (clickable != null && !isClickTarget(clickable) && depth < 4) {
+                clickable = clickable.parent
+                depth++
             }
-            val sendBtn=candidates.lastOrNull()
-            if(sendBtn==null) { done(id,false,"Send button not identified; text entered but NOT sent"); snapshot(); return@postDelayed }
-            val clicked=sendBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            done(id,clicked,if(clicked) "send_button_click_requested" else "Send button click failed")
-            main.postDelayed({snapshot()},1100)
-        },450)
+            if (clickable != null && valid(clickable)) named.add(clickable)
+        }
+        val explicit = named.minByOrNull { distance(it) }
+        if (explicit != null) return Pair(explicit, "named_or_resource_id")
+
+        // Compose interfaces may publish an icon without a contentDescription.
+        // Restrict the fallback to a small, enabled clickable control directly
+        // right of and overlapping the bottom of the known input field.
+        val nearby = all.filter { n ->
+            if (!valid(n) || n.isEditable) return@filter false
+            val label = accessibleLabel(n)
+            if (exclusion.any { label.contains(it) }) return@filter false
+            val r = Rect().also { n.getBoundsInScreen(it) }
+            val maxSize = (100 * dp).toInt()
+            val nearX = r.centerX() >= ir.right - (140 * dp).toInt() &&
+                r.centerX() <= ir.right + (50 * dp).toInt()
+            val nearY = r.centerY() >= ir.top - (16 * dp).toInt() &&
+                r.centerY() <= ir.bottom + (45 * dp).toInt()
+            nearX && nearY && r.width() <= maxSize && r.height() <= maxSize
+        }.sortedBy { distance(it) }
+        // Do not guess at an ambiguous icon. It might be voice/microphone.
+        if (nearby.size == 1) return Pair(nearby.first(), "single_composer_adjacent_icon")
+        return null
+    }
+
+    private fun submitAfterText(id: String, text: String, attempt: Int) {
+        if (pendingSendId != id) return
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != chatPackage) {
+            finishSend(id, false, "ChatGPT foreground lost before submit")
+            return
+        }
+        val all = nodes(root)
+        val input = composerInput(all)
+        if (input == null) {
+            if (attempt < 7) main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 300)
+            else finishSend(id, false, "Composer unavailable after text insertion")
+            return
+        }
+        val current = input.text?.toString()?.trim() ?: ""
+        if (current.isEmpty()) {
+            if (attempt < 7) main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 300)
+            else finishSend(id, false, "Composer text disappeared before submit; verify manually")
+            return
+        }
+        val candidate = findSendTarget(all, input)
+        if (candidate != null) {
+            val target = candidate.first
+            sendLog("Submit target: " + candidate.second + ", node=" +
+                (target.viewIdResourceName ?: "(no-id)") +
+                ", desc=" + (target.contentDescription ?: "(no-desc)"))
+            if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                main.postDelayed({ verifySubmission(id, text, 0, candidate.second) }, 450)
+                return
+            }
+            val bounds = Rect().also { target.getBoundsInScreen(it) }
+            if (!bounds.isEmpty) {
+                val path = Path().apply {
+                    moveTo(bounds.exactCenterX(), bounds.exactCenterY())
+                }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+                    .build()
+                val requested = dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription) {
+                        main.postDelayed({
+                            verifySubmission(id, text, 0, "gesture_" + candidate.second)
+                        }, 450)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription) {
+                        finishSend(id, false, "Gesture was cancelled; text remains in composer")
+                    }
+                }, main)
+                if (requested) return
+            }
+            finishSend(id, false, "Clickable send target rejected ACTION_CLICK and gesture")
+            return
+        }
+        if (attempt < 5) {
+            main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 350)
+            return
+        }
+        // The IME action works ONLY when the focused editable node exposes it.
+        // On multiline chat boxes ordinary Enter may add a newline, so never
+        // inject raw key events or an implicit keyboard gesture.
+        if (Build.VERSION.SDK_INT >= 30 &&
+            input.actionList.any {
+                it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+            } &&
+            input.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        ) {
+            sendLog("No send icon: explicitly offered ACTION_IME_ENTER requested")
+            main.postDelayed({ verifySubmission(id, text, 0, "ime_enter") }, 450)
+            return
+        }
+        sendNodeDiagnostics(all, input)
+        finishSend(id, false, "Send control not identified; text entered but NOT sent")
+    }
+
+    private fun verifySubmission(id: String, text: String, attempt: Int, method: String) {
+        if (pendingSendId != id) return
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() == chatPackage) {
+            val input = composerInput(nodes(root))
+            val actual = input?.text?.toString()?.trim() ?: ""
+            // This is observable evidence that the composer cleared after the
+            // submit action. performAction returning true alone is insufficient.
+            if (input != null && actual.isBlank()) {
+                finishSend(id, true, "send_confirmed_composer_cleared_via_" + method)
+                main.postDelayed({ snapshot() }, 700)
+                return
+            }
+        }
+        if (attempt < 10) {
+            main.postDelayed({ verifySubmission(id, text, attempt + 1, method) }, 350)
+        } else {
+            sendLog("Unverified submit: composer did not clear after " + method)
+            finishSend(id, false, "Send action was attempted but message transmission NOT VERIFIED")
+            snapshot()
+        }
+    }
+
+    private fun sendNodeDiagnostics(
+        all: List<AccessibilityNodeInfo>,
+        input: AccessibilityNodeInfo
+    ) {
+        val ir = Rect().also { input.getBoundsInScreen(it) }
+        val dp = resources.displayMetrics.density
+        all.filter { isClickTarget(it) }.filter {
+            val r = Rect().also { r -> it.getBoundsInScreen(r) }
+            r.bottom > ir.top - (125 * dp).toInt()
+        }.takeLast(18).forEach { n ->
+            val r = Rect().also { n.getBoundsInScreen(it) }
+            sendLog("Composer-near candidate bounds=" + r.toShortString() +
+                ", id=" + (n.viewIdResourceName ?: "-") +
+                ", desc=" + (n.contentDescription ?: "-") +
+                ", class=" + (n.className ?: "-"))
+        }
+        snapshot()
+    }
+
+    private fun finishSend(id: String, ok: Boolean, reason: String) {
+        if (pendingSendId != id) return
+        pendingSendId = null
+        done(id, ok, reason)
     }
 
     private fun clickNamed(id: String, names: List<String>) {
