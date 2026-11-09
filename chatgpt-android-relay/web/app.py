@@ -6,7 +6,7 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
 
 ROOT = Path(__file__).resolve().parent
@@ -41,6 +41,13 @@ async def broadcast(packet: dict[str, Any]):
 @app.get("/")
 async def home():
     return FileResponse(ROOT / "static" / "index.html")
+
+@app.get("/download/ChatGPT-Relay-Control.apk")
+async def download_controller():
+    path = ROOT / "static" / "ChatGPT-Relay-Control.apk"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Android APK has not been published yet")
+    return FileResponse(path, media_type="application/vnd.android.package-archive", filename="ChatGPT-Relay-Control.apk")
 
 @app.get("/health")
 async def health():
