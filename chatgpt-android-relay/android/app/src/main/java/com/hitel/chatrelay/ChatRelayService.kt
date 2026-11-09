@@ -299,7 +299,7 @@ class ChatRelayService : AccessibilityService() {
                 return
             }
             val bounds = Rect().also { target.getBoundsInScreen(it) }
-            if (!bounds.isEmpty) {
+            if (!bounds.isEmpty()) {
                 val path = Path().apply {
                     moveTo(bounds.exactCenterX(), bounds.exactCenterY())
                 }
