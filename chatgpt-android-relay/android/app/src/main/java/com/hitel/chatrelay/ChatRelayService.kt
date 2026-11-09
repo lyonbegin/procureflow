@@ -77,7 +77,20 @@ class ChatRelayService : AccessibilityService() {
                             setConnectionState("인증 실패", data.optString("reason", "TOKEN 오류"))
                             webSocket.close(1000, "Auth rejected")
                         }
-                        "command" -> main.post { performCommand(data) }
+                        "command" -> {
+                            val cmdId = data.optString("id")
+                            webSocket.send(JSONObject().put("type", "command.received")
+                                .put("id", cmdId).put("stage", "Android 소켓 수신").toString())
+                            main.post {
+                                try {
+                                    progress(cmdId, "Android 접근성 명령 실행 시작")
+                                    performCommand(data)
+                                } catch (e: Exception) {
+                                    pendingSendId = null
+                                    done(cmdId, false, "Accessibility execution exception: ${e.javaClass.simpleName}: ${e.message ?: ""}")
+                                }
+                            }
+                        }
                         else -> { }
                     }
                 } catch(e: Exception) {
@@ -106,6 +119,9 @@ class ChatRelayService : AccessibilityService() {
 
     private fun send(packet: JSONObject) { socket?.send(packet.toString()) }
     private fun sendLog(msg:String) { send(JSONObject().put("type","device.log").put("message",msg.take(500))) }
+    private fun progress(id: String, stage: String) {
+        send(JSONObject().put("type", "command.progress").put("id", id).put("stage", stage.take(100)))
+    }
     private fun done(id: String, ok: Boolean, detail: String) {
         val data=JSONObject().put("type",if(ok) "command.result" else "command.error").put("id",id)
         if(ok) data.put("result",JSONObject().put("ok",true).put("stage",detail)) else data.put("reason",detail)
@@ -132,14 +148,30 @@ class ChatRelayService : AccessibilityService() {
     }
 
     private fun withChatApp(id: String, work: () -> Unit) {
-        if(rootInActiveWindow?.packageName?.toString()==chatPackage) { work(); return }
+        if(rootInActiveWindow?.packageName?.toString()==chatPackage) {
+            progress(id, "공식 ChatGPT 화면 확인")
+            work()
+            return
+        }
+        progress(id, "ChatGPT 앱 실행 요청")
         val intent=packageManager.getLaunchIntentForPackage(chatPackage)
         if(intent==null) { done(id,false,"Official ChatGPT is not installed"); return }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        startActivity(intent)
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            done(id,false,"Android blocked ChatGPT launch: " + e.javaClass.simpleName)
+            return
+        }
         fun waitForApp(n: Int) {
-            if(rootInActiveWindow?.packageName?.toString()==chatPackage) work()
-            else if(n>18) done(id,false,"ChatGPT foreground timeout")
+            if(rootInActiveWindow?.packageName?.toString()==chatPackage) {
+                progress(id, "ChatGPT 실행 화면 활성")
+                work()
+            }
+            else if(n>18) {
+                val actual = rootInActiveWindow?.packageName?.toString() ?: "no-active-window"
+                done(id,false,"ChatGPT foreground timeout, actual active package=" + actual)
+            }
             else main.postDelayed({waitForApp(n+1)},500)
         }
         main.postDelayed({waitForApp(0)},700)
@@ -178,6 +210,7 @@ class ChatRelayService : AccessibilityService() {
             snapshot()
             return
         }
+        progress(id, "ChatGPT 입력창 발견")
         pendingSendId = id
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply {
@@ -188,6 +221,7 @@ class ChatRelayService : AccessibilityService() {
             done(id, false, "ACTION_SET_TEXT failed")
             return
         }
+        progress(id, "질문 텍스트 입력 완료")
         sendLog("Composer text inserted; resolving actual ChatGPT submit action")
         main.postDelayed({ submitAfterText(id, text, 0) }, 350)
     }
@@ -264,7 +298,17 @@ class ChatRelayService : AccessibilityService() {
             nearX && nearY && r.width() <= maxSize && r.height() <= maxSize
         }.sortedBy { distance(it) }
         // Do not guess at an ambiguous icon. It might be voice/microphone.
-        if (nearby.size == 1) return Pair(nearby.first(), "single_composer_adjacent_icon")
+        val distinct = nearby.distinctBy { n ->
+            Rect().also { n.getBoundsInScreen(it) }.toShortString()
+        }
+        if (distinct.size == 1) return Pair(distinct.first(), "single_composer_adjacent_icon")
+        if (distinct.size > 1) {
+            val closest = distance(distinct[0])
+            val second = distance(distinct[1])
+            if (second - closest > (22 * dp).toInt()) {
+                return Pair(distinct.first(), "clearly_nearest_composer_icon")
+            }
+        }
         return null
     }
 
@@ -290,11 +334,13 @@ class ChatRelayService : AccessibilityService() {
         }
         val candidate = findSendTarget(all, input)
         if (candidate != null) {
+            progress(id, "전송 버튼 탐색 성공: " + candidate.second)
             val target = candidate.first
             sendLog("Submit target: " + candidate.second + ", node=" +
                 (target.viewIdResourceName ?: "(no-id)") +
                 ", desc=" + (target.contentDescription ?: "(no-desc)"))
             if (target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                progress(id, "전송 버튼 클릭 요청 완료")
                 main.postDelayed({ verifySubmission(id, text, 0, candidate.second) }, 450)
                 return
             }
@@ -322,6 +368,7 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         if (attempt < 5) {
+            if (attempt == 0) progress(id, "전송 버튼 노드 재탐색")
             main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 350)
             return
         }
@@ -351,6 +398,7 @@ class ChatRelayService : AccessibilityService() {
             // This is observable evidence that the composer cleared after the
             // submit action. performAction returning true alone is insufficient.
             if (input != null && actual.isBlank()) {
+                progress(id, "전송 확인 · 입력창 비워짐")
                 finishSend(id, true, "send_confirmed_composer_cleared_via_" + method)
                 main.postDelayed({ snapshot() }, 700)
                 return
