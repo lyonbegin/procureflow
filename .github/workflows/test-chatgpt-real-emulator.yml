@@ -23,22 +23,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install download clients for exact APKM variant
-        run: npm install --prefix .github/scripts --no-save apkmirror-downloader @nirewen/apkcombo-downloader playwright
-      - name: Retrieve matching signed APKM, falling back to a real browser
+      - name: Enforce supplied original APKM (never re-download from mirrors)
         run: |
-          mkdir -p emulator-evidence
-          set -o pipefail
-          if node .github/scripts/fetch-exact-chatgpt.mjs 2>&1 | tee emulator-evidence/public-download.log; then
-            echo "Exact ChatGPT archive obtained using a public mirror client"
-          else
-            echo "Mirror client blocked. Trying a real Playwright Chromium browser."
-            .github/scripts/node_modules/.bin/playwright install chromium --with-deps
-            node .github/scripts/fetch-chatgpt-browser.mjs 2>&1 | tee emulator-evidence/browser-download.log
+          if [ ! -f /tmp/chatgpt-download.pkg ]; then
+            echo 'BLOCKED_ORIGINAL_FILE_TRANSFER: user-supplied file exists in ChatGPT workspace, but GitHub Actions runner cannot read that workspace.' >&2
+            echo 'No public-mirror download was attempted. APK install was not performed.' >&2
+            exit 42
           fi
+          python3 .github/scripts/check-chatgpt-variant.py /tmp/chatgpt-download.pkg
       - name: Check Android virtualization availability
         run: |
           set -eu
