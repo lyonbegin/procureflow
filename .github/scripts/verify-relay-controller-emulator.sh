@@ -66,6 +66,7 @@ adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActi
 adb shell screencap -p /sdcard/controller.png
 adb pull /sdcard/controller.png controller-evidence/controller.png
 adb logcat -d -t 1500 | grep -E 'FATAL EXCEPTION|AndroidRuntime|com.hitel.chatrelay' | tail -120 > controller-evidence/logcat.txt || true
+adb logcat -d -v time -s HITELRelayLifecycle:I HITELRelayStatus:I '*:S' > controller-evidence/lifecycle-logcat.txt || true
 grep -q 'com.hitel.chatrelay' controller-evidence/package.txt
 if grep -E 'FATAL EXCEPTION' controller-evidence/logcat.txt; then
   echo 'FAIL: Android crash detected' >&2
