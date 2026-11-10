@@ -49,7 +49,10 @@ jobs:
           assert 'val token = prefs.getString("token", "").orEmpty()' in s
           assert 'val token = prefs.getString("token", "").orEmpty().ifBlank' not in s
           assert 'val blocker = screenBlockReason(root)' in s
-          print('PASS: verified-anchor requirement, no embedded credential in UI/service, login and ANR gates')
+          assert 'if(activeConversationId==null && currentRoomId==null)return' in s
+          assert '(activeConversationId!=null || currentRoomId!=null)' in s
+          assert 'chatComposerIsVisible() &&' in s
+          print('PASS: verified anchors, room-cache invalidation, no credentials, login and ANR gates')
           PY
       - name: Build Android APK without publishing it
         run: |
