@@ -244,6 +244,10 @@ class ChatRelayService : AccessibilityService() {
 
     private fun matchRoomAnchor(job: JSONObject): String? {
         if (rootInActiveWindow?.packageName?.toString() != chatPackage) return null
+        // A search RESULT can quote old messages. Never mistake it for the
+        // actual open conversation: the composer must be a chat input,
+        // not the history search field.
+        if (searchBarNode()!=null || composerInput(nodes(rootInActiveWindow))==null) return null
         val anchors = job.optJSONArray("room_anchors") ?: return null
         if (anchors.length() == 0) return null
         val visible = nodes(rootInActiveWindow).mapNotNull { n ->
@@ -396,7 +400,16 @@ class ChatRelayService : AccessibilityService() {
             val id=n.viewIdResourceName.orEmpty().lowercase()
             val likely=id.contains("conversation") || id.contains("chat_row") ||
                 id.contains("search_result") || id.contains("result_item")
-            if(!strong && !likely)continue
+            // Compose frequently exposes no stable resource IDs for search
+            // hits. A single unique selectable text row below the search
+            // field is still safe to inspect because the real chat history
+            // must be VERIFIED before any send.
+            val uniqueCandidate=normalizedRoomText(query).length>=28 &&
+                norm.length in 9..180 &&
+                listOf("all","chats","documents","projects","images","파일",
+                    "채팅","전체","문서","프로젝트","결과 없음","no results")
+                    .none { word -> norm==word }
+            if(!strong && !likely && !uniqueCandidate)continue
             var target: AccessibilityNodeInfo?=n
             for(i in 0..4) {
                 if(target==null || isClickTarget(target))break
@@ -440,6 +453,13 @@ class ChatRelayService : AccessibilityService() {
         }
         when(phase) {
             0 -> {
+                // Search might already be open (e.g. a prior retry).
+                if(searchBarNode()!=null){
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,1,0,0)
+                    },200)
+                    return
+                }
                 // ChatGPT search is in the navigation sidebar, not a normal
                 // message composer. Open the sidebar if search is not visible.
                 val search=navigationNamedControl(listOf(
