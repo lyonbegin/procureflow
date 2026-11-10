@@ -6,6 +6,14 @@
 <style>
 :root{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#202733;background:#f5f7fa;font-size:14px}
 *{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid #cbd5e1;background:#fff;color:#243449;border-radius:8px;padding:9px 12px}button.primary{background:#15243b;color:white;border-color:#15243b}button.danger{color:#a72727;border-color:#edc2c2}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{border:1px solid #d0d8e2;border-radius:7px;padding:9px 10px;min-width:0;max-width:100%;background:white;color:#1d293b}textarea{min-height:106px;resize:vertical;width:100%;line-height:1.5}.app{max-width:1600px;margin:auto}.mast{background:#182739;color:white;padding:20px 28px;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}.mast h1{font-size:20px;margin:0 0 3px}.mast p{margin:0;font-size:12px;color:#c5d1dc}.mast a{color:#c9e8ff}.stats{display:flex;gap:8px;align-items:center}.chip{border:1px solid #4a5d72;border-radius:20px;padding:6px 12px;font-size:12px}.chip.ok{background:#145d45;border-color:#145d45}.chip.fail{background:#8c3535;border-color:#8c3535}.layout{display:grid;grid-template-columns:minmax(310px,420px) minmax(410px,1fr);gap:18px;padding:20px}.panel{border:1px solid #dfe4eb;background:white;border-radius:12px;box-shadow:0 2px 7px #1a355009;overflow:hidden}.panel>h2{font-size:14px;margin:0;border-bottom:1px solid #e8edf3;padding:14px 16px;background:#fafbfc;display:flex;justify-content:space-between}.panel>.inner{padding:15px 16px}.stack{display:grid;gap:12px}.small{font-size:12px;color:#687789}.eyebrow{font-size:11px;color:#63728a;text-transform:uppercase;font-weight:700;letter-spacing:.07em;margin-bottom:4px}.section{font-size:16px;font-weight:700;margin:0 0 12px}.step{border-bottom:1px solid #e6eaf0;padding:0 0 17px;margin-bottom:17px}.step:last-child{border:0;margin:0;padding:0}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.row>*{flex-shrink:0}.fields{display:grid;gap:8px}.fields>label{font-weight:600;font-size:12px}.fields>input,.fields>select{width:100%}.half{display:grid;grid-template-columns:1fr 1fr;gap:8px}.wide{width:100%}.hint{font-size:11px;line-height:1.5;color:#6a7889}.warning{background:#fff7eb;border:1px solid #f0d9a5;border-radius:9px;padding:10px;color:#74510a;font-size:12px}.joblist,.roomlist,.filelist{max-height:230px;overflow-y:auto;border:1px solid #e0e6ed;border-radius:8px}.entry{border-bottom:1px solid #edf0f4;padding:10px 12px;font-size:12px}.entry:last-child{border:0}.entry:hover{background:#f8fafc}.entry.selected{background:#e8f2ff}.entry strong{font-size:12px}.entry code{font-size:10px;color:#688096}.entry-btn{display:block;text-align:left;width:100%;border:0;background:transparent;padding:0}.entry-btn:hover{color:#1b5c9a}.filecheck{width:16px;height:16px;vertical-align:middle}.endpoint{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;font-size:12px}.method{display:inline-block;font:700 10px ui-monospace,monospace;color:#145d83;background:#e5f4fb;padding:3px 6px;border-radius:4px}.method.post{color:#74500e;background:#fff1d6}.method.del{color:#9e2020;background:#ffecec}.method.patch{color:#7445a4;background:#f2ebfc}.console{background:#121a28;color:#d8e5f5;border-radius:10px;padding:16px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;max-height:340px;min-height:160px}.log{max-height:260px;min-height:125px;color:#b4d1ef}.right{display:grid;gap:18px;align-content:start}.response{display:grid;grid-template-columns:1fr 1fr;gap:12px}.response .console{min-height:245px}.name{font-size:12px;font-weight:600;margin-bottom:7px}.messages{display:grid;gap:8px;max-height:330px;overflow:auto}.message{border:1px solid #e1e7ee;padding:10px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.message .small{font-size:10px;margin-bottom:5px}.message.assistant{background:#f4f9ff}.message.user{background:#fafafa}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.tabs button{font-size:12px}.tabs button.active{background:#22354d;color:white;border-color:#22354d}.footer{padding:0 22px 25px;font-size:12px;color:#667689}code{font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+.drive-feedback{border:1px solid #ccd5e0;border-radius:8px;background:#f6f8fc;color:#27415d;padding:12px 13px;font-size:13px;line-height:1.65;white-space:pre-line}
+.drive-feedback.error{border-color:#e2a8a5;background:#fff3f0;color:#9a3026}
+.drive-feedback.warning{border-color:#e9d19a;background:#fff9ec;color:#805214}
+.drive-feedback.success{border-color:#a2d7bb;background:#eefaf2;color:#1b663e}
+.drive-setup{border:1px dashed #d6b16e;background:#fffaf2;border-radius:8px;padding:12px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.drive-setup code{display:block;margin-top:4px;padding:7px;background:#fff;border:1px solid #e0d6c5;border-radius:5px;word-break:break-all}
+.drive-setup a{color:#15559a;text-decoration:underline}
+.drive-working{opacity:.6}
 @media(max-width:1040px){.layout{grid-template-columns:1fr}.response{grid-template-columns:1fr}}@media(max-width:620px){.layout{padding:10px;gap:10px}.mast{padding:16px}.half{grid-template-columns:1fr}.panel>.inner{padding:12px}}
 </style></head>
 <body>
@@ -16,7 +24,8 @@
 <div class="stack">
 <section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
 <div class="step"><div class="fields">
-<label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" placeholder="관리 토큰을 최초 1회 입력하십시오">
+<label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" placeholder="이전에 발급된 CONSOLE_TOKEN을 입력하십시오">
+<div class="hint" id="api-auth-status" role="status" aria-live="polite">Drive 상태 조회·계정 연결 전에는 관리 토큰 또는 사용자 API Key 인증이 필요합니다. 인증 정보는 공개 웹 소스에 포함하지 않습니다.</div>
 <label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" placeholder="사용자별 발급키를 입력하면 관리 토큰 대신 사용">
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
@@ -39,7 +48,13 @@
  <div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/connect</code></div>
  <div class="fields"><label>사용자 Google Drive 연결</label>
  <div class="row"><button id="drive-status-btn">연결 상태 확인</button><button class="primary" id="drive-connect">Google Drive 계정 연결</button></div>
- <div class="small" id="drive-status">Google Drive 연결 상태 확인 전</div>
+ <div class="drive-feedback" id="drive-status" role="status" aria-live="polite">버튼을 누르시면 이곳에 Google Drive 연결 상태와 오류 원인이 표시됩니다.</div>
+ <div class="drive-setup" id="drive-setup" hidden>
+   <strong>Google OAuth 설정이 먼저 필요합니다.</strong>
+   <div>Google Cloud에서 웹 애플리케이션 OAuth 클라이언트를 생성하고 Railway에 <code>GOOGLE_OAUTH_CLIENT_ID</code><code>GOOGLE_OAUTH_CLIENT_SECRET</code>을 등록해 주십시오.</div>
+   <div>승인된 리디렉션 URI:</div><code id="drive-redirect">확인 중</code>
+   <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud 사용자 인증 정보 설정 열기</a>
+ </div>
  <div class="row"><button id="drive-folder">선택 채팅방 Drive 폴더 생성 / 확인</button></div>
  <div class="hint">각 사용자의 Google Drive에 채팅방별 폴더가 생성됩니다. Railway에 Google OAuth Client ID·Secret과 암호화 키가 등록되어야 연결됩니다.</div>
  </div>
@@ -113,7 +128,7 @@ $('admin-token').value=localStorage.getItem('relay_admin_token')||'';
 $('user-api-key').value=localStorage.getItem('relay_user_api_key')||'';
 $('user-id').value=localStorage.getItem('relay_user_id')||'tester-a';
 for(const id of ['admin-token','user-api-key','user-id']) {
-  $(id).addEventListener('change',()=>{
+  $(id).addEventListener('input',()=>{
     localStorage.setItem(id==='admin-token'?'relay_admin_token':
                          id==='user-api-key'?'relay_user_api_key':'relay_user_id',$(id).value.trim());
   });
@@ -177,9 +192,89 @@ root.append(row);}if(!r.files.length)root.textContent='등록된 파일 없음';
 async function downloadFile(file){if(file.drive_url){window.open(file.drive_url,'_blank','noopener');return;}const path='/api/v1/files/'+file.id+'/download'+queryUser();viewRequest('GET',path);const res=await fetch(path,{headers:credentials()});if(!res.ok){const e=await res.text();viewResponse(res.status,e);throw Error('파일 다운로드 실패: '+e);}const blob=await res.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download=file.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),12000);viewResponse(res.status,{name:file.name,bytes:blob.size});log('파일 다운로드 완료 '+file.name);}
 $('upload-file').onclick=guard(async()=>{const id=selectedRoom();const picked=[...$('file-pick').files];if(!picked.length)throw Error('파일을 선택하십시오.');for(const file of picked){const form=new FormData();form.append('user_id',userId());form.append('room_id',id);form.append('share_link',$('share-drive-link').checked?'true':'false');form.append('file',file,file.name);const r=await call('POST','/api/v1/drive/files',form);if(r.drive_shared)fileChecks.set(r.id,true);}await refreshFiles();log('Google Drive 업로드 완료 · 질문 전송 전에 공유 상태를 확인하십시오.');});
 $('list-files').onclick=guard(refreshFiles);
-async function loadDriveStatus(){const info=await call('GET','/api/v1/drive/status'+queryUser());$('drive-status').textContent=!info.configured?'설정 필요 · Railway에 Google OAuth Client ID / Secret / 암호화 키가 없습니다':info.connected?'Google Drive 연결 완료 · 채팅방별 폴더 사용 가능':'Google OAuth 설정 완료 · 계정 연결 필요';log('Drive connection state: '+(info.connected?'connected':'disconnected'));return info;}
-$('drive-status-btn').onclick=guard(loadDriveStatus);
-$('drive-connect').onclick=guard(async()=>{const r=await call('POST','/api/v1/drive/connect'+queryUser());if(!r.authorization_url.startsWith('https://accounts.google.com/'))throw Error('잘못된 Google OAuth URL');location.assign(r.authorization_url);});
+function driveFeedback(message,level='info'){
+  const node=$('drive-status');
+  node.textContent=message;
+  node.className='drive-feedback '+level;
+}
+function driveAuthReady(){
+  const ok=!!(text('admin-token')||text('user-api-key'));
+  $('api-auth-status').textContent=ok
+    ? '인증 정보 입력됨 · API가 실제 토큰 유효성을 검증합니다.'
+    : '인증 정보가 비어 있습니다. Google Drive 사용자 정보 확인과 연결에는 기존 CONSOLE_TOKEN 또는 해당 사용자의 API Key가 필요합니다.';
+  $('api-auth-status').style.color=ok?'#31654f':'#a2382d';
+  return ok;
+}
+async function getPublicDriveSetup(){
+  const response=await fetch('/api/v1/drive/setup',{cache:'no-store'});
+  if(!response.ok) throw Error('Drive 설정 확인 실패 · HTTP '+response.status);
+  const setup=await response.json();
+  $('drive-setup').hidden=!!setup.oauth_configured;
+  if(setup.redirect_uri)$('drive-redirect').textContent=setup.redirect_uri;
+  return setup;
+}
+function driveErrorText(error){
+  const msg=String(error?.message||error||'알 수 없는 오류');
+  if(msg.includes('401')||msg.includes('Missing API key'))return '인증 실패(HTTP 401): 관리 토큰이나 사용자 API Key가 입력되지 않았습니다. 01. 인증 및 사용자에서 기존 토큰을 입력해 주십시오.';
+  if(msg.includes('403'))return '인증 실패(HTTP 403): 입력하신 API Key가 올바르지 않거나 이 사용자의 권한이 없습니다.';
+  if(msg.includes('503')||msg.includes('OAuth client is not configured'))return 'Google OAuth 설정이 완료되지 않았습니다. 아래 안내에 표시된 환경변수를 Railway에 등록해 주십시오.';
+  return 'Google Drive 연결 요청 오류: '+msg;
+}
+async function driveAction(button,work){
+  const original=button.textContent;
+  button.disabled=true;
+  button.classList.add('drive-working');
+  driveFeedback('요청을 확인하고 있습니다…');
+  try {await work();}
+  catch(error) {
+    const msg=driveErrorText(error);
+    driveFeedback(msg,'error');
+    log('Drive 오류: '+msg);
+    if(msg.includes('인증 실패')) $('api-auth-status').textContent='인증 정보를 확인하여 다시 입력해 주십시오.';
+  }
+  finally {button.disabled=false;button.classList.remove('drive-working');button.textContent=original;}
+}
+async function loadDriveStatus(){
+  const setup=await getPublicDriveSetup();
+  if(!setup.oauth_configured){
+    const missing=(setup.missing_variables||[]).join(', ');
+    driveFeedback('Google Drive 연결 준비가 되지 않았습니다.\nRailway에 필요한 OAuth 설정: '+missing+
+      (driveAuthReady()?'':'\n추가로 관리 토큰 또는 사용자 API Key도 입력해야 합니다.'),'warning');
+    log('Drive OAuth 미설정: '+missing);
+    return {configured:false,connected:false};
+  }
+  if(!driveAuthReady()){
+    driveFeedback('OAuth 서버 설정은 완료되었지만 웹 인증 정보가 없습니다.\n01. 인증 및 사용자에서 기존 CONSOLE_TOKEN 또는 사용자 API Key를 입력하신 뒤 재시도해 주십시오.','error');
+    return {configured:true,connected:false};
+  }
+  const info=await call('GET','/api/v1/drive/status'+queryUser());
+  const msg=info.connected?'Google Drive 연결 완료 · 사용자 '+info.user_id+' · 채팅방 폴더를 생성할 수 있습니다.':
+      'Google OAuth 클라이언트 설정 완료 · 아직 사용자 '+info.user_id+'의 Google 계정이 연결되지 않았습니다. 아래 「Google Drive 계정 연결」 버튼을 눌러 주십시오.';
+  driveFeedback(msg,info.connected?'success':'warning');
+  log('Drive account status: '+(info.connected?'connected':'not connected'));
+  return info;
+}
+$('drive-status-btn').onclick=()=>driveAction($('drive-status-btn'),loadDriveStatus);
+$('drive-connect').onclick=()=>driveAction($('drive-connect'),async()=>{
+  const setup=await getPublicDriveSetup();
+  if(!setup.oauth_configured){
+    const missing=(setup.missing_variables||[]).join(', ');
+    driveFeedback('Google 계정 인증 창을 열 수 없습니다. Railway에서 다음 OAuth 환경변수를 먼저 등록해야 합니다:\n'+missing+
+      (driveAuthReady()?'':'\n또한 콘솔 토큰 또는 사용자 API Key를 입력해 주십시오.'),'error');
+    log('Google OAuth 미설정: '+missing);
+    return;
+  }
+  if(!driveAuthReady()){
+    driveFeedback('인증 토큰이 없어 Google 계정 연결을 시작할 수 없습니다.\n01. 인증 및 사용자에서 기존 CONSOLE_TOKEN 또는 사용자 API Key를 입력해 주십시오.','error');
+    return;
+  }
+  driveFeedback('Google 계정 연결 주소를 요청하고 있습니다…');
+  const result=await call('POST','/api/v1/drive/connect'+queryUser());
+  if(!result.authorization_url||!result.authorization_url.startsWith('https://accounts.google.com/'))
+    throw Error('Google OAuth 인증 주소가 올바르지 않습니다.');
+  driveFeedback('Google 로그인 페이지로 이동합니다.','success');
+  location.assign(result.authorization_url);
+});
 $('drive-folder').onclick=guard(async()=>{const id=selectedRoom();const r=await call('POST','/api/v1/drive/rooms/'+id+'/folder'+queryUser());log('Chat room Google Drive folder: '+r.drive_folder_id);await refreshRooms();});
 $('send-job').onclick=guard(async()=>{const id=selectedRoom();const textBody=text('message-text');const attachments=checkedFileIds();if(!textBody&&!attachments.length)throw Error('질문 또는 첨부파일을 지정하십시오.');const result=await call('POST','/api/v1/rooms/'+id+'/messages',selectedUser({text:textBody,attachment_ids:attachments}));$('job-id').value=result.id;log('작업 대기열 등록 '+result.id+' · 채팅방 '+id);await refreshJobs();await refreshMessages();});
 async function refreshJobs(){const r=await call('GET','/api/v1/jobs'+queryUser());const list=$('job-list');list.replaceChildren();for(const job of r.jobs){const div=document.createElement('div');div.className='entry';const b=document.createElement('button');b.className='entry-btn';b.textContent=job.action+' · '+job.status+' · '+job.stage;b.onclick=()=>{$('job-id').value=job.id;viewResponse(200,job);};div.append(b);const c=document.createElement('code');c.textContent=job.id+'  /  '+job.room_id;div.append(c);if(job.error){const x=document.createElement('div');x.className='small';x.textContent=job.error;div.append(x);}list.append(div);}if(!r.jobs.length)list.textContent='작업 내역 없음';}
@@ -191,5 +286,10 @@ $('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms(
 $('clear-log').onclick=()=>logbox.textContent='';
 document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
 checkHealth().catch(e=>log('Health failed: '+e.message));
-if(text('admin-token')||text('user-api-key'))loadDriveStatus().catch(e=>log('Drive status: '+e.message));
+driveAuthReady();
+getPublicDriveSetup().then(setup=>{
+  if(!setup.oauth_configured){
+    driveFeedback('Google OAuth 설정이 아직 등록되지 않았습니다. 아래 설정 안내를 확인해 주십시오.','warning');
+  }
+}).catch(e=>driveFeedback('Google Drive 설정 확인 오류: '+e.message,'error'));
 </script></body></html>
