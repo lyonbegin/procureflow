@@ -1570,8 +1570,26 @@ class ChatRelayService : AccessibilityService() {
     }
 
     private fun composerInput(all: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
-        return all.filter { it.isEditable && it.isVisibleToUser && it.isEnabled }
-            .maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+        // A login screen may expose an editable email/password field in the
+        // same ChatGPT package. That field is NEVER a message composer.
+        return all.filter { n ->
+            if(!n.isEditable || !n.isVisibleToUser || !n.isEnabled) return@filter false
+            val hint=(n.hintText?.toString().orEmpty()+" "+
+                n.contentDescription?.toString().orEmpty()+" "+
+                n.viewIdResourceName.orEmpty()).lowercase()
+            if(listOf("email","e-mail","password","이메일","비밀번호",
+                "전화번호","phone number","search history","대화 검색",
+                "검색어").any {hint.contains(it)}) return@filter false
+            val variant=n.inputType and android.text.InputType.TYPE_MASK_VARIATION
+            val forbidden=setOf(
+                android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+                android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+            )
+            variant !in forbidden
+        }.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
     }
 
     private fun isClickTarget(n: AccessibilityNodeInfo): Boolean {
