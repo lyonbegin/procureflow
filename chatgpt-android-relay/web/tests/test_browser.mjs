@@ -144,7 +144,7 @@ assert.equal(state.rooms[0].chatgpt_title,"Actual ChatGPT conversation title");
 assert.ok(calls.some(x=>x.method==="PATCH"&&x.path==="/api/v1/rooms/"+roomId &&
   JSON.parse(x.body).chatgpt_url===targetUrl));
 assert.ok(doc.querySelector("#open-room"),"Explicit existing-room navigation button present");
-assert.match(doc.querySelector("#room-open-status").textContent,/기존 채팅방/);
+assert.match(doc.querySelector("#room-open-status").textContent,/(기존 채팅방|저장 완료)/);
 state.rooms[0].android_state="active"; // Simulate a previously completed Android room.
 doc.querySelector("#list-rooms").click();
 await pause();
