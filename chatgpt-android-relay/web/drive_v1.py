@@ -169,6 +169,26 @@ def ensure_room_folder(uid: str, room_id: str):
                           (room_id,uid)).fetchone()
     return final["drive_folder_id"]
 
+@router.get("/setup")
+def public_setup_status():
+    """Public capability check only; never reveal OAuth keys or user accounts."""
+    cfg = config()
+    missing = []
+    if not cfg["client_id"]:
+        missing.append("GOOGLE_OAUTH_CLIENT_ID")
+    if not cfg["client_secret"]:
+        missing.append("GOOGLE_OAUTH_CLIENT_SECRET")
+    try:
+        Fernet(cfg["encryption_key"].encode())
+    except (ValueError, TypeError):
+        missing.append("DRIVE_TOKEN_ENCRYPTION_KEY")
+    return {"oauth_configured": not missing,
+            "missing_variables": missing,
+            "redirect_uri": cfg["redirect_uri"],
+            "requires_api_auth": True,
+            "google_cloud_credentials_url": "https://console.cloud.google.com/apis/credentials"}
+
+
 @router.get("/status")
 def status(user_id: str | None = None, actor=Depends(api.authentication)):
     uid = api.user_scope(user_id,actor)
