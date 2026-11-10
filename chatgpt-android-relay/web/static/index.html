@@ -16,12 +16,12 @@
 <div class="stack">
 <section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
 <div class="step"><div class="fields">
-<label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn">
+<label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" placeholder="관리 토큰을 최초 1회 입력하십시오">
 <label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" placeholder="사용자별 발급키를 입력하면 관리 토큰 대신 사용">
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
 <div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
-<div class="warning">공개 운영용 화면이 아닌 시험 콘솔입니다. 현재 기본 토큰은 브라우저에서 확인할 수 있습니다. 실사용자 정보·민감문서를 올리시기 전에 반드시 인증을 강화해야 합니다.</div>
+<div class="warning">시험용 API 콘솔입니다. Google Drive에 개인 파일을 올릴 때에는 각 사용자 API Key를 권장합니다. 관리자 토큰은 웹 소스에 포함하지 않고 이 브라우저에만 저장합니다. 운영 환경에는 별도 로그인 및 권한 관리가 필요합니다.</div>
 </div></section>
 
 <section class="panel"><h2>02. 채팅방 엔드포인트 <span class="small">Rooms</span></h2><div class="inner">
@@ -34,18 +34,30 @@
 <div class="hint">삭제는 Android의 실제 삭제가 확인되어야 완료됩니다. 삭제 실패 시 상태를 유지합니다.</div>
 </div></section>
 
-<section class="panel"><h2>03. 메시지·파일 첨부 <span class="small">Messages + Files</span></h2><div class="inner">
-<div class="step"><div class="endpoint"><span class="method post">POST</span><code>/api/v1/files</code></div>
+<section class="panel"><h2>03. Google Drive 링크 전송 <span class="small">Drive + Messages</span></h2><div class="inner">
+<div class="step">
+ <div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/connect</code></div>
+ <div class="fields"><label>사용자 Google Drive 연결</label>
+ <div class="row"><button id="drive-status-btn">연결 상태 확인</button><button class="primary" id="drive-connect">Google Drive 계정 연결</button></div>
+ <div class="small" id="drive-status">Google Drive 연결 상태 확인 전</div>
+ <div class="row"><button id="drive-folder">선택 채팅방 Drive 폴더 생성 / 확인</button></div>
+ <div class="hint">각 사용자의 Google Drive에 채팅방별 폴더가 생성됩니다. Railway에 Google OAuth Client ID·Secret과 암호화 키가 등록되어야 연결됩니다.</div>
+ </div>
+</div>
+<div class="step"><div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/files</code></div>
 <div class="fields"><label for="file-pick">파일 선택 (PDF, Word, Excel, PPT, TXT, 이미지 등 · 파일당 최대 15MB)</label>
 <input id="file-pick" type="file" multiple accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpeg,.jpg,.webp,.gif">
-<div class="row"><button id="upload-file">선택한 파일 업로드</button><button id="list-files">파일 목록 / 결과 조회</button></div></div>
-<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">첨부할 파일의 체크박스를 선택하십시오.</div></div>
+<div class="row"><button id="upload-file">Google Drive 채팅방 폴더로 업로드</button><button id="list-files">Drive 파일 목록</button></div>
+<label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="share-drive-link" style="width:17px;min-width:17px"> <span>이 파일에 대해 '링크를 가진 모든 사람 보기' 허용</span></label>
+<div class="warning">체크하시면 파일 링크를 아는 사람은 Google 계정 없이 파일을 열 수 있습니다. ChatGPT에 링크를 보내려면 접근 권한이 필요합니다. 민감한 자료는 공유하지 마십시오.</div>
+</div>
+<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">Drive 업로드 및 공유가 완료된 파일만 질문에 포함됩니다.</div></div>
 </div>
 <div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms/{room_id}/messages</code></div>
 <div class="fields"><label for="message-text">질문 / 지시문</label>
-<textarea id="message-text" placeholder="API 요청 본문입니다. 전송 시 선택 채팅방 ID와 첨부파일 ID를 함께 보냅니다."></textarea>
+<textarea id="message-text" placeholder="질문을 입력하십시오. 선택된 Google Drive 파일의 링크가 질문 텍스트에 자동 추가되어 전송됩니다."></textarea>
 <button class="primary wide" id="send-job">선택된 채팅방에 작업 요청 전송</button>
-<div class="hint">파일 업로드 성공은 ChatGPT 대화창 첨부 성공과 다릅니다. 안드로이드 단계에서 실제 첨부 여부를 별도 검증합니다.</div>
+<div class="hint">Android에서는 파일 첨부(+ 버튼)를 사용하지 않습니다. Drive 링크를 텍스트로 전달합니다. 링크만으로 ChatGPT가 이미지 내용을 읽는다고 보장할 수는 없습니다.</div>
 </div></div></section>
 
 <section class="panel"><h2>04. 작업·기록 조회 <span class="small">Jobs + Messages</span></h2><div class="inner">
@@ -62,8 +74,8 @@
 <button class="active" data-method="GET" data-path="/api/v1/rooms">Rooms</button>
 <button data-method="POST" data-path="/api/v1/rooms">Create Room</button>
 <button data-method="POST" data-path="/api/v1/rooms/{room_id}/messages">Send Message</button>
-<button data-method="POST" data-path="/api/v1/files">Upload</button>
-<button data-method="GET" data-path="/api/v1/files">Files</button>
+<button data-method="POST" data-path="/api/v1/drive/files">Drive Upload</button>
+<button data-method="GET" data-path="/api/v1/files">Drive Files</button>
 <button data-method="GET" data-path="/api/v1/jobs">Jobs</button>
 <button data-method="GET" data-path="/api/v1/rooms/{room_id}/messages">History</button>
 </div>
@@ -82,20 +94,38 @@
 <div id="message-list" class="messages"><p class="small">채팅방을 선택하고 메시지 조회를 실행하십시오.</p></div>
 </div></section>
 <section class="panel"><h2>파일 결과 / 다운로드 <span class="small">File artifacts</span></h2><div class="inner">
-<p class="small">파일을 업로드하면 파일 ID가 저장됩니다. 향후 Android에서 생성한 파일도 <code>/api/v1/device/jobs/{job_id}/outputs</code>로 등록하여 동일한 목록에서 받을 수 있습니다.</p>
-<div class="endpoint"><span class="method">GET</span><code>/api/v1/files/{file_id}/download</code></div>
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/device/jobs/{job_id}/outputs</code></div>
+<p class="small">원본 이미지는 사용자별 Google Drive 채팅방 폴더에 업로드합니다. Railway에는 Drive 파일 ID·링크·공유 상태만 기록합니다. Android 파일 선택기 조작은 사용하지 않습니다.</p>
+<div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/rooms/{room_id}/folder</code></div>
+<div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/files/{file_id}/share</code></div>
 <a href="/docs" target="_blank" rel="noopener">Swagger/OpenAPI에서 API 스키마 확인</a>
 </div></section>
 </div>
 </div>
-<div class="footer">ChatGPT Android Relay — API 실험 버전 · 실제 Android 채팅방 전환 및 첨부 성공 여부는 접근성 검증 결과에 따라 표시합니다.</div>
+<div class="footer">ChatGPT Android Relay — Google Drive 링크 전송 실험 버전 · Google Drive 링크의 파일을 ChatGPT가 실제로 읽었는지는 답변으로 별도 검증해야 합니다.</div>
 </div>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
 const text=(id)=>$(id).value.trim();
 const logbox=$('event-log');
+// Persist credentials only on the current browser device, not in the public HTML.
+$('admin-token').value=localStorage.getItem('relay_admin_token')||'';
+$('user-api-key').value=localStorage.getItem('relay_user_api_key')||'';
+$('user-id').value=localStorage.getItem('relay_user_id')||'tester-a';
+for(const id of ['admin-token','user-api-key','user-id']) {
+  $(id).addEventListener('change',()=>{
+    localStorage.setItem(id==='admin-token'?'relay_admin_token':
+                         id==='user-api-key'?'relay_user_api_key':'relay_user_id',$(id).value.trim());
+  });
+}
+const callbackParams=new URLSearchParams(location.search);
+if(callbackParams.has('drive_connected')) {
+  if(callbackParams.get('user_id'))$('user-id').value=callbackParams.get('user_id');
+  setTimeout(()=>{loadDriveStatus().catch(error=>log('Google Drive 상태: '+error.message));},250);
+}
+if(callbackParams.has('drive_error')) {
+  setTimeout(()=>log('Google Drive 인증 오류: '+callbackParams.get('drive_error')),0);
+}
 const fileChecks=new Map();
 let ws=null;
 let socketReady=false;
@@ -132,17 +162,25 @@ ws.onmessage=e=>{const p=JSON.parse(e.data);log('WS '+JSON.stringify(p).slice(0,
 $('create-user').onclick=guard(async()=>{const uid=userId(),name=uid;const r=await call('POST','/api/v1/users',{user_id:uid,name});log('발급된 키는 응답 JSON에서 한 번만 확인 가능합니다. 외부 공유 금지.');});
 $('list-users').onclick=guard(async()=>{await call('GET','/api/v1/users');});
 async function refreshRooms(){const r=await call('GET','/api/v1/rooms'+queryUser());const root=$('room-list');root.replaceChildren();for(const item of r.rooms){const row=document.createElement('div');row.className='entry'+(item.id===text('room-id')?' selected':'');const b=document.createElement('button');b.className='entry-btn';b.textContent=item.title+'  ['+item.status+' / Android '+item.android_state+']';b.onclick=()=>{$('room-id').value=item.id;$('room-title').value=item.title;refreshRooms().catch(()=>{});refreshMessages().catch(()=>{});refreshFiles().catch(()=>{});};row.append(b);const c=document.createElement('code');c.textContent=item.id;row.append(c);root.append(row);}if(!r.rooms.length)root.textContent='채팅방 없음';}
-$('create-room').onclick=guard(async()=>{const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');const r=await call('POST','/api/v1/rooms',selectedUser({title}));$('room-id').value=r.id;await refreshRooms();});
+$('create-room').onclick=guard(async()=>{const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');const r=await call('POST','/api/v1/rooms',selectedUser({title}));$('room-id').value=r.id;await refreshRooms();if(r.drive_folder_id)log('Google Drive 채팅방 폴더 자동 생성: '+r.drive_folder_id);else log('Drive 미연결: 연결 후 채팅방 폴더를 생성할 수 있습니다.');});
 $('list-rooms').onclick=guard(refreshRooms);
 $('rename-room').onclick=guard(async()=>{const id=selectedRoom();const title=text('room-title');if(!title)throw Error('새 채팅방 이름을 입력하십시오.');await call('PATCH','/api/v1/rooms/'+id,selectedUser({title}));await refreshRooms();});
 $('delete-room').onclick=guard(async()=>{const id=selectedRoom();if(!confirm('이 채팅방의 Android 삭제 작업을 요청하시겠습니까? 실제 삭제 확인 전에는 완료로 표시되지 않습니다.'))return;await call('DELETE','/api/v1/rooms/'+id+queryUser());await refreshRooms();await refreshJobs();});
 function checkedFileIds(){return [...fileChecks.entries()].filter(x=>x[1]).map(x=>x[0]);}
 async function refreshFiles(){const id=selectedRoom();const r=await call('GET','/api/v1/files'+queryUser()+'&room_id='+encodeURIComponent(id));const root=$('file-list');root.replaceChildren();const ids=new Set(r.files.map(f=>f.id));for(const k of fileChecks.keys()){if(!ids.has(k))fileChecks.delete(k);}
-for(const file of r.files){const row=document.createElement('div');row.className='entry';const label=document.createElement('label');const chk=document.createElement('input');chk.type='checkbox';chk.className='filecheck';chk.disabled=file.kind!=='input';chk.checked=!!fileChecks.get(file.id);chk.onchange=()=>fileChecks.set(file.id,chk.checked);label.append(chk,'  '+file.name+'  ['+file.kind+', '+Math.round(file.size/1024)+' KB]');row.append(label);const meta=document.createElement('div');meta.className='small';meta.textContent=file.id+'  ·  '+file.sha256.slice(0,12);row.append(meta);const down=document.createElement('button');down.textContent='파일 다운로드';down.onclick=guard(async()=>await downloadFile(file));row.append(down);root.append(row);}
-if(!r.files.length)root.textContent='등록된 파일 없음';}
-async function downloadFile(file){const path='/api/v1/files/'+file.id+'/download'+queryUser();viewRequest('GET',path);const res=await fetch(path,{headers:credentials()});if(!res.ok){const e=await res.text();viewResponse(res.status,e);throw Error('파일 다운로드 실패: '+e);}const blob=await res.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download=file.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),12000);viewResponse(res.status,{name:file.name,bytes:blob.size});log('파일 다운로드 완료 '+file.name);}
-$('upload-file').onclick=guard(async()=>{const id=selectedRoom();const picked=[...$('file-pick').files];if(!picked.length)throw Error('파일을 선택하십시오.');for(const file of picked){const form=new FormData();form.append('user_id',userId());form.append('room_id',id);form.append('file',file,file.name);const r=await call('POST','/api/v1/files',form);fileChecks.set(r.id,true);}await refreshFiles();});
+for(const file of r.files){const row=document.createElement('div');row.className='entry';const label=document.createElement('label');const chk=document.createElement('input');chk.type='checkbox';chk.className='filecheck';chk.disabled=file.kind!=='drive'||!file.drive_shared;chk.checked=!!fileChecks.get(file.id)&&!chk.disabled;chk.onchange=()=>fileChecks.set(file.id,chk.checked);label.append(chk,'  '+file.name+'  ['+(file.kind==='drive'?'Google Drive':'이전 Railway 저장')+', '+Math.round(file.size/1024)+' KB]');row.append(label);
+const meta=document.createElement('div');meta.className='small';meta.textContent=file.id+' · '+(file.drive_shared?'링크 공유 가능':file.kind==='drive'?'비공개 · 전송 전 공유 필요':'Drive 재업로드 필요');row.append(meta);
+if(file.drive_url){const link=document.createElement('a');link.href=file.drive_url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive에서 열기';link.style.marginRight='8px';row.append(link);
+if(!file.drive_shared){const grant=document.createElement('button');grant.textContent='이 파일 링크 공유 허용';grant.onclick=guard(async()=>{if(!confirm('이 파일에 대해 링크를 가진 모든 사람이 볼 수 있도록 변경하시겠습니까?'))return;await call('POST','/api/v1/drive/files/'+file.id+'/share'+queryUser());await refreshFiles();});row.append(grant);}}
+else {const old=document.createElement('span');old.textContent='이전 파일 · Drive 업로드 필요';row.append(old);}
+root.append(row);}if(!r.files.length)root.textContent='등록된 파일 없음';}
+async function downloadFile(file){if(file.drive_url){window.open(file.drive_url,'_blank','noopener');return;}const path='/api/v1/files/'+file.id+'/download'+queryUser();viewRequest('GET',path);const res=await fetch(path,{headers:credentials()});if(!res.ok){const e=await res.text();viewResponse(res.status,e);throw Error('파일 다운로드 실패: '+e);}const blob=await res.blob();const obj=URL.createObjectURL(blob);const a=document.createElement('a');a.href=obj;a.download=file.name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),12000);viewResponse(res.status,{name:file.name,bytes:blob.size});log('파일 다운로드 완료 '+file.name);}
+$('upload-file').onclick=guard(async()=>{const id=selectedRoom();const picked=[...$('file-pick').files];if(!picked.length)throw Error('파일을 선택하십시오.');for(const file of picked){const form=new FormData();form.append('user_id',userId());form.append('room_id',id);form.append('share_link',$('share-drive-link').checked?'true':'false');form.append('file',file,file.name);const r=await call('POST','/api/v1/drive/files',form);if(r.drive_shared)fileChecks.set(r.id,true);}await refreshFiles();log('Google Drive 업로드 완료 · 질문 전송 전에 공유 상태를 확인하십시오.');});
 $('list-files').onclick=guard(refreshFiles);
+async function loadDriveStatus(){const info=await call('GET','/api/v1/drive/status'+queryUser());$('drive-status').textContent=!info.configured?'설정 필요 · Railway에 Google OAuth Client ID / Secret / 암호화 키가 없습니다':info.connected?'Google Drive 연결 완료 · 채팅방별 폴더 사용 가능':'Google OAuth 설정 완료 · 계정 연결 필요';log('Drive connection state: '+(info.connected?'connected':'disconnected'));return info;}
+$('drive-status-btn').onclick=guard(loadDriveStatus);
+$('drive-connect').onclick=guard(async()=>{const r=await call('POST','/api/v1/drive/connect'+queryUser());if(!r.authorization_url.startsWith('https://accounts.google.com/'))throw Error('잘못된 Google OAuth URL');location.assign(r.authorization_url);});
+$('drive-folder').onclick=guard(async()=>{const id=selectedRoom();const r=await call('POST','/api/v1/drive/rooms/'+id+'/folder'+queryUser());log('Chat room Google Drive folder: '+r.drive_folder_id);await refreshRooms();});
 $('send-job').onclick=guard(async()=>{const id=selectedRoom();const textBody=text('message-text');const attachments=checkedFileIds();if(!textBody&&!attachments.length)throw Error('질문 또는 첨부파일을 지정하십시오.');const result=await call('POST','/api/v1/rooms/'+id+'/messages',selectedUser({text:textBody,attachment_ids:attachments}));$('job-id').value=result.id;log('작업 대기열 등록 '+result.id+' · 채팅방 '+id);await refreshJobs();await refreshMessages();});
 async function refreshJobs(){const r=await call('GET','/api/v1/jobs'+queryUser());const list=$('job-list');list.replaceChildren();for(const job of r.jobs){const div=document.createElement('div');div.className='entry';const b=document.createElement('button');b.className='entry-btn';b.textContent=job.action+' · '+job.status+' · '+job.stage;b.onclick=()=>{$('job-id').value=job.id;viewResponse(200,job);};div.append(b);const c=document.createElement('code');c.textContent=job.id+'  /  '+job.room_id;div.append(c);if(job.error){const x=document.createElement('div');x.className='small';x.textContent=job.error;div.append(x);}list.append(div);}if(!r.jobs.length)list.textContent='작업 내역 없음';}
 $('list-jobs').onclick=guard(refreshJobs);
@@ -153,4 +191,5 @@ $('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms(
 $('clear-log').onclick=()=>logbox.textContent='';
 document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
 checkHealth().catch(e=>log('Health failed: '+e.message));
+if(text('admin-token')||text('user-api-key'))loadDriveStatus().catch(e=>log('Drive status: '+e.message));
 </script></body></html>
