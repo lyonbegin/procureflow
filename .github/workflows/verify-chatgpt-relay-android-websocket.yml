@@ -1,0 +1,74 @@
+name: Verify actual Android relay WebSocket and exact file bytes (isolated)
+on:
+  push:
+    branches:
+      - fix/chatgpt-relay-verified-routing-20261110
+    paths:
+      - 'chatgpt-android-relay/android/**'
+      - 'chatgpt-android-relay/web/**'
+      - '.github/scripts/relay-live-android-api.py'
+      - '.github/scripts/verify-relay-live-android-websocket.sh'
+      - '.github/workflows/verify-chatgpt-relay-android-websocket.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chatgpt-android-ws-integration
+  cancel-in-progress: true
+jobs:
+  live-android-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install ephemeral API test dependencies
+        run: python -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Verify production transport remains TLS-only and no embedded file credentials
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          main=Path('chatgpt-android-relay/android/app/src/main/AndroidManifest.xml').read_text()
+          debug=Path('chatgpt-android-relay/android/app/src/debug/AndroidManifest.xml').read_text()
+          s=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt').read_text()
+          assert 'android:usesCleartextTraffic="false"' in main
+          assert 'android:usesCleartextTraffic="true"' in debug
+          assert 'url == "ws://10.0.2.2:8765/ws"' in s
+          assert 'FLAG_DEBUGGABLE' in s
+          assert not re.search(r'val token = prefs.getString\("token", ""\)\.orEmpty\(\)\s*\.ifBlank',s)
+          assert 'DEVICE_TOKEN missing; attachment download blocked' in s
+          print('PASS_TLS_ONLY_PRODUCTION_AND_NO_FALLBACK_DEVICE_TOKEN')
+          PY
+      - name: Build unsigned debug controller without publishing it
+        run: |
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+          sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Launch Android 15 x86_64 and exchange real server jobs and file bytes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/verify-relay-live-android-websocket.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-live-websocket-binary-evidence
+          path: android-socket-evidence/
+          if-no-files-found: warn
