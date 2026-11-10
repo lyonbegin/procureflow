@@ -15,12 +15,13 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
+from fastapi.responses import RedirectResponse, HTMLResponse
 
 import api_v1 as api
 
@@ -229,9 +230,34 @@ def connect(user_id: str | None = None, actor=Depends(api.authentication)):
     })
     return {"authorization_url":link, "user_id":uid}
 
+def popup_result(ok: bool, message: str, uid: str = ""):
+    """Notify the opening test console and close the isolated OAuth popup."""
+    import html
+    info = json.dumps({"type":"relay.drive.oauth.result","ok":bool(ok),
+                       "message":str(message)[:250],"user_id":uid},
+                      ensure_ascii=False).replace("<","\\u003c")
+    title = html.escape("Google Drive 연결 완료" if ok else "Google Drive 연결 실패")
+    details = html.escape(message)
+    return HTMLResponse(f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+       <meta name="viewport" content="width=device-width,initial-scale=1">
+       <title>{title}</title>
+       <style>body{{font:16px system-ui,sans-serif;line-height:1.7;
+       max-width:480px;margin:60px auto;padding:20px;color:#1d2837}}
+       button{{padding:11px 16px;border-radius:8px;background:#173b66;
+       color:white;border:0;cursor:pointer}}</style></head>
+       <body><h2>{title}</h2><p>{details}</p>
+       <p>이 창은 자동으로 닫힙니다. 닫히지 않으면 아래 버튼을 누르십시오.</p>
+       <button onclick="window.close()">창 닫기</button>
+       <script>
+       if(window.opener && !window.opener.closed) {{
+           window.opener.postMessage({info}, window.location.origin);
+       }}
+       setTimeout(function(){{window.close();}},800);
+       </script></body></html>""")
+
 @router.get("/oauth/callback",include_in_schema=False)
 def callback(state: str = "", code: str = "", error: str = ""):
-    if error: return RedirectResponse("/?drive_error=google_consent_declined",status_code=303)
+    if error: return popup_result(False, "Google 계정 연결이 취소되었습니다.")
     if not code or not state: raise HTTPException(400,"Google OAuth code/state missing")
     cfg = ready()
     digest = hashlib.sha256(state.encode()).hexdigest()
@@ -262,7 +288,7 @@ def callback(state: str = "", code: str = "", error: str = ""):
                        refresh_token_encrypted=excluded.refresh_token_encrypted,
                        connected_at=excluded.connected_at""",
                   (uid,crypt,api.clock()))
-    return RedirectResponse("/?drive_connected=1&user_id=" + uid,status_code=303)
+    return popup_result(True, "Google Drive 접근 권한이 연결되었습니다.", uid)
 
 @router.post("/rooms/{room_id}/folder")
 def create_room_folder(room_id: str,user_id: str | None = None,
@@ -352,3 +378,72 @@ def share_one_file(file_id: str,user_id: str | None = None,
         c.execute("UPDATE file_objects SET drive_shared=1 WHERE id=? AND user_id=?",(file_id,uid))
         row=c.execute("SELECT * FROM file_objects WHERE id=?",(file_id,)).fetchone()
     return api.public_file(row)
+
+class LinkedFile(BaseModel):
+    user_id: str | None = None
+    room_id: str = Field(min_length=1, max_length=90)
+    name: str = Field(min_length=1, max_length=180)
+    url: str = Field(min_length=25, max_length=2000)
+    public_link_confirmed: bool = False
+
+def extract_google_file_id(url: str) -> str:
+    """No arbitrary URL, redirector, host suffix or query-string injection."""
+    parsed = urlparse(url.strip())
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port:
+        raise HTTPException(422, "Only secure Google Drive file links are accepted")
+    if parsed.hostname not in ("drive.google.com","docs.google.com"):
+        raise HTTPException(422, "Only drive.google.com or docs.google.com are accepted")
+    import re
+    p = parsed.path
+    match = re.fullmatch(r"/file/d/([A-Za-z0-9_-]{10,})/(?:view|edit|preview)?/?",p)
+    if not match and parsed.hostname == "docs.google.com":
+        match = re.fullmatch(
+            r"/(?:document|spreadsheets|presentation|drawings)/d/([A-Za-z0-9_-]{10,})"
+            r"(?:/(?:edit|view|preview))?/?",p)
+    if not match and parsed.hostname == "drive.google.com" and p in ("/open","/uc"):
+        from urllib.parse import parse_qs
+        raw = parse_qs(parsed.query).get("id",[])
+        if len(raw)==1 and re.fullmatch(r"[A-Za-z0-9_-]{10,}",raw[0]):
+            return raw[0]
+    if not match:
+        raise HTTPException(422, "Copy a direct Google Drive file share link (not a folder URL)")
+    return match.group(1)
+
+@router.post("/links")
+def register_pasted_link(item: LinkedFile,actor=Depends(api.authentication)):
+    """No OAuth required: user operates their own Drive UI and pastes a link.
+
+    This does not grant API access, upload any bytes, verify public permissions
+    or create room folders. The user must confirm the file was shared with
+    anyone having the link. For verified direct Drive uploads, use /files.
+    """
+    uid = api.user_scope(item.user_id,actor)
+    if not item.public_link_confirmed:
+        raise HTTPException(409,"Set 'Anyone with the link: Viewer' in Google Drive and confirm it first")
+    fid = extract_google_file_id(item.url)
+    name = Path(item.name).name
+    if not name or name in (".",".."):
+        raise HTTPException(422,"Invalid filename")
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    with api.connection() as c:
+        room = api.existing_room(c,item.room_id,uid)
+        if room["status"] != "active":
+            raise HTTPException(409,"Room is not active")
+        existing = c.execute(
+            "SELECT * FROM file_objects WHERE user_id=? AND room_id=? AND drive_file_id=?",
+            (uid,item.room_id,fid)).fetchone()
+        if existing:
+            return api.public_file(existing)
+        rec = "file_" + api.new_id()
+        # Pasted links never contain uploaded bytes: keep byte size zero and
+        # hash of the URL as a reference-only checksum.
+        c.execute("""INSERT INTO file_objects
+          (id,user_id,room_id,job_id,kind,name,mime,size,sha256,relative_path,
+           created_at,drive_file_id,drive_url,drive_shared)
+          VALUES(?,?,?,NULL,'drive',?,?,0,?,'',?,?,?,1)""",
+            (rec,uid,item.room_id,name,mime,hashlib.sha256(item.url.encode()).hexdigest(),
+             api.clock(),fid,item.url.strip()))
+        file_row = c.execute("SELECT * FROM file_objects WHERE id=?",(rec,)).fetchone()
+    result = api.public_file(file_row)
+    result["note"] = "Pasted link registered; public accessibility has NOT been verified by this server"
+    return result
