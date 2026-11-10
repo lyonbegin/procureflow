@@ -414,6 +414,7 @@ class ChatRelayService : AccessibilityService() {
     private fun clickUniqueSearchResult(query: String, title: String): Boolean {
         val all=nodes(rootInActiveWindow)
         val screenH=resources.displayMetrics.heightPixels
+        val screenW=resources.displayMetrics.widthPixels
         val searchBar=searchBarNode()
         val searchB=Rect().also { searchBar?.getBoundsInScreen(it) }
         val minY=if(searchBar!=null) searchB.bottom else (screenH*0.12).toInt()
@@ -433,8 +434,8 @@ class ChatRelayService : AccessibilityService() {
             val rect=Rect().also {n.getBoundsInScreen(it)}
             if(rect.top<minY || rect.bottom>screenH*0.92 || rect.height()>screenH*0.28)
                 continue
-            val strong=(q.length>=16 && norm.contains(q)) ||
-                (exactTitle.length>=6 && norm==exactTitle)
+            val strong=(q.length>=7 && norm.contains(q)) ||
+                (exactTitle.length>=3 && norm==exactTitle)
             // Prefer a search hit that contains the distinctive query or a
             // correctly named chat. Otherwise only consider clearly marked
             // conversation/result list nodes, never random screen controls.
@@ -445,10 +446,11 @@ class ChatRelayService : AccessibilityService() {
             // hits. A single unique selectable text row below the search
             // field is still safe to inspect because the real chat history
             // must be VERIFIED before any send.
-            val uniqueCandidate=normalizedRoomText(query).length>=28 &&
-                norm.length in 9..180 &&
+            val uniqueCandidate=normalizedRoomText(query).length>=7 &&
+                norm.length in 7..180 &&
                 listOf("all","chats","documents","projects","images","파일",
-                    "채팅","전체","문서","프로젝트","결과 없음","no results")
+                    "채팅","전체","문서","프로젝트","결과 없음","no results",
+                    "대화 검색","search chats","최근","recent","모두")
                     .none { word -> norm==word }
             if(!strong && !likely && !uniqueCandidate)continue
             var target: AccessibilityNodeInfo?=n
@@ -458,7 +460,13 @@ class ChatRelayService : AccessibilityService() {
             }
             if(target!=null && isClickTarget(target) && target.isVisibleToUser) {
                 val targetRect=Rect().also{target.getBoundsInScreen(it)}
-                if(targetRect.height()<screenH*0.30)
+                // Search result cards occupy most of the content width.
+                // Restrict fallback candidates so unrelated toolbar buttons
+                // cannot masquerade as a unique conversation.
+                val card=targetRect.width()>=screenW*0.46 &&
+                    targetRect.height() in 25..(screenH*0.30).toInt() &&
+                    targetRect.top>=minY
+                if(card || strong)
                     matches.add(Item(target,strong,targetRect))
             }
         }
@@ -466,7 +474,8 @@ class ChatRelayService : AccessibilityService() {
             .distinctBy{it.rect.toShortString()}
         if(selected.size != 1) {
             sendLog("Chat search candidate count="+selected.size+
-                ", title="+title.take(32)+", query="+query.take(32))
+                ", clickable="+matches.size+", queryLength="+query.length+
+                ", screenNodes="+all.size)
             return false
         }
         return selected.first().node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
