@@ -30,6 +30,12 @@ async function fakeFetch(url,args={}){
   if(path.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
   if(path.startsWith("/api/v1/rooms/"+roomId+"?")&&method==="GET")
     return result(200,{...state.rooms[0],android_state:"active"});
+  if(path==="/api/v1/rooms/"+roomId&&method==="PATCH"){
+    const update=JSON.parse(args.body);
+    Object.assign(state.rooms[0],update);
+    if(update.chatgpt_url)state.rooms[0].android_state="unverified";
+    return result(200,{...state.rooms[0]});
+  }
   if(path.startsWith("/api/v1/rooms/"+roomId+"/open?")&&method==="POST"){
     const job={id:"job_nav_123",room_id:roomId,action:"room.open",status:"queued",stage:"queued"};
     state.jobs.push(job);return result(200,job);
@@ -46,7 +52,9 @@ async function fakeFetch(url,args={}){
                        status:"completed",stage:"assistant_reply_stable"});
   if(path==="/api/v1/rooms"&&method==="POST"){
     const j=JSON.parse(args.body);
-    const room={id:roomId,title:j.title,user_id:j.user_id,status:"active",android_state:"uncreated"};
+    const room={id:roomId,title:j.title,user_id:j.user_id,status:"active",
+      android_state:j.chatgpt_url?"unverified":"uncreated",
+      chatgpt_url:j.chatgpt_url||null,chatgpt_title:j.chatgpt_title||null};
     state.rooms=[room];return result(200,room);
   }
   if(path==="/api/v1/rooms/"+roomId+"/turns"&&method==="POST"){
@@ -125,6 +133,16 @@ doc.querySelector("#room-title").value="Direct relay room";
 doc.querySelector("#create-room").click();
 await pause();
 assert.equal(doc.querySelector("#room-id").value,roomId);
+assert.ok(doc.querySelector("#chatgpt-url"),"Editable per-room private ChatGPT link must exist");
+const targetUrl="https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+doc.querySelector("#chatgpt-url").value=targetUrl;
+doc.querySelector("#chatgpt-title").value="Actual ChatGPT conversation title";
+doc.querySelector("#save-room-target").click();
+await pause();
+assert.equal(state.rooms[0].chatgpt_url,targetUrl);
+assert.equal(state.rooms[0].chatgpt_title,"Actual ChatGPT conversation title");
+assert.ok(calls.some(x=>x.method==="PATCH"&&x.path==="/api/v1/rooms/"+roomId &&
+  JSON.parse(x.body).chatgpt_url===targetUrl));
 assert.ok(doc.querySelector("#open-room"),"Explicit existing-room navigation button present");
 assert.match(doc.querySelector("#room-open-status").textContent,/기존 채팅방/);
 state.rooms[0].android_state="active"; // Simulate a previously completed Android room.
