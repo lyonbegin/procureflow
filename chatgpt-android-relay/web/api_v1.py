@@ -190,6 +190,16 @@ def create_room(data: RoomCreate, actor=Depends(authentication)):
         c.execute("INSERT INTO rooms(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)",
                   (rid, uid, data.title, now, now))
         row = c.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone()
+    # An OAuth-connected user gets a Google Drive folder per chat room.
+    # Folder creation can be retried from /drive/rooms/{room_id}/folder.
+    try:
+        import drive_v1
+        if drive_v1.has_connection(uid):
+            drive_v1.ensure_room_folder(uid, rid)
+            with connection() as c:
+                row = c.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone()
+    except HTTPException as exc:
+        print(f"[drive] folder pending for room={rid}: HTTP {exc.status_code}",flush=True)
     return dict(row)
 
 @router.get("/rooms")
@@ -259,10 +269,15 @@ async def create_message(room_id: str, data: MessageCreate, actor=Depends(authen
         if room["status"] != "active":
             raise HTTPException(409, "Room is not active")
         for fid in data.attachment_ids:
-            f = c.execute("SELECT id FROM file_objects WHERE id=? AND user_id=? AND room_id=? AND kind='input'",
-                          (fid, uid, room_id)).fetchone()
+            f = c.execute("""SELECT id,kind,drive_url,drive_shared
+                             FROM file_objects WHERE id=? AND user_id=? AND room_id=?""",
+                          (fid,uid,room_id)).fetchone()
             if not f:
                 raise HTTPException(422, "File does not belong to this user/room: " + fid)
+            if f["kind"] != "drive" or not f["drive_url"]:
+                raise HTTPException(409, "This file was stored on Railway. Upload it again via Google Drive; Android file-picker transfer is disabled.")
+            if not f["drive_shared"]:
+                raise HTTPException(409, "Google Drive link is private. Explicitly enable link sharing before sending to ChatGPT.")
         jid = store_job(c, uid, room_id, "chat.send", data.text, data.attachment_ids)
         c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
                   ("msg_"+new_id(), uid, room_id, jid, "user", data.text, clock()))
@@ -356,6 +371,9 @@ def download_file(file_id: str, user_id: str | None = None, actor=Depends(authen
         r = c.execute("SELECT * FROM file_objects WHERE id=? AND user_id=?", (file_id,uid)).fetchone()
     if not r:
         raise HTTPException(404, "File not found")
+    if r["kind"] == "drive" and r["drive_url"]:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(r["drive_url"],status_code=302)
     return FileResponse(FILES / r["relative_path"], filename=r["name"], media_type=r["mime"])
 
 def device_identity(authorization: str | None = Header(default=None)):
@@ -408,7 +426,32 @@ def claim_next_job():
             if not f:
                 raise RuntimeError("Job references unavailable attachment " + fid)
             details.append(dict(f))
-        job["attachment_details"] = details
+        # Deliver Google Drive links as ordinary question text, NEVER as
+        # Android file attachments. The old Accessibility +/file-picker path is
+        # deliberately disabled for API jobs.
+        links = []
+        for fid in job["attachment_ids"]:
+            row = c.execute("""SELECT id,name,mime,drive_url,drive_file_id,drive_shared
+                               FROM file_objects WHERE id=? AND user_id=? AND room_id=?""",
+                            (fid,job["user_id"],job["room_id"])).fetchone()
+            if not row or not row["drive_file_id"] or not row["drive_url"] or not row["drive_shared"]:
+                raise RuntimeError("Job contains a Drive file without a readable link: " + fid)
+            links.append({"id":row["id"],"name":row["name"],"mime":row["mime"],
+                          "url":row["drive_url"]})
+        if links:
+            body = [
+                "다음 자료는 Google Drive에 있는 파일 링크입니다.",
+                "링크에 실제로 접근할 수 있으면 파일을 확인하여 질문에 답변해 주십시오.",
+                "접근할 수 없거나 이미지 내용을 읽을 수 없으면 반드시 그 사실을 설명해 주십시오.",
+                "링크가 있다는 이유만으로 이미지 내용을 확인했다고 가정하지 마십시오.",
+                "",
+            ]
+            for index, file in enumerate(links,1):
+                body.append(f"{index}. {file['name']} ({file['mime']}): {file['url']}")
+            job["text"] = (job["text"] + "\n\n" + "\n".join(body)).strip()
+        job["drive_links"] = links
+        job["attachment_ids"] = []
+        job["attachment_details"] = []
         # A restarted controller has no volatile room mapping. Provide only
         # previously COMPLETED messages from the SAME user and room so the
         # Android accessibility layer can verify the visible conversation.
