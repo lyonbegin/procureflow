@@ -247,7 +247,7 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         val androidState = room?.optString("android_state","uncreated") ?: "uncreated"
-        val targetUrl=job.optString("target_chatgpt_url")
+        val targetUrl=targetConversationUrl(job)
         if (androidState == "uncreated" && targetUrl.isBlank()) {
             progress(id,"새 ChatGPT 채팅방 생성 요청: "+roomId)
             withChatApp(id) { createRoomThenSend(id,roomId,text,0) }
@@ -312,6 +312,18 @@ class ChatRelayService : AccessibilityService() {
     // com.openai.chatgpt.ChatGptDeeplinkActivity exported ACTION_VIEW,
     // BROWSABLE, HTTPS chatgpt.com with pathPrefix /c/, /c2/, /uc/.
     // This is an app-to-app URL operation, NOT ACTION_SEND.
+    // org.json can stringify JSONObject.NULL to literal "null" when
+    // optString is used. Treat JSON null and absent fields as empty.
+    private fun stringOrEmpty(objectValue:JSONObject?,key:String):String {
+        if(objectValue==null || objectValue.isNull(key))return ""
+        return objectValue.optString(key).takeUnless{it=="null"} ?: ""
+    }
+    private fun targetConversationUrl(job:JSONObject):String {
+        return stringOrEmpty(job,"target_chatgpt_url").ifBlank {
+            stringOrEmpty(job.optJSONObject("room"),"chatgpt_url")
+        }
+    }
+
     private fun validChatGptConversationLink(url:String):Boolean {
         return try {
             val uri=Uri.parse(url)
@@ -368,9 +380,7 @@ class ChatRelayService : AccessibilityService() {
     ) {
         val jid=job.optString("id")
         val rid=job.optJSONObject("room")?.optString("id").orEmpty()
-        val link=job.optString("target_chatgpt_url").ifBlank {
-            job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
-        }
+        val link=targetConversationUrl(job)
         if(!validChatGptConversationLink(link)) {
             finishApiJob(jid,false,"Target conversation deep link is missing or invalid")
             return
@@ -380,7 +390,7 @@ class ChatRelayService : AccessibilityService() {
         // independently demonstrate that identity. A new intent is an
         // idempotent way to target the specific ChatGPT conversation ID.
         val targetId=Uri.parse(link).lastPathSegment.orEmpty()
-        val declaredTargetId=job.optString("target_conversation_id")
+        val declaredTargetId=stringOrEmpty(job,"target_conversation_id")
         if(declaredTargetId.isNotBlank() && declaredTargetId!=targetId){
             finishApiJob(jid,false,"Job conversation ID does not match deep-link URL")
             return
@@ -449,9 +459,7 @@ class ChatRelayService : AccessibilityService() {
         if(matching!=null || nextStable>=4){
             val rid=job.optJSONObject("room")?.optString("id").orEmpty()
             currentRoomId=rid
-            activeConversationId=Uri.parse(job.optString("target_chatgpt_url").ifBlank {
-                job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
-            }).lastPathSegment
+            activeConversationId=Uri.parse(targetConversationUrl(job)).lastPathSegment
             routedIdentityGeneration=identityGeneration
             deepLinkRoutedJobId=jid
             roomLastPrompt=matching.orEmpty()
@@ -482,9 +490,7 @@ class ChatRelayService : AccessibilityService() {
         val jid = job.optString("id")
         val rid = job.optJSONObject("room")?.optString("id").orEmpty()
         withChatApp(jid) {
-            val link=job.optString("target_chatgpt_url").ifBlank {
-                job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
-            }
+            val link=targetConversationUrl(job)
             if(link.isNotBlank()){
                 openExactChatGptConversation(job,afterVerification)
                 return@withChatApp
@@ -1005,7 +1011,7 @@ class ChatRelayService : AccessibilityService() {
         }
         withChatApp(jid) {
             val fresh = job.optJSONObject("room")?.optString("android_state") == "uncreated" &&
-                job.optString("target_chatgpt_url").isBlank()
+                targetConversationUrl(job).isBlank()
             val anchor = roomLastPrompt
             // A URL-directed job may have no long historical text yet.
             // Its composer was already checked immediately after ACTION_VIEW.
@@ -1322,7 +1328,7 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(jid,false,"No verified Android download")
             return
         }
-        val targetUrl=job.optString("target_chatgpt_url")
+        val targetUrl=targetConversationUrl(job)
         when {
             state == "uncreated" && targetUrl.isBlank() -> withChatApp(jid) {
                 createRoomForAttachments(job,staged,0)
