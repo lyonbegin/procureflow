@@ -1360,11 +1360,33 @@ class ChatRelayService : AccessibilityService() {
 
     private fun responseCandidate(question: String): String {
         val data=nodes(rootInActiveWindow)
-        val others=data.mapNotNull { n ->
+        val normalizedQuestion=normalizedRoomText(question)
+        if(normalizedQuestion.length<2)return ""
+        val questionPrefix=normalizedQuestion.take(90)
+        // A stable toolbar or login label is not an assistant response.
+        // First require the actual submitted user message in the conversation
+        // accessibility tree. This deliberately favors an explicit failure
+        // over falsely reporting a successful ChatGPT reply.
+        val promptIndex=data.indexOfLast { n ->
+            if(n.isEditable || !n.isVisibleToUser)return@indexOfLast false
+            val value=normalizedRoomText(n.text?.toString().orEmpty())
+            value==normalizedQuestion ||
+                (normalizedQuestion.length>=40 && value.contains(questionPrefix))
+        }
+        if(promptIndex<0)return ""
+        val others=data.drop(promptIndex+1).mapNotNull { n ->
             val value=n.text?.toString()?.trim().orEmpty()
-            if(value.isBlank()||n.isEditable||n.isClickable||value==question.trim()||
-                value in chrome||value.length>7000) null
+            val normalized=normalizedRoomText(value)
+            if(!n.isVisibleToUser || value.isBlank() || n.isEditable ||
+               n.isClickable || normalized==normalizedQuestion ||
+               normalized.contains(questionPrefix) ||
+               value in chrome || value.length>7000) null
             else if(value.contains("메뉴") && value.length<22) null
+            else if(listOf("chatgpt can make mistakes",
+                    "chatgpt는 실수를 할 수 있습니다",
+                    "check important info","중요한 정보는 확인").any {
+                    normalized.contains(it)
+                }) null
             else value
         }
         return others.lastOrNull().orEmpty()
