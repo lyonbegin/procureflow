@@ -12,6 +12,7 @@ import mimetypes
 import os
 import re
 import secrets
+from urllib.parse import urlsplit
 import sqlite3
 import time
 import uuid
@@ -92,6 +93,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_file_room ON file_objects(room_id, created_at);
         """)
+        # Preserve all previously created Railway rooms when adding direct
+        # ChatGPT conversation URLs. The database lives on a Railway volume.
+        columns={row[1] for row in c.execute("PRAGMA table_info(rooms)")}
+        if "chatgpt_url" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_url TEXT")
+        if "chatgpt_title" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_title TEXT")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_room_chatgpt_url
+                     ON rooms(user_id,chatgpt_url)""")
 
 init_db()
 
@@ -211,13 +221,48 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     user_id: str | None = None
 
+def normalize_chatgpt_conversation_url(url: str | None) -> str | None:
+    """An editable room MUST target a specific, private ChatGPT conversation.
+
+    /share/ links are snapshots, not an editable conversation. Reject
+    arbitrary domains, JavaScript: links, hidden credentials and fragments.
+    """
+    if url is None or not url.strip():
+        return None
+    value=url.strip()
+    if len(value)>350:
+        raise HTTPException(422,"ChatGPT conversation URL is too long")
+    try:
+        parsed=urlsplit(value)
+        host=(parsed.hostname or "").lower()
+        if (parsed.scheme != "https" or parsed.port not in (None,443)
+            or parsed.username or parsed.password
+            or host not in {"chatgpt.com","www.chatgpt.com","chat.openai.com","chat.com"}):
+            raise ValueError("untrusted ChatGPT URL")
+        segments=parsed.path.strip("/").split("/")
+        if len(segments)!=2 or segments[0] not in {"c","c2","uc"}:
+            raise ValueError("not a conversation URL")
+        conversation_id=segments[1]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}",conversation_id):
+            raise ValueError("invalid ChatGPT conversation ID")
+    except (ValueError,TypeError):
+        raise HTTPException(422,
+            "Use your private conversation URL, e.g. https://chatgpt.com/c/<conversation-id>. "
+            "Public /share/ URLs do not target editable chats.")
+    return f"https://chatgpt.com/{segments[0]}/{conversation_id}"
+
+
 class RoomCreate(BaseModel):
     user_id: str | None = None
     title: str = Field(min_length=1, max_length=160)
+    chatgpt_url: str | None = Field(default=None,max_length=350)
+    chatgpt_title: str | None = Field(default=None,max_length=160)
 
 class RoomUpdate(BaseModel):
     user_id: str | None = None
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None,min_length=1,max_length=160)
+    chatgpt_url: str | None = Field(default=None,max_length=350)
+    chatgpt_title: str | None = Field(default=None,max_length=160)
 
 class MessageCreate(BaseModel):
     user_id: str | None = None
@@ -280,22 +325,20 @@ def create_room(data: RoomCreate, actor=Depends(authentication)):
     uid = user_scope(data.user_id, actor)
     now = clock()
     rid = "room_" + new_id()
+    url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+    gpt_title=(data.chatgpt_title or "").strip() or None
     with connection() as c:
-        if not actor["admin"] and not c.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone():
+        if not actor["admin"] and not c.execute(
+            "SELECT id FROM users WHERE id=?", (uid,)).fetchone():
             raise HTTPException(404, "User missing")
-        c.execute("INSERT INTO rooms(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)",
-                  (rid, uid, data.title, now, now))
-        row = c.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone()
-    # An OAuth-connected user gets a Google Drive folder per chat room.
-    # Folder creation can be retried from /drive/rooms/{room_id}/folder.
-    try:
-        import drive_v1
-        if drive_v1.has_connection(uid):
-            drive_v1.ensure_room_folder(uid, rid)
-            with connection() as c:
-                row = c.execute("SELECT * FROM rooms WHERE id=?", (rid,)).fetchone()
-    except HTTPException as exc:
-        print(f"[drive] folder pending for room={rid}: HTTP {exc.status_code}",flush=True)
+        if url and c.execute(
+            "SELECT id FROM rooms WHERE user_id=? AND chatgpt_url=? AND status!='deleted'",
+            (uid,url)).fetchone():
+            raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
+        c.execute("""INSERT INTO rooms(
+            id,user_id,title,chatgpt_url,chatgpt_title,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?)""",(rid,uid,data.title,url,gpt_title,now,now))
+        row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
     return dict(row)
 
 @router.get("/rooms")
@@ -317,11 +360,31 @@ def get_room(room_id: str, user_id: str | None = None, actor=Depends(authenticat
 
 @router.patch("/rooms/{room_id}")
 def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
-    uid = user_scope(data.user_id, actor)
+    uid=user_scope(data.user_id,actor)
+    fields=data.model_fields_set
     with connection() as c:
-        existing_room(c, room_id, uid)
-        c.execute("UPDATE rooms SET title=?,updated_at=? WHERE id=?", (data.title, clock(), room_id))
-        return dict(c.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone())
+        existing_room(c,room_id,uid)
+        sets=[]
+        values=[]
+        if "title" in fields:
+            if data.title is None:
+                raise HTTPException(422,"Room title cannot be null")
+            sets.append("title=?");values.append(data.title)
+        if "chatgpt_url" in fields:
+            url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+            if url and c.execute("""SELECT id FROM rooms
+                WHERE user_id=? AND chatgpt_url=? AND id!=? AND status!='deleted'""",
+                (uid,url,room_id)).fetchone():
+                raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
+            sets.append("chatgpt_url=?");values.append(url)
+        if "chatgpt_title" in fields:
+            sets.append("chatgpt_title=?")
+            values.append((data.chatgpt_title or "").strip() or None)
+        if sets:
+            sets.append("updated_at=?");values.append(clock())
+            c.execute("UPDATE rooms SET "+",".join(sets)+" WHERE id=?",
+                      (*values,room_id))
+        return dict(c.execute("SELECT * FROM rooms WHERE id=?",(room_id,)).fetchone())
 
 def store_job(c, uid, rid, action, text="", attachment_ids=None):
     jid = "job_" + new_id()
@@ -631,6 +694,8 @@ def claim_next_job():
         room = c.execute("SELECT * FROM rooms WHERE id=?", (r["room_id"],)).fetchone()
         job = public_job(item)
         job["room"] = dict(room)
+        job["target_chatgpt_url"] = room["chatgpt_url"]
+        job["target_chatgpt_title"] = room["chatgpt_title"] or room["title"]
         # Railway files travel as bytes over authenticated HTTPS. Send
         # metadata to the Android relay; never substitute file URLs for bytes.
         # Retain old Drive links only for explicitly registered legacy links.
