@@ -27,6 +27,7 @@ jobs:
         run: |
           cd chatgpt-android-relay/web
           python tests/test_api_v1.py
+          python tests/test_drive_v1.py
       - name: Test API tester browser UI and request generation
         run: |
           cd chatgpt-android-relay/web
