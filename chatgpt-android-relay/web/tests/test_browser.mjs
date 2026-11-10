@@ -37,6 +37,13 @@ async function fakeFetch(url,args={}){
   if(path.startsWith("/api/v1/jobs/job_nav_123?")&&method==="GET")
     return result(200,{id:"job_nav_123",room_id:roomId,action:"room.open",
                        status:"completed",stage:"room_open_verified"});
+  if(path.startsWith("/api/v1/rooms/"+roomId+"/bind?")&&method==="POST"){
+    const job={id:"job_bind_123",room_id:roomId,action:"room.bind",status:"queued",stage:"queued"};
+    state.jobs.push(job);return result(200,job);
+  }
+  if(path.startsWith("/api/v1/jobs/job_bind_123?")&&method==="GET")
+    return result(200,{id:"job_bind_123",room_id:roomId,action:"room.bind",
+                       status:"completed",stage:"assistant_reply_stable"});
   if(path==="/api/v1/rooms"&&method==="POST"){
     const j=JSON.parse(args.body);
     const room={id:roomId,title:j.title,user_id:j.user_id,status:"active",android_state:"uncreated"};
@@ -129,6 +136,14 @@ await pause();
 assert.ok(calls.some(x=>x.method==="POST"&&x.path.startsWith("/api/v1/rooms/"+roomId+"/open?")));
 assert.match(doc.querySelector("#room-open-status").textContent,/검증 완료/);
 assert.equal(doc.querySelector("#job-id").value,"job_nav_123");
+assert.ok(doc.querySelector("#bind-room"),"One-time legacy binding button exists");
+dom.window.confirm=()=>true;
+doc.querySelector("#bind-room").click();
+await pause();
+await pause();
+assert.ok(calls.some(x=>x.method==="POST"&&x.path.startsWith("/api/v1/rooms/"+roomId+"/bind?")));
+assert.match(doc.querySelector("#room-open-status").textContent,/등록 완료/);
+assert.equal(doc.querySelector("#job-id").value,"job_bind_123");
 state.jobs=[];
 
 let selected=[
