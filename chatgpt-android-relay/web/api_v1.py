@@ -4,6 +4,7 @@ Only one Android device works jobs; clients are isolated by their API keys.
 The web tester may use CONSOLE_TOKEN as an admin credential; this is NOT
 a production-user authentication solution, and must not be public.
 """
+import base64
 import hashlib
 import hmac
 import json
@@ -17,7 +18,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -97,7 +98,67 @@ init_db()
 def challenge(token, expected):
     return bool(token and expected) and hmac.compare_digest(token, expected)
 
-def authentication(x_console_token: str | None = Header(default=None),
+# Browser sessions are signed server-side, never published into the HTML.
+# A session grants the SAME scoped rights as the originally validated API key.
+SESSION_COOKIE = "relay_web_session"
+SESSION_LIFETIME = 7 * 24 * 3600
+
+def _session_key():
+    value = os.environ.get("WEB_SESSION_SIGNING_KEY", "")
+    return value.encode("utf-8") if len(value) >= 32 else None
+
+def issue_browser_session(actor):
+    key = _session_key()
+    if not key:
+        raise HTTPException(503, "WEB_SESSION_SIGNING_KEY is not configured")
+    data = {
+        "v": 1, "admin": bool(actor["admin"]), "uid": actor["user_id"],
+        "exp": int(time.time()) + SESSION_LIFETIME,
+    }
+    if data["admin"]:
+        # Existing admin sessions are revoked when CONSOLE_TOKEN is rotated.
+        data["admin_fp"] = hashlib.sha256(
+            os.environ.get("CONSOLE_TOKEN", "").encode()).hexdigest()
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(data, separators=(",", ":"), sort_keys=True).encode()
+    ).rstrip(b"=").decode()
+    signature = hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()
+    return encoded + "." + signature
+
+def validate_browser_session(cookie):
+    key = _session_key()
+    if not key or not cookie or len(cookie) > 1024 or "." not in cookie:
+        return None
+    try:
+        encoded, signature = cookie.split(".", 1)
+        expected = hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        padded = encoded + "=" * (-len(encoded) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded).decode())
+        if data.get("v") != 1 or type(data.get("exp")) is not int:
+            return None
+        now = int(time.time())
+        if not now < data["exp"] <= now + SESSION_LIFETIME:
+            return None
+        if data.get("admin") is True and data.get("uid") is None:
+            current_fp = hashlib.sha256(
+                os.environ.get("CONSOLE_TOKEN", "").encode()).hexdigest()
+            if not challenge(data.get("admin_fp"), current_fp):
+                return None
+            return {"admin": True, "user_id": None}
+        uid = data.get("uid")
+        if data.get("admin") is False and isinstance(uid, str) and re.fullmatch(
+                r"[a-zA-Z0-9_\-]{1,64}", uid):
+            with connection() as c:
+                if c.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+                    return {"admin": False, "user_id": uid}
+    except (ValueError, TypeError, UnicodeError, KeyError):
+        pass
+    return None
+
+def authentication(request: Request,
+                   x_console_token: str | None = Header(default=None),
                    x_api_key: str | None = Header(default=None),
                    authorization: str | None = Header(default=None)):
     admin = os.environ.get("CONSOLE_TOKEN", "")
@@ -106,14 +167,20 @@ def authentication(x_console_token: str | None = Header(default=None),
     token = x_api_key
     if not token and authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-    if not token:
-        raise HTTPException(401, "Missing API key")
-    digest = hashlib.sha256(token.encode()).hexdigest()
-    with connection() as c:
-        user = c.execute("SELECT id FROM users WHERE api_key_hash = ?", (digest,)).fetchone()
-    if not user:
-        raise HTTPException(403, "Invalid user API key")
-    return {"admin": False, "user_id": user["id"]}
+    if token:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with connection() as c:
+            user = c.execute("SELECT id FROM users WHERE api_key_hash = ?", (digest,)).fetchone()
+        if not user:
+            raise HTTPException(403, "Invalid user API key")
+        return {"admin": False, "user_id": user["id"]}
+    if x_console_token:
+        # Explicitly bad admin credentials must not silently fall back.
+        raise HTTPException(403, "Invalid admin token")
+    actor = validate_browser_session(request.cookies.get(SESSION_COOKIE))
+    if actor is not None:
+        return actor
+    raise HTTPException(401, "Missing API key or expired browser session")
 
 def user_scope(user_id: str | None, actor: dict):
     if actor["admin"]:
@@ -162,6 +229,28 @@ def check_authentication(actor=Depends(authentication)):
     """Validate a supplied console/user credential without disclosing it."""
     return {"authenticated": True, "role": "admin" if actor["admin"] else "user",
             "user_id": actor["user_id"]}
+
+
+@router.post("/auth/session")
+def create_browser_session(response: Response, actor=Depends(authentication)):
+    """After first successful key entry, keep the browser signed in.
+
+    Cookie is HttpOnly, Secure, SameSite=Strict and limited to API routes.
+    The raw admin token is never returned to or embedded in the web page.
+    """
+    session = issue_browser_session(actor)
+    response.set_cookie(
+        key=SESSION_COOKIE, value=session, max_age=SESSION_LIFETIME,
+        secure=True, httponly=True, samesite="strict", path="/api/v1",
+    )
+    return {"authenticated": True, "role": "admin" if actor["admin"] else "user",
+            "user_id": actor["user_id"], "session_seconds": SESSION_LIFETIME}
+
+@router.post("/auth/logout")
+def logout_browser_session(response: Response):
+    response.delete_cookie(key=SESSION_COOKIE, path="/api/v1",
+                           secure=True, httponly=True, samesite="strict")
+    return {"signed_out": True}
 
 
 @router.post("/users")
