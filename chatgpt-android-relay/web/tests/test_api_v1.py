@@ -55,19 +55,15 @@ def main():
         assert client.get("/api/v1/files/"+image_id+"/download",headers=auth_a).content==tiny_png
 
 
-        # Legacy Railway uploads remain downloadable but MUST NOT be sent
-        # through the removed Android Accessibility file-picker path.
-        blocked=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
-                            json={"text":"Old file should not be sent","attachment_ids":[fid]})
-        assert blocked.status_code==409,blocked.text
+        # Previously uploaded Railway files MUST be attachable without Drive.
         req=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
-                        json={"text":"Please analyze the message without local attachments","attachment_ids":[]})
+                        json={"text":"Please analyze attached document","attachment_ids":[fid]})
         assert req.status_code==200,req.text
         job=req.json()
         jid=job["id"]
         assert job["status"]=="queued"
         assert job["room_id"]==rid
-        assert job["attachment_ids"]==[]
+        assert job["attachment_ids"]==[fid]
         assert client.get("/api/v1/jobs/"+jid,headers=auth_b).status_code==404
 
         with client.websocket_connect("/ws") as device:
@@ -77,16 +73,23 @@ def main():
             assert dispatched["type"]=="job",dispatched
             assert dispatched["job"]["id"]==jid
             assert dispatched["job"]["room"]["id"]==rid
-            assert dispatched["job"]["attachment_ids"]==[]
-            assert dispatched["job"]["attachment_details"]==[]
+            assert dispatched["job"]["attachment_ids"]==[fid]
+            meta=dispatched["job"]["attachment_details"]
+            assert len(meta)==1 and meta[0]["id"]==fid
+            assert meta[0]["name"]=="details.txt" and meta[0]["mime"]=="text/plain"
+            assert meta[0]["size"]==len(b"procurement-details-original")
+            assert meta[0]["sha256"]==hashlib.sha256(b"procurement-details-original").hexdigest()
             assert dispatched["job"]["drive_links"]==[]
             assert client.get("/api/v1/jobs/"+jid,headers=auth_a).json()["status"]=="running"
 
-            # An old local file must not be fetchable through a job where it
-            # is not attached.
+            # The Android relay downloads the original exact file bytes over HTTPS.
             fetched=client.get("/api/v1/device/jobs/"+jid+"/files/"+fid,
                                headers={"Authorization":"Bearer android-testing-secret"})
-            assert fetched.status_code==403
+            assert fetched.status_code==200 and fetched.content==b"procurement-details-original"
+            # Only job-attached files can be fetched by the device.
+            other=client.get("/api/v1/device/jobs/"+jid+"/files/"+image_id,
+                             headers={"Authorization":"Bearer android-testing-secret"})
+            assert other.status_code==403
             assert client.get("/api/v1/device/jobs/"+jid+"/files/"+fid,
                               headers={"Authorization":"Bearer invalid"}).status_code==403
 
@@ -116,12 +119,26 @@ def main():
 
             # A controller reinstalled after the first job must be able to
             # identify the correct room from the server's completed history.
-            follow=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
-                               json={"text":"Follow-up after Android app restart"})
+            # Single API request with files: multipart/form-data -> Railway
+            # storage -> queued job -> authenticated Android download.
+            follow=client.post("/api/v1/rooms/"+rid+"/turns",headers=auth_a,
+                               data={"text":"Analyze both pictures after restart","user_id":"alice"},
+                               files=[
+                                 ("files",("first.png",tiny_png,"image/png")),
+                                 ("files",("second.txt",b"second attachment","text/plain"))
+                               ])
             assert follow.status_code==200,follow.text
             follow_jid=follow.json()["id"]
             follow_packet=device.receive_json()
             assert follow_packet["type"]=="job" and follow_packet["job"]["id"]==follow_jid
+            follow_files=follow.json()["files"]
+            assert len(follow_files)==2
+            assert follow_packet["job"]["attachment_ids"]==[f["id"] for f in follow_files]
+            assert [x["name"] for x in follow_packet["job"]["attachment_details"]]==["first.png","second.txt"]
+            for file,expected_bytes in zip(follow_files,[tiny_png,b"second attachment"]):
+                fetched=client.get("/api/v1/device/jobs/"+follow_jid+"/files/"+file["id"],
+                                   headers={"Authorization":"Bearer android-testing-secret"})
+                assert fetched.status_code==200 and fetched.content==expected_bytes
             anchors=follow_packet["job"].get("room_anchors", [])
             assert any(a["role"]=="assistant" and
                        a["text"]=="Document processed and verified"
@@ -136,6 +153,13 @@ def main():
                 time.sleep(.025)
             assert state["status"]=="failed",state
             assert client.get("/api/v1/rooms/"+rid,headers=auth_a).json()["android_state"]=="active"
+
+            # Cross-user and invalid-file requests cannot enqueue a turn.
+            assert client.post("/api/v1/rooms/"+rid+"/turns",headers=auth_b,
+                 data={"text":"wrong user"},files=[("files",("a.png",tiny_png,"image/png"))]).status_code==404
+            assert client.post("/api/v1/rooms/"+rid+"/turns",headers=auth_a,
+                 data={"text":"bad type","user_id":"alice"},
+                 files=[("files",("attack.exe",b"bad","application/octet-stream"))]).status_code==415
 
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
