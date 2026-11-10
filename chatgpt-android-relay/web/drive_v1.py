@@ -111,12 +111,15 @@ def refreshed_access(uid: str):
         raise HTTPException(502, "Google Drive access token missing")
     return access
 
-def google(uid, method, url, *, json_body=None, params=None, files=None):
+def google(uid, method, url, *, json_body=None, params=None, content=None, content_type=None):
     access = refreshed_access(uid)
+    headers={"Authorization":"Bearer " + access}
+    if content_type:
+        headers["Content-Type"] = content_type
     try:
         with httpx.Client(timeout=55) as client:
-            res = client.request(method, url, json=json_body, params=params, files=files,
-                                 headers={"Authorization":"Bearer " + access})
+            res = client.request(method, url, json=json_body, params=params, content=content,
+                                 headers=headers)
     except httpx.RequestError as e:
         raise HTTPException(502, "Google Drive connection failed: " + type(e).__name__)
     if res.status_code not in (200,201,204):
@@ -268,10 +271,19 @@ def upload_to_drive(user_id: str = Form(...),room_id: str = Form(...),
     params={"uploadType":"multipart","fields":"id,name,mimeType,size,webViewLink,parents"}
     body_meta={"name":name,"parents":[folder],"description":
                "ChatGPT Relay attached file for "+room_id}
-    resp = google(uid,"POST",GOOGLE_UPLOAD,params=params,files={
-        "metadata":(None,json.dumps(body_meta,ensure_ascii=False),"application/json; charset=UTF-8"),
-        "file":(name,payload,mime)
-    })
+    # Drive uploadType=multipart expects multipart/related (NOT multipart/form-data
+    # emitted by httpx's files= shorthand).
+    boundary = "relaydrive_" + secrets.token_hex(24)
+    head = json.dumps(body_meta,ensure_ascii=False).encode("utf-8")
+    body = (("--" + boundary + "\r\n"
+             "Content-Type: application/json; charset=UTF-8\r\n\r\n").encode()
+            + head
+            + ("\r\n--" + boundary + "\r\n"
+               "Content-Type: " + mime + "\r\n\r\n").encode()
+            + payload
+            + ("\r\n--" + boundary + "--\r\n").encode())
+    resp = google(uid,"POST",GOOGLE_UPLOAD,params=params,
+                  content=body,content_type="multipart/related; boundary=" + boundary)
     fid=resp.get("id")
     if not fid:raise HTTPException(502,"Drive API did not return a file ID")
     # Explicit user consent: only set anyone/reader when share_link=true.
