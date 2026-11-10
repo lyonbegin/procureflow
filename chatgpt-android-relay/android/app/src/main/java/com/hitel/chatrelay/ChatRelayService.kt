@@ -1533,6 +1533,13 @@ class ChatRelayService : AccessibilityService() {
         }
         if (text.isBlank()) { done(id, false, "Empty input"); return }
         val root = rootInActiveWindow
+        // Direct console commands must obey the same dialog guard as API jobs.
+        // An email field on the login sheet must never be mistaken for chat input.
+        val blocker = screenBlockReason(root)
+        if (blocker != null) {
+            done(id, false, blocker)
+            return
+        }
         if (root?.packageName?.toString() != chatPackage) {
             done(id, false, "ChatGPT window not active")
             return
