@@ -1735,7 +1735,7 @@ class ChatRelayService : AccessibilityService() {
         if(event?.packageName?.toString()!=chatPackage) return
         // Manual in-app chat switches invalidate the last relay-directed
         // conversation. Content/typing updates are NOT navigation.
-        if(event.type==AccessibilityEvent.TYPE_VIEW_CLICKED &&
+        if(event.eventType==AccessibilityEvent.TYPE_VIEW_CLICKED &&
             activeConversationId!=null) {
             val n=event.source
             val label=listOf(n?.text?.toString().orEmpty(),
@@ -1752,7 +1752,7 @@ class ChatRelayService : AccessibilityService() {
             if(navigationButton || sidebarRow)
                 invalidateActiveConversationIdentity("manual sidebar/chat navigation")
         }
-        if(event.type==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+        if(event.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             activeApiJob==null && activeConversationId!=null)
             invalidateActiveConversationIdentity("window navigation outside relay")
         val now=System.currentTimeMillis()
