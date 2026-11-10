@@ -469,6 +469,49 @@ def main():
             assert dr["status"]=="delete_failed",dr
             assert client.get("/api/v1/rooms/"+rid+"/messages",headers=auth_a).status_code==200
 
+            # Replacing the Android WebSocket must FAIL the in-flight job
+            # without retrying it or accepting an obsolete session's ack.
+            interrupted=client.post("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                headers=auth_a,json={"text":"Unacknowledged work before reconnect"})
+            assert interrupted.status_code==200,interrupted.text
+            interrupted_jid=interrupted.json()["id"]
+            first_device_job=device.receive_json()
+            assert first_device_job["type"]=="job"
+            assert first_device_job["job"]["id"]==interrupted_jid
+            with client.websocket_connect("/ws") as replacement_device:
+                replacement_device.send_json({
+                    "role":"device","token":"android-testing-secret",
+                    "deviceId":"android-main"})
+                assert replacement_device.receive_json()["type"]=="auth.ok"
+                for _ in range(40):
+                    stopped=client.get("/api/v1/jobs/"+interrupted_jid,
+                                       headers=auth_a).json()
+                    if stopped["status"]=="failed":break
+                    time.sleep(.025)
+                assert stopped["status"]=="failed",stopped
+                assert stopped["stage"]=="connection_lost",stopped
+                assert not any(m["role"]=="assistant" and m["job_id"]==interrupted_jid
+                    for m in client.get("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                                        headers=auth_a).json()["messages"])
+                # A fresh subsequent job is assigned to the new controller.
+                continued=client.post("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                    headers=auth_a,json={"text":"New connection can receive work"})
+                assert continued.status_code==200,continued.text
+                new_id=continued.json()["id"]
+                new_packet=replacement_device.receive_json()
+                assert new_packet["type"]=="job" and new_packet["job"]["id"]==new_id
+                replacement_device.send_json({
+                    "type":"job.result","job_id":new_id,"verified":True,
+                    "result_text":"Completed by replacement session",
+                    "room_id":rooms_ab[1],"room_state":"active",
+                    "stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    reconnected=client.get("/api/v1/jobs/"+new_id,
+                                           headers=auth_a).json()
+                    if reconnected["status"]=="completed":break
+                    time.sleep(.025)
+                assert reconnected["status"]=="completed",reconnected
+
     print("PASS: API users/authorization/rooms/messages/jobs/input-output files/Android websocket",flush=True)
 
 if __name__=="__main__":
