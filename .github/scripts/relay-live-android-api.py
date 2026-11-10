@@ -82,7 +82,14 @@ def main():
         else:
             raise AssertionError("Real Android controller did not finish job")
         assert job["status"] == "failed", job
-        assert "Official ChatGPT is not installed" in (job.get("error") or ""), job
+        # On a fresh emulator either the absent official app or a system
+        # launcher ANR can block the foreground. Both MUST fail closed.
+        # Never silently accept arbitrary errors as a successful transport test.
+        reason = job.get("error") or ""
+        assert (
+            "Official ChatGPT is not installed" in reason
+            or "EMULATOR_SYSTEM_ANR:" in reason
+        ), job
         assert job.get("result_text") is None, job
         print(json.dumps({
             "job_id": jid, "status": job["status"], "stage": job["stage"],
