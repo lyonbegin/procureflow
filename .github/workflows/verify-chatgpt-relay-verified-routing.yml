@@ -52,7 +52,10 @@ jobs:
           assert 'if(activeConversationId==null && currentRoomId==null)return' in s
           assert '(activeConversationId!=null || currentRoomId!=null)' in s
           assert 'chatComposerIsVisible() &&' in s
-          print('PASS: verified anchors, room-cache invalidation, no credentials, login and ANR gates')
+          assert 'link.isNotBlank() && validChatGptConversationLink(link)' in s
+          assert 'TYPE_TEXT_VARIATION_EMAIL_ADDRESS' in s
+          assert 'TYPE_TEXT_VARIATION_WEB_PASSWORD' in s
+          print('PASS: verified anchors, invalid-URL history fallback, cache reset, login composer exclusion, credential removal')
           PY
       - name: Build Android APK without publishing it
         run: |
