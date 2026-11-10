@@ -13,6 +13,11 @@ async function fakeFetch(url,args={}){
   const method=args.method||"GET",str=String(url), headers=args.headers||{};
   calls.push({method,url:str,headers,body:args.body});
   if(str==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
+  if(str==="/api/v1/drive/setup")return result(200,{
+    oauth_configured:false,
+    missing_variables:["GOOGLE_OAUTH_CLIENT_ID","GOOGLE_OAUTH_CLIENT_SECRET"],
+    redirect_uri:"https://relay.example.test/api/v1/drive/oauth/callback"
+  });
   if(!headers["X-Console-Token"]&&!headers["X-API-Key"])return result(401,{detail:"Missing API key"});
   if(str==="/api/v1/users"&&method==="POST")return result(200,{user_id:"tester-a",api_key:"generated",name:"tester-a"});
   if(str.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
@@ -54,7 +59,19 @@ const doc=dom.window.document;
 const pause=async()=>new Promise(r=>setTimeout(r,60));
 await pause();
 assert.equal(doc.querySelector("#server-status").textContent,"서버 온라인");
-assert.equal(doc.querySelector("#admin-token").value,""); // Never embed admin secret in public HTML.
+// These must produce immediate, visible feedback, even without an API key or OAuth.
+doc.querySelector("#admin-token").value="";
+doc.querySelector("#drive-status-btn").click();
+await pause();
+assert.match(doc.querySelector("#drive-status").textContent,/GOOGLE_OAUTH_CLIENT_ID/);
+assert.match(doc.querySelector("#drive-status").textContent,/토큰/);
+assert.equal(doc.querySelector("#drive-setup").hidden,false);
+doc.querySelector("#drive-connect").click();
+await pause();
+assert.match(doc.querySelector("#drive-status").textContent,/Google 계정 인증 창을 열 수 없습니다/);
+assert.equal(doc.querySelector("#drive-connect").disabled,false);
+assert.equal(calls.some(c=>c.url.startsWith("/api/v1/drive/connect")),false);
+assert.equal(markup.includes('value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn"'),false);
 doc.querySelector("#admin-token").value="admin-testing-secret";
 doc.querySelector("#room-title").value="API room test";
 doc.querySelector("#create-room").click();
@@ -88,5 +105,5 @@ assert.ok(doc.querySelector("#delete-room"));
 assert.ok(doc.querySelector("#list-files"));
 assert.ok(doc.querySelector("#list-messages"));
 assert.ok(doc.querySelector("#endpoint-tabs"));
-console.log("PASS: API tester creates room and messages; Drive upload only, explicit share, no public embedded token");
+console.log("PASS: Drive buttons show OAuth+auth errors inline, no silent 401; API rooms and Drive uploads work");
 dom.window.close();
