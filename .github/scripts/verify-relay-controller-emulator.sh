@@ -49,11 +49,20 @@ done
 adb shell settings get secure enabled_accessibility_services | tee controller-evidence/enabled-accessibility-services.txt
 adb shell cmd appops get com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS | tee controller-evidence/post-enable-appop.txt
 adb shell dumpsys accessibility > controller-evidence/accessibility.txt
-adb shell am start -n com.hitel.chatrelay/.MainActivity | tee controller-evidence/after-service-start.txt
-sleep 3
+UI_RUNNING=0
+: > controller-evidence/ui-status-attempts.txt
+for ui_attempt in 1 2 3; do
+  adb shell am start -n com.hitel.chatrelay/.MainActivity | tee controller-evidence/after-service-start.txt
+  sleep 3
+  adb shell uiautomator dump /sdcard/controller.xml >/dev/null 2>&1 || true
+  adb pull /sdcard/controller.xml controller-evidence/controller.xml >/dev/null 2>&1 || true
+  if grep -Fq '접근성 서비스: 실행 중' controller-evidence/controller.xml; then
+    UI_RUNNING=1
+  fi
+  printf 'ui_attempt=%s running=%s\n' "$ui_attempt" "$UI_RUNNING" | tee -a controller-evidence/ui-status-attempts.txt
+  if [[ "$UI_RUNNING" == 1 ]]; then break; fi
+done
 adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | head -5 | tee controller-evidence/after-service-foreground.txt || true
-adb shell uiautomator dump /sdcard/controller.xml >/dev/null 2>&1 || true
-adb pull /sdcard/controller.xml controller-evidence/controller.xml || true
 adb shell screencap -p /sdcard/controller.png
 adb pull /sdcard/controller.png controller-evidence/controller.png
 adb logcat -d -t 1500 | grep -E 'FATAL EXCEPTION|AndroidRuntime|com.hitel.chatrelay' | tail -120 > controller-evidence/logcat.txt || true
@@ -67,5 +76,9 @@ if [[ "$ENABLED" != 1 ]] ||
   echo 'FAIL_ACCESSIBILITY_NOT_ENABLED_ANDROID_RESTRICTED_SETTINGS' | tee controller-evidence/result.txt
   exit 1
 fi
-echo 'PASS_CONTROLLER_INSTALL_LAUNCH_ACCESSIBILITY_SETTING_NO_FATAL_CRASH' | tee controller-evidence/result.txt
+if [[ "$UI_RUNNING" != 1 ]]; then
+  echo 'FAIL_ACCESSIBILITY_BOUND_BUT_CONTROLLER_UI_REPORTS_SERVICE_NOT_RUNNING' | tee controller-evidence/result.txt
+  exit 1
+fi
+echo 'PASS_CONTROLLER_ACCESSIBILITY_BOUND_AND_UI_RUNNING_NO_FATAL_CRASH' | tee controller-evidence/result.txt
 echo 'NOT_TESTED_OFFICIAL_CHATGPT_SIGNED_IN_ROOM_OR_FILE_UPLOAD' | tee -a controller-evidence/result.txt
