@@ -450,30 +450,38 @@ class ChatRelayService : AccessibilityService() {
         val jid=job.optString("id")
         if(activeApiJob?.optString("id")!=jid)return
         val root=rootInActiveWindow
+        val blocker=screenBlockReason(root)
+        if(blocker!=null) {
+            finishApiJob(jid,false,blocker)
+            return
+        }
         val pkg=root?.packageName?.toString().orEmpty()
         val all=nodes(root)
         val composer=if(pkg==chatPackage && searchBarNode()==null)
             composerInput(all) else null
         val matching=if(composer!=null) matchRoomAnchor(job) else null
         val nextStable=if(composer!=null)stable+1 else 0
-        if(matching!=null || nextStable>=4){
+        if(matching!=null){
+            // A URL intent and a visible composer do not prove the target ID:
+            // the old conversation may remain open after a failed deep link.
             val rid=job.optJSONObject("room")?.optString("id").orEmpty()
             currentRoomId=rid
             activeConversationId=Uri.parse(targetConversationUrl(job)).lastPathSegment
             routedIdentityGeneration=identityGeneration
             deepLinkRoutedJobId=jid
-            roomLastPrompt=matching.orEmpty()
-            if(matching!=null){
-                progress(jid,"딥링크로 이동 후 대상 대화의 과거 메시지 확인")
-            }else{
-                progress(jid,"딥링크 ACTION_VIEW 후 공식 ChatGPT 입력창 확인 "+
-                    "(대화 ID는 접근성에 노출되지 않아 URL 라우팅 결과에 의존)")
-            }
+            roomLastPrompt=matching
+            progress(jid,"딥링크 이후 기존 대화의 실제 메시지 대조 성공")
             onTargetReady()
             return
         }
+        if(nextStable>=4 && (job.optJSONArray("room_anchors")?.length() ?: 0)==0){
+            finishApiJob(jid,false,
+                "UNVERIFIED_CONVERSATION: URL opened a composer but no previously "+
+                "confirmed room message exists; not claiming the target chat or sending")
+            return
+        }
         if(attempt<20){
-            if(attempt%4==0)progress(jid,"ChatGPT 딥링크 착지 확인 중 · "+
+            if(attempt%4==0)progress(jid,"ChatGPT 딥링크 착지·대화 내용 확인 중 · "+
                 (if(pkg.isEmpty())"loading" else pkg))
             main.postDelayed({
                 verifyDeepLinkLanding(job,onTargetReady,attempt+1,nextStable)
@@ -481,8 +489,8 @@ class ChatRelayService : AccessibilityService() {
         }else{
             snapshot()
             finishApiJob(jid,false,
-                "ChatGPT did not show a conversation composer after /c/ deep link; "+
-                "wrong-room send blocked")
+                "UNVERIFIED_CONVERSATION: target chat's previously confirmed "+
+                "message was not visible after ACTION_VIEW; wrong-room send blocked")
         }
     }
 
@@ -1432,7 +1440,38 @@ class ChatRelayService : AccessibilityService() {
         }
     }
 
+    private fun screenBlockReason(root: AccessibilityNodeInfo?): String? {
+        val pkg=root?.packageName?.toString().orEmpty()
+        val labels=nodes(root).take(150).map { n ->
+            (n.text?.toString().orEmpty()+" "+
+             n.contentDescription?.toString().orEmpty()).lowercase()
+        }.joinToString(" ")
+        // A launcher ANR obscured the actual ChatGPT screen in the 2026-11-10
+        // Android 15 emulator evidence. Do not treat the underlying activity
+        // as an operable ChatGPT chat when this system dialog is on top.
+        if(pkg=="android" && listOf(
+            "isn't responding","is not responding","응답하지 않습니다"
+        ).any { labels.contains(it) }) {
+            return "EMULATOR_SYSTEM_ANR: system dialog obstructs ChatGPT; no action sent"
+        }
+        // A login entry in the top bar is not sufficient: demand the login
+        // sheet's distinctive heading and Google-authentication button.
+        if(pkg==chatPackage &&
+           (labels.contains("log in or create an account") ||
+            labels.contains("로그인하거나 계정을 만드세요")) &&
+           (labels.contains("continue with google") ||
+            labels.contains("google로 계속"))) {
+            return "CHATGPT_LOGIN_REQUIRED: login sheet is active; chat IDs not verified"
+        }
+        return null
+    }
+
     private fun withChatApp(id: String, work: () -> Unit) {
+        val blocker=screenBlockReason(rootInActiveWindow)
+        if(activeApiJob?.optString("id")==id && blocker!=null) {
+            done(id,false,blocker)
+            return
+        }
         if(rootInActiveWindow?.packageName?.toString()==chatPackage) {
             progress(id, "공식 ChatGPT 화면 확인")
             work()
@@ -1453,6 +1492,11 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         fun waitForApp(n: Int) {
+            val blocker=screenBlockReason(rootInActiveWindow)
+            if(activeApiJob?.optString("id")==id && blocker!=null) {
+                done(id,false,blocker)
+                return
+            }
             if(rootInActiveWindow?.packageName?.toString()==chatPackage) {
                 progress(id, "ChatGPT 실행 화면 활성")
                 work()
