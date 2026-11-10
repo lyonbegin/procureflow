@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import okhttp3.OkHttpClient
@@ -63,10 +64,18 @@ class ChatRelayService : AccessibilityService() {
     private var generation = 0
     private val chatPackage = "com.openai.chatgpt"
 
+    override fun onCreate() {
+        super.onCreate()
+        Log.i("HITELRelayLifecycle", "service-onCreate pid="+android.os.Process.myPid()+
+            " instance="+System.identityHashCode(this))
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         active = true
         instance = this
+        Log.i("HITELRelayLifecycle", "service-connected pid="+android.os.Process.myPid()+
+            " instance="+System.identityHashCode(this))
         setConnectionState("접근성 서비스 실행 중 · 소켓 연결 준비")
         connectFromPrefs()
     }
@@ -1890,6 +1899,9 @@ class ChatRelayService : AccessibilityService() {
 
     override fun onInterrupt() {}
     override fun onDestroy() {
+        Log.i("HITELRelayLifecycle", "service-onDestroy pid="+android.os.Process.myPid()+
+            " instance="+System.identityHashCode(this)+
+            " currentlyOwned="+(instance===this))
         active=false
         generation++
         socket?.close(1000,"Service ended")
