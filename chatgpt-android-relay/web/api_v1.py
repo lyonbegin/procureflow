@@ -353,6 +353,31 @@ def list_messages(room_id: str, user_id: str | None = None, actor=Depends(authen
                          (room_id, uid)).fetchall()
     return {"messages": [dict(r) for r in rows]}
 
+@router.post("/rooms/{room_id}/open")
+async def open_existing_chat_room(
+    room_id: str,
+    user_id: str | None = None,
+    actor=Depends(authentication),
+):
+    """Queue Android navigation to an EXISTING ChatGPT conversation.
+
+    A successful result requires Android to find and verify a distinct
+    completed message from this room; the action sends no text/files.
+    """
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room is not active")
+        if room["android_state"] != "active":
+            raise HTTPException(409, "ChatGPT conversation has not been created yet")
+        jid = store_job(c, uid, room_id, "room.open")
+        job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    if on_new_job:
+        await on_new_job()
+    return public_job(job)
+
+
 @router.post("/rooms/{room_id}/messages")
 async def create_message(room_id: str, data: MessageCreate, actor=Depends(authentication)):
     uid = user_scope(data.user_id, actor)
