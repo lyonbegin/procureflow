@@ -621,202 +621,157 @@ class ChatRelayService : AccessibilityService() {
 
     // Only ever select the unique file name we inserted into MediaStore.
     // No blind clicks at "the first photo" (could leak another user's picture).
-    private fun waitInChatPicker(jid: String, staged: List<StagedAttachment>,
-                                 attempt: Int, menuStage: Int) {
+    // The picker can be ChatGPT's own attachment menu or the Android
+    // DocumentsUI/file browser. Keep the file identity bound to job + index.
+    private fun waitInChatPicker(
+        jid: String, staged: List<StagedAttachment>, index: Int,
+        attempt: Int, menuStage: Int
+    ) {
         if (activeApiJob?.optString("id") != jid) return
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString().orEmpty()
         val all = nodes(root)
         val expected = pendingPickerDisplayName.orEmpty()
+        if (expected.isBlank()) {
+            finishApiJob(jid, false, "No expected filename for file picker")
+            return
+        }
         if (pkg.isNotEmpty() && pkg != chatPackage) {
             if (pickerClickByNames(all, listOf(expected))) {
-                progress(jid, "Android 파일 선택기에서 고유 파일명 확인 후 선택")
-                main.postDelayed({ verifyFileShare(jid, staged, 0) }, 900)
+                progress(jid, "시스템 파일 선택기에서 고유 이름 " + expected + " 선택")
+                main.postDelayed({ verifyPickerAttachment(jid,staged,index,0) },900)
                 return
             }
-            if (menuStage == 1 && pickerClickByNames(all,
-                    listOf("다운로드", "Downloads", "Download"))) {
-                progress(jid, "시스템 파일 선택기 Downloads 폴더 선택")
-                main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 2) }, 700)
+            if (menuStage == 1 &&
+                pickerClickByNames(all, listOf("다운로드","Downloads","Download"))) {
+                progress(jid, "Android Downloads 폴더 선택")
+                main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,2) },650)
                 return
             }
-            if (menuStage == 2 && pickerClickByNames(all, listOf("ChatGPTRelay"))) {
+            if (menuStage == 2 &&
+                pickerClickByNames(all, listOf("ChatGPTRelay"))) {
                 progress(jid, "ChatGPTRelay 전용 폴더 선택")
-                main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 3) }, 700)
+                main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,3) },650)
+                return
+            }
+            if (menuStage <= 1 && attempt >= 3 &&
+                pickerClickByNames(all, listOf("파일","Browse","문서",
+                    "Browse files","Files"))) {
+                progress(jid, "Android 시스템 파일 탐색으로 전환")
+                main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,1) },600)
                 return
             }
         } else if (pkg == chatPackage) {
             if (menuStage == 0) {
-                // Prefer the system files picker over thumbnail grids, where
-                // identifying a particular private upload is unreliable.
-                if (pickerClickByNames(all, listOf("파일 업로드", "기기에서 파일",
-                        "기기에서 업로드", "Browse files", "Upload files",
-                        "Files", "파일", "문서"))) {
-                    progress(jid, "ChatGPT 첨부 메뉴의 파일 선택 실행")
-                    main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 1) }, 650)
+                if (pickerClickByNames(all, listOf(
+                    "파일 업로드","기기에서 파일","기기에서 업로드",
+                    "Browse files","Upload files","Files","파일","문서"))) {
+                    progress(jid, "ChatGPT 첨부 메뉴에서 파일 선택")
+                    main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,1) },650)
                     return
                 }
-            }
-            if (menuStage > 0 && attempt > 3) {
-                // ChatGPT has returned; the selected file may already appear
-                // in the composer. Verify preview before submitting.
+            } else {
+                // Selecting a file can return immediately to the composer.
                 val signals = composerAttachmentSignals()
-                val namedPreview = all.any { n ->
-                    n.isVisibleToUser && (
-                        n.text?.toString()?.contains(expected, ignoreCase = true) == true ||
-                        n.contentDescription?.toString()?.contains(expected, ignoreCase = true) == true
-                    )
+                val named = all.any { n ->
+                    n.isVisibleToUser && !n.isEditable &&
+                    ((n.text?.toString() ?: "").contains(expected,ignoreCase=true) ||
+                     (n.contentDescription?.toString() ?: "").contains(expected,ignoreCase=true))
                 }
-                if (signals > sharePreviewsBefore || namedPreview) {
-                    progress(jid, "ChatGPT에 첨부 미리보기 발견")
-                    verifyFileShare(jid, staged, 0)
+                if (signals > sharePreviewsBefore || named) {
+                    verifyPickerAttachment(jid,staged,index,0)
                     return
                 }
             }
         }
-        if (attempt % 5 == 0) {
-            progress(jid, "첨부파일 선택기 탐색 · 화면=" + pkg + ", 단계=" + menuStage)
-        }
-        if (attempt < 24) {
-            main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, menuStage) }, 500)
+        if (attempt % 5 == 0)
+            progress(jid, "파일 " + (index+1) + "/" + staged.size +
+                " 선택기 확인 중 · 화면=" + pkg + ", 단계=" + menuStage)
+        if (attempt < 30) {
+            main.postDelayed({
+                waitInChatPicker(jid,staged,index,attempt+1,menuStage)
+            },500)
         } else {
-            // Diagnostics are sent, but unknown UI controls are never clicked.
             snapshot()
-            finishApiJob(jid, false,
-                "In-chat file picker could not identify the uploaded filename. No question sent")
+            finishApiJob(jid,false,
+                "Android file picker could not locate this job's unique filename: " + expected)
+        }
+    }
+
+    private fun verifyPickerAttachment(
+        jid: String, staged: List<StagedAttachment>, index: Int, attempt: Int
+    ) {
+        if (activeApiJob?.optString("id") != jid) return
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString()
+        if (pkg == chatPackage) {
+            if (shareRoomAnchor.isNotEmpty() && !visibleRoomAnchor(shareRoomAnchor)) {
+                finishApiJob(jid,false,
+                    "ChatGPT conversation changed after selecting attachment. No question sent")
+                snapshot()
+                return
+            }
+            val all = nodes(root)
+            val input = composerInput(all)
+            val file = staged[index]
+            val names = listOf(file.name,pendingPickerDisplayName.orEmpty()).filter { it.length>=5 }
+            val named = all.any { n ->
+                if (!n.isVisibleToUser || n.isEditable) return@any false
+                val label = (n.text?.toString().orEmpty()+" "+
+                    n.contentDescription?.toString().orEmpty()).lowercase()
+                names.any { name -> label.contains(name.lowercase()) }
+            }
+            val previews = composerAttachmentSignals()
+            if (input != null && (named || previews > sharePreviewsBefore)) {
+                progress(jid,"ChatGPT 입력창에서 파일 " + (index+1) +
+                    "/" + staged.size + " 첨부 확인")
+                pendingPickerDisplayName = null
+                pendingPickerUri = null
+                // Every file must be confirmed before a single text send.
+                main.postDelayed({
+                    activeApiJob?.let { pickFileInsideExistingRoom(it,staged,index+1) }
+                },450)
+                return
+            }
+        } else if (pkg?.contains("documentsui",ignoreCase=true)==true && attempt==4) {
+            // Some DocumentsUI variants require a final confirmation after
+            // choosing a file; never select an arbitrary other file.
+            val all=nodes(root)
+            if (pickerClickByNames(all,listOf("열기","Open","선택","Select"))) {
+                progress(jid,"선택한 Android 파일 열기 확인")
+            }
+        }
+        if (attempt % 6 == 0)
+            progress(jid,"ChatGPT 첨부 미리보기 검증 중 · " + (index+1) +
+                "/" + staged.size + ", 화면=" + (pkg ?: "(없음)"))
+        if (attempt < 25) {
+            main.postDelayed({
+                verifyPickerAttachment(jid,staged,index,attempt+1)
+            },500)
+        } else {
+            snapshot()
+            finishApiJob(jid,false,
+                "File was downloaded but ChatGPT composer attachment NOT VERIFIED; question not sent")
         }
     }
 
     private fun shareFilesIntoChatGpt(job: JSONObject, staged: List<StagedAttachment>) {
         val jid = job.optString("id")
-        val room = job.optJSONObject("room")
-        val roomId = room?.optString("id").orEmpty()
-        val state = room?.optString("android_state", "uncreated").orEmpty()
+        val state = job.optJSONObject("room")?.optString("android_state","uncreated")
+            ?: "uncreated"
         if (staged.isEmpty()) {
-            finishApiJob(jid, false, "No files staged for sharing")
+            finishApiJob(jid,false,"No verified Android download")
             return
         }
-        if (state == "active") {
-            verifyExistingRoom(job) {
-                pickFileInsideExistingRoom(job, staged)
+        when (state) {
+            "uncreated" -> withChatApp(jid) {
+                createRoomForAttachments(job,staged,0)
             }
-            return
-        }
-        if (state != "uncreated") {
-            finishApiJob(jid, false, "Unsupported or unverified room state: " + state)
-            return
-        }
-        withChatApp(jid) {
-            if (state == "uncreated") {
-                // Avoid carrying an attachment into a prior user's room.
-                // ACTION_SEND opens ChatGPT's inbound share composer.
-                shareRoomAnchor = ""
-                progress(jid, "새 채팅방 이미지 공유 준비")
-            } else {
-                val anchor = roomLastPrompt
-                if (!visibleRoomAnchor(anchor)) {
-                    finishApiJob(jid, false,
-                        "Prior room identity is not visible. Refusing unsafe attachment to another chat")
-                    snapshot()
-                    return@withChatApp
-                }
-                shareRoomAnchor = anchor
-                progress(jid, "이전 대화 내용으로 대상 방 확인")
+            "active" -> verifyExistingRoom(job) {
+                pickFileInsideExistingRoom(job,staged,0)
             }
-            sharePreviewsBefore = composerAttachmentSignals()
-            shareAttachmentCount = staged.size
-            try {
-                val uris = ArrayList<Uri>(staged.map { it.uri })
-                val multiple = uris.size > 1
-                val intent = Intent(if (multiple) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
-                intent.setClassName("com.openai.chatgpt", "com.openai.chatgpt.MainActivity")
-                intent.type = if (staged.all { it.mime.startsWith("image/") }) "image/*"
-                    else if (!multiple) staged[0].mime else "*/*"
-                if (multiple) intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                else intent.putExtra(Intent.EXTRA_STREAM, uris[0])
-                val clip = ClipData.newUri(contentResolver, staged[0].name, uris[0])
-                for (i in 1 until staged.size) {
-                    clip.addItem(ClipData.Item(uris[i]))
-                }
-                intent.clipData = clip
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                for (uri in uris) {
-                    grantUriPermission("com.openai.chatgpt", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                progress(jid, "ACTION_SEND로 ChatGPT에 이미지 및 읽기 권한 전달")
-                startActivity(intent)
-                main.postDelayed({ verifyFileShare(jid, staged, 0) }, 900)
-            } catch (e: Exception) {
-                finishApiJob(jid, false,
-                    "Android ACTION_SEND failed: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
-            }
-        }
-    }
-
-    private fun verifyFileShare(jid: String, staged: List<StagedAttachment>, attempt: Int) {
-        if (activeApiJob?.optString("id") != jid) return
-        val root = rootInActiveWindow
-        val foreground = root?.packageName?.toString()
-        if (foreground != chatPackage) {
-            if (attempt < 24) {
-                main.postDelayed({ verifyFileShare(jid, staged, attempt + 1) }, 500)
-                return
-            }
-            finishApiJob(jid, false, "ChatGPT did not open after ACTION_SEND; foreground=" +
-                (foreground ?: "(none)"))
-            return
-        }
-        val all = nodes(root)
-        val input = composerInput(all)
-        val visible = visibleConversationText()
-        if (shareRoomAnchor.isNotEmpty() && !visibleRoomAnchor(shareRoomAnchor)) {
-            // Share intent can open a different conversation. Do not leak data
-            // across the user's separate chat sessions.
-            finishApiJob(jid, false,
-                "Share changed the active ChatGPT conversation. Original room not verified; question NOT sent")
-            snapshot()
-            return
-        }
-        val names = staged.map { it.name.lowercase() } +
-            listOfNotNull(pendingPickerDisplayName?.lowercase())
-        val strongLabel = all.any { n ->
-            if (!n.isVisibleToUser || n.isEditable) return@any false
-            val label = (n.text?.toString().orEmpty() + " " +
-                n.contentDescription?.toString().orEmpty() + " " +
-                n.viewIdResourceName.orEmpty()).lowercase()
-            names.any { name ->
-                name.length >= 5 && label.contains(name) &&
-                !label.contains("relay-attachments")
-            }
-        }
-        val signals = composerAttachmentSignals()
-        val recognizableAttachment = strongLabel || (signals > sharePreviewsBefore)
-        if (input != null && recognizableAttachment) {
-            val rid = activeApiJob?.optJSONObject("room")?.optString("id").orEmpty()
-            currentRoomId = rid
-            progress(jid, "ChatGPT 접근성 화면에서 첨부 표시 확인")
-            val text = activeApiJob?.optString("text").orEmpty()
-            if (text.isNotBlank()) {
-                sendChat(jid, text)
-            } else {
-                // An attachment without a prompt may only be staged, not sent.
-                finishApiJob(jid, false,
-                    "Attachment preview visible, but no question text to submit")
-            }
-            return
-        }
-        if (attempt % 5 == 0) {
-            progress(jid, "ChatGPT 첨부 표시 확인 중: " + attempt +
-                ", filename=" + strongLabel + ", preview=" + signals)
-        }
-        if (attempt < 24) {
-            main.postDelayed({ verifyFileShare(jid, staged, attempt + 1) }, 500)
-        } else {
-            sendLog("Attachment verification timeout; please inspect ChatGPT share screen")
-            snapshot()
-            finishApiJob(jid, false,
-                "ACTION_SEND delivered but ChatGPT attachment preview not verified. Question NOT sent")
+            else -> finishApiJob(jid,false,
+                "Room is not verified for ChatGPT attachment: "+state)
         }
     }
 
@@ -872,11 +827,14 @@ class ChatRelayService : AccessibilityService() {
             message.put("reason",stage.take(400))
         }
         send(message)
-        val cleanup = pendingPickerUri
-        if (cleanup != null) {
+        val cleanup = ArrayList<Uri>(pendingPickerCleanup)
+        pendingPickerCleanup.clear()
+        if (cleanup.isNotEmpty()) {
             main.postDelayed({
-                try { contentResolver.delete(cleanup, null, null) }
-                catch (ignored: Exception) { }
+                for (uri in cleanup) {
+                    try { contentResolver.delete(uri, null, null) }
+                    catch (ignored: Exception) { }
+                }
             }, 90000)
         }
         pendingPickerUri = null
