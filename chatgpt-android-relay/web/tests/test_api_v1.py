@@ -385,6 +385,61 @@ def main():
             assert update.json()["android_state"]=="uncreated",update.json()
             assert update.json()["chatgpt_title"] is None,update.json()
 
+            # A -> B -> A is verified at the SERVER routing layer only.
+            # Each dispatched job must bind its own URL, owner and room ID,
+            # and must never inherit the other room's assistant history.
+            urls=[
+                "https://chatgpt.com/c/aaaaaaaa-1111-2222-3333-444444444444",
+                "https://chatgpt.com/c/bbbbbbbb-1111-2222-3333-444444444444",
+            ]
+            rooms_ab=[]
+            for room_index in range(2):
+                created=client.post("/api/v1/rooms",headers=auth_a,
+                    json={"title":"Switch test "+str(room_index),
+                          "chatgpt_url":urls[room_index]})
+                assert created.status_code==200,created.text
+                rooms_ab.append(created.json()["id"])
+            turns=[
+                (rooms_ab[0],"A uniquely isolated first request",
+                 "A assistant response alpha unique"),
+                (rooms_ab[1],"B uniquely isolated first request",
+                 "B assistant response bravo unique"),
+                (rooms_ab[0],"A second request after visiting B",
+                 "A assistant response after return"),
+            ]
+            for turn_index,(target_id,prompt,answer) in enumerate(turns):
+                created=client.post("/api/v1/rooms/"+target_id+"/messages",
+                    headers=auth_a,json={"text":prompt})
+                assert created.status_code==200,created.text
+                turn_id=created.json()["id"]
+                packet=device.receive_json()
+                assert packet["type"]=="job",packet
+                item=packet["job"]
+                assert item["id"]==turn_id and item["room"]["id"]==target_id
+                assert item["user_id"]=="alice"
+                assert item["target_chatgpt_url"]==urls[0 if target_id==rooms_ab[0] else 1]
+                if turn_index==2:
+                    anchors=item["room_anchors"]
+                    assert any(a["text"]=="A assistant response alpha unique" for a in anchors),anchors
+                    assert not any("B assistant response bravo" in a["text"] for a in anchors),anchors
+                device.send_json({"type":"job.result","job_id":turn_id,
+                    "verified":True,"result_text":answer,"room_id":target_id,
+                    "room_state":"active","stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    current=client.get("/api/v1/jobs/"+turn_id,headers=auth_a).json()
+                    if current["status"]=="completed":break
+                    time.sleep(.025)
+                assert current["status"]=="completed",current
+            a_messages=client.get("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                                  headers=auth_a).json()["messages"]
+            b_messages=client.get("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                                  headers=auth_a).json()["messages"]
+            assert [m["role"] for m in a_messages]==[
+                "user","assistant","user","assistant"],a_messages
+            assert [m["role"] for m in b_messages]==["user","assistant"],b_messages
+            assert not any("bravo" in m["text"] for m in a_messages)
+            assert not any("alpha" in m["text"] for m in b_messages)
+
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
             delete_job=device.receive_json()
