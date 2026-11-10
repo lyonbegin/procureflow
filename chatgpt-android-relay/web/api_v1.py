@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Uploa
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-BASE = Path(os.environ.get("RELAY_DATA_DIR", "/data"))
+BASE = Path(os.environ.get("RELAY_DATA_DIR", str(Path(__file__).resolve().parent / ".localdata")))
 BASE.mkdir(parents=True, exist_ok=True)
 FILES = BASE / "files"
 FILES.mkdir(parents=True, exist_ok=True)
