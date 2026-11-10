@@ -8,6 +8,9 @@ on:
       - '.github/workflows/verify-chatgpt-relay-verified-routing.yml'
       - '.github/scripts/verify-relay-controller-emulator.sh'
   workflow_dispatch:
+concurrency:
+  group: chatgpt-relay-routing-safety
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -52,6 +55,8 @@ jobs:
           assert 'if(activeConversationId==null && currentRoomId==null)return' in s
           assert '(activeConversationId!=null || currentRoomId!=null)' in s
           assert 'chatComposerIsVisible() &&' in s
+          assert 'val promptIndex=data.indexOfLast' in s
+          assert 'if(promptIndex<0)return ""' in s
           assert 'link.isNotBlank() && validChatGptConversationLink(link)' in s
           assert 'TYPE_TEXT_VARIATION_EMAIL_ADDRESS' in s
           assert 'TYPE_TEXT_VARIATION_WEB_PASSWORD' in s
