@@ -37,11 +37,11 @@ for attempt in 1 2 3 4 5; do
   ACTUAL="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
   adb shell dumpsys accessibility > controller-evidence/accessibility-attempt.txt
   printf 'attempt=%d enabled=%s bound=%s\n' "$attempt" "$ACTUAL" "$(
-    grep -q 'Bound services:{Service\\[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt &&
+    grep -Fq 'Bound services:{Service[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt &&
     printf yes || printf no
   )" | tee -a controller-evidence/accessibility-attempts.txt
   if [[ "$ACTUAL" == *"com.hitel.chatrelay"* ]] &&
-     grep -q 'Bound services:{Service\\[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt; then
+     grep -Fq 'Bound services:{Service[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt; then
     ENABLED=1
     break
   fi
@@ -49,6 +49,8 @@ done
 adb shell settings get secure enabled_accessibility_services | tee controller-evidence/enabled-accessibility-services.txt
 adb shell cmd appops get com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS | tee controller-evidence/post-enable-appop.txt
 adb shell dumpsys accessibility > controller-evidence/accessibility.txt
+adb shell am start -n com.hitel.chatrelay/.MainActivity | tee controller-evidence/after-service-start.txt
+sleep 3
 adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | head -5 | tee controller-evidence/after-service-foreground.txt || true
 adb shell uiautomator dump /sdcard/controller.xml >/dev/null 2>&1 || true
 adb pull /sdcard/controller.xml controller-evidence/controller.xml || true
