@@ -422,8 +422,9 @@ class ChatRelayService : AccessibilityService() {
             thread(start = true, name = "relay-media-publish") {
                 var uri: Uri? = null
                 var failed: String? = null
+                val extension = stagedFile.name.substringAfterLast('.', "bin")
                 val uniqueName = "relay_" + jid.removePrefix("job_").take(8) + "_" +
-                    stagedFile.id.takeLast(6) + "_" + stagedFile.name
+                    stagedFile.id.takeLast(6) + "." + extension
                 try {
                     val content = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, uniqueName)
@@ -552,7 +553,13 @@ class ChatRelayService : AccessibilityService() {
                 // ChatGPT has returned; the selected file may already appear
                 // in the composer. Verify preview before submitting.
                 val signals = composerAttachmentSignals()
-                if (signals > sharePreviewsBefore) {
+                val namedPreview = all.any { n ->
+                    n.isVisibleToUser && (
+                        n.text?.toString()?.contains(expected, ignoreCase = true) == true ||
+                        n.contentDescription?.toString()?.contains(expected, ignoreCase = true) == true
+                    )
+                }
+                if (signals > sharePreviewsBefore || namedPreview) {
                     progress(jid, "ChatGPT에 첨부 미리보기 발견")
                     verifyFileShare(jid, staged, 0)
                     return
