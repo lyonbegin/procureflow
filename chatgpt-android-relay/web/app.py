@@ -27,14 +27,20 @@ recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
 active_job_id: str | None = None
 job_dispatch_lock = asyncio.Lock()
+recovery_checked = False
 
 async def dispatch_next():
-    global active_job_id
+    global active_job_id, recovery_checked
     if device is None or active_job_id:
         return
     async with job_dispatch_lock:
         if device is None or active_job_id:
             return
+        if not recovery_checked:
+            recovered = api_v1.fail_orphaned_running_jobs()
+            recovery_checked = True
+            if recovered:
+                print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
         job = api_v1.claim_next_job()
         if job is None:
             return
