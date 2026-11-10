@@ -1,0 +1,100 @@
+name: Verify ChatGPT Relay routing safety (no production publish)
+on:
+  push:
+    branches:
+      - fix/chatgpt-relay-verified-routing-20261110
+    paths:
+      - 'chatgpt-android-relay/android/**'
+      - '.github/workflows/verify-chatgpt-relay-verified-routing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  controller-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify no composer-only conversation confirmation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt').read_text()
+          start=s.index('    private fun verifyDeepLinkLanding(')
+          end=s.index('    private fun verifyExistingRoom(', start)
+          body=s[start:end]
+          assert 'if(matching!=null){' in body, 'historical message anchor is mandatory'
+          assert 'if(matching!=null || nextStable>=4)' not in body, 'composer-only approval is forbidden'
+          assert 'UNVERIFIED_CONVERSATION' in body
+          assert 'screenBlockReason(root)' in body
+          assert 'EMULATOR_SYSTEM_ANR' in s
+          assert 'CHATGPT_LOGIN_REQUIRED' in s
+          print('PASS: no composer-only approval; explicit login and launcher ANR gates')
+          PY
+      - name: Build Android APK without publishing it
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+          sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Run relay controller smoke test on Android 15 x86_64
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -euo pipefail
+            mkdir -p controller-evidence
+            adb devices -l | tee controller-evidence/adb-devices.txt
+            adb shell getprop sys.boot_completed | tee controller-evidence/boot-completed.txt
+            adb shell getprop ro.product.cpu.abi | tee controller-evidence/abi.txt
+            test "$(tr -d '\r' < controller-evidence/boot-completed.txt)" = "1"
+            test "$(tr -d '\r' < controller-evidence/abi.txt)" = "x86_64"
+            adb install -r chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk | tee controller-evidence/install.txt
+            grep -q Success controller-evidence/install.txt
+            adb shell pm path com.hitel.chatrelay | tee controller-evidence/package.txt
+            adb shell am start -n com.hitel.chatrelay/.MainActivity | tee controller-evidence/start.txt
+            sleep 5
+            adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | head -5 | tee controller-evidence/foreground.txt || true
+            adb shell settings put secure enabled_accessibility_services 'com.hitel.chatrelay/.ChatRelayService'
+            adb shell settings put secure accessibility_enabled 1
+            sleep 7
+            adb shell dumpsys accessibility > controller-evidence/accessibility.txt
+            adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | head -5 | tee controller-evidence/after-service-foreground.txt || true
+            adb shell uiautomator dump /sdcard/controller.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/controller.xml controller-evidence/controller.xml || true
+            adb shell screencap -p /sdcard/controller.png
+            adb pull /sdcard/controller.png controller-evidence/controller.png
+            adb logcat -d -t 1500 | grep -E 'FATAL EXCEPTION|AndroidRuntime|com.hitel.chatrelay' | tail -120 > controller-evidence/logcat.txt || true
+            grep -q 'com.hitel.chatrelay' controller-evidence/package.txt
+            if grep -E 'FATAL EXCEPTION' controller-evidence/logcat.txt; then
+              echo 'FAIL: Android crash detected' >&2
+              exit 1
+            fi
+            echo 'PASS_CONTROLLER_INSTALL_LAUNCH_NO_FATAL_CRASH' | tee controller-evidence/result.txt
+            echo 'NOT_TESTED_OFFICIAL_CHATGPT_SIGNED_IN_ROOM_OR_FILE_UPLOAD' | tee -a controller-evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relay-controller-routing-safety-evidence
+          path: controller-evidence/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: relay-controller-unpublished-debug-apk
+          path: chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
