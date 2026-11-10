@@ -581,8 +581,9 @@ class ChatRelayService : AccessibilityService() {
         return all.filter { n ->
             if (!n.isVisibleToUser) return@filter false
             val labels = accessibleLabel(n)
-            val words = listOf("첨부파일", "파일 추가", "파일 첨부", "attach files",
-                "add attachment", "add photos", "add files")
+            val words = listOf("첨부파일", "파일 추가", "파일 첨부", "첨부", "사진 추가",
+                "attach files", "add attachment", "add photos", "add files",
+                "attach", "plus_button", "add_button", "attachment_button")
             if (words.none { labels.contains(it) }) return@filter false
             val bounds = Rect().also { n.getBoundsInScreen(it) }
             bounds.bottom >= ir.top - (140 * px).toInt() &&
@@ -598,6 +599,30 @@ class ChatRelayService : AccessibilityService() {
             val rect = Rect().also { n.getBoundsInScreen(it) }
             kotlin.math.abs(rect.centerX() - ir.left) +
                 kotlin.math.abs(rect.centerY() - ir.bottom)
+        } ?: run {
+            // Some ChatGPT versions expose the + glyph as an unlabeled icon.
+            // Only select it if precisely one small clickable node is placed
+            // immediately LEFT of the known composer. Never guess when several
+            // controls (camera, voice, navigation) overlap that region.
+            val candidates = all.filter { n ->
+                if (!n.isVisibleToUser || !isClickTarget(n) || n.isEditable) return@filter false
+                val label = accessibleLabel(n)
+                if (listOf("voice","record","microphone","camera","send","submit",
+                        "전송","음성","녹음","마이크","카메라","뒤로","back").any {
+                        label.contains(it) }) return@filter false
+                val b = Rect().also { n.getBoundsInScreen(it) }
+                val maxSize = (88 * px).toInt()
+                val centerX = b.centerX()
+                val centerY = b.centerY()
+                b.width() in 1..maxSize && b.height() in 1..maxSize &&
+                    centerX >= ir.left - (100 * px).toInt() &&
+                    centerX <= ir.left + (30 * px).toInt() &&
+                    centerY >= ir.top - (15 * px).toInt() &&
+                    centerY <= ir.bottom + (26 * px).toInt()
+            }.distinctBy { n ->
+                Rect().also { n.getBoundsInScreen(it) }.toShortString()
+            }
+            if (candidates.size == 1) candidates.first() else null
         }
     }
 
