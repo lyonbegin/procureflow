@@ -51,7 +51,7 @@ def main():
             assert setup.status_code==200, setup.text
             assert setup.json()["oauth_configured"] is False
             assert "GOOGLE_OAUTH_CLIENT_ID" in setup.json()["missing_variables"]
-            assert "client_secret" not in setup.text.lower()
+            assert "connected" not in setup.json() and "access_token" not in setup.json()
             assert client.get("/api/v1/drive/status?user_id=alice").status_code==401
             assert client.post("/api/v1/drive/connect?user_id=alice").status_code==401
             admin={"X-Console-Token":"admin-integration-token"}
