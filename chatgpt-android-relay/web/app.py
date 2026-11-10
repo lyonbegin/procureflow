@@ -41,6 +41,9 @@ async def dispatch_next():
             recovery_checked = True
             if recovered:
                 print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
+        failed_missing = api_v1.fail_queued_jobs_with_unavailable_files()
+        if failed_missing:
+            print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
         job = api_v1.claim_next_job()
         if job is None:
             return
