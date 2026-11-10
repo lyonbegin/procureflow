@@ -384,19 +384,31 @@ def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
             sets.append("title=?");values.append(data.title)
         if "chatgpt_url" in fields:
             url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+            previous=c.execute("SELECT chatgpt_url FROM rooms WHERE id=?",
+                               (room_id,)).fetchone()["chatgpt_url"]
+            if url != previous:
+                # Do not retarget a queued/running job in the middle of an
+                # Android conversation. Its completion must retain the target
+                # to which it was originally dispatched.
+                unfinished=c.execute("""SELECT id FROM jobs
+                    WHERE room_id=? AND status IN ('queued','running')
+                    LIMIT 1""",(room_id,)).fetchone()
+                if unfinished:
+                    raise HTTPException(409,
+                        "Cannot change ChatGPT conversation while jobs are pending")
             if url and c.execute("""SELECT id FROM rooms
                 WHERE user_id=? AND chatgpt_url=? AND id!=? AND status!='deleted'""",
                 (uid,url,room_id)).fetchone():
                 raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
-            sets.append("chatgpt_url=?");values.append(url)
-            # Existing conversations linked by their canonical URL are
-            # navigable immediately, but aren't marked verified until Android
-            # actually opens their specific URL and shows a composer.
-            old_state=c.execute("SELECT android_state FROM rooms WHERE id=?",
-                                (room_id,)).fetchone()["android_state"]
-            if old_state in ("uncreated","unverified"):
+            if url != previous:
+                sets.append("chatgpt_url=?");values.append(url)
+                # Even if the prior conversation was active, a changed link
+                # is unverified. Clear stale Android and ChatGPT titles.
                 sets.append("android_state=?")
                 values.append("unverified" if url else "uncreated")
+                sets.append("android_title=NULL")
+                if "chatgpt_title" not in fields:
+                    sets.append("chatgpt_title=NULL")
         if "chatgpt_title" in fields:
             sets.append("chatgpt_title=?")
             values.append((data.chatgpt_title or "").strip() or None)
