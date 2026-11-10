@@ -43,39 +43,19 @@
 <div class="hint">삭제는 Android의 실제 삭제가 확인되어야 완료됩니다. 삭제 실패 시 상태를 유지합니다.</div>
 </div></section>
 
-<section class="panel"><h2>03. Google Drive 파일 전송 <span class="small">파일 링크</span></h2><div class="inner">
-<div class="step"><div class="fields"><label>Google Drive에서 파일 준비</label>
-<div class="row"><button class="primary" id="drive-connect">Google Drive 새 창 열기</button><button id="drive-status-btn">상태 확인</button></div>
-<div class="drive-feedback" id="drive-status" role="status" aria-live="polite">Google Drive를 새 창으로 열어 파일을 올린 후 공유 링크를 복사해 주십시오.</div>
-<div class="hint" id="drive-mode-hint">Google Drive 열기 → 파일 올리기 → 공유 링크 복사 → 아래에서 링크 등록</div>
-<div class="drive-setup" id="drive-setup" hidden style="display:none"><code id="drive-redirect"></code></div>
-<div class="row" id="drive-folder-wrap" hidden><button id="drive-folder">채팅방 Drive 폴더 생성</button></div>
-</div></div>
-<div class="step" id="drive-auto-upload" hidden>
-<div class="fields"><label>연결된 Google 계정으로 자동 업로드</label>
-<input id="file-pick" type="file" multiple accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpeg,.jpg,.webp,.gif">
-<div class="row"><button id="upload-file">Drive에 업로드</button><button id="list-files">등록된 파일 목록</button></div>
-<label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="share-drive-link" style="width:17px;min-width:17px"> <span>이 파일을 링크가 있는 사람에게 공개합니다</span></label>
-<div class="hint">링크 공유를 허용하면 링크를 아는 사람이 파일에 접근할 수 있습니다.</div>
+<section class="panel"><h2>03. 파일 + 질문 <span class="small">Railway → Android</span></h2><div class="inner">
+<div class="fields">
+  <label for="file-pick">전송할 파일 (사진·PDF·Word·Excel 등, 파일당 최대 15MB)</label>
+  <input id="file-pick" type="file" multiple accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpeg,.jpg,.webp,.gif">
+  <div class="small" id="local-file-preview" aria-live="polite">파일을 선택하지 않으셨습니다.</div>
+  <div class="row"><button id="upload-file">파일만 Railway에 저장</button><button id="list-files">저장된 파일 목록</button></div>
 </div>
-<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">저장된 파일이 여기에 표시됩니다.</div></div>
-</div>
-<div class="step"><div class="fields"><label>공유 링크를 현재 채팅방에 등록</label>
-    <input id="drive-paste-name" placeholder="파일명, 예: 사진.png">
-    <input id="drive-paste-url" placeholder="Google Drive에서 복사한 https://drive.google.com/file/d/.../view 링크">
-    <label style="display:flex;align-items:center;gap:7px;font-weight:400">
-      <input id="drive-paste-public" type="checkbox" style="width:17px;min-width:17px">
-      <span>Google Drive에서 '링크가 있는 모든 사용자 · 뷰어'로 설정하였음을 확인합니다.</span>
-    </label>
-    <button class="primary" id="drive-paste-register">선택한 채팅방에 파일 링크 등록</button>
-    <div class="hint">Drive 링크를 ChatGPT 질문에 전달합니다. 실제 파일을 열어볼 수 있는지는 ChatGPT에서 확인해야 합니다.</div>
-  </div>
-</div>
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms/{room_id}/messages</code></div>
-<div class="fields"><label for="message-text">질문 / 지시문</label>
-<textarea id="message-text" placeholder="질문을 입력하십시오. 선택된 Google Drive 파일의 링크가 질문 텍스트에 자동 추가되어 전송됩니다."></textarea>
-<button class="primary wide" id="send-job">선택된 채팅방에 작업 요청 전송</button>
-<div class="hint">Android에서는 파일 첨부(+ 버튼)를 사용하지 않습니다. Drive 링크를 텍스트로 전달합니다. 링크만으로 ChatGPT가 이미지 내용을 읽는다고 보장할 수는 없습니다.</div>
+<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">기존에 업로드한 파일을 다시 사용하시려면 체크박스로 선택하십시오.</div></div>
+<div class="fields" style="margin-top:14px">
+  <label for="message-text">ChatGPT에 보낼 질문</label>
+  <textarea id="message-text" placeholder="예: 첨부한 사진에 무엇이 있는지 분석해 주십시오."></textarea>
+  <button class="primary wide" id="send-job">질문 + 선택 파일 Android로 전송</button>
+  <div class="hint">웹에서 Railway로 파일을 올리고 Android 릴레이 앱이 HTTPS로 다운로드합니다. 이어서 공식 ChatGPT의 첨부 메뉴에서 파일을 선택해 미리보기가 확인되면 질문을 보냅니다. Google Drive는 사용하지 않습니다.</div>
 </div></div></section>
 
 <section class="panel"><h2>04. 작업·기록 조회 <span class="small">Jobs + Messages</span></h2><div class="inner">
@@ -92,8 +72,8 @@
 <button class="active" data-method="GET" data-path="/api/v1/rooms">Rooms</button>
 <button data-method="POST" data-path="/api/v1/rooms">Create Room</button>
 <button data-method="POST" data-path="/api/v1/rooms/{room_id}/messages">Send Message</button>
-<button data-method="POST" data-path="/api/v1/drive/files">Drive Upload</button>
-<button data-method="GET" data-path="/api/v1/files">Drive Files</button>
+<button data-method="POST" data-path="/api/v1/rooms/{room_id}/turns">Text + Files</button>
+<button data-method="POST" data-path="/api/v1/files">Upload File</button>
 <button data-method="GET" data-path="/api/v1/jobs">Jobs</button>
 <button data-method="GET" data-path="/api/v1/rooms/{room_id}/messages">History</button>
 </div>
@@ -112,14 +92,14 @@
 <div id="message-list" class="messages"><p class="small">채팅방을 선택하고 메시지 조회를 실행하십시오.</p></div>
 </div></section>
 <section class="panel"><h2>파일 결과 / 다운로드 <span class="small">File artifacts</span></h2><div class="inner">
-<p class="small">원본 이미지는 사용자별 Google Drive 채팅방 폴더에 업로드합니다. Railway에는 Drive 파일 ID·링크·공유 상태만 기록합니다. Android 파일 선택기 조작은 사용하지 않습니다.</p>
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/rooms/{room_id}/folder</code></div>
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/files/{file_id}/share</code></div>
+<p class="small">이미지·파일은 Railway에 인증된 사용자별로 보관하고 Android가 HTTPS로 받습니다. 이후 공식 ChatGPT에서 실제 첨부 여부를 검증합니다.</p>
+<div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms/{room_id}/turns</code></div>
+<div class="endpoint"><span class="method">GET</span><code>/api/v1/device/jobs/{job_id}/files/{file_id}</code></div>
 <a href="/docs" target="_blank" rel="noopener">Swagger/OpenAPI에서 API 스키마 확인</a>
 </div></section>
 </div>
 </div>
-<div class="footer">ChatGPT Android Relay — Google Drive 링크 전송 실험 버전 · Google Drive 링크의 파일을 ChatGPT가 실제로 읽었는지는 답변으로 별도 검증해야 합니다.</div>
+<div class="footer">ChatGPT Android Relay — Railway 직접 파일 전송 + Android 접근성 첨부 확인</div>
 </div>
 <script>
 'use strict';
