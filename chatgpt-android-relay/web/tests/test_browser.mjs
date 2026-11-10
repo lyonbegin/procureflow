@@ -73,9 +73,11 @@ assert.equal(doc.querySelector("#server-status").textContent,"서버 온라인")
 doc.querySelector("#admin-token").value="";
 doc.querySelector("#drive-status-btn").click();
 await pause();
-assert.match(doc.querySelector("#drive-status").textContent,/GOOGLE_OAUTH_CLIENT_ID/);
-assert.match(doc.querySelector("#drive-status").textContent,/토큰/);
-assert.equal(doc.querySelector("#drive-setup").hidden,false);
+assert.match(doc.querySelector("#drive-status").textContent,/Google Drive/);
+assert.equal(doc.querySelector("#drive-setup").hidden,true);
+assert.equal(doc.querySelector("#drive-auto-upload").hidden,true);
+assert.equal(doc.querySelector("#drive-connect").textContent,"Google Drive 새 창 열기");
+assert.ok(!doc.querySelector("#drive-status").textContent.includes("GOOGLE_OAUTH_CLIENT_ID"));
 doc.querySelector("#drive-connect").click();
 await pause();
 assert.match(doc.querySelector("#drive-status").textContent,/Google Drive가 새 창에서 열렸습니다/);
