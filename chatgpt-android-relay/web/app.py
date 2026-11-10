@@ -9,10 +9,12 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
 import api_v1
+import drive_v1
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
 app.include_router(api_v1.router)
+app.include_router(drive_v1.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
