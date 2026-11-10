@@ -845,6 +845,8 @@ class ChatRelayService : AccessibilityService() {
                 // ChatGPT thread ID. Persisting/reselecting after restart still
                 // requires an in-app conversation identity verification.
                 currentRoomId=roomId
+                activeConversationId=null
+                routedIdentityGeneration=-1
                 progress(id,"새 대화 입력창 확인")
                 sendChat(id,text)
             },800)
@@ -1736,7 +1738,7 @@ class ChatRelayService : AccessibilityService() {
                 .any{label.contains(it)}
             val sidebarRow=selectedSidebarConversationTitle()!=null &&
                 n?.isVisibleToUser==true && n.isClickable &&
-                n.text?.toString()?.trim()?.length in 3..170 &&
+                (n.text?.toString()?.trim()?.length ?: 0) in 3..170 &&
                 n.text?.toString()?.trim() !in listOf("공유","복사","ChatGPT")
             if(navigationButton || sidebarRow)
                 invalidateActiveConversationIdentity("manual sidebar/chat navigation")
@@ -1762,7 +1764,9 @@ class ChatRelayService : AccessibilityService() {
                 .put("id",n.viewIdResourceName ?: "")
                 .put("selected",n.isSelected).put("checked",n.isChecked)
                 .put("focused",n.isFocused)
-                .put("stateDescription",n.stateDescription?.toString() ?: "")
+                .put("stateDescription",
+                    if(Build.VERSION.SDK_INT>=30)
+                        n.stateDescription?.toString() ?: "" else "")
                 .put("editable",n.isEditable).put("clickable",n.isClickable))
             if(listing.length()>=130) break
         }
