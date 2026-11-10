@@ -94,7 +94,13 @@ class ChatRelayService : AccessibilityService() {
         val prefs = getSharedPreferences("relay", MODE_PRIVATE)
         val url = prefs.getString("url", "").orEmpty().ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" }
         val token = prefs.getString("token", "").orEmpty()
-        if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) {
+        // The CI-only Android emulator connects to an ephemeral local test
+        // server through the host gateway. Production builds accept TLS only.
+        val localCI = (applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            url == "ws://10.0.2.2:8765/ws"
+        if ((!url.startsWith("wss://") && !localCI) ||
+            !url.endsWith("/ws") || token.length < 12) {
             setConnectionState("설정 미완료", "WebSocket URL 또는 Android 토큰이 없습니다")
             return
         }
