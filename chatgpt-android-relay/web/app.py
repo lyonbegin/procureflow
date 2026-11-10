@@ -202,26 +202,41 @@ async def socket(ws: WebSocket):
                             # assistant message or room state can be recorded.
                             with api_v1.connection() as c:
                                 assigned = c.execute(
-                                    "SELECT room_id FROM jobs WHERE id=? AND status='running'",
+                                    "SELECT room_id,action FROM jobs WHERE id=? AND status='running'",
                                     (jid,),
                                 ).fetchone()
                             assigned_room = assigned["room_id"] if assigned else None
+                            action = assigned["action"] if assigned else None
                             reported_room = msg.get("room_id")
                             identity_ok = bool(
                                 assigned_room and isinstance(reported_room, str)
                                 and reported_room == assigned_room
                             )
                             claimed_success = kind == "job.result" and msg.get("verified") is True
-                            good = claimed_success and identity_ok
+                            reported_stage = str(msg.get("stage", ""))[:100]
+                            expected_stage = {
+                                "chat.send": "assistant_reply_stable",
+                                "room.bind": "assistant_reply_stable",
+                                "room.open": "room_open_verified",
+                            }.get(action)
+                            output = str(msg.get("result_text", ""))[:100000]
+                            proof_ok = bool(
+                                expected_stage and reported_stage == expected_stage
+                                and (action == "room.open" or output.strip())
+                            )
+                            good = claimed_success and identity_ok and proof_ok
                             mismatch = claimed_success and not identity_ok
+                            invalid_proof = claimed_success and identity_ok and not proof_ok
                             stage = ("ROOM_ID_MISMATCH" if mismatch else
-                                     str(msg.get("stage", "completed" if good else "failed"))[:100])
-                            output = str(msg.get("result_text", ""))[:100000] if good else None
+                                     "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
+                                     reported_stage or ("completed" if good else "failed"))
                             reason = ("Android completion room_id did not match the assigned job room"
                                       if mismatch else
+                                      "Android completion did not provide action-specific verification"
+                                      if invalid_proof else
                                       str(msg.get("reason", "Android action was not verified"))[:500])
                             api_v1.update_job(jid, status="completed" if good else "failed",
-                                              stage=stage, result_text=output,
+                                              stage=stage, result_text=output if good else None,
                                               error=None if good else reason)
                             if good and msg.get("room_state"):
                                 api_v1.set_room_android_state(
