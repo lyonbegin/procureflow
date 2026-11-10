@@ -340,6 +340,17 @@ def create_room(data: RoomCreate, actor=Depends(authentication)):
         ) VALUES(?,?,?,?,?,?,?,?)""",
         (rid,uid,data.title,url,gpt_title,"unverified" if url else "uncreated",now,now))
         row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
+    # Legacy Google Drive users may still have an OAuth-backed folder.
+    # Preserve that optional behavior without requiring it for Railway files
+    # or Android direct attachment workflows.
+    try:
+        import drive_v1
+        if drive_v1.has_connection(uid):
+            drive_v1.ensure_room_folder(uid,rid)
+            with connection() as c:
+                row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
+    except HTTPException as exc:
+        print(f"[drive] optional folder pending for room={rid}: HTTP {exc.status_code}",flush=True)
     return dict(row)
 
 @router.get("/rooms")
@@ -705,6 +716,9 @@ def claim_next_job():
         job = public_job(item)
         job["room"] = dict(room)
         job["target_chatgpt_url"] = room["chatgpt_url"]
+        job["target_conversation_id"] = (
+            room["chatgpt_url"].rsplit("/",1)[-1] if room["chatgpt_url"] else None
+        )
         job["target_chatgpt_title"] = room["chatgpt_title"] or room["title"]
         # Railway files travel as bytes over authenticated HTTPS. Send
         # metadata to the Android relay; never substitute file URLs for bytes.
