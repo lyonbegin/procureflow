@@ -286,6 +286,58 @@ def main():
                                 headers=auth_a).json()["messages"]
             assert sum(m["role"]=="user" for m in messages)==2
 
+            # Actual ChatGPT Android APK 1.2026.300 declares ACTION_VIEW
+            # intent filter for /c/, /c2/, /uc/ paths. Map the canonical URL
+            # to a Railway room; Android job MUST carry that exact target.
+            url="https://chatgpt.com/c/11111111-2222-3333-4444-555555555555"
+            bad=client.post("/api/v1/rooms",headers=auth_a,
+                json={"title":"Reject shared snapshot",
+                      "chatgpt_url":"https://chatgpt.com/share/11111111-2222-3333-4444-555555555555"})
+            assert bad.status_code==422,bad.text
+            malicious=client.post("/api/v1/rooms",headers=auth_a,
+                json={"title":"Reject hostile URL",
+                      "chatgpt_url":"https://chatgpt.com.evil.test/c/11111111-2222-3333-4444-555555555555"})
+            assert malicious.status_code==422,malicious.text
+            linked=client.post("/api/v1/rooms",headers=auth_a,
+                json={"title":"Existing real ChatGPT conversation",
+                      "chatgpt_url":"https://chat.openai.com/c/11111111-2222-3333-4444-555555555555",
+                      "chatgpt_title":"Procurement analysis"})
+            assert linked.status_code==200,linked.text
+            linked_id=linked.json()["id"]
+            assert linked.json()["chatgpt_url"]==url
+            assert linked.json()["chatgpt_title"]=="Procurement analysis"
+            assert linked.json()["android_state"]=="unverified"
+            assert client.post("/api/v1/rooms",headers=auth_a,
+                json={"title":"Duplicate target","chatgpt_url":url}).status_code==409
+            assert client.patch("/api/v1/rooms/"+linked_id,headers=auth_b,
+                json={"chatgpt_title":"Denied"}).status_code==404
+            renamed=client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
+                json={"chatgpt_title":"Renamed ChatGPT actual title"})
+            assert renamed.status_code==200
+            assert renamed.json()["chatgpt_url"]==url
+            opened=client.post("/api/v1/rooms/"+linked_id+"/open",headers=auth_a)
+            assert opened.status_code==200,opened.text
+            linked_packet=device.receive_json()
+            assert linked_packet["type"]=="job"
+            assert linked_packet["job"]["target_chatgpt_url"]==url
+            assert linked_packet["job"]["target_chatgpt_title"]=="Renamed ChatGPT actual title"
+            assert linked_packet["job"]["room"]["chatgpt_url"]==url
+            assert linked_packet["job"]["action"]=="room.open"
+            device.send_json({"type":"job.result","job_id":opened.json()["id"],
+                              "verified":True,"result_text":"",
+                              "room_id":linked_id,"room_state":"active",
+                              "stage":"deeplink_app_landed"})
+            for _ in range(40):
+                opened_status=client.get("/api/v1/jobs/"+opened.json()["id"],
+                                         headers=auth_a).json()
+                if opened_status["status"]=="completed":break
+                time.sleep(.025)
+            assert opened_status["status"]=="completed",opened_status
+            assert client.get("/api/v1/rooms/"+linked_id,headers=auth_a).json()["android_state"]=="active"
+            update=client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
+                                json={"chatgpt_url":None})
+            assert update.status_code==200 and update.json()["chatgpt_url"] is None
+
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
             delete_job=device.receive_json()
