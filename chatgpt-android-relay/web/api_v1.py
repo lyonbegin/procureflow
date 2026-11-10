@@ -336,8 +336,9 @@ def create_room(data: RoomCreate, actor=Depends(authentication)):
             (uid,url)).fetchone():
             raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
         c.execute("""INSERT INTO rooms(
-            id,user_id,title,chatgpt_url,chatgpt_title,created_at,updated_at
-        ) VALUES(?,?,?,?,?,?,?)""",(rid,uid,data.title,url,gpt_title,now,now))
+            id,user_id,title,chatgpt_url,chatgpt_title,android_state,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (rid,uid,data.title,url,gpt_title,"unverified" if url else "uncreated",now,now))
         row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
     return dict(row)
 
@@ -377,6 +378,14 @@ def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
                 (uid,url,room_id)).fetchone():
                 raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
             sets.append("chatgpt_url=?");values.append(url)
+            # Existing conversations linked by their canonical URL are
+            # navigable immediately, but aren't marked verified until Android
+            # actually opens their specific URL and shows a composer.
+            old_state=c.execute("SELECT android_state FROM rooms WHERE id=?",
+                                (room_id,)).fetchone()["android_state"]
+            if old_state in ("uncreated","unverified"):
+                sets.append("android_state=?")
+                values.append("unverified" if url else "uncreated")
         if "chatgpt_title" in fields:
             sets.append("chatgpt_title=?")
             values.append((data.chatgpt_title or "").strip() or None)
@@ -463,8 +472,9 @@ async def open_existing_chat_room(
         room = existing_room(c, room_id, uid)
         if room["status"] != "active":
             raise HTTPException(409, "Room is not active")
-        if room["android_state"] != "active":
-            raise HTTPException(409, "ChatGPT conversation has not been created yet")
+        if room["android_state"] != "active" and not room["chatgpt_url"]:
+            raise HTTPException(409,
+                "This chat has not been created and has no ChatGPT conversation URL")
         # A quick sequence of web clicks should not queue dozens of
         # stale navigation jobs or reopen a room after a newer selection.
         active=c.execute("""SELECT * FROM jobs WHERE user_id=? AND room_id=?
