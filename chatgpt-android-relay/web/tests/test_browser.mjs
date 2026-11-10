@@ -1,132 +1,125 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
+
 const markup=readFileSync(new URL("../static/index.html",import.meta.url),"utf8");
-let roomId="room_test_123",fileId="file_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", jobId="job_123";
+const roomId="room_test_123",jobId="job_123";
 const state={rooms:[],files:[],jobs:[],messages:[]};
 const calls=[];
-const popup={closed:false,document:{title:"",body:{innerHTML:""}},
- location:{last:"",replace(url){this.last=url;}},focus(){},close(){this.closed=true;}};
 function result(status,body){
   return {ok:status>=200&&status<300,status,
-          headers:{get:()=> "application/json"},json:async()=>body,text:async()=>JSON.stringify(body)};
+    headers:{get:()=>"application/json"},
+    json:async()=>body,text:async()=>JSON.stringify(body)};
 }
 async function fakeFetch(url,args={}){
-  const method=args.method||"GET",str=String(url), headers=args.headers||{};
-  calls.push({method,url:str,headers,body:args.body});
-  if(str==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
-  if(str==="/api/v1/drive/setup")return result(200,{
-    oauth_configured:false,
-    missing_variables:["GOOGLE_OAUTH_CLIENT_ID","GOOGLE_OAUTH_CLIENT_SECRET"],
-    redirect_uri:"https://relay.example.test/api/v1/drive/oauth/callback"
-  });
-  if(!headers["X-Console-Token"]&&!headers["X-API-Key"])return result(401,{detail:"Missing API key"});
-  if(str==="/api/v1/users"&&method==="POST")return result(200,{user_id:"tester-a",api_key:"generated",name:"tester-a"});
-  if(str.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
-  if(str==="/api/v1/rooms"&&method==="POST"){
-    const body=JSON.parse(args.body);const room={id:roomId,title:body.title,user_id:body.user_id,status:"active",android_state:"uncreated"};
+  const method=args.method||"GET",path=String(url),headers=args.headers||{};
+  calls.push({method,path,headers,body:args.body});
+  if(path==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
+  if(!headers["X-Console-Token"]&&!headers["X-API-Key"])
+    return result(401,{detail:"Missing API key"});
+  if(path.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
+  if(path==="/api/v1/rooms"&&method==="POST"){
+    const j=JSON.parse(args.body);
+    const room={id:roomId,title:j.title,user_id:j.user_id,status:"active",android_state:"uncreated"};
     state.rooms=[room];return result(200,room);
   }
-  if(str.startsWith("/api/v1/rooms/"+roomId+"/messages")&&method==="POST"){
-    const body=JSON.parse(args.body);state.jobs.push({id:jobId,room_id:roomId,action:"chat.send",stage:"queued",status:"queued"});
-    state.messages.push({id:"msg_1",room_id:roomId,role:"user",text:body.text,created_at:Date.now(),job_id:jobId});
-    return result(200,{...state.jobs[0],text:body.text,attachment_ids:body.attachment_ids});
+  if(path==="/api/v1/rooms/"+roomId+"/turns"&&method==="POST"){
+    assert.equal(args.body.get("user_id"),"tester-a");
+    assert.equal(args.body.get("text"),"What is in the photo?");
+    const files=args.body.getAll("files");
+    assert.equal(files.length,2);
+    assert.equal(files[0].name,"picture.png");
+    assert.equal(files[1].name,"report.pdf");
+    state.files.push(...files.map((f,i)=>({
+      id:"file_0000000000000000000000000000000"+i,
+      room_id:roomId,name:f.name,size:f.size,
+      kind:"input",sha256:"e".repeat(64)
+    })));
+    const job={id:jobId,room_id:roomId,action:"chat.send",status:"queued",stage:"queued",
+      text:args.body.get("text"),attachment_ids:state.files.map(x=>x.id),
+      files:state.files};
+    state.jobs.push(job);
+    state.messages.push({id:"msg1",role:"user",text:job.text,created_at:Date.now(),job_id:jobId});
+    return result(200,job);
   }
-  if(str.startsWith("/api/v1/rooms/"+roomId+"/messages")&&method==="GET")return result(200,{messages:state.messages});
-  if(str.startsWith("/api/v1/jobs?")&&method==="GET")return result(200,{jobs:state.jobs});
-  if(str.startsWith("/api/v1/files?")&&method==="GET")return result(200,{files:state.files});
-  if(str==="/api/v1/drive/links"&&method==="POST"){
-    const body=JSON.parse(args.body);
-    assert.equal(body.public_link_confirmed,true);
-    const obj={id:"file_manual_abc",room_id:body.room_id,name:body.name,
-      kind:"drive",size:0,drive_shared:1,drive_file_id:"ABCDEFGHIJKL01234",
-      drive_url:body.url,sha256:"0".repeat(64)};
+  if(path==="/api/v1/files"&&method==="POST"){
+    const f=args.body.get("file");
+    assert.equal(f.name,"data.txt");
+    const obj={id:"file_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",room_id:roomId,
+      name:f.name,size:f.size,kind:"input",sha256:"f".repeat(64)};
     state.files.push(obj);return result(200,obj);
   }
-  if(str==="/api/v1/drive/files"&&method==="POST"){
-    assert.equal(args.body.get("share_link"),"true");
-    const obj={id:fileId,name:"image.png",size:10,kind:"drive",sha256:"f".repeat(64),room_id:roomId,
-               drive_shared:1,drive_file_id:"drive123",drive_url:"https://drive.google.com/file/d/drive123/view"};
-    state.files.push(obj);return result(200,obj);
+  if(path.startsWith("/api/v1/rooms/"+roomId+"/messages")&&method==="POST"){
+    const j=JSON.parse(args.body);
+    state.jobs.push({id:"job_again",room_id:roomId,action:"chat.send",status:"queued",stage:"queued"});
+    return result(200,{id:"job_again",text:j.text,attachment_ids:j.attachment_ids});
   }
-  if(str.startsWith("/api/v1/drive/status")&&method==="GET")
-    return result(200,{user_id:"tester-a",configured:false,connected:false});
-  if(str.startsWith("/api/v1/rooms/"+roomId)&&method==="DELETE")return result(200,{room_id:roomId,status:"delete_pending",job_id:"del_1"});
-  return result(404,{detail:"Unexpected mocked route "+method+" "+str});
+  if(path.startsWith("/api/v1/rooms/"+roomId+"/messages")&&method==="GET")
+    return result(200,{messages:state.messages});
+  if(path.startsWith("/api/v1/jobs?")&&method==="GET")
+    return result(200,{jobs:state.jobs});
+  if(path.startsWith("/api/v1/files?")&&method==="GET")
+    return result(200,{files:state.files});
+  return result(404,{detail:"Unexpected mocked route "+method+" "+path});
 }
 class FakeSocket{
   static OPEN=1;
   constructor(){this.readyState=1;setTimeout(()=>this.onopen?.(),0);}
-  send(s){const p=JSON.parse(s);assert.equal(p.role,"console");}
+  send(s){assert.equal(JSON.parse(s).role,"console");}
   close(){this.readyState=3;}
 }
-const dom=new JSDOM(markup,{
- url:"https://relay.example.test/",
- runScripts:"dangerously",
- beforeParse(win){win.fetch=fakeFetch;win.WebSocket=FakeSocket;win.open=()=>popup;}
-});
+const dom=new JSDOM(markup,{url:"https://relay.example.test/",runScripts:"dangerously",
+  beforeParse(win){win.fetch=fakeFetch;win.WebSocket=FakeSocket;}});
 const doc=dom.window.document;
-const pause=async()=>new Promise(r=>setTimeout(r,60));
+const pause=async()=>new Promise(r=>setTimeout(r,80));
 await pause();
 assert.equal(doc.querySelector("#server-status").textContent,"서버 온라인");
-// These must produce immediate, visible feedback, even without an API key or OAuth.
-doc.querySelector("#admin-token").value="";
-doc.querySelector("#drive-status-btn").click();
-await pause();
-assert.match(doc.querySelector("#drive-status").textContent,/Google Drive/);
-assert.equal(doc.querySelector("#drive-setup").hidden,true);
-assert.equal(doc.querySelector("#drive-auto-upload").hidden,true);
-assert.equal(doc.querySelector("#drive-connect").textContent,"Google Drive 새 창 열기");
-assert.ok(!doc.querySelector("#drive-status").textContent.includes("GOOGLE_OAUTH_CLIENT_ID"));
-doc.querySelector("#drive-connect").click();
-await pause();
-assert.match(doc.querySelector("#drive-status").textContent,/Google Drive가 새 창에서 열렸습니다/);
-assert.equal(popup.location.last,"https://drive.google.com/drive/u/0/my-drive");
-assert.equal(doc.querySelector("#drive-connect").disabled,false);
-assert.equal(calls.some(c=>c.url.startsWith("/api/v1/drive/connect")),false);
-assert.equal(markup.includes('value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn"'),false);
+assert.ok(!markup.includes("Google 계정 연결"),"No Google account connect flow");
+assert.ok(!markup.includes('id="drive-connect"'),"No Drive popup UI");
+assert.ok(markup.includes("/api/v1/rooms/{room_id}/turns"));
+assert.ok(markup.includes("Railway"));
+assert.equal(doc.querySelector("#admin-token").value,"");
 doc.querySelector("#admin-token").value="admin-testing-secret";
-doc.querySelector("#room-title").value="API room test";
+doc.querySelector("#room-title").value="Direct relay room";
 doc.querySelector("#create-room").click();
 await pause();
 assert.equal(doc.querySelector("#room-id").value,roomId);
-assert.ok(state.rooms.length===1);
-assert.ok(doc.querySelector("#drive-paste-register"),"Manual Drive file-link fallback exists");
-assert.ok(doc.querySelector("#drive-paste-public"),"Explicit sharing confirmation exists");
 
-doc.querySelector("#message-text").value="Analyze contents";
+let selected=[
+  new dom.window.File(["pngbytes"],"picture.png",{type:"image/png"}),
+  new dom.window.File(["pdfbytes"],"report.pdf",{type:"application/pdf"})
+];
+const picker=doc.querySelector("#file-pick");
+Object.defineProperty(picker,"files",{get:()=>selected,configurable:true});
+picker.onchange();
+assert.match(doc.querySelector("#local-file-preview").textContent,/picture.png/);
+doc.querySelector("#message-text").value="What is in the photo?";
 doc.querySelector("#send-job").click();
 await pause();
 assert.equal(state.jobs.length,1);
+assert.equal(state.files.length,2);
 assert.equal(state.messages.length,1);
-const outgoing=calls.find(c=>c.method==="POST"&&c.url.endsWith("/messages"));
-assert.deepEqual(JSON.parse(outgoing.body).attachment_ids,[]);
-assert.equal(JSON.parse(outgoing.body).user_id,"tester-a");
 assert.equal(doc.querySelector("#job-id").value,jobId);
-// The file upload path is Google Drive, NOT the legacy Railway /files path.
-doc.querySelector("#share-drive-link").checked=true;
-const selection=doc.querySelector("#file-pick");
-Object.defineProperty(selection,"files",{value:[new dom.window.File(["pngbytes"],"image.png",{type:"image/png"})],configurable:true});
+assert.ok(calls.some(x=>x.path==="/api/v1/rooms/"+roomId+"/turns"&&x.method==="POST"));
+assert.ok(!calls.some(x=>x.path.startsWith("/api/v1/drive/")));
+assert.match(doc.querySelector("#file-list").textContent,/Railway/);
+
+selected=[new dom.window.File(["text"],"data.txt",{type:"text/plain"})];
 doc.querySelector("#upload-file").click();
 await pause();
-assert.equal(state.files.length,1);
-assert.equal(state.files[0].kind,"drive");
-assert.ok(calls.some(x=>x.method==="POST"&&x.url==="/api/v1/drive/files"));
-assert.ok(!calls.some(x=>x.method==="POST"&&x.url==="/api/v1/files"));
-doc.querySelector("#drive-paste-name").value="photo.png";
-doc.querySelector("#drive-paste-url").value="https://drive.google.com/file/d/ABCDEFGHIJKL01234/view";
-doc.querySelector("#drive-paste-public").checked=true;
-doc.querySelector("#drive-paste-register").click();
+assert.equal(state.files.length,3);
+assert.ok(calls.some(x=>x.path==="/api/v1/files"&&x.method==="POST"));
+selected=[];
 await pause();
-assert.equal(state.files.length,2);
-assert.ok(calls.some(x=>x.method==="POST"&&x.url==="/api/v1/drive/links"));
-assert.ok(doc.querySelector("#request-preview").textContent.includes("/api/v1/files"));
-assert.ok(doc.querySelector("#response-preview").textContent.includes("files"));
-doc.querySelector("#file-pick");
-assert.ok(doc.querySelector("#upload-file"));
-assert.ok(doc.querySelector("#delete-room"));
-assert.ok(doc.querySelector("#list-files"));
-assert.ok(doc.querySelector("#list-messages"));
-assert.ok(doc.querySelector("#endpoint-tabs"));
-console.log("PASS: one click opens Google Drive popup, manual Drive file link registers; structured API flow still works");
+const check=[...doc.querySelectorAll(".filecheck")].find(x=>!x.disabled&&!x.checked);
+assert.ok(check);
+check.click();
+doc.querySelector("#message-text").value="Read my saved file";
+doc.querySelector("#send-job").click();
+await pause();
+const saved=calls.find(x=>x.path.endsWith("/messages")&&x.method==="POST");
+assert.ok(saved);
+assert.equal(JSON.parse(saved.body).attachment_ids.length,1);
+assert.ok(!calls.some(x=>x.path.includes("/drive/")));
+console.log("PASS: Railway direct file+question multipart request, saved-file reuse, no Google Drive dependency");
 dom.window.close();
