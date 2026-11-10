@@ -910,11 +910,27 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         val prefs = getSharedPreferences("relay", MODE_PRIVATE)
-        val endpoint = prefs.getString("url", "").orEmpty()
+        val relayUrl = prefs.getString("url", "").orEmpty()
             .ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" }
-            .replaceFirst("wss://", "https://").removeSuffix("/ws")
+        // A debug-only localhost websocket is permitted by connection validation,
+        // but production file downloads must always use HTTPS.
+        val debugLocal = (applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            relayUrl == "ws://10.0.2.2:8765/ws"
+        val endpoint = when {
+            relayUrl.startsWith("wss://") && relayUrl.endsWith("/ws") ->
+                relayUrl.replaceFirst("wss://", "https://").removeSuffix("/ws")
+            debugLocal -> "http://10.0.2.2:8765"
+            else -> {
+                finishApiJob(jid, false, "Unsafe attachment download endpoint")
+                return
+            }
+        }
         val token = prefs.getString("token", "").orEmpty()
-            .ifBlank { "dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn" }
+        if (token.length < 12) {
+            finishApiJob(jid, false, "DEVICE_TOKEN missing; attachment download blocked")
+            return
+        }
         thread(start = true, name = "relay-image-stage") {
             val staged = ArrayList<StagedAttachment>()
             var failure = ""
