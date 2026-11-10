@@ -202,6 +202,22 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(id,false,"Room deletion needs verified ChatGPT conversation identity; no deletion attempted")
             return
         }
+        if (job.optString("action") == "room.bind") {
+            // Explicit user-directed one-time pairing for a legacy chat
+            // without enough historical text to locate it automatically.
+            // Never launch ChatGPT to an unknown conversation for this action.
+            val root=rootInActiveWindow
+            if(root?.packageName?.toString()!=chatPackage ||
+               searchBarNode()!=null || composerInput(nodes(root))==null) {
+                finishApiJob(id,false,
+                    "Binding needs the correct ChatGPT conversation already open on Android")
+                snapshot()
+                return
+            }
+            progress(id,"현재 Android 대화에 고유 연결 메시지 전송 · 사용자 선택으로 등록")
+            sendChat(id,job.optString("text"))
+            return
+        }
         if (job.optString("action") == "room.open") {
             progress(id,"기존 ChatGPT 대화방 검색 및 이동 시작")
             verifyExistingRoom(job) {
@@ -244,39 +260,44 @@ class ChatRelayService : AccessibilityService() {
 
     private fun matchRoomAnchor(job: JSONObject): String? {
         if (rootInActiveWindow?.packageName?.toString() != chatPackage) return null
-        // A search RESULT can quote old messages. Never mistake it for the
-        // actual open conversation: the composer must be a chat input,
-        // not the history search field.
-        if (searchBarNode()!=null || composerInput(nodes(rootInActiveWindow))==null) return null
-        val anchors = job.optJSONArray("room_anchors") ?: return null
-        if (anchors.length() == 0) return null
-        val visible = nodes(rootInActiveWindow).mapNotNull { n ->
-            val value = n.text?.toString().orEmpty()
-            if (n.isEditable || value.length < 24 || value.length > 50000) null
+        // A search result can quote old text; this must be the real composer.
+        val all=nodes(rootInActiveWindow)
+        if (searchBarNode()!=null || composerInput(all)==null) return null
+        val anchors=job.optJSONArray("room_anchors") ?: return null
+        if(anchors.length()==0) return null
+        val visible=all.mapNotNull { n ->
+            val value=if(n.isEditable) "" else n.text?.toString().orEmpty()
+            if(value.isBlank() || value.length>50000) null
             else normalizedRoomText(value)
         }
-        for (i in 0 until anchors.length()) {
-            val anchor = anchors.optJSONObject(i)?.optString("text").orEmpty()
-            val normalized = normalizedRoomText(anchor)
-            if (normalized.length < 24) continue
-            // Require a substantial exact text run to exclude menu labels and
-            // unrelated short messages. A long answer may be divided into nodes.
-            val proof = normalized.take(120)
-            if (visible.any { node -> node.contains(proof) ||
-                    (node.length >= 45 && normalized.contains(node.take(100))) }) {
-                return anchor
-            }
+        for(i in 0 until anchors.length()) {
+            val anchor=anchors.optJSONObject(i)?.optString("text").orEmpty()
+            val normalized=normalizedRoomText(anchor)
+            if(normalized.length<12)continue
+            // Long messages can be split between Accessibility nodes.
+            // A short phrase only matches a fully visible distinct text node.
+            val proof=normalized.take(if(normalized.length>=40) 38 else normalized.length)
+            if(visible.any { node ->
+                 (normalized.length>=40 &&
+                     (node.contains(proof) ||
+                      (node.length>=35 && normalized.contains(node.take(35))))) ||
+                 (normalized.length<40 && (node==normalized ||
+                     (normalized.length>=18 && node.contains(normalized))))
+            })return anchor
         }
         return null
     }
 
-    private fun visibleRoomAnchor(anchor: String): Boolean {
-        val normalized = normalizedRoomText(anchor)
-        if (normalized.length < 24) return false
+    private fun visibleRoomAnchor(anchor:String):Boolean {
+        val normalized=normalizedRoomText(anchor)
+        if(normalized.length<12)return false
         return nodes(rootInActiveWindow).any { n ->
-            val text = if (n.isEditable) "" else normalizedRoomText(n.text?.toString().orEmpty())
-            text.contains(normalized.take(120)) ||
-                (text.length >= 45 && normalized.contains(text.take(100)))
+            val value=if(n.isEditable) "" else normalizedRoomText(n.text?.toString().orEmpty())
+            if(normalized.length>=40)
+                value.contains(normalized.take(38)) ||
+                    (value.length>=35 && normalized.contains(value.take(35)))
+            else value==normalized ||
+                (normalized.length>=18 && value.contains(normalized))
         }
     }
 
@@ -299,13 +320,16 @@ class ChatRelayService : AccessibilityService() {
                 // Unlike the previous implementation, navigate to the correct
                 // conversation instead of expecting the human to open it.
                 progress(jid,"기존 대화 미표시 · 사이드바 검색으로 이동 시작")
-                val query = buildRoomSearchQuery(job)
-                if (query == null) {
+                val queries=buildRoomSearchQueries(job)
+                if ((job.optJSONArray("room_anchors")?.length() ?: 0)==0) {
                     finishApiJob(jid,false,
-                        "No distinctive completed chat text exists to locate this old conversation")
+                        "LEGACY_BIND_REQUIRED: this conversation has no distinctive completed text. Open it once in ChatGPT on Android, then press '현재 Android 대화 연결' in the web console.")
                     snapshot()
-                } else {
-                    navigateToRoomSearch(job,afterVerification,query,0,0,0)
+                } else if(queries.isEmpty()){
+                    finishApiJob(jid,false,"ChatGPT history search has no usable query")
+                    snapshot()
+                }else{
+                    navigateToRoomSearch(job,afterVerification,queries.first(),0,0,0)
                 }
             }
         }
@@ -315,19 +339,36 @@ class ChatRelayService : AccessibilityService() {
     // Search completed messages from the SAME Railway room, never a failed
     // job or text from another user's conversation. A result is only a
     // candidate: verify its actual conversation content before sending.
-    private fun buildRoomSearchQuery(job: JSONObject): String? {
-        val anchors=job.optJSONArray("room_anchors") ?: return null
-        val entries=(0 until anchors.length()).mapNotNull { anchors.optJSONObject(it) }
-        val best=(entries.filter { it.optString("role")=="user" } +
-            entries.filter { it.optString("role")=="assistant" })
-            .firstOrNull {
-                val t=normalizedRoomText(it.optString("text"))
-                t.length >= 24 && t.length <= 240
-            } ?: return null
-        val exact=best.optString("text").replace(Regex("\\s+")," ").trim()
-        // Use an exact, distinctive phrase rather than the Railway room title:
-        // ChatGPT autogenerates titles different from the web room title.
-        return exact.take(62).trim().ifBlank { null }
+    private fun buildRoomSearchQueries(job:JSONObject):List<String> {
+        val results=ArrayList<String>()
+        val fromServer=job.optJSONArray("room_search_terms") ?: JSONArray()
+        val anchors=job.optJSONArray("room_anchors") ?: JSONArray()
+        // A marker written by the explicit pairing operation is the most
+        // reliable history-search term, even when ChatGPT titles differ.
+        for(i in 0 until anchors.length()) {
+            val txt=anchors.optJSONObject(i)?.optString("text").orEmpty()
+            val id=job.optJSONObject("room")?.optString("id").orEmpty()
+            if(txt.contains("HITEL Relay room marker") && id.isNotBlank())
+                results.add(id)
+        }
+        for(i in 0 until fromServer.length()) {
+            val txt=fromServer.optString(i).replace(Regex("\\s+")," ").trim()
+            if(txt.length>=4)results.add(txt.take(40))
+        }
+        for(i in 0 until anchors.length()) {
+            val txt=anchors.optJSONObject(i)?.optString("text").orEmpty()
+                .replace(Regex("\\s+")," ").trim()
+            if(txt.length>=12){
+                results.add(txt.take(24))
+                results.add(txt.take(16))
+            }
+        }
+        val room=job.optJSONObject("room")
+        val title=room?.optString("android_title").orEmpty()
+        if(title.isNotBlank())results.add(title)
+        val webTitle=room?.optString("title").orEmpty()
+        if(webTitle.isNotBlank())results.add(webTitle)
+        return results.filter {it.length>=2}.distinct().take(12)
     }
 
     private fun navigationNamedControl(labels: List<String>): AccessibilityNodeInfo? {
@@ -541,13 +582,22 @@ class ChatRelayService : AccessibilityService() {
                     },1100)
                     return
                 }
-                if(attempt<8)main.postDelayed({
+                if(attempt<7)main.postDelayed({
                     navigateToRoomSearch(job,afterVerification,query,2,attempt+1,0)
                 },550)
                 else {
-                    snapshot()
-                    finishApiJob(jid,false,
-                        "No unique ChatGPT history search result matched the room; question not sent")
+                    val queries=buildRoomSearchQueries(job)
+                    val next=queries.indexOf(query)+1
+                    if(next>0 && next<queries.size && next<6) {
+                        progress(jid,"검색 결과 없음 · 다른 이전 메시지로 재검색 "+
+                            (next+1)+"/"+queries.size)
+                        navigateToRoomSearch(job,afterVerification,queries[next],1,0,0)
+                    }else{
+                        snapshot()
+                        finishApiJob(jid,false,
+                            "No unique ChatGPT history search result matched 6 candidate queries; " +
+                            "open the correct chat on Android and use one-time binding")
+                    }
                 }
             }
             else -> {
