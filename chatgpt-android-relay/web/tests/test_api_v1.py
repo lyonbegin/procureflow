@@ -148,6 +148,31 @@ def main():
             assert msgs[-1]["text"]=="Document processed and verified"
             assert client.get("/api/v1/rooms/"+rid,headers=auth_a).json()["android_state"]=="active"
 
+            # Clicking an existing room issues a navigation-only job:
+            # Android must verify an old completed message; no new message
+            # is sent, and no assistant reply is created.
+            assert client.post("/api/v1/rooms/"+rid+"/open",headers=auth_b).status_code==404
+            reopened=client.post("/api/v1/rooms/"+rid+"/open",headers=auth_a)
+            assert reopened.status_code==200,reopened.text
+            assert reopened.json()["action"]=="room.open"
+            open_packet=device.receive_json()
+            assert open_packet["type"]=="job"
+            assert open_packet["job"]["action"]=="room.open"
+            assert open_packet["job"]["room"]["id"]==rid
+            assert any(x["text"]=="Document processed and verified"
+                       for x in open_packet["job"]["room_anchors"])
+            open_jid=reopened.json()["id"]
+            device.send_json({"type":"job.result","job_id":open_jid,"verified":True,
+                              "result_text":"","room_id":rid,"room_state":"active",
+                              "stage":"room_open_verified"})
+            for _ in range(40):
+                opened=client.get("/api/v1/jobs/"+open_jid,headers=auth_a).json()
+                if opened["status"]=="completed":break
+                time.sleep(.025)
+            assert opened["status"]=="completed",opened
+            assert len(client.get("/api/v1/rooms/"+rid+"/messages",
+                                  headers=auth_a).json()["messages"])==2
+
             # A controller reinstalled after the first job must be able to
             # identify the correct room from the server's completed history.
             # Single API request with files: multipart/form-data -> Railway
