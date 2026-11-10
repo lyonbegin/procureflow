@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/test-chatgpt-real-emulator.yml'
       - '.github/scripts/fetch-exact-chatgpt.mjs'
+      - '.github/scripts/fetch-chatgpt-browser.mjs'
       - '.github/scripts/check-chatgpt-variant.py'
       - '.github/scripts/test-chatgpt-real-emulator.sh'
   workflow_dispatch:
@@ -26,12 +27,18 @@ jobs:
         with:
           node-version: '22'
       - name: Install download clients for exact APKM variant
-        run: npm install --prefix .github/scripts --no-save apkmirror-downloader @nirewen/apkcombo-downloader
-      - name: Retrieve matching OpenAI-signed APKM without publishing copyrighted APK
+        run: npm install --prefix .github/scripts --no-save apkmirror-downloader @nirewen/apkcombo-downloader playwright
+      - name: Retrieve matching signed APKM, falling back to a real browser
         run: |
           mkdir -p emulator-evidence
           set -o pipefail
-          node .github/scripts/fetch-exact-chatgpt.mjs 2>&1 | tee emulator-evidence/public-download.log
+          if node .github/scripts/fetch-exact-chatgpt.mjs 2>&1 | tee emulator-evidence/public-download.log; then
+            echo "Exact ChatGPT archive obtained using a public mirror client"
+          else
+            echo "Mirror client blocked. Trying a real Playwright Chromium browser."
+            .github/scripts/node_modules/.bin/playwright install chromium --with-deps
+            node .github/scripts/fetch-chatgpt-browser.mjs 2>&1 | tee emulator-evidence/browser-download.log
+          fi
       - name: Check Android virtualization availability
         run: |
           set -eu
