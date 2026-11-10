@@ -15,6 +15,13 @@ async function fakeFetch(url,args={}){
   const method=args.method||"GET",path=String(url),headers=args.headers||{};
   calls.push({method,path,headers,body:args.body});
   if(path==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
+  if(path==="/api/v1/auth/check"){
+    if(headers["X-Console-Token"]==="admin-testing-secret")
+      return result(200,{authenticated:true,role:"admin",user_id:null});
+    if(headers["X-API-Key"]==="user-testing-secret")
+      return result(200,{authenticated:true,role:"user",user_id:"tester-a"});
+    return result(401,{detail:"Missing API key"});
+  }
   if(!headers["X-Console-Token"]&&!headers["X-API-Key"])
     return result(401,{detail:"Missing API key"});
   if(path.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
@@ -79,7 +86,19 @@ assert.ok(!markup.includes('id="drive-connect"'),"No Drive popup UI");
 assert.ok(markup.includes("/api/v1/rooms/{room_id}/turns"));
 assert.ok(markup.includes("Railway"));
 assert.equal(doc.querySelector("#admin-token").value,"");
+assert.equal(doc.querySelector("#auth-notice").hidden,false);
+const earlier=calls.filter(x=>x.path.startsWith("/api/v1/rooms")).length;
+doc.querySelector("#list-rooms").click();
+await pause();
+assert.equal(calls.filter(x=>x.path.startsWith("/api/v1/rooms")).length,earlier,
+  "Missing credentials must not trigger repeated 401 HTTP traffic");
+assert.match(doc.querySelector("#api-auth-status").textContent,/인증키/);
 doc.querySelector("#admin-token").value="admin-testing-secret";
+doc.querySelector("#verify-auth").click();
+await pause();
+assert.equal(doc.querySelector("#auth-notice").hidden,true);
+assert.match(doc.querySelector("#api-auth-status").textContent,/인증 완료/);
+assert.ok(calls.some(x=>x.path==="/api/v1/auth/check"));
 doc.querySelector("#room-title").value="Direct relay room";
 doc.querySelector("#create-room").click();
 await pause();
@@ -122,5 +141,5 @@ assert.ok(saved);
 // Newly uploaded file is preselected; selecting another saved file results in both.
 assert.equal(JSON.parse(saved.body).attachment_ids.length,2);
 assert.ok(!calls.some(x=>x.path.includes("/drive/")));
-console.log("PASS: Railway direct file+question multipart request, saved-file reuse, no Google Drive dependency");
+console.log("PASS: missing-key calls blocked in browser; one-time login and Railway direct file API work");
 dom.window.close();
