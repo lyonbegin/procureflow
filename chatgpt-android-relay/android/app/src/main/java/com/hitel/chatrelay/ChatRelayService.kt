@@ -1894,8 +1894,14 @@ class ChatRelayService : AccessibilityService() {
         generation++
         socket?.close(1000,"Service ended")
         socket=null
-        instance=null
-        setConnectionState("접근성 서비스 종료됨", "안드로이드 설정에서 접근성을 다시 확인하십시오")
+        // Android can rebind an accessibility service while its old instance
+        // is being destroyed. Only the instance that still owns the status
+        // may clear it. Otherwise the old onDestroy can erase the new service.
+        if(instance === this) {
+            instance=null
+            setConnectionState("접근성 서비스 종료됨",
+                "안드로이드 설정에서 접근성을 다시 확인하십시오")
+        }
         super.onDestroy()
     }
 }
