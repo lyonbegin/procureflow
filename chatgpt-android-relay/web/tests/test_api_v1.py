@@ -9,6 +9,7 @@ data_dir = tempfile.TemporaryDirectory(prefix="relay-v1-tests-")
 os.environ["RELAY_DATA_DIR"] = data_dir.name
 os.environ["CONSOLE_TOKEN"] = "admin-testing-secret"
 os.environ["DEVICE_TOKEN"] = "android-testing-secret"
+os.environ["WEB_SESSION_SIGNING_KEY"] = "testing-session-key-longer-than-32-chars-123"
 
 from fastapi.testclient import TestClient
 from app import app
@@ -21,6 +22,30 @@ def main():
         key_a=user_a.json()["api_key"]
         assert len(key_a)>35
         auth_a={"X-API-Key":key_a}
+        # Browser remembers a verified login via HttpOnly secure cookie.
+        # A new user doesn't receive a public embedded admin credential.
+        with TestClient(app,base_url="https://testserver") as browser:
+            assert browser.get("/api/v1/rooms?user_id=alice").status_code==401
+            login=browser.post("/api/v1/auth/session",headers=admin)
+            assert login.status_code==200,login.text
+            assert login.json()["authenticated"] is True
+            cookie=login.headers.get("set-cookie","")
+            assert "httponly" in cookie.lower()
+            assert "secure" in cookie.lower()
+            assert "samesite=strict" in cookie.lower()
+            assert "relay_web_session" in cookie
+            assert "admin-testing-secret" not in cookie
+            assert browser.get("/api/v1/auth/check").json()["role"]=="admin"
+            assert browser.get("/api/v1/rooms?user_id=alice").status_code==200
+            assert browser.post("/api/v1/auth/logout").status_code==200
+            assert browser.get("/api/v1/rooms?user_id=alice").status_code==401
+            user_login=browser.post("/api/v1/auth/session",headers=auth_a)
+            assert user_login.status_code==200,user_login.text
+            assert browser.get("/api/v1/rooms?user_id=alice").status_code==200
+            assert browser.get("/api/v1/rooms?user_id=bob").status_code==403
+            assert browser.get("/api/v1/users").status_code==403
+        # Cross-browser requests without cookie still require a key.
+
         assert client.get("/api/v1/auth/check").status_code==401
         assert client.get("/api/v1/auth/check",headers=admin).json()=={
             "authenticated":True,"role":"admin","user_id":None}
