@@ -119,7 +119,8 @@ doc.querySelector("#send-job").click();
 await pause();
 const saved=calls.find(x=>x.path.endsWith("/messages")&&x.method==="POST");
 assert.ok(saved);
-assert.equal(JSON.parse(saved.body).attachment_ids.length,1);
+// Newly uploaded file is preselected; selecting another saved file results in both.
+assert.equal(JSON.parse(saved.body).attachment_ids.length,2);
 assert.ok(!calls.some(x=>x.path.includes("/drive/")));
 console.log("PASS: Railway direct file+question multipart request, saved-file reuse, no Google Drive dependency");
 dom.window.close();
