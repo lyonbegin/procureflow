@@ -716,6 +716,53 @@ def device_upload_output(job_id: str, file: UploadFile = File(...), authorized=D
         raise HTTPException(404, "Job not available for output")
     return _write_upload(file, job["user_id"], job["room_id"], job_id, "output")
 
+def fail_queued_jobs_with_unavailable_files():
+    """Remove poison jobs from the queue without retrying unknown input bytes.
+
+    If a Railway file has disappeared since upload, claim_next_job would raise
+    while constructing the device packet and leave the SAME job at the front of
+    the queue indefinitely. Fail only such jobs; keep later jobs available.
+    """
+    failures = 0
+    with connection() as c:
+        queued = c.execute("""SELECT id,user_id,room_id,attachment_ids
+                              FROM jobs WHERE status='queued'
+                              ORDER BY created_at,id""").fetchall()
+        for job in queued:
+            reason = None
+            try:
+                ids = json.loads(job["attachment_ids"])
+                if not isinstance(ids, list):
+                    raise ValueError("Invalid attachment ID list")
+                for fid in ids:
+                    entry = c.execute("""SELECT kind,relative_path,drive_url,drive_shared
+                                         FROM file_objects
+                                         WHERE id=? AND user_id=? AND room_id=?""",
+                                      (fid,job["user_id"],job["room_id"])).fetchone()
+                    if entry is None:
+                        reason = "File metadata missing for queued job"
+                        break
+                    if entry["kind"] == "input":
+                        if not (FILES / entry["relative_path"]).is_file():
+                            reason = "Original Railway file bytes missing for queued job"
+                            break
+                    elif entry["kind"] == "drive":
+                        if not entry["drive_url"] or not entry["drive_shared"]:
+                            reason = "Legacy Drive file is not explicitly shared"
+                            break
+                    else:
+                        reason = "Queued attachment has an unsupported file kind"
+                        break
+            except (TypeError,ValueError,json.JSONDecodeError):
+                reason = "Queued attachment IDs could not be parsed"
+            if reason:
+                c.execute("""UPDATE jobs SET status='failed',stage='input_file_unavailable',
+                             error=?,updated_at=? WHERE id=? AND status='queued'""",
+                          (reason,clock(),job["id"]))
+                failures += 1
+    return failures
+
+
 def claim_next_job():
     with connection() as c:
         r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
