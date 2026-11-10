@@ -22,6 +22,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Prepare hardware accelerated Android emulator
+        run: |
+          set -euo pipefail
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Verify no composer-only conversation confirmation
         run: |
           python3 - <<'PY'
@@ -72,6 +78,8 @@ jobs:
             adb shell settings put secure enabled_accessibility_services 'com.hitel.chatrelay/.ChatRelayService'
             adb shell settings put secure accessibility_enabled 1
             sleep 7
+            adb shell settings get secure enabled_accessibility_services | tee controller-evidence/enabled-accessibility-services.txt
+            grep -q 'com.hitel.chatrelay' controller-evidence/enabled-accessibility-services.txt
             adb shell dumpsys accessibility > controller-evidence/accessibility.txt
             adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | head -5 | tee controller-evidence/after-service-foreground.txt || true
             adb shell uiautomator dump /sdcard/controller.xml >/dev/null 2>&1 || true
