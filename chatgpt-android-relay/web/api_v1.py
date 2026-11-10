@@ -353,6 +353,28 @@ def list_messages(room_id: str, user_id: str | None = None, actor=Depends(authen
                          (room_id, uid)).fetchall()
     return {"messages": [dict(r) for r in rows]}
 
+@router.post("/rooms/{room_id}/bind")
+async def bind_legacy_android_chat(room_id: str, user_id: str | None = None,
+                                   actor=Depends(authentication)):
+    """Explicit one-time binding: user opens the correct ChatGPT chat on phone.
+
+    Android sends a unique visible marker into THAT foreground conversation;
+    after a confirmed reply the marker becomes a searchable verified anchor.
+    Never silently bind an arbitrary conversation via a room.open request.
+    """
+    uid=user_scope(user_id,actor)
+    with connection() as c:
+        room=existing_room(c,room_id,uid)
+        if room["status"]!="active":
+            raise HTTPException(409,"Room is not active")
+        marker="HITEL Relay room marker "+room_id
+        jid=store_job(c,uid,room_id,"room.bind",marker,[])
+        job=c.execute("SELECT * FROM jobs WHERE id=?",(jid,)).fetchone()
+    if on_new_job:
+        await on_new_job()
+    return public_job(job)
+
+
 @router.post("/rooms/{room_id}/open")
 async def open_existing_chat_room(
     room_id: str,
@@ -620,35 +642,63 @@ def claim_next_job():
         job["drive_links"] = links
         job["attachment_ids"] = direct_ids
         job["attachment_details"] = details
-        # A restarted controller has no volatile room mapping. Provide only
-        # previously COMPLETED messages from the SAME user and room so the
-        # Android accessibility layer can verify the visible conversation.
-        # Never include current/new/failed messages as verification anchors.
+        # A restarted Android controller receives ONLY historical messages
+        # from completed jobs in the SAME room, not failed or in-flight jobs.
+        # Earlier releases discarded all messages under 24 characters, so
+        # short conversations could never be re-opened. Keep sufficiently
+        # distinctive short messages as well, while detecting duplicates
+        # across this user's other Railway rooms.
         history = c.execute("""
             SELECT m.text,m.role,m.job_id
             FROM messages m JOIN jobs completed ON completed.id=m.job_id
             WHERE m.user_id=? AND m.room_id=? AND m.job_id!=?
               AND completed.status='completed'
               AND m.role IN ('assistant','user')
-            ORDER BY m.created_at DESC,m.id DESC LIMIT 16
-        """, (job["user_id"], job["room_id"], job["id"])).fetchall()
+            ORDER BY m.created_at DESC,m.id DESC LIMIT 40
+        """, (job["user_id"],job["room_id"],job["id"])).fetchall()
+        other_texts = {
+            " ".join(m["text"].split()).casefold()
+            for m in c.execute("""
+                SELECT m.text FROM messages m
+                JOIN jobs completed ON completed.id=m.job_id
+                WHERE m.user_id=? AND m.room_id!=?
+                  AND completed.status='completed'
+                  AND LENGTH(m.text) BETWEEN 8 AND 2000
+            """,(job["user_id"],job["room_id"])).fetchall()
+        }
         anchors = []
         seen = set()
         for msg in history:
             txt = " ".join(msg["text"].split())
-            # A short greeting or generic response cannot reliably identify
-            # an Android conversation; use distinctive nontrivial excerpts.
-            if len(txt) < 24 or len(txt) > 50000:
+            # A conversation-specific text of >=12 characters can be
+            # independently searched; generic one-word greetings cannot.
+            if len(txt) < 12 or len(txt) > 50000 or txt.casefold() in other_texts:
                 continue
             first = txt[:200]
-            if first in seen:
+            if first.casefold() in seen:
                 continue
-            seen.add(first)
-            anchors.append({"role": msg["role"], "text": first,
-                            "from_job_id": msg["job_id"]})
-            if len(anchors) >= 8:
+            seen.add(first.casefold())
+            anchors.append({"role":msg["role"],"text":first,
+                            "from_job_id":msg["job_id"]})
+            if len(anchors) >= 12:
                 break
         job["room_anchors"] = anchors
+        job["room_search_terms"] = []
+        for anchor in anchors:
+            # Search short phrases, not 62-character verbatim messages:
+            # search results usually display titles/snippets, not full text.
+            raw = anchor["text"]
+            for part in [raw[:34].strip(), raw[:22].strip()]:
+                if len(part)>=8 and part not in job["room_search_terms"]:
+                    job["room_search_terms"].append(part)
+                    if len(job["room_search_terms"])>=8:break
+            if len(job["room_search_terms"])>=8:break
+        # Fallback is a heuristic only; Android still verifies the history
+        # after opening a result, never assumes a matching title is proof.
+        if room["android_title"]:
+            job["room_search_terms"].append(room["android_title"])
+        if room["title"] and room["title"] not in job["room_search_terms"]:
+            job["room_search_terms"].append(room["title"])
         job.pop("result_text",None)
         return job
 
@@ -665,7 +715,15 @@ def update_job(job_id: str, status: str | None = None, stage: str | None = None,
                      updated_at=? WHERE id=?""",
                   (status or j["status"],stage or j["stage"],error,result_text,clock(),job_id))
         if status == "completed":
-            if j["action"] == "room.delete":
+            if j["action"] == "room.bind":
+                c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                          ("msg_"+new_id(),j["user_id"],j["room_id"],job_id,
+                           "user",j["text"],clock()))
+                if result_text:
+                    c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                              ("msg_"+new_id(),j["user_id"],j["room_id"],job_id,
+                               "assistant",result_text,clock()))
+            elif j["action"] == "room.delete":
                 c.execute("UPDATE rooms SET status='deleted',android_state='deleted',updated_at=? WHERE id=?",
                           (clock(), j["room_id"]))
             elif result_text:
