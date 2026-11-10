@@ -38,6 +38,11 @@ class ChatRelayService : AccessibilityService() {
     private var pendingSendId: String? = null
     private var activeApiJob: JSONObject? = null
     private var currentRoomId: String? = null
+    // Process-local identity of the last ChatGPT conversation navigated by
+    // the relay. Never persist across service restarts as a confirmed screen.
+    private var activeConversationId: String? = null
+    private var identityGeneration: Long = 0L
+    private var routedIdentityGeneration: Long = -1L
     private var deepLinkRoutedJobId: String? = null
     private var roomLastPrompt: String = ""
     private data class StagedAttachment(
@@ -320,6 +325,44 @@ class ChatRelayService : AccessibilityService() {
         }catch(ignored:Exception){false}
     }
 
+    // Sidebar rows in ChatGPT 1.2026.300 can expose a selected state.
+    // Read it only when the drawer is already visible; never open the drawer
+    // just to identify the current chat, as that costs an extra navigation.
+    private fun selectedSidebarConversationTitle(): String? {
+        val root=rootInActiveWindow
+        if(root?.packageName?.toString()!=chatPackage)return null
+        val all=nodes(root)
+        val labels=all.mapNotNull {n ->
+            if(!n.isVisibleToUser) null else n.text?.toString()?.trim()
+        }
+        val sidebarVisible=labels.any {it=="라이브러리" || it=="Library"} &&
+            labels.any {it=="프로젝트" || it=="Projects"}
+        if(!sidebarVisible)return null
+        val content=all.filter{it.isVisibleToUser && it.isSelected}
+            .mapNotNull{n -> n.text?.toString()?.trim() }
+            .filter {it.isNotBlank() && it.length<170}
+        // A selected tab/category alone does not identify a conversation.
+        val notChats=setOf("ChatGPT","라이브러리","Library","프로젝트",
+            "Projects","이미지","Images","채팅","Chats","맞춤 설정",
+            "고정됨","Pinned","새 채팅","New Chat")
+        return content.firstOrNull{it !in notChats}
+    }
+
+    private fun invalidateActiveConversationIdentity(reason:String) {
+        if(activeConversationId==null)return
+        sendLog("Active ChatGPT conversation cache invalidated: "+reason.take(70))
+        activeConversationId=null
+        currentRoomId=null
+        routedIdentityGeneration=-1
+        identityGeneration++
+    }
+
+    private fun chatComposerIsVisible(): Boolean {
+        val root=rootInActiveWindow
+        return root?.packageName?.toString()==chatPackage &&
+            searchBarNode()==null && composerInput(nodes(root))!=null
+    }
+
     private fun openExactChatGptConversation(
         job:JSONObject, onTargetReady:()->Unit
     ) {
@@ -336,9 +379,25 @@ class ChatRelayService : AccessibilityService() {
         // visible; still navigate if there is no historical content to
         // independently demonstrate that identity. A new intent is an
         // idempotent way to target the specific ChatGPT conversation ID.
-        val alreadyHere=currentRoomId==rid && matchRoomAnchor(job)!=null
+        val targetId=Uri.parse(link).lastPathSegment.orEmpty()
+        val expectedTitle=job.optString("target_chatgpt_title").ifBlank {
+            job.optJSONObject("room")?.optString("chatgpt_title").orEmpty()
+        }
+        val selectedTitle=selectedSidebarConversationTitle()
+        if(selectedTitle!=null && expectedTitle.isNotBlank() &&
+           normalizedRoomText(selectedTitle)!=normalizedRoomText(expectedTitle)) {
+            invalidateActiveConversationIdentity("selected sidebar title changed")
+        }
+        // Fast path: after a successful /c/{id} navigation, no observed
+        // user navigation and a real chat composer is still in foreground.
+        // The relay does not open the sidebar or reload the same URL.
+        val alreadyHere=activeConversationId==targetId &&
+            currentRoomId==rid &&
+            routedIdentityGeneration==identityGeneration &&
+            chatComposerIsVisible()
         if(alreadyHere){
-            progress(jid,"현재 열린 ChatGPT 대화가 이전 메시지와 일치 · 이동 생략")
+            deepLinkRoutedJobId=jid
+            progress(jid,"동일 conversation_id 확인 · 딥링크 생략 · 현재 대화 그대로 사용")
             onTargetReady()
             return
         }
@@ -385,6 +444,10 @@ class ChatRelayService : AccessibilityService() {
         if(matching!=null || nextStable>=4){
             val rid=job.optJSONObject("room")?.optString("id").orEmpty()
             currentRoomId=rid
+            activeConversationId=Uri.parse(job.optString("target_chatgpt_url").ifBlank {
+                job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
+            }).lastPathSegment
+            routedIdentityGeneration=identityGeneration
             deepLinkRoutedJobId=jid
             roomLastPrompt=matching.orEmpty()
             if(matching!=null){
@@ -1659,6 +1722,28 @@ class ChatRelayService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if(event?.packageName?.toString()!=chatPackage) return
+        // Manual in-app chat switches invalidate the last relay-directed
+        // conversation. Content/typing updates are NOT navigation.
+        if(event.type==AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            activeConversationId!=null) {
+            val n=event.source
+            val label=listOf(n?.text?.toString().orEmpty(),
+                n?.contentDescription?.toString().orEmpty(),
+                n?.viewIdResourceName.orEmpty()).joinToString(" ").lowercase()
+            val navigationButton=listOf("새 채팅","new chat","new conversation",
+                "conversation_row","conversation_item","chat_history",
+                "chat_row","history_item","new_chat")
+                .any{label.contains(it)}
+            val sidebarRow=selectedSidebarConversationTitle()!=null &&
+                n?.isVisibleToUser==true && n.isClickable &&
+                n.text?.toString()?.trim()?.length in 3..170 &&
+                n.text?.toString()?.trim() !in listOf("공유","복사","ChatGPT")
+            if(navigationButton || sidebarRow)
+                invalidateActiveConversationIdentity("manual sidebar/chat navigation")
+        }
+        if(event.type==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            activeApiJob==null && activeConversationId!=null)
+            invalidateActiveConversationIdentity("window navigation outside relay")
         val now=System.currentTimeMillis()
         if(now-lastSnapshot<800) return
         lastSnapshot=now
@@ -1673,7 +1758,12 @@ class ChatRelayService : AccessibilityService() {
             val text=n.text?.toString()?.take(700) ?: ""
             val desc=n.contentDescription?.toString()?.take(300) ?: ""
             if(text.isEmpty() && desc.isEmpty()) continue
-            listing.put(JSONObject().put("text",text).put("desc",desc).put("id",n.viewIdResourceName ?: "").put("editable",n.isEditable).put("clickable",n.isClickable))
+            listing.put(JSONObject().put("text",text).put("desc",desc)
+                .put("id",n.viewIdResourceName ?: "")
+                .put("selected",n.isSelected).put("checked",n.isChecked)
+                .put("focused",n.isFocused)
+                .put("stateDescription",n.stateDescription?.toString() ?: "")
+                .put("editable",n.isEditable).put("clickable",n.isClickable))
             if(listing.length()>=130) break
         }
         send(JSONObject().put("type","ui.snapshot").put("nodes",listing))
