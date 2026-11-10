@@ -3,6 +3,9 @@ package com.hitel.chatrelay
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.content.ClipData
+import android.net.Uri
+import androidx.core.content.FileProvider
 import android.graphics.Rect
 import android.graphics.Path
 import android.os.Bundle
@@ -20,6 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.io.File
+import java.security.MessageDigest
 import kotlin.concurrent.thread
 
 class ChatRelayService : AccessibilityService() {
@@ -32,6 +36,13 @@ class ChatRelayService : AccessibilityService() {
     private var activeApiJob: JSONObject? = null
     private var currentRoomId: String? = null
     private var roomLastPrompt: String = ""
+    private data class StagedAttachment(
+        val id: String, val name: String, val mime: String, val file: File,
+        val uri: Uri
+    )
+    private var shareAttachmentCount = 0
+    private var shareRoomAnchor = ""
+    private var sharePreviewsBefore = 0
     private val chrome = setOf("메뉴","새 채팅","메뉴 편집","ChatGPT에게 답변하기","복사","소리 내어 읽기",
         "공유","추가 작업","좋아요","별로예요","음성 대화 시작","첨부파일","받아쓰기",
         "ChatGPT","Copy","Share","Read aloud","New chat","Menu","Regenerate",
@@ -264,42 +275,240 @@ class ChatRelayService : AccessibilityService() {
         snapshot()
     }
 
-    private fun stageFiles(job: JSONObject, files: JSONArray) {
-        val jid=job.optString("id")
-        val prefs=getSharedPreferences("relay",MODE_PRIVATE)
-        val endpoint=prefs.getString("url","").orEmpty()
-            .ifBlank{"wss://chatgpt-relay-web-production.up.railway.app/ws"}
-            .replaceFirst("wss://","https://").removeSuffix("/ws")
-        val token=prefs.getString("token","").orEmpty()
-            .ifBlank{"dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn"}
-        thread(start=true,name="relay-file-stage") {
-            var downloaded=0
-            var problem=""
-            try{
-                val dir=File(filesDir,"relay-attachments").apply{mkdirs()}
-                for (i in 0 until files.length()) {
-                    val fid=files.optString(i)
-                    if(!fid.matches(Regex("file_[0-9a-f]{32}")))throw Exception("Invalid file id")
-                    val req=Request.Builder().url(endpoint+"/api/v1/device/jobs/"+jid+"/files/"+fid)
-                        .header("Authorization","Bearer "+token).build()
-                    client.newCall(req).execute().use{ response ->
-                        if(!response.isSuccessful)throw Exception("Download failed HTTP "+response.code)
-                        val bytes=response.body?.bytes() ?: throw Exception("Empty response")
-                        if(bytes.isEmpty()||bytes.size>15*1024*1024)throw Exception("File size outside limit")
-                        File(dir,fid+".bin").writeBytes(bytes)
-                        downloaded++
+    // Files were already placed on Railway by /api/v1/files. Download each one
+    // with its real extension and checksum; .bin would lose MIME semantics.
+    private fun stageFiles(job: JSONObject, ids: JSONArray) {
+        val jid = job.optString("id")
+        val details = job.optJSONArray("attachment_details")
+        if (details == null || details.length() != ids.length()) {
+            finishApiJob(jid, false, "Android did not receive original attachment metadata")
+            return
+        }
+        val prefs = getSharedPreferences("relay", MODE_PRIVATE)
+        val endpoint = prefs.getString("url", "").orEmpty()
+            .ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" }
+            .replaceFirst("wss://", "https://").removeSuffix("/ws")
+        val token = prefs.getString("token", "").orEmpty()
+            .ifBlank { "dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn" }
+        thread(start = true, name = "relay-image-stage") {
+            val staged = ArrayList<StagedAttachment>()
+            var failure = ""
+            try {
+                val base = File(filesDir, "relay-attachments").apply { mkdirs() }
+                val allowed = setOf("png", "jpg", "jpeg", "webp", "gif", "pdf",
+                    "txt", "md", "doc", "docx", "ppt", "pptx", "xls", "xlsx",
+                    "csv", "json")
+                for (i in 0 until ids.length()) {
+                    val fid = ids.getString(i)
+                    if (!fid.matches(Regex("file_[0-9a-f]{32}"))) {
+                        throw IllegalArgumentException("Invalid file id")
+                    }
+                    val meta = (0 until details.length())
+                        .mapNotNull { details.optJSONObject(it) }
+                        .firstOrNull { it.optString("id") == fid }
+                        ?: throw IllegalArgumentException("Attachment metadata not found")
+                    val name = File(meta.optString("name")).name
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    if (ext !in allowed || name.isBlank()) {
+                        throw IllegalArgumentException("Unsupported attachment format")
+                    }
+                    val mime = meta.optString("mime", "application/octet-stream")
+                    val expectedHash = meta.optString("sha256")
+                    val expectedSize = meta.optLong("size", -1L)
+                    if (expectedSize <= 0L || expectedSize > 15L * 1024L * 1024L) {
+                        throw IllegalArgumentException("Attachment size outside 15MB limit")
+                    }
+                    val request = Request.Builder()
+                        .url(endpoint + "/api/v1/device/jobs/" + jid + "/files/" + fid)
+                        .header("Authorization", "Bearer " + token)
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            throw IllegalStateException("Android file GET returned HTTP " + response.code)
+                        }
+                        val bytes = response.body?.bytes()
+                            ?: throw IllegalStateException("Empty response body")
+                        if (bytes.size.toLong() != expectedSize) {
+                            throw IllegalStateException("File size mismatch after download")
+                        }
+                        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                        if (!digest.equals(expectedHash, ignoreCase = true)) {
+                            throw IllegalStateException("File checksum mismatch after download")
+                        }
+                        val destination = File(File(base, jid + "/" + fid).apply { mkdirs() }, name)
+                        destination.writeBytes(bytes)
+                        val uri = FileProvider.getUriForFile(
+                            this, "com.hitel.chatrelay.fileprovider", destination)
+                        staged.add(StagedAttachment(fid, name, mime, destination, uri))
                     }
                 }
-            } catch(e: Exception) { problem=e.javaClass.simpleName+": "+(e.message ?: "") }
+            } catch (e: Exception) {
+                failure = e.javaClass.simpleName + ": " + (e.message ?: "")
+            }
             main.post {
-                if (activeApiJob?.optString("id") != jid)return@post
-                if (problem.isNotEmpty()) {
-                    finishApiJob(jid,false,"Android file staging failed: "+problem)
+                if (activeApiJob?.optString("id") != jid) return@post
+                if (failure.isNotEmpty()) {
+                    finishApiJob(jid, false, "Android download: " + failure)
                 } else {
-                    progress(jid,"Android 파일 "+downloaded+"개 내려받기 완료")
-                    finishApiJob(jid,false,"Files uploaded and staged on Android, but ChatGPT UI attachment is NOT VERIFIED. Question was not sent to avoid silently omitting files.")
+                    progress(jid, "파일 " + staged.size + "개 SHA-256 검증 및 원래 MIME 보존 완료")
+                    shareFilesIntoChatGpt(job, staged)
                 }
             }
+        }
+    }
+
+    private fun visibleConversationText(): Set<String> {
+        return nodes(rootInActiveWindow).mapNotNull { node ->
+            val candidate = node.text?.toString()?.trim().orEmpty()
+            if (node.isEditable || candidate.length < 6 || candidate.length > 1000 ||
+                candidate in chrome) null else candidate
+        }.toSet()
+    }
+
+    private fun composerAttachmentSignals(): Int {
+        val all = nodes(rootInActiveWindow)
+        val input = composerInput(all) ?: return 0
+        val area = Rect().also { input.getBoundsInScreen(it) }
+        val margin = (260 * resources.displayMetrics.density).toInt()
+        return all.count { node ->
+            if (!node.isVisibleToUser || node.isEditable) return@count false
+            val r = Rect().also { node.getBoundsInScreen(it) }
+            if (r.isEmpty || r.bottom < area.top - margin || r.top > area.bottom + margin) {
+                return@count false
+            }
+            val desc = node.contentDescription?.toString()?.lowercase().orEmpty()
+            val resource = node.viewIdResourceName?.lowercase().orEmpty()
+            val words = desc + " " + resource
+            listOf("attachment_preview", "attached_image", "remove_attachment",
+                "remove_image", "remove_file", "첨부 이미지 제거", "첨부파일 제거",
+                "이미지 미리보기", "사진 제거").any { words.contains(it) }
+        }
+    }
+
+    private fun shareFilesIntoChatGpt(job: JSONObject, staged: List<StagedAttachment>) {
+        val jid = job.optString("id")
+        val room = job.optJSONObject("room")
+        val roomId = room?.optString("id").orEmpty()
+        val state = room?.optString("android_state", "uncreated").orEmpty()
+        if (staged.isEmpty()) {
+            finishApiJob(jid, false, "No files staged for sharing")
+            return
+        }
+        if (state != "uncreated" && currentRoomId != roomId) {
+            finishApiJob(jid, false, "Wrong chat room: cannot share into an unverified existing conversation")
+            return
+        }
+        withChatApp(jid) {
+            if (state == "uncreated") {
+                // Avoid carrying an attachment into a prior user's room.
+                // ACTION_SEND opens ChatGPT's inbound share composer.
+                shareRoomAnchor = ""
+                progress(jid, "새 채팅방 이미지 공유 준비")
+            } else {
+                val anchor = roomLastPrompt
+                if (anchor.length < 6 || visibleConversationText().none { it == anchor }) {
+                    finishApiJob(jid, false,
+                        "Prior room identity is not visible. Refusing unsafe attachment to another chat")
+                    snapshot()
+                    return@withChatApp
+                }
+                shareRoomAnchor = anchor
+                progress(jid, "이전 대화 내용으로 대상 방 확인")
+            }
+            sharePreviewsBefore = composerAttachmentSignals()
+            shareAttachmentCount = staged.size
+            try {
+                val uris = ArrayList<Uri>(staged.map { it.uri })
+                val multiple = uris.size > 1
+                val intent = Intent(if (multiple) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND)
+                intent.setClassName("com.openai.chatgpt", "com.openai.chatgpt.MainActivity")
+                intent.type = if (staged.all { it.mime.startsWith("image/") }) "image/*"
+                    else if (!multiple) staged[0].mime else "*/*"
+                if (multiple) intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                else intent.putExtra(Intent.EXTRA_STREAM, uris[0])
+                val clip = ClipData.newUri(contentResolver, staged[0].name, uris[0])
+                for (i in 1 until staged.size) {
+                    clip.addItem(ClipData.Item(uris[i]))
+                }
+                intent.clipData = clip
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                for (uri in uris) {
+                    grantUriPermission("com.openai.chatgpt", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                progress(jid, "ACTION_SEND로 ChatGPT에 이미지 및 읽기 권한 전달")
+                startActivity(intent)
+                main.postDelayed({ verifyFileShare(jid, staged, 0) }, 900)
+            } catch (e: Exception) {
+                finishApiJob(jid, false,
+                    "Android ACTION_SEND failed: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+            }
+        }
+    }
+
+    private fun verifyFileShare(jid: String, staged: List<StagedAttachment>, attempt: Int) {
+        if (activeApiJob?.optString("id") != jid) return
+        val root = rootInActiveWindow
+        val foreground = root?.packageName?.toString()
+        if (foreground != chatPackage) {
+            if (attempt < 24) {
+                main.postDelayed({ verifyFileShare(jid, staged, attempt + 1) }, 500)
+                return
+            }
+            finishApiJob(jid, false, "ChatGPT did not open after ACTION_SEND; foreground=" +
+                (foreground ?: "(none)"))
+            return
+        }
+        val all = nodes(root)
+        val input = composerInput(all)
+        val visible = visibleConversationText()
+        if (shareRoomAnchor.isNotEmpty() && shareRoomAnchor !in visible) {
+            // Share intent can open a different conversation. Do not leak data
+            // across the user's separate chat sessions.
+            finishApiJob(jid, false,
+                "Share changed the active ChatGPT conversation. Original room not verified; question NOT sent")
+            snapshot()
+            return
+        }
+        val names = staged.map { it.name.lowercase() }
+        val strongLabel = all.any { n ->
+            if (!n.isVisibleToUser || n.isEditable) return@any false
+            val label = (n.text?.toString().orEmpty() + " " +
+                n.contentDescription?.toString().orEmpty() + " " +
+                n.viewIdResourceName.orEmpty()).lowercase()
+            names.any { name ->
+                name.length >= 5 && label.contains(name) &&
+                !label.contains("relay-attachments")
+            }
+        }
+        val signals = composerAttachmentSignals()
+        val recognizableAttachment = strongLabel || (signals > sharePreviewsBefore)
+        if (input != null && recognizableAttachment) {
+            val rid = activeApiJob?.optJSONObject("room")?.optString("id").orEmpty()
+            currentRoomId = rid
+            progress(jid, "ChatGPT 접근성 화면에서 첨부 표시 확인")
+            val text = activeApiJob?.optString("text").orEmpty()
+            if (text.isNotBlank()) {
+                sendChat(jid, text)
+            } else {
+                // An attachment without a prompt may only be staged, not sent.
+                finishApiJob(jid, false,
+                    "Attachment preview visible, but no question text to submit")
+            }
+            return
+        }
+        if (attempt % 5 == 0) {
+            progress(jid, "ChatGPT 첨부 표시 확인 중: " + attempt +
+                ", filename=" + strongLabel + ", preview=" + signals)
+        }
+        if (attempt < 24) {
+            main.postDelayed({ verifyFileShare(jid, staged, attempt + 1) }, 500)
+        } else {
+            sendLog("Attachment verification timeout; please inspect ChatGPT share screen")
+            snapshot()
+            finishApiJob(jid, false,
+                "ACTION_SEND delivered but ChatGPT attachment preview not verified. Question NOT sent")
         }
     }
 
