@@ -65,7 +65,7 @@ assert.deepEqual(JSON.parse(outgoing.body).attachment_ids,[]);
 assert.equal(JSON.parse(outgoing.body).user_id,"tester-a");
 assert.equal(doc.querySelector("#job-id").value,jobId);
 assert.ok(doc.querySelector("#request-preview").textContent.includes("/api/v1/rooms"));
-assert.ok(doc.querySelector("#response-preview").textContent.includes("jobs"));
+assert.ok(doc.querySelector("#response-preview").textContent.includes("messages"));
 doc.querySelector("#file-pick");
 assert.ok(doc.querySelector("#upload-file"));
 assert.ok(doc.querySelector("#delete-room"));
