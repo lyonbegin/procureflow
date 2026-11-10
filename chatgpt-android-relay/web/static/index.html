@@ -289,7 +289,7 @@ async function openSelectedRoom(){
     return;
   }
   roomOpenStatus('Android 기존 채팅방 열기 작업을 요청합니다: '+result.title);
-  const job=await call('POST','/api/v1/rooms/'+id+'/open',undefined);
+  const job=await call('POST','/api/v1/rooms/'+id+'/open'+queryUser(),undefined);
   roomOpenJobId=job.id;
   $('job-id').value=job.id;
   $('room-open-status').textContent='Android에서 대화방을 검색하고 이전 메시지와 대조하고 있습니다…';
