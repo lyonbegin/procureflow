@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.content.ClipData
+import android.content.ContentValues
+import android.os.Environment
+import android.provider.MediaStore
 import android.net.Uri
 import androidx.core.content.FileProvider
 import android.graphics.Rect
@@ -43,6 +46,8 @@ class ChatRelayService : AccessibilityService() {
     private var shareAttachmentCount = 0
     private var shareRoomAnchor = ""
     private var sharePreviewsBefore = 0
+    private var pendingPickerDisplayName: String? = null
+    private var pendingPickerUri: Uri? = null
     private val chrome = setOf("메뉴","새 채팅","메뉴 편집","ChatGPT에게 답변하기","복사","소리 내어 읽기",
         "공유","추가 작업","좋아요","별로예요","음성 대화 시작","첨부파일","받아쓰기",
         "ChatGPT","Copy","Share","Read aloud","New chat","Menu","Regenerate",
@@ -386,6 +391,187 @@ class ChatRelayService : AccessibilityService() {
         }
     }
 
+
+    // For an *existing* conversation, ACTION_SEND opens ChatGPT's general
+    // intake rather than reliably attaching to the current thread. Use the
+    // in-chat attachment menu and Android DocumentsUI instead.
+    private fun pickFileInsideExistingRoom(job: JSONObject, staged: List<StagedAttachment>) {
+        val jid = job.optString("id")
+        val roomId = job.optJSONObject("room")?.optString("id").orEmpty()
+        if (staged.size != 1) {
+            finishApiJob(jid, false,
+                "In-chat picker currently supports one file per job; submit individual files separately")
+            return
+        }
+        if (currentRoomId != roomId) {
+            finishApiJob(jid, false, "Target room is not current; in-chat picker refused")
+            return
+        }
+        withChatApp(jid) {
+            val anchor = roomLastPrompt
+            if (anchor.length < 6 || anchor !in visibleConversationText()) {
+                finishApiJob(jid, false,
+                    "Cannot verify target conversation before opening its attachment picker")
+                snapshot()
+                return@withChatApp
+            }
+            shareRoomAnchor = anchor
+            sharePreviewsBefore = composerAttachmentSignals()
+            val stagedFile = staged[0]
+            progress(jid, "기존 대화방 확인 완료 · Android 파일 선택기 준비")
+            thread(start = true, name = "relay-media-publish") {
+                var uri: Uri? = null
+                var failed: String? = null
+                val uniqueName = "relay_" + jid.removePrefix("job_").take(8) + "_" +
+                    stagedFile.id.takeLast(6) + "_" + stagedFile.name
+                try {
+                    val content = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, uniqueName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, stagedFile.mime)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH,
+                            Environment.DIRECTORY_DOWNLOADS + "/ChatGPTRelay")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, content)
+                        ?: throw IllegalStateException("MediaStore Downloads insertion returned null")
+                    contentResolver.openOutputStream(uri!!)?.use { output ->
+                        stagedFile.file.inputStream().use { input -> input.copyTo(output) }
+                    } ?: throw IllegalStateException("MediaStore output stream not available")
+                    contentResolver.update(uri!!,
+                        ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                        null, null)
+                } catch (e: Exception) {
+                    failed = e.javaClass.simpleName + ": " + (e.message ?: "")
+                }
+                main.post {
+                    if (activeApiJob?.optString("id") != jid) return@post
+                    if (failed != null) {
+                        finishApiJob(jid, false, "Could not stage file in Android Downloads: " + failed)
+                        return@post
+                    }
+                    pendingPickerUri = uri
+                    pendingPickerDisplayName = uniqueName
+                    progress(jid, "Downloads/ChatGPTRelay에 파일 공개 · 첨부 버튼 탐색")
+                    val attach = findComposerAttachButton()
+                    if (attach == null || !attach.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        snapshot()
+                        finishApiJob(jid, false, "ChatGPT attachment button was not found or not clickable")
+                        return@post
+                    }
+                    main.postDelayed({ waitInChatPicker(jid, staged, 0, 0) }, 500)
+                }
+            }
+        }
+    }
+
+    private fun findComposerAttachButton(): AccessibilityNodeInfo? {
+        val all = nodes(rootInActiveWindow)
+        val composer = composerInput(all) ?: return null
+        val ir = Rect().also { composer.getBoundsInScreen(it) }
+        val px = resources.displayMetrics.density
+        return all.filter { n ->
+            if (!n.isVisibleToUser) return@filter false
+            val labels = accessibleLabel(n)
+            val words = listOf("첨부파일", "파일 추가", "파일 첨부", "attach files",
+                "add attachment", "add photos", "add files")
+            if (words.none { labels.contains(it) }) return@filter false
+            val bounds = Rect().also { n.getBoundsInScreen(it) }
+            bounds.bottom >= ir.top - (140 * px).toInt() &&
+                bounds.top <= ir.bottom + (90 * px).toInt()
+        }.mapNotNull { n ->
+            var p: AccessibilityNodeInfo? = n
+            for (i in 0..4) {
+                if (p == null || isClickTarget(p)) break
+                p = p.parent
+            }
+            if (p != null && isClickTarget(p)) p else null
+        }.minByOrNull { n ->
+            val rect = Rect().also { n.getBoundsInScreen(it) }
+            kotlin.math.abs(rect.centerX() - ir.left) +
+                kotlin.math.abs(rect.centerY() - ir.bottom)
+        }
+    }
+
+    private fun pickerClickByNames(all: List<AccessibilityNodeInfo>,
+                                   names: List<String>): Boolean {
+        val match = all.firstOrNull { n ->
+            n.isVisibleToUser && names.any { key ->
+                val v = (n.text?.toString().orEmpty() + " " +
+                    n.contentDescription?.toString().orEmpty()).trim()
+                v.equals(key, ignoreCase = true) ||
+                    (key.length >= 8 && v.contains(key, ignoreCase = true))
+            }
+        } ?: return false
+        var target: AccessibilityNodeInfo? = match
+        for (depth in 0..5) {
+            if (target == null || isClickTarget(target)) break
+            target = target.parent
+        }
+        return target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+    }
+
+    // Only ever select the unique file name we inserted into MediaStore.
+    // No blind clicks at "the first photo" (could leak another user's picture).
+    private fun waitInChatPicker(jid: String, staged: List<StagedAttachment>,
+                                 attempt: Int, menuStage: Int) {
+        if (activeApiJob?.optString("id") != jid) return
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString().orEmpty()
+        val all = nodes(root)
+        val expected = pendingPickerDisplayName.orEmpty()
+        if (pkg.isNotEmpty() && pkg != chatPackage) {
+            if (pickerClickByNames(all, listOf(expected))) {
+                progress(jid, "Android 파일 선택기에서 고유 파일명 확인 후 선택")
+                main.postDelayed({ verifyFileShare(jid, staged, 0) }, 900)
+                return
+            }
+            if (menuStage == 1 && pickerClickByNames(all,
+                    listOf("다운로드", "Downloads", "Download"))) {
+                progress(jid, "시스템 파일 선택기 Downloads 폴더 선택")
+                main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 2) }, 700)
+                return
+            }
+            if (menuStage == 2 && pickerClickByNames(all, listOf("ChatGPTRelay"))) {
+                progress(jid, "ChatGPTRelay 전용 폴더 선택")
+                main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 3) }, 700)
+                return
+            }
+        } else if (pkg == chatPackage) {
+            if (menuStage == 0) {
+                // Prefer the system files picker over thumbnail grids, where
+                // identifying a particular private upload is unreliable.
+                if (pickerClickByNames(all, listOf("파일 업로드", "기기에서 파일",
+                        "기기에서 업로드", "Browse files", "Upload files",
+                        "Files", "파일", "문서"))) {
+                    progress(jid, "ChatGPT 첨부 메뉴의 파일 선택 실행")
+                    main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, 1) }, 650)
+                    return
+                }
+            }
+            if (menuStage > 0 && attempt > 3) {
+                // ChatGPT has returned; the selected file may already appear
+                // in the composer. Verify preview before submitting.
+                val signals = composerAttachmentSignals()
+                if (signals > sharePreviewsBefore) {
+                    progress(jid, "ChatGPT에 첨부 미리보기 발견")
+                    verifyFileShare(jid, staged, 0)
+                    return
+                }
+            }
+        }
+        if (attempt % 5 == 0) {
+            progress(jid, "첨부파일 선택기 탐색 · 화면=" + pkg + ", 단계=" + menuStage)
+        }
+        if (attempt < 24) {
+            main.postDelayed({ waitInChatPicker(jid, staged, attempt + 1, menuStage) }, 500)
+        } else {
+            // Diagnostics are sent, but unknown UI controls are never clicked.
+            snapshot()
+            finishApiJob(jid, false,
+                "In-chat file picker could not identify the uploaded filename. No question sent")
+        }
+    }
+
     private fun shareFilesIntoChatGpt(job: JSONObject, staged: List<StagedAttachment>) {
         val jid = job.optString("id")
         val room = job.optJSONObject("room")
@@ -397,6 +583,10 @@ class ChatRelayService : AccessibilityService() {
         }
         if (state != "uncreated" && currentRoomId != roomId) {
             finishApiJob(jid, false, "Wrong chat room: cannot share into an unverified existing conversation")
+            return
+        }
+        if (state == "active") {
+            pickFileInsideExistingRoom(job, staged)
             return
         }
         withChatApp(jid) {
@@ -471,7 +661,8 @@ class ChatRelayService : AccessibilityService() {
             snapshot()
             return
         }
-        val names = staged.map { it.name.lowercase() }
+        val names = staged.map { it.name.lowercase() } +
+            listOfNotNull(pendingPickerDisplayName?.lowercase())
         val strongLabel = all.any { n ->
             if (!n.isVisibleToUser || n.isEditable) return@any false
             val label = (n.text?.toString().orEmpty() + " " +
@@ -563,6 +754,15 @@ class ChatRelayService : AccessibilityService() {
             message.put("reason",stage.take(400))
         }
         send(message)
+        val cleanup = pendingPickerUri
+        if (cleanup != null) {
+            main.postDelayed({
+                try { contentResolver.delete(cleanup, null, null) }
+                catch (ignored: Exception) { }
+            }, 90000)
+        }
+        pendingPickerUri = null
+        pendingPickerDisplayName = null
         if(!verified && currentRoomId==activeApiJob?.optJSONObject("room")?.optString("id"))
             currentRoomId=null
         activeApiJob=null
