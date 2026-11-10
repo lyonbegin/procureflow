@@ -1432,6 +1432,10 @@ class ChatRelayService : AccessibilityService() {
             work()
             return
         }
+        // Once the official app left foreground we cannot prove that its
+        // previously active conversation survived. Do not reuse the cache
+        // after a launcher/app switch; deep-link again if needed.
+        invalidateActiveConversationIdentity("ChatGPT foreground was lost")
         progress(id, "ChatGPT 앱 실행 요청")
         val intent=packageManager.getLaunchIntentForPackage(chatPackage)
         if(intent==null) { done(id,false,"Official ChatGPT is not installed"); return }
