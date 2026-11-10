@@ -110,6 +110,29 @@ def main():
             assert msgs[-1]["text"]=="Document processed and verified"
             assert client.get("/api/v1/rooms/"+rid,headers=auth_a).json()["android_state"]=="active"
 
+            # A controller reinstalled after the first job must be able to
+            # identify the correct room from the server's completed history.
+            follow=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
+                               json={"text":"Follow-up after Android app restart"})
+            assert follow.status_code==200,follow.text
+            follow_jid=follow.json()["id"]
+            follow_packet=device.receive_json()
+            assert follow_packet["type"]=="job" and follow_packet["job"]["id"]==follow_jid
+            anchors=follow_packet["job"].get("room_anchors", [])
+            assert any(a["role"]=="assistant" and
+                       a["text"]=="Document processed and verified"
+                       for a in anchors),anchors
+            assert all(a["from_job_id"]!=follow_jid for a in anchors)
+            device.send_json({"type":"job.error","job_id":follow_jid,"verified":False,
+                              "reason":"Test of non-destructive failed follow-up",
+                              "stage":"test_failed"})
+            for _ in range(40):
+                state=client.get("/api/v1/jobs/"+follow_jid,headers=auth_a).json()
+                if state["status"]=="failed":break
+                time.sleep(.025)
+            assert state["status"]=="failed",state
+            assert client.get("/api/v1/rooms/"+rid,headers=auth_a).json()["android_state"]=="active"
+
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
             delete_job=device.receive_json()
