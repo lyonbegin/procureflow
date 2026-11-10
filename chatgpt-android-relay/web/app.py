@@ -195,17 +195,42 @@ async def socket(ws: WebSocket):
                             api_v1.update_job(jid, stage=stage)
                             await broadcast(event(kind, job_id=jid, stage=stage))
                         else:
-                            good = kind == "job.result" and msg.get("verified") is True
-                            stage = str(msg.get("stage", "completed" if good else "failed"))[:100]
+                            # Never trust a device-reported room_id as the target
+                            # for a job. Bind successful acknowledgements to the
+                            # *server-assigned* room of the currently running job.
+                            # A mismatched room must fail closed before any
+                            # assistant message or room state can be recorded.
+                            with api_v1.connection() as c:
+                                assigned = c.execute(
+                                    "SELECT room_id FROM jobs WHERE id=? AND status='running'",
+                                    (jid,),
+                                ).fetchone()
+                            assigned_room = assigned["room_id"] if assigned else None
+                            reported_room = msg.get("room_id")
+                            identity_ok = bool(
+                                assigned_room and isinstance(reported_room, str)
+                                and reported_room == assigned_room
+                            )
+                            claimed_success = kind == "job.result" and msg.get("verified") is True
+                            good = claimed_success and identity_ok
+                            mismatch = claimed_success and not identity_ok
+                            stage = ("ROOM_ID_MISMATCH" if mismatch else
+                                     str(msg.get("stage", "completed" if good else "failed"))[:100])
                             output = str(msg.get("result_text", ""))[:100000] if good else None
+                            reason = ("Android completion room_id did not match the assigned job room"
+                                      if mismatch else
+                                      str(msg.get("reason", "Android action was not verified"))[:500])
                             api_v1.update_job(jid, status="completed" if good else "failed",
                                               stage=stage, result_text=output,
-                                              error=None if good else str(msg.get("reason", "Android action was not verified"))[:500])
-                            if good and msg.get("room_id") and msg.get("room_state"):
-                                api_v1.set_room_android_state(str(msg["room_id"]), str(msg["room_state"]), str(msg.get("android_title", "")) or None)
-                            await broadcast(event(kind, job_id=jid, verified=good,
+                                              error=None if good else reason)
+                            if good and msg.get("room_state"):
+                                api_v1.set_room_android_state(
+                                    assigned_room, str(msg["room_state"]),
+                                    str(msg.get("android_title", "")) or None)
+                            await broadcast(event("job.result" if good else "job.error",
+                                                  job_id=jid, verified=good,
                                                   stage=stage, result_text=output,
-                                                  reason=msg.get("reason")))
+                                                  reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
                             active_job_id = None
                             await dispatch_next()
