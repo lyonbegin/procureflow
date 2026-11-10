@@ -43,42 +43,32 @@
 <div class="hint">삭제는 Android의 실제 삭제가 확인되어야 완료됩니다. 삭제 실패 시 상태를 유지합니다.</div>
 </div></section>
 
-<section class="panel"><h2>03. Google Drive 링크 전송 <span class="small">Drive + Messages</span></h2><div class="inner">
-<div class="step">
- <div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/connect</code></div>
- <div class="fields"><label>사용자 Google Drive 연결</label>
- <div class="row"><button id="drive-status-btn">연결 상태 확인</button><button class="primary" id="drive-connect">Google 계정 연결 · 새 창 열기</button></div>
- <div class="drive-feedback" id="drive-status" role="status" aria-live="polite">버튼을 누르시면 이곳에 Google Drive 연결 상태와 오류 원인이 표시됩니다.</div>
- <div class="drive-setup" id="drive-setup" hidden>
-   <strong>Google OAuth 설정이 먼저 필요합니다.</strong>
-   <div>Google Cloud에서 웹 애플리케이션 OAuth 클라이언트를 생성하고 Railway에 <code>GOOGLE_OAUTH_CLIENT_ID</code><code>GOOGLE_OAUTH_CLIENT_SECRET</code>을 등록해 주십시오.</div>
-   <div>승인된 리디렉션 URI:</div><code id="drive-redirect">확인 중</code>
-   <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud 사용자 인증 정보 설정 열기</a>
- </div>
- <div class="row"><button id="drive-folder">선택 채팅방 Drive 폴더 생성 / 확인</button></div>
- <div class="hint">연결 버튼은 항상 새 창을 엽니다. Google OAuth가 설정된 경우 자동 연동을 위한 구글 권한 동의 화면으로, 미설정된 경우 Google Drive 로그인 화면으로 이동합니다. 후자는 파일 링크 수동 등록만 가능합니다.</div>
- </div>
-</div>
-<div class="step"><div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/files</code></div>
-<div class="fields"><label for="file-pick">파일 선택 (PDF, Word, Excel, PPT, TXT, 이미지 등 · 파일당 최대 15MB)</label>
+<section class="panel"><h2>03. Google Drive 파일 전송 <span class="small">파일 링크</span></h2><div class="inner">
+<div class="step"><div class="fields"><label>Google Drive에서 파일 준비</label>
+<div class="row"><button class="primary" id="drive-connect">Google Drive 새 창 열기</button><button id="drive-status-btn">상태 확인</button></div>
+<div class="drive-feedback" id="drive-status" role="status" aria-live="polite">Google Drive를 새 창으로 열어 파일을 올린 후 공유 링크를 복사해 주십시오.</div>
+<div class="hint" id="drive-mode-hint">Google Drive 열기 → 파일 올리기 → 공유 링크 복사 → 아래에서 링크 등록</div>
+<div class="drive-setup" id="drive-setup" hidden style="display:none"><code id="drive-redirect"></code></div>
+<div class="row" id="drive-folder-wrap" hidden><button id="drive-folder">채팅방 Drive 폴더 생성</button></div>
+</div></div>
+<div class="step" id="drive-auto-upload" hidden>
+<div class="fields"><label>연결된 Google 계정으로 자동 업로드</label>
 <input id="file-pick" type="file" multiple accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpeg,.jpg,.webp,.gif">
-<div class="row"><button id="upload-file">Google Drive 채팅방 폴더로 업로드</button><button id="list-files">Drive 파일 목록</button></div>
-<label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="share-drive-link" style="width:17px;min-width:17px"> <span>이 파일에 대해 '링크를 가진 모든 사람 보기' 허용</span></label>
-<div class="warning">체크하시면 파일 링크를 아는 사람은 Google 계정 없이 파일을 열 수 있습니다. ChatGPT에 링크를 보내려면 접근 권한이 필요합니다. 민감한 자료는 공유하지 마십시오.</div>
+<div class="row"><button id="upload-file">Drive에 업로드</button><button id="list-files">등록된 파일 목록</button></div>
+<label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="share-drive-link" style="width:17px;min-width:17px"> <span>이 파일을 링크가 있는 사람에게 공개합니다</span></label>
+<div class="hint">링크 공유를 허용하면 링크를 아는 사람이 파일에 접근할 수 있습니다.</div>
 </div>
-<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">Drive 업로드 및 공유가 완료된 파일만 질문에 포함됩니다.</div></div>
+<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">저장된 파일이 여기에 표시됩니다.</div></div>
 </div>
-<div class="step">
-  <div class="endpoint"><span class="method post">POST</span><code>/api/v1/drive/links</code></div>
-  <div class="fields"><label>새 창에서 직접 업로드한 Drive 파일 링크 등록 (OAuth 설정 없이 사용 가능)</label>
+<div class="step"><div class="fields"><label>공유 링크를 현재 채팅방에 등록</label>
     <input id="drive-paste-name" placeholder="파일명, 예: 사진.png">
     <input id="drive-paste-url" placeholder="Google Drive에서 복사한 https://drive.google.com/file/d/.../view 링크">
     <label style="display:flex;align-items:center;gap:7px;font-weight:400">
       <input id="drive-paste-public" type="checkbox" style="width:17px;min-width:17px">
       <span>Google Drive에서 '링크가 있는 모든 사용자 · 뷰어'로 설정하였음을 확인합니다.</span>
     </label>
-    <button id="drive-paste-register">현재 채팅방에 링크 등록</button>
-    <div class="hint">이 방식은 Google Drive를 직접 조작하여 업로드한 뒤 링크를 등록합니다. 웹사이트가 파일을 자동 업로드하거나 구글 계정의 API 권한을 획득한 것은 아닙니다.</div>
+    <button class="primary" id="drive-paste-register">선택한 채팅방에 파일 링크 등록</button>
+    <div class="hint">Drive 링크를 ChatGPT 질문에 전달합니다. 실제 파일을 열어볼 수 있는지는 ChatGPT에서 확인해야 합니다.</div>
   </div>
 </div>
 <div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms/{room_id}/messages</code></div>
@@ -224,8 +214,14 @@ async function getPublicDriveSetup(){
   if(!response.ok) throw Error('Drive 설정 확인 실패 · HTTP '+response.status);
   const setup=await response.json();
   cachedDriveSetup=setup;
-  $('drive-setup').hidden=!!setup.oauth_configured;
+  $('drive-setup').hidden=true;
   if(setup.redirect_uri)$('drive-redirect').textContent=setup.redirect_uri;
+  $('drive-auto-upload').hidden=!setup.oauth_configured;
+  $('drive-folder-wrap').hidden=!setup.oauth_configured;
+  $('drive-connect').textContent=setup.oauth_configured?'Google 계정 연결 (새 창)':'Google Drive 새 창 열기';
+  $('drive-mode-hint').textContent=setup.oauth_configured
+    ? 'Google 계정을 연결하면 채팅방별 자동 업로드를 이용하실 수 있습니다.'
+    : 'Google Drive 열기 → 파일 올리기 → 공유 링크 복사 → 아래에서 링크 등록';
   return setup;
 }
 function driveErrorText(error){
@@ -253,9 +249,8 @@ async function loadDriveStatus(){
   const setup=await getPublicDriveSetup();
   if(!setup.oauth_configured){
     const missing=(setup.missing_variables||[]).join(', ');
-    driveFeedback('Google Drive 연결 준비가 되지 않았습니다.\nRailway에 필요한 OAuth 설정: '+missing+
-      (driveAuthReady()?'':'\n추가로 관리 토큰 또는 사용자 API Key도 입력해야 합니다.'),'warning');
-    log('Drive OAuth 미설정: '+missing);
+    driveFeedback('현재 Google Drive 웹에서 파일을 직접 올리고 공유 링크를 등록하는 방식입니다.\nGoogle Drive를 새 창으로 열어 공유 링크를 복사해 주십시오.');
+    log('Drive 수동 링크 방식');
     return {configured:false,connected:false};
   }
   if(!driveAuthReady()){
@@ -347,7 +342,7 @@ checkHealth().catch(e=>log('Health failed: '+e.message));
 driveAuthReady();
 getPublicDriveSetup().then(setup=>{
   if(!setup.oauth_configured){
-    driveFeedback('Google OAuth 설정이 아직 등록되지 않았습니다. 아래 설정 안내를 확인해 주십시오.','warning');
+    driveFeedback('Google Drive 새 창에서 파일을 올린 뒤 공유 링크를 등록해 주십시오.');
   }
 }).catch(e=>driveFeedback('Google Drive 설정 확인 오류: '+e.message,'error'));
 </script></body></html>
