@@ -42,7 +42,10 @@ jobs:
           assert 'screenBlockReason(root)' in body
           assert 'EMULATOR_SYSTEM_ANR' in s
           assert 'CHATGPT_LOGIN_REQUIRED' in s
-          print('PASS: no composer-only approval; explicit login and launcher ANR gates')
+          activity=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/MainActivity.kt').read_text()
+          assert 'setText(prefs.getString("token", "").orEmpty())' in activity
+          assert 'setText(prefs.getString("token", "").orEmpty().ifBlank' not in activity
+          print('PASS: no composer-only approval, no embedded device credential, login and ANR gates')
           PY
       - name: Build Android APK without publishing it
         run: |
