@@ -45,13 +45,19 @@
 
 <section class="panel"><h2>02. 채팅방 엔드포인트 <span class="small">Rooms</span></h2><div class="inner">
 <div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms</code></div>
-<div class="fields"><label for="room-title">채팅방 이름</label><input id="room-title" placeholder="예: 조달 제안서 2026">
+<div class="fields"><label for="room-title">웹 채팅방 이름</label><input id="room-title" placeholder="예: 조달2">
+<label for="chatgpt-url">공식 ChatGPT 대화 고유 URL (우선 적용)</label>
+<input id="chatgpt-url" inputType="url" placeholder="https://chatgpt.com/c/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+<label for="chatgpt-title">실제 ChatGPT 앱의 대화 제목 (URL이 없을 때 검색용)</label>
+<input id="chatgpt-title" placeholder="예: 조달 제안서 작성">
+<div class="row"><button id="save-room-target">선택 방의 ChatGPT URL·제목 저장</button></div>
+<div class="hint">주소창의 <code>https://chatgpt.com/c/...</code> 개인 대화 URL을 등록하십시오. 공유 스냅샷인 <code>/share/...</code>는 해당 채팅방에 메시지를 보낼 수 없어 사용할 수 없습니다. URL을 설정하면 다음 메시지부터 Android가 딥링크로 해당 대화를 엽니다.</div>
 <div class="row"><button class="primary" id="create-room">채팅방 생성</button><button id="list-rooms">목록 새로고침</button></div>
 <label>현재 선택된 채팅방</label><input id="room-id" readonly placeholder="채팅방을 생성하거나 아래에서 선택하십시오">
 <div class="row" style="margin-top:8px"><button class="primary" id="open-room">선택한 기존 채팅방을 Android에서 열기</button></div>
 <div class="row" style="margin-top:8px"><button id="bind-room">현재 Android 대화 연결 (고유 연결 메시지 1회 전송)</button></div>
 <div class="hint">기존 방을 찾지 못하면 휴대폰의 공식 ChatGPT에서 해당 대화를 직접 한 번 열고 위 연결 버튼을 누르십시오. 해당 대화에 고유 연결 메시지 1개를 전송하여 이후부터 자동 검색할 수 있도록 등록합니다. 다른 채팅방이 열려 있으면 연결하지 마십시오.</div>
-<div class="hint" id="room-open-status" role="status" aria-live="polite">기존 채팅방을 클릭하시면 Android의 해당 대화방을 찾아 이동합니다.</div>
+<div class="hint" id="room-open-status" role="status" aria-live="polite">방을 선택하면 연결된 ChatGPT 고유 URL을 Android로 전달하고 해당 대화를 엽니다. URL이 없으면 실제 제목·과거 메시지로 검색합니다.</div>
 </div>
 <div class="roomlist" id="room-list" style="margin-top:12px"><div class="entry small">채팅방 목록이 여기에 표시됩니다.</div></div>
 <div class="row" style="margin-top:12px"><button id="rename-room">선택한 방 이름 변경</button><button class="danger" id="delete-room">채팅방 삭제 요청</button></div>
@@ -294,11 +300,12 @@ async function openSelectedRoom(){
     roomOpenStatus('아직 Android에 생성되지 않은 방입니다. 질문을 처음 보내시면 신규 채팅방을 생성합니다.');
     return;
   }
-  roomOpenStatus('Android 기존 채팅방 열기 작업을 요청합니다: '+result.title);
+  await saveRoomTarget(id);
+  roomOpenStatus('Android 채팅방 URL로 이동 요청: '+result.title);
   const job=await call('POST','/api/v1/rooms/'+id+'/open'+queryUser(),undefined);
   roomOpenJobId=job.id;
   $('job-id').value=job.id;
-  $('room-open-status').textContent='Android에서 대화방을 검색하고 이전 메시지와 대조하고 있습니다…';
+  $('room-open-status').textContent='Android에서 ChatGPT 고유 URL로 이동 또는 제목 검색 중…';
   await refreshJobs();
   waitRoomOpen(job.id,id).catch(e=>roomOpenStatus('이동 작업 조회 실패: '+e.message));
 }
@@ -317,6 +324,26 @@ async function bindSelectedRoom(){
 }
 $('bind-room').onclick=guard(bindSelectedRoom);
 
+function expectedTargetForm(){
+  return {chatgpt_url:text('chatgpt-url')||null,
+          chatgpt_title:text('chatgpt-title')||null};
+}
+function showTargetForm(room){
+  $('chatgpt-url').value=room.chatgpt_url||'';
+  $('chatgpt-title').value=room.chatgpt_title||'';
+}
+async function saveRoomTarget(id){
+  if(!id)throw Error('채팅방을 선택하십시오.');
+  const patch=selectedUser(expectedTargetForm());
+  const room=await call('PATCH','/api/v1/rooms/'+id,patch);
+  showTargetForm(room);
+  return room;
+}
+$('save-room-target').onclick=guard(async()=>{
+  const room=await saveRoomTarget(selectedRoom());
+  roomOpenStatus('ChatGPT 대화 주소·제목 저장 완료: '+(room.chatgpt_url||room.chatgpt_title||'설정 없음'));
+  await refreshRooms();
+});
 async function refreshRooms(){
  const r=await call('GET','/api/v1/rooms'+queryUser());
  const root=$('room-list');root.replaceChildren();
@@ -324,9 +351,10 @@ async function refreshRooms(){
    const row=document.createElement('div');
    row.className='entry'+(item.id===text('room-id')?' selected':'');
    const b=document.createElement('button');b.className='entry-btn';
-   b.textContent=item.title+'  ['+item.status+' / Android '+item.android_state+']';
+   b.textContent=item.title+'  ['+(item.chatgpt_url?'고유 URL 연결':item.chatgpt_title?'제목 검색':'연결 주소 없음')+' / Android '+item.android_state+']';
    b.onclick=()=>{
      $('room-id').value=item.id;$('room-title').value=item.title;
+     showTargetForm(item);
      if(roomOpenJobId)roomOpenJobId=null;
      refreshRooms().catch(e=>log(e.message));
      refreshMessages().catch(e=>log(e.message));
@@ -343,9 +371,21 @@ async function refreshRooms(){
  }
  if(!r.rooms.length)root.textContent='채팅방 없음';
 }
-$('create-room').onclick=guard(async()=>{const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');const r=await call('POST','/api/v1/rooms',selectedUser({title}));$('room-id').value=r.id;await refreshRooms();log('Railway API 채팅방 생성 완료: '+r.id);});
+$('create-room').onclick=guard(async()=>{
+  const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');
+  const r=await call('POST','/api/v1/rooms',selectedUser({title,...expectedTargetForm()}));
+  $('room-id').value=r.id;
+  showTargetForm(r);
+  await refreshRooms();
+  log('Railway 채팅방 생성 · 연결된 ChatGPT URL: '+(r.chatgpt_url||'미설정'));
+});
 $('list-rooms').onclick=guard(refreshRooms);
-$('rename-room').onclick=guard(async()=>{const id=selectedRoom();const title=text('room-title');if(!title)throw Error('새 채팅방 이름을 입력하십시오.');await call('PATCH','/api/v1/rooms/'+id,selectedUser({title}));await refreshRooms();});
+$('rename-room').onclick=guard(async()=>{
+  const id=selectedRoom(),title=text('room-title');
+  if(!title)throw Error('새 채팅방 이름을 입력하십시오.');
+  await call('PATCH','/api/v1/rooms/'+id,selectedUser({title,...expectedTargetForm()}));
+  await refreshRooms();
+});
 $('delete-room').onclick=guard(async()=>{const id=selectedRoom();if(!confirm('이 채팅방의 Android 삭제 작업을 요청하시겠습니까? 실제 삭제 확인 전에는 완료로 표시되지 않습니다.'))return;await call('DELETE','/api/v1/rooms/'+id+queryUser());await refreshRooms();await refreshJobs();});
 function checkedFileIds(){return [...fileChecks.entries()].filter(x=>x[1]).map(x=>x[0]);}
 async function refreshFiles(){
@@ -410,6 +450,9 @@ $('upload-file').onclick=guard(async()=>{
 $('list-files').onclick=guard(refreshFiles);
 $('send-job').onclick=guard(async()=>{
  const id=selectedRoom(),message=text('message-text');
+ // Every job receives the selected room's exact persisted ChatGPT URL/title,
+ // never a title guessed from the currently open Android screen.
+ await saveRoomTarget(id);
  const local=[...$('file-pick').files],stored=checkedFileIds();
  if(!message)throw Error('질문을 입력해 주십시오.');
  if(local.length>10||stored.length>10)throw Error('최대 10개 파일까지 전송할 수 있습니다.');
