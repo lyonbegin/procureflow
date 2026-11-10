@@ -24,9 +24,28 @@ case ":$EXISTING:" in
   "::") UPDATED="$SERVICE" ;;
   *) UPDATED="$EXISTING:$SERVICE" ;;
 esac
-adb shell settings put secure enabled_accessibility_services "$UPDATED"
-adb shell settings put secure accessibility_enabled 1
-sleep 7
+# Android 15 can revert secure settings before its accessibility manager
+# finishes bootstrapping. Retry a bounded number of times and require actual
+# manager binding rather than trusting a successful settings command.
+ENABLED=0
+: > controller-evidence/accessibility-attempts.txt
+for attempt in 1 2 3 4 5; do
+  adb shell cmd appops set com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS allow
+  adb shell settings put secure enabled_accessibility_services "$UPDATED"
+  adb shell settings put secure accessibility_enabled 1
+  sleep 5
+  ACTUAL="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
+  adb shell dumpsys accessibility > controller-evidence/accessibility-attempt.txt
+  printf 'attempt=%d enabled=%s bound=%s\n' "$attempt" "$ACTUAL" "$(
+    grep -q 'Bound services:{Service\\[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt &&
+    printf yes || printf no
+  )" | tee -a controller-evidence/accessibility-attempts.txt
+  if [[ "$ACTUAL" == *"com.hitel.chatrelay"* ]] &&
+     grep -q 'Bound services:{Service\\[label=ChatGPT Relay Control' controller-evidence/accessibility-attempt.txt; then
+    ENABLED=1
+    break
+  fi
+done
 adb shell settings get secure enabled_accessibility_services | tee controller-evidence/enabled-accessibility-services.txt
 adb shell cmd appops get com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS | tee controller-evidence/post-enable-appop.txt
 adb shell dumpsys accessibility > controller-evidence/accessibility.txt
@@ -41,7 +60,8 @@ if grep -E 'FATAL EXCEPTION' controller-evidence/logcat.txt; then
   echo 'FAIL: Android crash detected' >&2
   exit 1
 fi
-if ! grep -q 'com.hitel.chatrelay' controller-evidence/enabled-accessibility-services.txt; then
+if [[ "$ENABLED" != 1 ]] ||
+   ! grep -q 'com.hitel.chatrelay' controller-evidence/enabled-accessibility-services.txt; then
   echo 'FAIL_ACCESSIBILITY_NOT_ENABLED_ANDROID_RESTRICTED_SETTINGS' | tee controller-evidence/result.txt
   exit 1
 fi
