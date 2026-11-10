@@ -122,13 +122,20 @@ python3 .github/scripts/relay-live-android-api.py assert-failed "$JOB_FILES" \
 
 python3 -c 'import json,sys; d=json.load(sys.stdin);[print(f["id"]+" "+f["name"]+" "+f["sha256"]) for f in d["files"]]' \
   < android-socket-evidence/file-job-metadata.json > android-socket-evidence/file-checks.txt
+VERIFY_COUNT=0
 while read -r FID FNAME FSHA; do
   DEVICE_FILE="files/relay-attachments/$JOB_FILES/$FID/$FNAME"
-  DEVICE_SHA="$(adb shell run-as com.hitel.chatrelay sha256sum "$DEVICE_FILE" | tr -d '\r' | awk '{print $1}')"
+  # adb shell reads stdin by default; without /dev/null it steals the next
+  # record from the while-read input stream and silently skips documents.
+  DEVICE_SHA="$(adb shell run-as com.hitel.chatrelay sha256sum "$DEVICE_FILE" </dev/null | tr -d '\r' | awk '{print $1}')"
   printf '%s file=%s expected=%s actual=%s\n' "$FID" "$FNAME" "$FSHA" "$DEVICE_SHA" \
     | tee -a android-socket-evidence/verified-file-sha256.txt
   test "$DEVICE_SHA" = "$FSHA"
+  VERIFY_COUNT=$((VERIFY_COUNT+1))
 done < android-socket-evidence/file-checks.txt
+# Both independently supplied original files MUST be checked on Android.
+test "$VERIFY_COUNT" -eq 2
+test "$(wc -l < android-socket-evidence/verified-file-sha256.txt)" -eq 2
 
 adb shell dumpsys accessibility > android-socket-evidence/final-accessibility.txt
 adb shell screencap -p /sdcard/relay-live-ws.png
