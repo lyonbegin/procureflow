@@ -32,11 +32,11 @@
 <div class="stack">
 <section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
 <div class="step"><div class="fields">
-<label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" placeholder="이전에 발급된 CONSOLE_TOKEN을 입력하십시오">
+<label for="admin-token">관리 콘솔 토큰 (기본값 적용)</label><input id="admin-token" type="password" autocomplete="off" value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn" placeholder="테스트 기본 토큰">
 <div id="api-auth-status" role="status" aria-live="polite">인증되지 않았습니다. 기존 관리자 토큰이나 사용자 API Key를 입력해 주십시오.</div>
 <label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" autocomplete="off" placeholder="사용자별 발급키를 입력하시면 관리 토큰 대신 사용합니다">
 <div class="row"><button class="primary" id="verify-auth">인증 확인 · API 연결</button><button id="forget-auth">입력된 인증키 지우기</button></div>
-<div class="auth-guide">이 브라우저에서 한 번 인증하시면 다음 접속부터 <strong>7일간 로그인 상태가 자동 복원</strong>됩니다. 기존에 브라우저에 저장된 인증키도 자동으로 채워집니다. 최초 1회 입력할 값은 Railway <strong>chatgpt-relay-web → Variables → CONSOLE_TOKEN</strong>에서 확인하실 수 있습니다. Android 기기 토큰은 여기에 넣지 마십시오.</div>
+<div class="auth-guide">이 테스트 페이지에는 요청하신 기존 기본값이 미리 입력됩니다. 별도 입력 없이 API 테스트를 시작하실 수 있습니다.</div>
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
 <div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
@@ -117,8 +117,15 @@ const $=id=>document.getElementById(id);
 const text=(id)=>$(id).value.trim();
 const logbox=$('event-log');
 // Persist credentials only on the current browser device, not in the public HTML.
-$('admin-token').value=localStorage.getItem('relay_admin_token')||'';
+// The operator explicitly requested the previous test console default.
+// Keep explicit custom browser values, but restore the historical default
+// on fresh browsers so test buttons work without manual credential entry.
+$('admin-token').value=localStorage.getItem('relay_admin_token')||$('admin-token').defaultValue;
 $('user-api-key').value=localStorage.getItem('relay_user_api_key')||'';
+// The test default is administrator-scoped. A stale user API key should not
+// unintentionally override it when reopening the test console.
+if ($('admin-token').value && !$('user-api-key').value)
+  localStorage.setItem('relay_admin_token',$('admin-token').value);
 $('user-id').value=localStorage.getItem('relay_user_id')||'tester-a';
 for(const id of ['admin-token','user-api-key','user-id']) {
   $(id).addEventListener('input',()=>{
