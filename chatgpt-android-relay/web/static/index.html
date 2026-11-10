@@ -205,10 +205,12 @@ function driveAuthReady(){
   $('api-auth-status').style.color=ok?'#31654f':'#a2382d';
   return ok;
 }
+let cachedDriveSetup=null;
 async function getPublicDriveSetup(){
   const response=await fetch('/api/v1/drive/setup',{cache:'no-store'});
   if(!response.ok) throw Error('Drive 설정 확인 실패 · HTTP '+response.status);
   const setup=await response.json();
+  cachedDriveSetup=setup;
   $('drive-setup').hidden=!!setup.oauth_configured;
   if(setup.redirect_uri)$('drive-redirect').textContent=setup.redirect_uri;
   return setup;
@@ -255,7 +257,14 @@ async function loadDriveStatus(){
   return info;
 }
 $('drive-status-btn').onclick=()=>driveAction($('drive-status-btn'),loadDriveStatus);
-$('drive-connect').onclick=()=>driveAction($('drive-connect'),async()=>{
+$('drive-connect').onclick=()=>{
+  // Open the sign-in window synchronously with the click, before the
+  // asynchronous API request, so browser popup blockers do not suppress it.
+  // When OAuth is not configured do not show a misleading Google login.
+  const popup=cachedDriveSetup?.oauth_configured && driveAuthReady()
+    ? window.open('about:blank','relay_google_oauth','width=580,height=730')
+    : null;
+  driveAction($('drive-connect'),async()=>{
   const setup=await getPublicDriveSetup();
   if(!setup.oauth_configured){
     const missing=(setup.missing_variables||[]).join(', ');
@@ -272,9 +281,20 @@ $('drive-connect').onclick=()=>driveAction($('drive-connect'),async()=>{
   const result=await call('POST','/api/v1/drive/connect'+queryUser());
   if(!result.authorization_url||!result.authorization_url.startsWith('https://accounts.google.com/'))
     throw Error('Google OAuth 인증 주소가 올바르지 않습니다.');
-  driveFeedback('Google 로그인 페이지로 이동합니다.','success');
-  location.assign(result.authorization_url);
-});
+  driveFeedback('Google 계정 선택 및 접근 권한 동의 화면을 엽니다.','success');
+  if(popup && !popup.closed){
+    popup.location.replace(result.authorization_url);
+    popup.focus();
+  }else{
+    // Blocked popups still fall back to same-tab navigation.
+    location.assign(result.authorization_url);
+  }
+  }).finally(()=>{
+    if(popup && !popup.closed && $('drive-status').classList.contains('error')){
+      popup.close();
+    }
+  });
+};
 $('drive-folder').onclick=guard(async()=>{const id=selectedRoom();const r=await call('POST','/api/v1/drive/rooms/'+id+'/folder'+queryUser());log('Chat room Google Drive folder: '+r.drive_folder_id);await refreshRooms();});
 $('send-job').onclick=guard(async()=>{const id=selectedRoom();const textBody=text('message-text');const attachments=checkedFileIds();if(!textBody&&!attachments.length)throw Error('질문 또는 첨부파일을 지정하십시오.');const result=await call('POST','/api/v1/rooms/'+id+'/messages',selectedUser({text:textBody,attachment_ids:attachments}));$('job-id').value=result.id;log('작업 대기열 등록 '+result.id+' · 채팅방 '+id);await refreshJobs();await refreshMessages();});
 async function refreshJobs(){const r=await call('GET','/api/v1/jobs'+queryUser());const list=$('job-list');list.replaceChildren();for(const job of r.jobs){const div=document.createElement('div');div.className='entry';const b=document.createElement('button');b.className='entry-btn';b.textContent=job.action+' · '+job.status+' · '+job.stage;b.onclick=()=>{$('job-id').value=job.id;viewResponse(200,job);};div.append(b);const c=document.createElement('code');c.textContent=job.id+'  /  '+job.room_id;div.append(c);if(job.error){const x=document.createElement('div');x.className='small';x.textContent=job.error;div.append(x);}list.append(div);}if(!r.jobs.length)list.textContent='작업 내역 없음';}
