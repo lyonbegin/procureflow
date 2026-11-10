@@ -328,8 +328,24 @@ def main():
                               "verified":True,"result_text":"",
                               "room_id":linked_id,"room_state":"active",
                               "stage":"deeplink_app_landed"})
+            # A deep-link landing is not proof of an existing room.
             for _ in range(40):
                 opened_status=client.get("/api/v1/jobs/"+opened.json()["id"],
+                                         headers=auth_a).json()
+                if opened_status["status"]=="failed":break
+                time.sleep(.025)
+            assert opened_status["status"]=="failed",opened_status
+            assert opened_status["stage"]=="UNVERIFIED_JOB_COMPLETION"
+            assert client.get("/api/v1/rooms/"+linked_id,
+                              headers=auth_a).json()["android_state"]=="unverified"
+            verified_open=client.post("/api/v1/rooms/"+linked_id+"/open",headers=auth_a)
+            assert verified_open.status_code==200,verified_open.text
+            assert device.receive_json()["job"]["id"]==verified_open.json()["id"]
+            device.send_json({"type":"job.result","job_id":verified_open.json()["id"],
+                "verified":True,"result_text":"","room_id":linked_id,
+                "room_state":"active","stage":"room_open_verified"})
+            for _ in range(40):
+                opened_status=client.get("/api/v1/jobs/"+verified_open.json()["id"],
                                          headers=auth_a).json()
                 if opened_status["status"]=="completed":break
                 time.sleep(.025)
