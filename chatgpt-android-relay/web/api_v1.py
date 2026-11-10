@@ -274,10 +274,10 @@ async def create_message(room_id: str, data: MessageCreate, actor=Depends(authen
                           (fid,uid,room_id)).fetchone()
             if not f:
                 raise HTTPException(422, "File does not belong to this user/room: " + fid)
-            if f["kind"] != "drive" or not f["drive_url"]:
-                raise HTTPException(409, "This file was stored on Railway. Upload it again via Google Drive; Android file-picker transfer is disabled.")
-            if not f["drive_shared"]:
-                raise HTTPException(409, "Google Drive link is private. Explicitly enable link sharing before sending to ChatGPT.")
+            if f["kind"] not in ("input", "drive"):
+                raise HTTPException(409, "Output files cannot be attached to ChatGPT")
+            if f["kind"] == "drive" and (not f["drive_url"] or not f["drive_shared"]):
+                raise HTTPException(409, "Drive link is private; only an explicit shared link can be sent")
         jid = store_job(c, uid, room_id, "chat.send", data.text, data.attachment_ids)
         c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
                   ("msg_"+new_id(), uid, room_id, jid, "user", data.text, clock()))
@@ -285,6 +285,58 @@ async def create_message(room_id: str, data: MessageCreate, actor=Depends(authen
     if on_new_job:
         await on_new_job()
     return public_job(job)
+
+@router.post("/rooms/{room_id}/turns")
+async def submit_turn_with_files(
+    room_id: str,
+    user_id: str | None = Form(default=None),
+    text: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+    actor=Depends(authentication)
+):
+    """One multipart API call: upload real file bytes, queue Android chat job.
+
+    The queued job carries file IDs, authenticated Android fetches real bytes.
+    No Drive account, public URL or Google OAuth is required.
+    """
+    uid = user_scope(user_id, actor)
+    if len(text) > 24000:
+        raise HTTPException(422, "Question exceeds 24000 characters")
+    if not text.strip():
+        raise HTTPException(422, "A question is required to send attachments safely")
+    if len(files) > 10:
+        raise HTTPException(422, "Maximum 10 attachments per turn")
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room is not active")
+    accepted = []
+    try:
+        for upload in files:
+            accepted.append(_write_upload(upload, uid, room_id, None, "input"))
+        ids = [f["id"] for f in accepted]
+        with connection() as c:
+            room = existing_room(c, room_id, uid)
+            if room["status"] != "active":
+                raise HTTPException(409, "Room is not active")
+            jid = store_job(c, uid, room_id, "chat.send", text, ids)
+            c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                      ("msg_"+new_id(), uid, room_id, jid, "user", text, clock()))
+            job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    except Exception:
+        # Avoid orphaned files if a later upload or database transaction fails.
+        for file in accepted:
+            with connection() as c:
+                c.execute("DELETE FROM file_objects WHERE id=? AND user_id=?", (file["id"],uid))
+            ext = Path(file["name"]).suffix.lower()
+            (FILES / (file["id"]+ext)).unlink(missing_ok=True)
+        raise
+    if on_new_job:
+        await on_new_job()
+    response = public_job(job)
+    response["files"] = accepted
+    return response
+
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, user_id: str | None = None, actor=Depends(authentication)):
@@ -416,32 +468,37 @@ def claim_next_job():
         room = c.execute("SELECT * FROM rooms WHERE id=?", (r["room_id"],)).fetchone()
         job = public_job(item)
         job["room"] = dict(room)
-        # Deliver Google Drive links as ordinary question text, NEVER as
-        # Android file attachments. The old Accessibility +/file-picker path is
-        # deliberately disabled for API jobs.
+        # Railway files travel as bytes over authenticated HTTPS. Send
+        # metadata to the Android relay; never substitute file URLs for bytes.
+        # Retain old Drive links only for explicitly registered legacy links.
+        direct_ids = []
+        details = []
         links = []
         for fid in job["attachment_ids"]:
-            row = c.execute("""SELECT id,name,mime,drive_url,drive_file_id,drive_shared
+            row = c.execute("""SELECT id,kind,name,mime,size,sha256,relative_path,
+                                      drive_url,drive_file_id,drive_shared
                                FROM file_objects WHERE id=? AND user_id=? AND room_id=?""",
                             (fid,job["user_id"],job["room_id"])).fetchone()
-            if not row or not row["drive_file_id"] or not row["drive_url"] or not row["drive_shared"]:
-                raise RuntimeError("Job contains a Drive file without a readable link: " + fid)
-            links.append({"id":row["id"],"name":row["name"],"mime":row["mime"],
-                          "url":row["drive_url"]})
+            if not row:
+                raise RuntimeError("Job references a missing scoped file: " + fid)
+            if row["kind"] == "input":
+                path = FILES / row["relative_path"]
+                if not path.is_file():
+                    raise RuntimeError("Job references a missing Railway file: " + fid)
+                direct_ids.append(fid)
+                details.append({k:row[k] for k in ("id","name","mime","size","sha256")})
+            elif row["kind"] == "drive" and row["drive_url"] and row["drive_shared"]:
+                links.append({"id":fid,"name":row["name"],"mime":row["mime"],
+                              "url":row["drive_url"]})
+            else:
+                raise RuntimeError("Job references an unavailable or private attachment: " + fid)
         if links:
-            body = [
-                "다음 자료는 Google Drive에 있는 파일 링크입니다.",
-                "링크에 실제로 접근할 수 있으면 파일을 확인하여 질문에 답변해 주십시오.",
-                "접근할 수 없거나 이미지 내용을 읽을 수 없으면 반드시 그 사실을 설명해 주십시오.",
-                "링크가 있다는 이유만으로 이미지 내용을 확인했다고 가정하지 마십시오.",
-                "",
-            ]
-            for index, file in enumerate(links,1):
-                body.append(f"{index}. {file['name']} ({file['mime']}): {file['url']}")
-            job["text"] = (job["text"] + "\n\n" + "\n".join(body)).strip()
+            job["text"] = (job["text"] + "\n\n" +
+                "참고할 수 있는 외부 자료 링크 (파일 접근이 불가능하면 그 사실을 설명해 주십시오):\n" +
+                "\n".join(f"- {x['name']}: {x['url']}" for x in links)).strip()
         job["drive_links"] = links
-        job["attachment_ids"] = []
-        job["attachment_details"] = []
+        job["attachment_ids"] = direct_ids
+        job["attachment_details"] = details
         # A restarted controller has no volatile room mapping. Provide only
         # previously COMPLETED messages from the SAME user and room so the
         # Android accessibility layer can verify the visible conversation.
