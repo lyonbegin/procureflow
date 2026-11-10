@@ -28,6 +28,15 @@ async function fakeFetch(url,args={}){
   if(!headers["X-Console-Token"]&&!headers["X-API-Key"])
     return result(401,{detail:"Missing API key"});
   if(path.startsWith("/api/v1/rooms?")&&method==="GET")return result(200,{rooms:state.rooms});
+  if(path.startsWith("/api/v1/rooms/"+roomId+"?")&&method==="GET")
+    return result(200,{...state.rooms[0],android_state:"active"});
+  if(path.startsWith("/api/v1/rooms/"+roomId+"/open?")&&method==="POST"){
+    const job={id:"job_nav_123",room_id:roomId,action:"room.open",status:"queued",stage:"queued"};
+    state.jobs.push(job);return result(200,job);
+  }
+  if(path.startsWith("/api/v1/jobs/job_nav_123?")&&method==="GET")
+    return result(200,{id:"job_nav_123",room_id:roomId,action:"room.open",
+                       status:"completed",stage:"room_open_verified"});
   if(path==="/api/v1/rooms"&&method==="POST"){
     const j=JSON.parse(args.body);
     const room={id:roomId,title:j.title,user_id:j.user_id,status:"active",android_state:"uncreated"};
@@ -109,6 +118,15 @@ doc.querySelector("#room-title").value="Direct relay room";
 doc.querySelector("#create-room").click();
 await pause();
 assert.equal(doc.querySelector("#room-id").value,roomId);
+assert.ok(doc.querySelector("#open-room"),"Explicit existing-room navigation button present");
+assert.match(doc.querySelector("#room-open-status").textContent,/기존 채팅방/);
+doc.querySelector("#room-list .entry-btn").click();
+await pause();
+await pause();
+assert.ok(calls.some(x=>x.method==="POST"&&x.path.startsWith("/api/v1/rooms/"+roomId+"/open?")));
+assert.match(doc.querySelector("#room-open-status").textContent,/검증 완료/);
+assert.equal(doc.querySelector("#job-id").value,"job_nav_123");
+state.jobs=[];
 
 let selected=[
   new dom.window.File(["pngbytes"],"picture.png",{type:"image/png"}),
@@ -147,5 +165,5 @@ assert.ok(saved);
 // Newly uploaded file is preselected; selecting another saved file results in both.
 assert.equal(JSON.parse(saved.body).attachment_ids.length,2);
 assert.ok(!calls.some(x=>x.path.includes("/drive/")));
-console.log("PASS: historical default prefilled and auto-authenticated; API tester works without manual key input");
+console.log("PASS: default login, existing-room click -> Android room.open, direct Railway file upload and job requests");
 dom.window.close();
