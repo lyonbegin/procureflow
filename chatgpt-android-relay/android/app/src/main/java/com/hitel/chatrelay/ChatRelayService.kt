@@ -48,6 +48,7 @@ class ChatRelayService : AccessibilityService() {
     private var sharePreviewsBefore = 0
     private var pendingPickerDisplayName: String? = null
     private var pendingPickerUri: Uri? = null
+    private val pendingPickerCleanup = ArrayList<Uri>()
     private val chrome = setOf("메뉴","새 채팅","메뉴 편집","ChatGPT에게 답변하기","복사","소리 내어 읽기",
         "공유","추가 작업","좋아요","별로예요","음성 대화 시작","첨부파일","받아쓰기",
         "ChatGPT","Copy","Share","Read aloud","New chat","Menu","Regenerate",
@@ -453,33 +454,41 @@ class ChatRelayService : AccessibilityService() {
     }
 
 
-    // For an *existing* conversation, ACTION_SEND opens ChatGPT's general
-    // intake rather than reliably attaching to the current thread. Use the
-    // in-chat attachment menu and Android DocumentsUI instead.
-    private fun pickFileInsideExistingRoom(job: JSONObject, staged: List<StagedAttachment>) {
+    // Every file is selected through the current ChatGPT composer. ACTION_SEND
+    // is deliberately not used: it can create an unrelated new conversation.
+    // Choose only our unique MediaStore filename, never an arbitrary photo.
+    private fun pickFileInsideExistingRoom(
+        job: JSONObject, staged: List<StagedAttachment>, index: Int = 0
+    ) {
         val jid = job.optString("id")
         val roomId = job.optJSONObject("room")?.optString("id").orEmpty()
-        if (staged.size != 1) {
-            finishApiJob(jid, false,
-                "In-chat picker currently supports one file per job; submit individual files separately")
+        if (currentRoomId != roomId) {
+            finishApiJob(jid, false, "Target ChatGPT room is not verified; no file attached")
             return
         }
-        if (currentRoomId != roomId) {
-            finishApiJob(jid, false, "Target room is not current; in-chat picker refused")
+        if (index >= staged.size) {
+            progress(jid, "파일 " + staged.size + "개 첨부 표시 확인 완료 · 질문 전송")
+            val question = activeApiJob?.optString("text").orEmpty()
+            if (question.isBlank()) {
+                finishApiJob(jid, false, "Question is empty; no attachment-only send")
+            } else {
+                sendChat(jid, question)
+            }
             return
         }
         withChatApp(jid) {
+            val fresh = job.optJSONObject("room")?.optString("android_state") == "uncreated"
             val anchor = roomLastPrompt
-            if (!visibleRoomAnchor(anchor)) {
-                finishApiJob(jid, false,
-                    "Existing room is not visible before attachment picker; no file was selected")
+            if (!fresh && !visibleRoomAnchor(anchor)) {
+                finishApiJob(jid,false,
+                    "Existing room not visible before Android file picker; no message sent")
                 snapshot()
                 return@withChatApp
             }
-            shareRoomAnchor = anchor
+            shareRoomAnchor = if (fresh) "" else anchor
             sharePreviewsBefore = composerAttachmentSignals()
-            val stagedFile = staged[0]
-            progress(jid, "기존 대화방 확인 완료 · Android 파일 선택기 준비")
+            val stagedFile = staged[index]
+            progress(jid, "ChatGPT 채팅방 확인 · 파일 " + (index+1) + "/" + staged.size + " 준비")
             thread(start = true, name = "relay-media-publish") {
                 var uri: Uri? = null
                 var failed: String? = null
@@ -495,10 +504,10 @@ class ChatRelayService : AccessibilityService() {
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                     uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, content)
-                        ?: throw IllegalStateException("MediaStore Downloads insertion returned null")
+                        ?: throw IllegalStateException("Cannot insert into Android Downloads")
                     contentResolver.openOutputStream(uri!!)?.use { output ->
                         stagedFile.file.inputStream().use { input -> input.copyTo(output) }
-                    } ?: throw IllegalStateException("MediaStore output stream not available")
+                    } ?: throw IllegalStateException("Android Downloads output unavailable")
                     contentResolver.update(uri!!,
                         ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
                         null, null)
@@ -508,22 +517,60 @@ class ChatRelayService : AccessibilityService() {
                 main.post {
                     if (activeApiJob?.optString("id") != jid) return@post
                     if (failed != null) {
-                        finishApiJob(jid, false, "Could not stage file in Android Downloads: " + failed)
+                        finishApiJob(jid, false, "Android file publish failed: " + failed)
                         return@post
                     }
+                    uri?.let { pendingPickerCleanup.add(it) }
                     pendingPickerUri = uri
                     pendingPickerDisplayName = uniqueName
-                    progress(jid, "Downloads/ChatGPTRelay에 파일 공개 · 첨부 버튼 탐색")
+                    progress(jid, "Android Downloads에 고유 파일 저장 · ChatGPT 첨부 열기")
                     val attach = findComposerAttachButton()
                     if (attach == null || !attach.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         snapshot()
-                        finishApiJob(jid, false, "ChatGPT attachment button was not found or not clickable")
+                        finishApiJob(jid, false,
+                            "ChatGPT input-area attachment (+) button was not found/clickable")
                         return@post
                     }
-                    main.postDelayed({ waitInChatPicker(jid, staged, 0, 0) }, 500)
+                    main.postDelayed({ waitInChatPicker(jid, staged, index, 0, 0) }, 500)
                 }
             }
         }
+    }
+
+    private fun createRoomForAttachments(
+        job: JSONObject, staged: List<StagedAttachment>, attempt: Int
+    ) {
+        val jid = job.optString("id")
+        val rid = job.optJSONObject("room")?.optString("id").orEmpty()
+        if (activeApiJob?.optString("id") != jid) return
+        if (rootInActiveWindow?.packageName?.toString() != chatPackage) {
+            finishApiJob(jid, false, "ChatGPT not foreground for fresh attachment room")
+            return
+        }
+        val newChat = namedControl(listOf("새 채팅","new chat","new conversation"))
+        if (newChat != null && newChat.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            progress(jid, "새 ChatGPT 채팅 버튼 클릭")
+            main.postDelayed({
+                if (activeApiJob?.optString("id") != jid) return@postDelayed
+                if (composerInput(nodes(rootInActiveWindow)) == null) {
+                    finishApiJob(jid,false,"No chat composer after New Chat click")
+                    return@postDelayed
+                }
+                currentRoomId = rid
+                roomLastPrompt = ""
+                pickFileInsideExistingRoom(job,staged)
+            },800)
+            return
+        }
+        if (attempt == 0) {
+            val menu = namedControl(listOf("메뉴","menu","sidebar","open navigation"))
+            if (menu?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
+                main.postDelayed({ createRoomForAttachments(job,staged,1) },650)
+                return
+            }
+        }
+        finishApiJob(jid,false,"Cannot open fresh ChatGPT conversation for file attachment")
+        snapshot()
     }
 
     private fun findComposerAttachButton(): AccessibilityNodeInfo? {
