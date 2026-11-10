@@ -217,6 +217,75 @@ def main():
                  data={"text":"bad type","user_id":"alice"},
                  files=[("files",("attack.exe",b"bad","application/octet-stream"))]).status_code==415
 
+            # Legacy chat with only tiny messages cannot be verified by a
+            # fabricated long anchor. A deliberate one-time bind message
+            # creates a searchable durable marker for this exact room.
+            short_room=client.post("/api/v1/rooms",headers=auth_a,
+                                   json={"title":"Short legacy room"}).json()["id"]
+            short_job=client.post("/api/v1/rooms/"+short_room+"/messages",headers=auth_a,
+                                  json={"text":"Hi"}).json()["id"]
+            packet=device.receive_json()
+            assert packet["type"]=="job" and packet["job"]["id"]==short_job
+            device.send_json({"type":"job.result","job_id":short_job,"verified":True,
+                              "result_text":"Hello","room_id":short_room,
+                              "room_state":"active","stage":"assistant_reply_stable"})
+            for _ in range(40):
+                v=client.get("/api/v1/jobs/"+short_job,headers=auth_a).json()
+                if v["status"]=="completed": break
+                time.sleep(.025)
+            assert v["status"]=="completed"
+            old_open=client.post("/api/v1/rooms/"+short_room+"/open",headers=auth_a)
+            assert old_open.status_code==200
+            old_packet=device.receive_json()
+            assert old_packet["job"]["room_anchors"]==[]
+            device.send_json({"type":"job.error","job_id":old_open.json()["id"],
+                              "verified":False,
+                              "reason":"LEGACY_BIND_REQUIRED",
+                              "stage":"legacy_bind_required"})
+            for _ in range(40):
+                v=client.get("/api/v1/jobs/"+old_open.json()["id"],
+                             headers=auth_a).json()
+                if v["status"]=="failed":break
+                time.sleep(.025)
+            assert v["status"]=="failed"
+            assert client.post("/api/v1/rooms/"+short_room+"/bind",headers=auth_b).status_code==404
+            binding=client.post("/api/v1/rooms/"+short_room+"/bind",headers=auth_a)
+            assert binding.status_code==200,binding.text
+            bound_packet=device.receive_json()
+            assert bound_packet["job"]["action"]=="room.bind"
+            marker=bound_packet["job"]["text"]
+            assert marker=="HITEL Relay room marker "+short_room
+            device.send_json({"type":"job.result","job_id":binding.json()["id"],
+                              "verified":True,"result_text":"Linked",
+                              "room_id":short_room,"room_state":"active",
+                              "stage":"assistant_reply_stable"})
+            for _ in range(40):
+                v=client.get("/api/v1/jobs/"+binding.json()["id"],
+                             headers=auth_a).json()
+                if v["status"]=="completed":break
+                time.sleep(.025)
+            assert v["status"]=="completed",v
+            recovered=client.post("/api/v1/rooms/"+short_room+"/open",headers=auth_a)
+            assert recovered.status_code==200,recovered.text
+            recovery_packet=device.receive_json()
+            assert any(x["text"]==marker
+                       for x in recovery_packet["job"]["room_anchors"])
+            assert marker[:34] in recovery_packet["job"]["room_search_terms"]
+            device.send_json({"type":"job.result","job_id":recovered.json()["id"],
+                              "verified":True,"result_text":"",
+                              "room_id":short_room,"room_state":"active",
+                              "stage":"room_open_verified"})
+            for _ in range(40):
+                v=client.get("/api/v1/jobs/"+recovered.json()["id"],
+                             headers=auth_a).json()
+                if v["status"]=="completed":break
+                time.sleep(.025)
+            assert v["status"]=="completed",v
+            # No silent extra user message is created by navigation-only opens.
+            messages=client.get("/api/v1/rooms/"+short_room+"/messages",
+                                headers=auth_a).json()["messages"]
+            assert sum(m["role"]=="user" for m in messages)==2
+
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
             delete_job=device.receive_json()
