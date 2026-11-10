@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
+import api_v1
 
 ROOT = Path(__file__).resolve().parent
-app = FastAPI(title="ChatGPT Android Relay", docs_url=None, redoc_url=None)
+app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
+app.include_router(api_v1.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
@@ -21,6 +23,42 @@ device: WebSocket | None = None
 pending: dict[str, dict[str, Any]] = {}
 recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
+active_job_id: str | None = None
+job_dispatch_lock = asyncio.Lock()
+
+async def dispatch_next():
+    global active_job_id
+    if device is None or active_job_id:
+        return
+    async with job_dispatch_lock:
+        if device is None or active_job_id:
+            return
+        job = api_v1.claim_next_job()
+        if job is None:
+            return
+        active_job_id = job["id"]
+        try:
+            await transmit(device, event("job", job=job))
+            await broadcast(event("job.dispatched", job_id=job["id"], room_id=job["room_id"],
+                                  action=job["action"], user_id=job["user_id"]))
+            print(f"[relay-v1] dispatched job={job['id'][:12]} room={job['room_id'][:12]}", flush=True)
+            asyncio.create_task(job_timeout(job["id"]))
+        except Exception as exc:
+            api_v1.release_running_job(job["id"], "Device transport: " + str(exc))
+            active_job_id = None
+
+async def job_timeout(job_id: str):
+    global active_job_id
+    await asyncio.sleep(150)
+    if active_job_id == job_id:
+        api_v1.update_job(job_id, status="failed", stage="timed_out",
+                          error="No verified Android completion after 150 seconds")
+        active_job_id = None
+        await broadcast(event("job.error", job_id=job_id, reason="Timeout"))
+        await dispatch_next()
+
+api_v1.on_new_job = dispatch_next
+
 
 async def timeout_command(command_id: str):
     await asyncio.sleep(50)
@@ -61,12 +99,13 @@ async def download_controller():
 @app.get("/health")
 async def health():
     return {"status": "ok", "deviceOnline": device is not None,
+            "activeApiJob": active_job_id,
             "consoleCount": len(consoles),
             "lastCommand": {"stage": last_command.get("stage", "idle")}}
 
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
-    global device
+    global device, active_job_id
     await ws.accept()
     role = ""
     try:
@@ -92,6 +131,7 @@ async def socket(ws: WebSocket):
             print("[relay] Android authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
+            await dispatch_next()
         else:
             consoles.add(ws)
             print("[relay] Web console authenticated", flush=True)
@@ -111,6 +151,9 @@ async def socket(ws: WebSocket):
                     continue
                 if role == "console":
                     if kind != "command":
+                        continue
+                    if active_job_id:
+                        await transmit(ws, event("command.error", reason="API job in progress; use /api/v1/jobs"))
                         continue
                     cmd_id = str(msg.get("id", ""))[:80]
                     action = str(msg.get("action", ""))
@@ -141,7 +184,30 @@ async def socket(ws: WebSocket):
                         pending.pop(cmd_id, None)
                         await transmit(ws, event("command.error", id=cmd_id, reason="Device transport failed"))
                 elif role == "device":
-                    if kind in {"command.received", "command.progress", "command.result", "command.error"}:
+                    if kind in {"job.received", "job.progress", "job.result", "job.error"}:
+                        jid = str(msg.get("job_id", ""))
+                        if jid != active_job_id:
+                            continue
+                        if kind in {"job.received", "job.progress"}:
+                            stage = str(msg.get("stage", kind))[:100]
+                            api_v1.update_job(jid, stage=stage)
+                            await broadcast(event(kind, job_id=jid, stage=stage))
+                        else:
+                            good = kind == "job.result" and msg.get("verified") is True
+                            stage = str(msg.get("stage", "completed" if good else "failed"))[:100]
+                            output = str(msg.get("result_text", ""))[:100000] if good else None
+                            api_v1.update_job(jid, status="completed" if good else "failed",
+                                              stage=stage, result_text=output,
+                                              error=None if good else str(msg.get("reason", "Android action was not verified"))[:500])
+                            if good and msg.get("room_id") and msg.get("room_state"):
+                                api_v1.set_room_android_state(str(msg["room_id"]), str(msg["room_state"]), str(msg.get("android_title", "")) or None)
+                            await broadcast(event(kind, job_id=jid, verified=good,
+                                                  stage=stage, result_text=output,
+                                                  reason=msg.get("reason")))
+                            print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
+                            active_job_id = None
+                            await dispatch_next()
+                    elif kind in {"command.received", "command.progress", "command.result", "command.error"}:
                         cmd_id = str(msg.get("id", ""))[:80]
                         if cmd_id not in pending:
                             continue
@@ -170,6 +236,11 @@ async def socket(ws: WebSocket):
             consoles.discard(ws)
         elif role == "device" and device is ws:
             device = None
+            if active_job_id:
+                api_v1.release_running_job(active_job_id)
+                await broadcast(event("job.error",job_id=active_job_id,
+                                      reason="Device disconnected; not automatically retried to prevent duplicate submissions"))
+                active_job_id = None
             for cmd_id in list(pending):
                 pending.pop(cmd_id, None)
                 await broadcast(event("command.error", id=cmd_id, reason="Android device disconnected"))
