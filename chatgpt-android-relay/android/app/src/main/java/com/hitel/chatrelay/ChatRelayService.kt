@@ -38,6 +38,7 @@ class ChatRelayService : AccessibilityService() {
     private var pendingSendId: String? = null
     private var activeApiJob: JSONObject? = null
     private var currentRoomId: String? = null
+    private var deepLinkRoutedJobId: String? = null
     private var roomLastPrompt: String = ""
     private data class StagedAttachment(
         val id: String, val name: String, val mime: String, val file: File,
@@ -241,7 +242,8 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         val androidState = room?.optString("android_state","uncreated") ?: "uncreated"
-        if (androidState == "uncreated") {
+        val targetUrl=job.optString("target_chatgpt_url")
+        if (androidState == "uncreated" && targetUrl.isBlank()) {
             progress(id,"새 ChatGPT 채팅방 생성 요청: "+roomId)
             withChatApp(id) { createRoomThenSend(id,roomId,text,0) }
         } else {
@@ -334,7 +336,6 @@ class ChatRelayService : AccessibilityService() {
         // visible; still navigate if there is no historical content to
         // independently demonstrate that identity. A new intent is an
         // idempotent way to target the specific ChatGPT conversation ID.
-        val anchors=job.optJSONArray("room_anchors")
         val alreadyHere=currentRoomId==rid && matchRoomAnchor(job)!=null
         if(alreadyHere){
             progress(jid,"현재 열린 ChatGPT 대화가 이전 메시지와 일치 · 이동 생략")
@@ -384,6 +385,7 @@ class ChatRelayService : AccessibilityService() {
         if(matching!=null || nextStable>=4){
             val rid=job.optJSONObject("room")?.optString("id").orEmpty()
             currentRoomId=rid
+            deepLinkRoutedJobId=jid
             roomLastPrompt=matching.orEmpty()
             if(matching!=null){
                 progress(jid,"딥링크로 이동 후 대상 대화의 과거 메시지 확인")
@@ -932,9 +934,16 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         withChatApp(jid) {
-            val fresh = job.optJSONObject("room")?.optString("android_state") == "uncreated"
+            val fresh = job.optJSONObject("room")?.optString("android_state") == "uncreated" &&
+                job.optString("target_chatgpt_url").isBlank()
             val anchor = roomLastPrompt
-            if (!fresh && !visibleRoomAnchor(anchor)) {
+            // A URL-directed job may have no long historical text yet.
+            // Its composer was already checked immediately after ACTION_VIEW.
+            val verifiedByDeepLink=deepLinkRoutedJobId==jid &&
+                rootInActiveWindow?.packageName?.toString()==chatPackage &&
+                composerInput(nodes(rootInActiveWindow))!=null &&
+                searchBarNode()==null
+            if (!fresh && !verifiedByDeepLink && !visibleRoomAnchor(anchor)) {
                 finishApiJob(jid,false,
                     "Existing room not visible before Android file picker; no message sent")
                 snapshot()
@@ -1243,13 +1252,15 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(jid,false,"No verified Android download")
             return
         }
-        when (state) {
-            "uncreated" -> withChatApp(jid) {
+        val targetUrl=job.optString("target_chatgpt_url")
+        when {
+            state == "uncreated" && targetUrl.isBlank() -> withChatApp(jid) {
                 createRoomForAttachments(job,staged,0)
             }
-            "active" -> verifyExistingRoom(job) {
-                pickFileInsideExistingRoom(job,staged,0)
-            }
+            state in listOf("active","unverified") || targetUrl.isNotBlank() ->
+                verifyExistingRoom(job) {
+                    pickFileInsideExistingRoom(job,staged,0)
+                }
             else -> finishApiJob(jid,false,
                 "Room is not verified for ChatGPT attachment: "+state)
         }
@@ -1323,6 +1334,7 @@ class ChatRelayService : AccessibilityService() {
         // attachment verification failed. That was cascading all subsequent
         // messages into "Wrong chat room" after the first failure.
         activeApiJob=null
+        deepLinkRoutedJobId=null
     }
 
     private fun performCommand(cmd: JSONObject) {
