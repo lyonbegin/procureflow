@@ -10,11 +10,23 @@ sign-in; the official app still needs its own authenticated session.
 | Test | Status | Evidence |
 | --- | --- | --- |
 | Install/start the user's official ChatGPT 1.2026.300 split APK on x86_64 emulator | PASS (install and launch only) | [prior isolated run](https://github.com/lyonbegin/backend/actions/runs/42829972766) |
-| Build/install controller on Android 15 x86_64, bind accessibility service, show live status, no fatal crash | PASS | [controller CI](https://github.com/lyonbegin/procureflow/actions/runs/42843528062) |
+| Build/install controller on Android 15 x86_64, bind accessibility service, show live status, no fatal crash | PASS | [controller CI](https://github.com/lyonbegin/procureflow/actions/runs/42905738361) |
+| Actual Android 15 WebSocket authentication, text+file jobs and original PNG/TXT bytes staged on Android; SHA-256 comparison **for both files** | **PASS** on isolated local FastAPI test server, without official ChatGPT installed | [actual Android CI](https://github.com/lyonbegin/procureflow/actions/runs/42910024597) |
 | Server test for authenticated user scoping, room identity, jobs, file-byte transport and adversarial acknowledgements | PASS, simulated device | [server CI](https://github.com/lyonbegin/procureflow/actions/runs/42904314954) |
 | Official ChatGPT signed-in new conversation; capture real conversation ID | **NOT TESTED** | Authentication screen blocked prior emulator testing |
 | Real conversation A→B→A / repeated sends / extracted live assistant answer | **NOT TESTED** | Requires authenticated official app |
 | Actual image/PDF selection and preview within signed-in ChatGPT composer | **NOT TESTED** | Server binary-transfer test is not app-picker proof |
+
+The separate real Android transport test runs a built APK on a Google APIs
+Android 15 x86_64 emulator, configures its actual AccessibilityService and
+connects it via a *debug-only* WebSocket to an ephemeral FastAPI server on the
+GitHub runner. The real Android process receives text jobs and downloads both
+an actual PNG and TXT file by authenticated HTTP. After staging them under its
+private filesDir, `adb shell run-as ... sha256sum` checks **both** originals
+independently; expected and actual digests match in evidence. Because the
+official ChatGPT app is deliberately absent from this specific integration
+test, both attempted send jobs correctly return `failed` with no fabricated
+assistant response. This is **NOT** an app-composer attachment/send test.
 
 The server's test WebSocket device deliberately sends simulated job results;
 therefore a green server CI badge **does not prove actual ChatGPT UI success**.
