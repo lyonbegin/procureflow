@@ -47,7 +47,7 @@
 <div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms</code></div>
 <div class="fields"><label for="room-title">웹 채팅방 이름</label><input id="room-title" placeholder="예: 조달2">
 <label for="chatgpt-url">공식 ChatGPT 대화 고유 URL (우선 적용)</label>
-<input id="chatgpt-url" inputType="url" placeholder="https://chatgpt.com/c/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+<input id="chatgpt-url" type="url" placeholder="https://chatgpt.com/c/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
 <label for="chatgpt-title">실제 ChatGPT 앱의 대화 제목 (URL이 없을 때 검색용)</label>
 <input id="chatgpt-title" placeholder="예: 조달 제안서 작성">
 <div class="row"><button id="save-room-target">선택 방의 ChatGPT URL·제목 저장</button></div>
@@ -296,8 +296,8 @@ async function waitRoomOpen(jobId,roomId,attempt=0){
 async function openSelectedRoom(){
   const id=selectedRoom();
   const result=await call('GET','/api/v1/rooms/'+id+queryUser());
-  if(result.android_state!=='active'){
-    roomOpenStatus('아직 Android에 생성되지 않은 방입니다. 질문을 처음 보내시면 신규 채팅방을 생성합니다.');
+  if(result.android_state!=='active'&&!result.chatgpt_url&&!text('chatgpt-url')){
+    roomOpenStatus('아직 Android에 생성되지 않은 방입니다. URL 없이 처음 질문을 보내시면 신규 채팅방을 생성합니다.');
     return;
   }
   await saveRoomTarget(id);
@@ -359,7 +359,7 @@ async function refreshRooms(){
      refreshRooms().catch(e=>log(e.message));
      refreshMessages().catch(e=>log(e.message));
      refreshFiles().catch(e=>log(e.message));
-     if(item.android_state==='active'){
+     if(item.android_state==='active'||item.chatgpt_url){
        openSelectedRoom().catch(e=>roomOpenStatus('Android 이동 요청 오류: '+e.message));
      }else{
        roomOpenStatus('새 ChatGPT 대화방: 첫 질문을 전송하면 Android에서 생성됩니다.');
