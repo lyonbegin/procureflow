@@ -157,6 +157,13 @@ class MessageCreate(BaseModel):
     text: str = Field(default="", max_length=24000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=10)
 
+@router.get("/auth/check")
+def check_authentication(actor=Depends(authentication)):
+    """Validate a supplied console/user credential without disclosing it."""
+    return {"authenticated": True, "role": "admin" if actor["admin"] else "user",
+            "user_id": actor["user_id"]}
+
+
 @router.post("/users")
 def create_user(data: UserCreate, actor=Depends(authentication)):
     if not actor["admin"]:
