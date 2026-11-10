@@ -45,6 +45,15 @@ def main():
                             "encryption_key":"fake","redirect_uri":"https://relay.example.test/oauth"}
     try:
         with TestClient(app) as client:
+            # The public configuration check requires no credentials and
+            # reveals neither service client credentials nor user data.
+            setup=client.get("/api/v1/drive/setup")
+            assert setup.status_code==200, setup.text
+            assert setup.json()["oauth_configured"] is False
+            assert "GOOGLE_OAUTH_CLIENT_ID" in setup.json()["missing_variables"]
+            assert "client_secret" not in setup.text.lower()
+            assert client.get("/api/v1/drive/status?user_id=alice").status_code==401
+            assert client.post("/api/v1/drive/connect?user_id=alice").status_code==401
             admin={"X-Console-Token":"admin-integration-token"}
             a=client.post("/api/v1/users",headers=admin,json={"user_id":"alice","name":"Alice"}).json()
             b=client.post("/api/v1/users",headers=admin,json={"user_id":"bob","name":"Bob"}).json()
