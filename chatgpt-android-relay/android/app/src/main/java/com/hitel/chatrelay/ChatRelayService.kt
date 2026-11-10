@@ -202,6 +202,13 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(id,false,"Room deletion needs verified ChatGPT conversation identity; no deletion attempted")
             return
         }
+        if (job.optString("action") == "room.open") {
+            progress(id,"기존 ChatGPT 대화방 검색 및 이동 시작")
+            verifyExistingRoom(job) {
+                finishApiJob(id,true,"room_open_verified","",roomId,"active")
+            }
+            return
+        }
         if (job.optString("action") != "chat.send") {
             finishApiJob(id,false,"Unsupported API job action")
             return
@@ -277,17 +284,272 @@ class ChatRelayService : AccessibilityService() {
             if (match != null) {
                 currentRoomId = rid
                 roomLastPrompt = match
-                progress(jid, "기존 Railway 기록과 Android 화면 대조 성공 · 채팅방 복원")
+                progress(jid,"기존 대화 내용 검증 성공 · 이미 해당 채팅방 화면")
                 afterVerification()
             } else if (currentRoomId == rid &&
                        (job.optJSONArray("room_anchors")?.length() ?: 0) == 0) {
-                // Same process, initial chat creation. A fresh controller
-                // cannot enter this branch, since currentRoomId starts null.
-                progress(jid, "현재 프로세스에서 생성한 채팅방 사용")
+                // Only a newly created chat within the same process qualifies.
+                progress(jid,"현재 프로세스에서 생성한 채팅방 유지")
                 afterVerification()
             } else {
-                progress(jid, "기존 채팅방 인증 실패 · 서버 기록이 현재 화면에 없음")
-                finishApiJob(jid,false,"Existing Android room not verified after restart or navigation. Open the correct ChatGPT conversation on the phone; no message was sent.")
+                // Unlike the previous implementation, navigate to the correct
+                // conversation instead of expecting the human to open it.
+                progress(jid,"기존 대화 미표시 · 사이드바 검색으로 이동 시작")
+                val query = buildRoomSearchQuery(job)
+                if (query == null) {
+                    finishApiJob(jid,false,
+                        "No distinctive completed chat text exists to locate this old conversation")
+                    snapshot()
+                } else {
+                    navigateToRoomSearch(job,afterVerification,query,0,0,0)
+                }
+            }
+        }
+    }
+
+    // ChatGPT's search matches titles AND message content on Android.
+    // Search completed messages from the SAME Railway room, never a failed
+    // job or text from another user's conversation. A result is only a
+    // candidate: verify its actual conversation content before sending.
+    private fun buildRoomSearchQuery(job: JSONObject): String? {
+        val anchors=job.optJSONArray("room_anchors") ?: return null
+        val entries=(0 until anchors.length()).mapNotNull { anchors.optJSONObject(it) }
+        val best=(entries.filter { it.optString("role")=="user" } +
+            entries.filter { it.optString("role")=="assistant" })
+            .firstOrNull {
+                val t=normalizedRoomText(it.optString("text"))
+                t.length >= 24 && t.length <= 240
+            } ?: return null
+        val exact=best.optString("text").replace(Regex("\\s+")," ").trim()
+        // Use an exact, distinctive phrase rather than the Railway room title:
+        // ChatGPT autogenerates titles different from the web room title.
+        return exact.take(62).trim().ifBlank { null }
+    }
+
+    private fun navigationNamedControl(labels: List<String>): AccessibilityNodeInfo? {
+        val all=nodes(rootInActiveWindow)
+        val matches=all.filter { n ->
+            if (!n.isVisibleToUser) return@filter false
+            val word=(n.text?.toString().orEmpty()+" "+
+                n.contentDescription?.toString().orEmpty()+" "+
+                n.viewIdResourceName.orEmpty()).trim().lowercase()
+            word.length <= 95 && labels.any { label ->
+                word == label || word.startsWith(label+" ") ||
+                  word.contains(label)
+            }
+        }
+        for (node in matches) {
+            var target: AccessibilityNodeInfo?=node
+            for (i in 0..4) {
+                if (target==null || isClickTarget(target)) break
+                target=target.parent
+            }
+            if (target?.isVisibleToUser==true && isClickTarget(target)) return target
+        }
+        return null
+    }
+
+    private fun searchBarNode(): AccessibilityNodeInfo? {
+        val h=resources.displayMetrics.heightPixels
+        val all=nodes(rootInActiveWindow)
+        return all.filter { n ->
+            if (!n.isEditable || !n.isVisibleToUser || !n.isEnabled) return@filter false
+            val bounds=Rect().also { n.getBoundsInScreen(it) }
+            val label=(n.hintText?.toString().orEmpty()+" "+
+                n.contentDescription?.toString().orEmpty()+" "+
+                n.viewIdResourceName.orEmpty()).lowercase()
+            val searchNamed=listOf("search","검색","history_search","chat_search")
+                .any { label.contains(it) }
+            searchNamed || (bounds.top < h*0.55 && bounds.bottom<h*0.70)
+        }.minByOrNull { n ->
+            Rect().also { n.getBoundsInScreen(it) }.top
+        }
+    }
+
+    private fun clickUniqueSearchResult(query: String, title: String): Boolean {
+        val all=nodes(rootInActiveWindow)
+        val screenH=resources.displayMetrics.heightPixels
+        val searchBar=searchBarNode()
+        val searchB=Rect().also { searchBar?.getBoundsInScreen(it) }
+        val minY=if(searchBar!=null) searchB.bottom else (screenH*0.12).toInt()
+        val q=normalizedRoomText(query).take(24)
+        val exactTitle=normalizedRoomText(title)
+        data class Item(val node:AccessibilityNodeInfo,val strong:Boolean,val rect:Rect)
+        val matches=ArrayList<Item>()
+        for(n in all) {
+            if (!n.isVisibleToUser || n.isEditable) continue
+            val label=(n.text?.toString().orEmpty()+" "+
+                n.contentDescription?.toString().orEmpty()).trim()
+            val norm=normalizedRoomText(label)
+            if(norm.length<5 || norm.length>500 || listOf(
+                    "search chats","대화 검색","검색","cancel","취소","settings","설정",
+                    "new chat","새 채팅","projects","프로젝트","images","이미지")
+                    .any { norm==it }) continue
+            val rect=Rect().also {n.getBoundsInScreen(it)}
+            if(rect.top<minY || rect.bottom>screenH*0.92 || rect.height()>screenH*0.28)
+                continue
+            val strong=(q.length>=16 && norm.contains(q)) ||
+                (exactTitle.length>=6 && norm==exactTitle)
+            // Prefer a search hit that contains the distinctive query or a
+            // correctly named chat. Otherwise only consider clearly marked
+            // conversation/result list nodes, never random screen controls.
+            val id=n.viewIdResourceName.orEmpty().lowercase()
+            val likely=id.contains("conversation") || id.contains("chat_row") ||
+                id.contains("search_result") || id.contains("result_item")
+            if(!strong && !likely)continue
+            var target: AccessibilityNodeInfo?=n
+            for(i in 0..4) {
+                if(target==null || isClickTarget(target))break
+                target=target.parent
+            }
+            if(target!=null && isClickTarget(target) && target.isVisibleToUser) {
+                val targetRect=Rect().also{target.getBoundsInScreen(it)}
+                if(targetRect.height()<screenH*0.30)
+                    matches.add(Item(target,strong,targetRect))
+            }
+        }
+        val selected=matches.filter{it.strong}.ifEmpty{matches}
+            .distinctBy{it.rect.toShortString()}
+        if(selected.size != 1) {
+            sendLog("Chat search candidate count="+selected.size+
+                ", title="+title.take(32)+", query="+query.take(32))
+            return false
+        }
+        return selected.first().node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun navigateToRoomSearch(
+        job:JSONObject, afterVerification:()->Unit,
+        query:String, phase:Int, attempt:Int, scrolls:Int
+    ) {
+        val jid=job.optString("id")
+        if(activeApiJob?.optString("id")!=jid)return
+        val root=rootInActiveWindow
+        if(root?.packageName?.toString()!=chatPackage) {
+            finishApiJob(jid,false,
+                "ChatGPT lost foreground while searching for existing room; no message sent")
+            return
+        }
+        val found=matchRoomAnchor(job)
+        if(found!=null) {
+            currentRoomId=job.optJSONObject("room")?.optString("id")
+            roomLastPrompt=found
+            progress(jid,"기존 ChatGPT 대화 검색·이동·내용 검증 완료")
+            afterVerification()
+            return
+        }
+        when(phase) {
+            0 -> {
+                // ChatGPT search is in the navigation sidebar, not a normal
+                // message composer. Open the sidebar if search is not visible.
+                val search=navigationNamedControl(listOf(
+                    "대화 검색","채팅 검색","search chats","search history",
+                    "search conversations","search_chat","검색"))
+                if(search!=null) {
+                    if(search.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        progress(jid,"ChatGPT 대화 검색 화면 열기")
+                        main.postDelayed({
+                            navigateToRoomSearch(job,afterVerification,query,1,0,0)
+                        },650)
+                        return
+                    }
+                }
+                val menu=navigationNamedControl(listOf(
+                    "open navigation","navigation drawer","open sidebar",
+                    "메뉴 열기","사이드바 열기","menu","sidebar"))
+                if(menu!=null && menu.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    progress(jid,"ChatGPT 왼쪽 채팅방 목록 열기")
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,1,0,0)
+                    },650)
+                    return
+                }
+                if(attempt<5) {
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,0,attempt+1,0)
+                    },400)
+                } else {
+                    snapshot()
+                    finishApiJob(jid,false,
+                        "ChatGPT sidebar/search control not found; no wrong-room send attempted")
+                }
+            }
+            1 -> {
+                val bar=searchBarNode()
+                if(bar!=null) {
+                    val args=Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,query)
+                    }
+                    bar.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    if(!bar.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,args)) {
+                        finishApiJob(jid,false,"ChatGPT history search text entry rejected")
+                        snapshot()
+                        return
+                    }
+                    progress(jid,"이전 대화 내용으로 검색 중: "+query.take(35))
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,2,0,0)
+                    },1100)
+                    return
+                }
+                val search=navigationNamedControl(listOf(
+                    "대화 검색","채팅 검색","search chats","search history",
+                    "search conversations","search_chat","검색"))
+                if(search!=null && search.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,1,attempt+1,0)
+                    },550)
+                    return
+                }
+                if(attempt<7)main.postDelayed({
+                    navigateToRoomSearch(job,afterVerification,query,1,attempt+1,0)
+                },450)
+                else {
+                    snapshot()
+                    finishApiJob(jid,false,
+                        "ChatGPT history search field not found in sidebar; no message sent")
+                }
+            }
+            2 -> {
+                val title=job.optJSONObject("room")?.optString("android_title").orEmpty()
+                    .ifBlank {job.optJSONObject("room")?.optString("title").orEmpty()}
+                if(clickUniqueSearchResult(query,title)){
+                    progress(jid,"검색 결과 대화 선택 · 실제 메시지 재검증")
+                    main.postDelayed({
+                        navigateToRoomSearch(job,afterVerification,query,3,0,0)
+                    },1100)
+                    return
+                }
+                if(attempt<8)main.postDelayed({
+                    navigateToRoomSearch(job,afterVerification,query,2,attempt+1,0)
+                },550)
+                else {
+                    snapshot()
+                    finishApiJob(jid,false,
+                        "No unique ChatGPT history search result matched the room; question not sent")
+                }
+            }
+            else -> {
+                // The result may open an older part of the conversation.
+                // Check completed Railway message content, not just its title.
+                val all=nodes(root)
+                val scrollable=all.filter{it.isScrollable && it.isVisibleToUser}
+                    .maxByOrNull{n ->
+                        Rect().also { n.getBoundsInScreen(it) }.height()
+                    }
+                if(scrollable!=null && scrolls<5 && attempt%3==0) {
+                    scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    progress(jid,"대화 내용 대조를 위해 이전 메시지 확인")
+                }
+                if(attempt<13)main.postDelayed({
+                    navigateToRoomSearch(job,afterVerification,query,3,attempt+1,scrolls+1)
+                },600)
+                else {
+                    snapshot()
+                    finishApiJob(jid,false,
+                        "Opened a search candidate but did not verify matching room history; no message sent")
+                }
             }
         }
     }
