@@ -75,7 +75,11 @@ class MainActivity : Activity() {
         root.addView(button("설정 저장 및 다시 연결") {
             val address = url.text.toString().trim()
             val tokenValue = token.text.toString().trim()
-            if (!address.startsWith("wss://") || !address.endsWith("/ws")) {
+            val localCI = (applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+                address == "ws://10.0.2.2:8765/ws"
+            if ((!address.startsWith("wss://") && !localCI) ||
+                !address.endsWith("/ws")) {
                 url.error = "wss://.../ws 형태로 입력하십시오"
                 return@button
             }
