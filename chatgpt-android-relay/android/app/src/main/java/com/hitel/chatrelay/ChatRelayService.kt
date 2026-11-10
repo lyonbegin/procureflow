@@ -200,7 +200,7 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(id,false,"Question text is empty")
             return
         }
-        val androidState = room.optString("android_state","uncreated")
+        val androidState = room?.optString("android_state","uncreated") ?: "uncreated"
         if (currentRoomId == roomId) {
             progress(id,"현재 확인된 방에서 대화 이어가기: "+roomId)
             withChatApp(id) { sendChat(id,text) }
