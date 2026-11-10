@@ -71,6 +71,29 @@ def main():
             assert client.get("/api/v1/drive/status",headers=auth_b).json()["connected"] is False
             assert client.post("/api/v1/drive/rooms/"+rid+"/folder",headers=auth_b).status_code==404
 
+            # A Drive share link can also be used without OAuth: browser opens
+            # Google Drive, user uploads/selects a file, and explicitly
+            # confirms link-sharing before registering it in a Relay room.
+            pasted={"room_id":rid,"name":"manual-picture.png",
+                    "url":"https://drive.google.com/file/d/ABCDEFGHIJKL01234/view",
+                    "public_link_confirmed":True}
+            assert client.post("/api/v1/drive/links",headers=auth_b,json=pasted).status_code==404
+            assert client.post("/api/v1/drive/links",headers=auth_a,
+                 json={**pasted,"public_link_confirmed":False}).status_code==409
+            assert client.post("/api/v1/drive/links",headers=auth_a,
+                 json={**pasted,"url":"https://drive.google.com.evil.net/file/d/ABCDEFGHIJKL01234/view"}).status_code==422
+            pasted_file=client.post("/api/v1/drive/links",headers=auth_a,json=pasted)
+            assert pasted_file.status_code==200,pasted_file.text
+            assert pasted_file.json()["kind"]=="drive"
+            assert pasted_file.json()["drive_shared"]==1
+            assert pasted_file.json()["drive_file_id"]=="ABCDEFGHIJKL01234"
+            again=client.post("/api/v1/drive/links",headers=auth_a,json=pasted)
+            assert again.json()["id"]==pasted_file.json()["id"]
+            test_popup=drive_v1.popup_result(True,"Connection completed","alice")
+            assert test_popup.status_code==200
+            assert b"relay.drive.oauth.result" in test_popup.body
+            assert b"window.opener.postMessage" in test_popup.body
+
             p=client.post("/api/v1/drive/files",headers=auth_a,
                           data={"user_id":"alice","room_id":rid,"share_link":"false"},
                           files={"file":("image.png",b"PNG!","image/png")})
