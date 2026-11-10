@@ -55,14 +55,19 @@ def main():
         assert client.get("/api/v1/files/"+image_id+"/download",headers=auth_a).content==tiny_png
 
 
+        # Legacy Railway uploads remain downloadable but MUST NOT be sent
+        # through the removed Android Accessibility file-picker path.
+        blocked=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
+                            json={"text":"Old file should not be sent","attachment_ids":[fid]})
+        assert blocked.status_code==409,blocked.text
         req=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
-                        json={"text":"Please analyze attached document","attachment_ids":[fid]})
+                        json={"text":"Please analyze the message without local attachments","attachment_ids":[]})
         assert req.status_code==200,req.text
         job=req.json()
         jid=job["id"]
         assert job["status"]=="queued"
         assert job["room_id"]==rid
-        assert job["attachment_ids"]==[fid]
+        assert job["attachment_ids"]==[]
         assert client.get("/api/v1/jobs/"+jid,headers=auth_b).status_code==404
 
         with client.websocket_connect("/ws") as device:
@@ -72,17 +77,16 @@ def main():
             assert dispatched["type"]=="job",dispatched
             assert dispatched["job"]["id"]==jid
             assert dispatched["job"]["room"]["id"]==rid
-            assert dispatched["job"]["attachment_ids"]==[fid]
-            meta=dispatched["job"]["attachment_details"]
-            assert len(meta)==1 and meta[0]["id"]==fid
-            assert meta[0]["name"]=="details.txt" and meta[0]["mime"]=="text/plain"
-            assert meta[0]["size"]==len(b"procurement-details-original")
-            assert meta[0]["sha256"]==hashlib.sha256(b"procurement-details-original").hexdigest()
+            assert dispatched["job"]["attachment_ids"]==[]
+            assert dispatched["job"]["attachment_details"]==[]
+            assert dispatched["job"]["drive_links"]==[]
             assert client.get("/api/v1/jobs/"+jid,headers=auth_a).json()["status"]=="running"
 
+            # An old local file must not be fetchable through a job where it
+            # is not attached.
             fetched=client.get("/api/v1/device/jobs/"+jid+"/files/"+fid,
                                headers={"Authorization":"Bearer android-testing-secret"})
-            assert fetched.status_code==200 and fetched.content==b"procurement-details-original"
+            assert fetched.status_code==403
             assert client.get("/api/v1/device/jobs/"+jid+"/files/"+fid,
                               headers={"Authorization":"Bearer invalid"}).status_code==403
 
