@@ -11,7 +11,7 @@ sign-in; the official app still needs its own authenticated session.
 | --- | --- | --- |
 | Install/start the user's official ChatGPT 1.2026.300 split APK on x86_64 emulator | PASS (install and launch only) | [prior isolated run](https://github.com/lyonbegin/backend/actions/runs/42829972766) |
 | Build/install controller on Android 15 x86_64, bind accessibility service, show live status, no fatal crash | PASS | [controller CI](https://github.com/lyonbegin/procureflow/actions/runs/42843528062) |
-| Server test for authenticated user scoping, room identity, jobs, file-byte transport and adversarial acknowledgements | PASS, simulated device | [server CI](https://github.com/lyonbegin/procureflow/actions/runs/42848228188) |
+| Server test for authenticated user scoping, room identity, jobs, file-byte transport and adversarial acknowledgements | PASS, simulated device | [server CI](https://github.com/lyonbegin/procureflow/actions/runs/42904314954) |
 | Official ChatGPT signed-in new conversation; capture real conversation ID | **NOT TESTED** | Authentication screen blocked prior emulator testing |
 | Real conversation A→B→A / repeated sends / extracted live assistant answer | **NOT TESTED** | Requires authenticated official app |
 | Actual image/PDF selection and preview within signed-in ChatGPT composer | **NOT TESTED** | Server binary-transfer test is not app-picker proof |
@@ -63,6 +63,22 @@ SHA-256 tests pass, but that does not establish actual ChatGPT attachment accept
 - The server now refuses any successful device acknowledgement with a missing
   or wrong `room_id` (`ROOM_ID_MISMATCH`). It uses the server-side
   job→room mapping for state updates, never a device-supplied target.
+- Job completion must match an **action-specific verification stage**:
+  `room.open` requires `room_open_verified`; `chat.send` and
+  `room.bind` require `assistant_reply_stable` and non-empty reply text.
+  A mere `deeplink_app_landed` signal fails with
+  `UNVERIFIED_JOB_COMPLETION`. These are checks of the device report,
+  **not proof the official app really produced that report**.
+- Replacing an Android device WebSocket invalidates the old session.
+  Previously in-flight work is marked `connection_lost` and never
+  retried without an explicit user action. A stale socket may not mutate
+  newer jobs.
+- On first device connection after a server restart, previously persisted
+  `running` jobs are failed with `server_restarted`. This relay assumes
+  a **single server worker and one Android controller**, not multi-instance
+  shared job processing.
+- Queued jobs with missing original input file bytes fail with
+  `input_file_unavailable` instead of preventing later jobs from running.
 - Changing `chatgpt_url` is blocked while that room has queued/running
   jobs. A successful later change resets the prior Android verification
   and obsolete room titles.
