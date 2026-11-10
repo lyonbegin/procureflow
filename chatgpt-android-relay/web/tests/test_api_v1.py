@@ -320,6 +320,7 @@ def main():
             linked_packet=device.receive_json()
             assert linked_packet["type"]=="job"
             assert linked_packet["job"]["target_chatgpt_url"]==url
+            assert linked_packet["job"]["target_conversation_id"]=="11111111-2222-3333-4444-555555555555"
             assert linked_packet["job"]["target_chatgpt_title"]=="Renamed ChatGPT actual title"
             assert linked_packet["job"]["room"]["chatgpt_url"]==url
             assert linked_packet["job"]["action"]=="room.open"
