@@ -335,9 +335,55 @@ def main():
                 time.sleep(.025)
             assert opened_status["status"]=="completed",opened_status
             assert client.get("/api/v1/rooms/"+linked_id,headers=auth_a).json()["android_state"]=="active"
+            # Adversarial routing test: one valid Android device must NOT
+            # complete Alice's job while reporting Bob's unrelated room.
+            foreign_room=client.post("/api/v1/rooms",headers=auth_b,
+                json={"title":"Bob private room"}).json()["id"]
+            bad_job=client.post("/api/v1/rooms/"+linked_id+"/messages",
+                headers=auth_a,json={"text":"Check wrong-room completion"}).json()["id"]
+            # The API must reject relinking while that message is in flight.
+            assert client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
+                json={"chatgpt_url":None}).status_code==409
+            bad_packet=device.receive_json()
+            assert bad_packet["type"]=="job" and bad_packet["job"]["id"]==bad_job
+            device.send_json({"type":"job.result","job_id":bad_job,"verified":True,
+                "result_text":"MUST NEVER SAVE AS AN ANSWER","room_id":foreign_room,
+                "room_state":"active","stage":"assistant_reply_stable"})
+            for _ in range(40):
+                wrong_state=client.get("/api/v1/jobs/"+bad_job,headers=auth_a).json()
+                if wrong_state["status"]=="failed":break
+                time.sleep(.025)
+            assert wrong_state["status"]=="failed",wrong_state
+            assert wrong_state["stage"]=="ROOM_ID_MISMATCH",wrong_state
+            assert client.get("/api/v1/rooms/"+foreign_room,
+                              headers=auth_b).json()["android_state"]=="uncreated"
+            messages=client.get("/api/v1/rooms/"+linked_id+"/messages",
+                                headers=auth_a).json()["messages"]
+            assert not any(m["role"]=="assistant" and
+                           m["text"]=="MUST NEVER SAVE AS AN ANSWER" for m in messages)
+
+            # An unbound Android success without room_id is rejected as well.
+            missing_job=client.post("/api/v1/rooms/"+linked_id+"/messages",
+                headers=auth_a,json={"text":"Check missing room identity"}).json()["id"]
+            assert device.receive_json()["job"]["id"]==missing_job
+            device.send_json({"type":"job.result","job_id":missing_job,
+                "verified":True,"result_text":"MISSING ROOM INVALID",
+                "stage":"assistant_reply_stable"})
+            for _ in range(40):
+                missing_state=client.get("/api/v1/jobs/"+missing_job,
+                                         headers=auth_a).json()
+                if missing_state["status"]=="failed":break
+                time.sleep(.025)
+            assert missing_state["status"]=="failed",missing_state
+            assert missing_state["stage"]=="ROOM_ID_MISMATCH",missing_state
+
+            # Once no job is pending, unlinking invalidates the previous
+            # Android verification and does not keep the old ChatGPT title.
             update=client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
                                 json={"chatgpt_url":None})
             assert update.status_code==200 and update.json()["chatgpt_url"] is None
+            assert update.json()["android_state"]=="uncreated",update.json()
+            assert update.json()["chatgpt_title"] is None,update.json()
 
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
