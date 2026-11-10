@@ -318,7 +318,7 @@ def _write_upload(up: UploadFile, uid: str, room_id: str | None, job_id: str | N
         now = clock()
         mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
         with connection() as c:
-            c.execute("INSERT INTO file_objects VALUES(?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO file_objects VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                       (fid, uid, room_id, job_id, kind, name, mime, count, digest.hexdigest(),file_path.name, now))
             row = c.execute("SELECT * FROM file_objects WHERE id=?", (fid,)).fetchone()
         return public_file(row)
