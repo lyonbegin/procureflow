@@ -79,6 +79,10 @@ def db_init():
 
 db_init()
 
+def has_connection(uid):
+    with api.connection() as c:
+        return c.execute("SELECT 1 FROM drive_connections WHERE user_id=?",(uid,)).fetchone() is not None
+
 def require_conn(uid):
     with api.connection() as c:
         row = c.execute("SELECT * FROM drive_connections WHERE user_id=?", (uid,)).fetchone()
