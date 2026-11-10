@@ -531,6 +531,50 @@ def main():
                     time.sleep(.025)
                 assert reconnected["status"]=="completed",reconnected
 
+                # Remove the original test attachment bytes after upload.
+                # This poisoned job MUST fail, then permit a later valid
+                # queued job to reach the same authenticated device.
+                lost=client.post("/api/v1/files",headers=auth_a,
+                    data={"user_id":"alice","room_id":rooms_ab[0]},
+                    files={"file":("lost-document.txt",b"temp payload","text/plain")})
+                assert lost.status_code==200,lost.text
+                lost_fid=lost.json()["id"]
+                with api_v1.connection() as db:
+                    stored=db.execute("SELECT relative_path FROM file_objects WHERE id=?",
+                                      (lost_fid,)).fetchone()
+                (api_v1.FILES / stored["relative_path"]).unlink()
+                poison=client.post("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                    headers=auth_a,json={
+                        "text":"Should not send this document after its bytes vanished",
+                        "attachment_ids":[lost_fid]})
+                assert poison.status_code==200,poison.text
+                poison_jid=poison.json()["id"]
+                for _ in range(40):
+                    blocked=client.get("/api/v1/jobs/"+poison_jid,
+                                      headers=auth_a).json()
+                    if blocked["status"]=="failed":break
+                    time.sleep(.025)
+                assert blocked["status"]=="failed",blocked
+                assert blocked["stage"]=="input_file_unavailable",blocked
+                valid=client.post("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                    headers=auth_a,json={"text":"Valid job after missing file"})
+                assert valid.status_code==200,valid.text
+                valid_jid=valid.json()["id"]
+                verified_packet=replacement_device.receive_json()
+                assert verified_packet["type"]=="job",verified_packet
+                assert verified_packet["job"]["id"]==valid_jid
+                replacement_device.send_json({
+                    "type":"job.result","job_id":valid_jid,"verified":True,
+                    "result_text":"Valid job executed after poison recovery",
+                    "room_id":rooms_ab[0],"room_state":"active",
+                    "stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    final_ok=client.get("/api/v1/jobs/"+valid_jid,
+                                        headers=auth_a).json()
+                    if final_ok["status"]=="completed":break
+                    time.sleep(.025)
+                assert final_ok["status"]=="completed",final_ok
+
     print("PASS: API users/authorization/rooms/messages/jobs/input-output files/Android websocket",flush=True)
 
 if __name__=="__main__":
