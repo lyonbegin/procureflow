@@ -15,7 +15,7 @@ async function fakeFetch(url,args={}){
   const method=args.method||"GET",path=String(url),headers=args.headers||{};
   calls.push({method,path,headers,body:args.body});
   if(path==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
-  if(path==="/api/v1/auth/check"){
+  if(path==="/api/v1/auth/check"||path==="/api/v1/auth/session"){
     if(headers["X-Console-Token"]==="admin-testing-secret")
       return result(200,{authenticated:true,role:"admin",user_id:null});
     if(headers["X-API-Key"]==="user-testing-secret")
@@ -98,7 +98,7 @@ doc.querySelector("#verify-auth").click();
 await pause();
 assert.equal(doc.querySelector("#auth-notice").hidden,true);
 assert.match(doc.querySelector("#api-auth-status").textContent,/인증 완료/);
-assert.ok(calls.some(x=>x.path==="/api/v1/auth/check"));
+assert.ok(calls.some(x=>x.path==="/api/v1/auth/session"),"First validated login creates a secure session");
 doc.querySelector("#room-title").value="Direct relay room";
 doc.querySelector("#create-room").click();
 await pause();
@@ -141,5 +141,5 @@ assert.ok(saved);
 // Newly uploaded file is preselected; selecting another saved file results in both.
 assert.equal(JSON.parse(saved.body).attachment_ids.length,2);
 assert.ok(!calls.some(x=>x.path.includes("/drive/")));
-console.log("PASS: missing-key calls blocked in browser; one-time login and Railway direct file API work");
+console.log("PASS: old saved default is validated automatically and secure browser session replaces embedded secrets");
 dom.window.close();
