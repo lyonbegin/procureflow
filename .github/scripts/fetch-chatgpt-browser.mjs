@@ -36,6 +36,11 @@ try{
    const state=await snapshot(n);
    visited.push(state.url);
    if(download)break;
+   if(/just a moment|performing security verification|checking your browser|cloudflare/i.test(state.title+" "+state.body.slice(0,800))){
+     console.log("WAIT_FOR_STANDARD_SITE_VERIFICATION",n);
+     await page.waitForTimeout(12000);
+     continue;
+   }
    if(/cannot be loaded without javascript|attention required|verify you are human|access denied|error 403/i.test(state.body.slice(0,800))){
      console.log("BLOCKED_MIRROR_JS_CHALLENGE");
      break;
