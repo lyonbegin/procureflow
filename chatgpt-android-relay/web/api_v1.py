@@ -862,6 +862,30 @@ def set_room_android_state(room_id: str, state: str, android_title: str | None =
         c.execute("UPDATE rooms SET android_state=?,android_title=COALESCE(?,android_title),updated_at=? WHERE id=?",
                   (state, android_title,clock(),room_id))
 
+def fail_orphaned_running_jobs():
+    """Fail tasks left running by an earlier server process.
+
+    Our relay has a single active Android worker per process. After a server
+    restart no running task can be safely resumed: it may have submitted
+    the text before the connection disappeared. Never retry it silently.
+    This runs once on the first Android connection in each server process.
+    """
+    with connection() as c:
+        rows = c.execute(
+            "SELECT id,room_id,action FROM jobs WHERE status='running'"
+        ).fetchall()
+        for item in rows:
+            c.execute("""UPDATE jobs SET status='failed',stage='server_restarted',
+                error=?,updated_at=? WHERE id=?""",
+                ("Server restarted; delivery unknown; not automatically retried",
+                 clock(), item["id"]))
+            if item["action"] == "room.delete":
+                c.execute("""UPDATE rooms SET status='delete_failed',updated_at=?
+                             WHERE id=? AND status='delete_pending'""",
+                          (clock(),item["room_id"]))
+        return len(rows)
+
+
 def release_running_job(job_id, reason="Device disconnected; will retry"):
     with connection() as c:
         row=c.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
