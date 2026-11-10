@@ -1,0 +1,32 @@
+name: Verify ChatGPT relay API room and file contracts (isolated)
+on:
+  push:
+    branches:
+      - fix/chatgpt-relay-verified-routing-20261110
+    paths:
+      - 'chatgpt-android-relay/web/**'
+      - '.github/workflows/verify-chatgpt-relay-api-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  api-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install API test dependencies
+        run: python -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Compile all server and test modules
+        run: python -m compileall -q chatgpt-android-relay/web
+      - name: Test authenticated room routing, wrong-room rejections and exact file bytes
+        run: python chatgpt-android-relay/web/tests/test_api_v1.py
+      - name: Test legacy Google Drive workflows with stubbed external requests
+        run: python chatgpt-android-relay/web/tests/test_drive_v1.py
+      - name: Report verification boundary
+        run: |
+          echo 'PASS_SERVER_API_CONTRACTS'
+          echo 'NOT_TESTED_AUTHENTICATED_OFFICIAL_CHATGPT_ANDROID_UI_OR_REAL_ATTACHMENT_PICKER'
