@@ -128,8 +128,21 @@ async def socket(ws: WebSocket):
                 await ws.close(code=1008)
                 return
             if device is not None and device is not ws:
-                await device.close(code=1001)
-            device = ws
+                # Transfer ownership before any await. The previous socket
+                # must not acknowledge a job subsequently assigned to this
+                # new device session.
+                previous_device = device
+                device = ws
+                if active_job_id:
+                    api_v1.release_running_job(
+                        active_job_id, "Android device session was superseded")
+                    await broadcast(event(
+                        "job.error", job_id=active_job_id,
+                        reason="Device session replaced; not retried to avoid duplicates"))
+                    active_job_id = None
+                await previous_device.close(code=1001)
+            else:
+                device = ws
             print("[relay] Android authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
@@ -186,6 +199,11 @@ async def socket(ws: WebSocket):
                         pending.pop(cmd_id, None)
                         await transmit(ws, event("command.error", id=cmd_id, reason="Device transport failed"))
                 elif role == "device":
+                    if device is not ws:
+                        # A replaced WebSocket is no longer authorized to
+                        # mutate the currently active job or its room state.
+                        await ws.close(code=1008)
+                        break
                     if kind in {"job.received", "job.progress", "job.result", "job.error"}:
                         jid = str(msg.get("job_id", ""))
                         if jid != active_job_id:
