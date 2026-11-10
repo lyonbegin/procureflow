@@ -63,6 +63,11 @@ def main():
             assert dispatched["job"]["id"]==jid
             assert dispatched["job"]["room"]["id"]==rid
             assert dispatched["job"]["attachment_ids"]==[fid]
+            meta=dispatched["job"]["attachment_details"]
+            assert len(meta)==1 and meta[0]["id"]==fid
+            assert meta[0]["name"]=="details.txt" and meta[0]["mime"]=="text/plain"
+            assert meta[0]["size"]==len(b"procurement-details-original")
+            assert meta[0]["sha256"]==hashlib.sha256(b"procurement-details-original").hexdigest()
             assert client.get("/api/v1/jobs/"+jid,headers=auth_a).json()["status"]=="running"
 
             fetched=client.get("/api/v1/device/jobs/"+jid+"/files/"+fid,
