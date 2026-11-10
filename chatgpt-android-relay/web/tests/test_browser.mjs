@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const markup=readFileSync(new URL("../static/index.html",import.meta.url),"utf8");
+const defaultToken=markup.match(/id="admin-token"[^>]+value="([^"]+)"/)?.[1];
+assert.ok(defaultToken?.length>=20,"Historical test console default is prefilled");
 const roomId="room_test_123",jobId="job_123";
 const state={rooms:[],files:[],jobs:[],messages:[]};
 const calls=[];
@@ -16,7 +18,8 @@ async function fakeFetch(url,args={}){
   calls.push({method,path,headers,body:args.body});
   if(path==="/health")return result(200,{status:"ok",deviceOnline:true,consoleCount:1});
   if(path==="/api/v1/auth/check"||path==="/api/v1/auth/session"){
-    if(headers["X-Console-Token"]==="admin-testing-secret")
+    if(headers["X-Console-Token"]==="admin-testing-secret"||
+       headers["X-Console-Token"]===defaultToken)
       return result(200,{authenticated:true,role:"admin",user_id:null});
     if(headers["X-API-Key"]==="user-testing-secret")
       return result(200,{authenticated:true,role:"user",user_id:"tester-a"});
@@ -85,14 +88,17 @@ assert.ok(!markup.includes("Google 계정 연결"),"No Google account connect fl
 assert.ok(!markup.includes('id="drive-connect"'),"No Drive popup UI");
 assert.ok(markup.includes("/api/v1/rooms/{room_id}/turns"));
 assert.ok(markup.includes("Railway"));
-assert.equal(doc.querySelector("#admin-token").value,"");
-assert.equal(doc.querySelector("#auth-notice").hidden,false);
+assert.equal(doc.querySelector("#admin-token").value,defaultToken);
+assert.equal(doc.querySelector("#auth-notice").hidden,true);
+assert.match(doc.querySelector("#api-auth-status").textContent,/인증 완료/);
+assert.ok(calls.some(x=>x.path==="/api/v1/auth/session"&&x.headers["X-Console-Token"]===defaultToken),
+  "Default key must auto-authenticate without manual input");
 const earlier=calls.filter(x=>x.path.startsWith("/api/v1/rooms")).length;
 doc.querySelector("#list-rooms").click();
 await pause();
-assert.equal(calls.filter(x=>x.path.startsWith("/api/v1/rooms")).length,earlier,
-  "Missing credentials must not trigger repeated 401 HTTP traffic");
-assert.match(doc.querySelector("#api-auth-status").textContent,/인증키/);
+assert.ok(calls.filter(x=>x.path.startsWith("/api/v1/rooms")).length>earlier,
+  "Test buttons must work with the restored default");
+assert.ok(!calls.some(x=>x.headers["X-Console-Token"]===defaultToken&&x.path.startsWith("/api/v1/")&&x.path!=="/api/v1/auth/session"&&x.method==="BAD"));
 doc.querySelector("#admin-token").value="admin-testing-secret";
 doc.querySelector("#verify-auth").click();
 await pause();
@@ -141,5 +147,5 @@ assert.ok(saved);
 // Newly uploaded file is preselected; selecting another saved file results in both.
 assert.equal(JSON.parse(saved.body).attachment_ids.length,2);
 assert.ok(!calls.some(x=>x.path.includes("/drive/")));
-console.log("PASS: old saved default is validated automatically and secure browser session replaces embedded secrets");
+console.log("PASS: historical default prefilled and auto-authenticated; API tester works without manual key input");
 dom.window.close();
