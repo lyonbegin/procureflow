@@ -44,6 +44,16 @@ def main():
         assert content.status_code==200 and content.content==b"procurement-details-original"
         assert client.post("/api/v1/files",headers=auth_a,data={"user_id":"alice","room_id":rid},
                            files={"file":("unallowed.exe",b"abc")}).status_code==415
+        import base64
+        tiny_png=base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==")
+        image=client.post("/api/v1/files",headers=auth_a,
+                          data={"user_id":"alice","room_id":rid},
+                          files={"file":("picture.png",tiny_png,"image/png")})
+        assert image.status_code==200,image.text
+        image_id=image.json()["id"]
+        assert image.json()["mime"]=="image/png"
+        assert client.get("/api/v1/files/"+image_id+"/download",headers=auth_a).content==tiny_png
+
 
         req=client.post("/api/v1/rooms/"+rid+"/messages",headers=auth_a,
                         json={"text":"Please analyze attached document","attachment_ids":[fid]})
