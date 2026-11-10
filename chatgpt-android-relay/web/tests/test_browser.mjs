@@ -120,6 +120,9 @@ await pause();
 assert.equal(doc.querySelector("#room-id").value,roomId);
 assert.ok(doc.querySelector("#open-room"),"Explicit existing-room navigation button present");
 assert.match(doc.querySelector("#room-open-status").textContent,/기존 채팅방/);
+state.rooms[0].android_state="active"; // Simulate a previously completed Android room.
+doc.querySelector("#list-rooms").click();
+await pause();
 doc.querySelector("#room-list .entry-btn").click();
 await pause();
 await pause();
