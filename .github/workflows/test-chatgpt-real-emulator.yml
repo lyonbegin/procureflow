@@ -1,0 +1,82 @@
+name: Real Android emulator verification (official ChatGPT only)
+on:
+  push:
+    branches: [feature/chatgpt-android-relay-20261110]
+    paths:
+      - '.github/workflows/test-chatgpt-real-emulator.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  genuine-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      CHATGPT_TEST_APK_URL: ${{ secrets.CHATGPT_TEST_APK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Check Android virtualization availability
+        run: |
+          set -eu
+          uname -a
+          ls -l /dev/kvm || { echo 'ERROR: KVM not available'; exit 1; }
+          sudo chmod 666 /dev/kvm
+      - name: Boot REAL Android emulator and install REAL applications
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 3072M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -eu
+            mkdir -p emulator-evidence
+            adb devices -l | tee emulator-evidence/devices.txt
+            adb shell getprop ro.build.version.release | tee emulator-evidence/android-version.txt
+            adb shell getprop sys.boot_completed | tee emulator-evidence/boot.txt
+            test "$(cat emulator-evidence/boot.txt | tr -d '\r')" = '1'
+            RELAY=chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk
+            test -s "$RELAY"
+            adb install -r "$RELAY" | tee emulator-evidence/relay-install.txt
+            adb shell pm path com.hitel.chatrelay | tee emulator-evidence/relay-package.txt
+            test -n "$(cat emulator-evidence/relay-package.txt)"
+            # Do not pretend that an app fixture is the official ChatGPT app.
+            # The APK source must be supplied securely and must be installable.
+            if [ -z "$CHATGPT_TEST_APK_URL" ]; then
+              echo 'BLOCKED_OFFICIAL_CHATGPT_APK_NOT_PROVIDED: cannot install the real ChatGPT app.' | tee emulator-evidence/official-app-status.txt
+              echo 'No Android ChatGPT navigation or send test was performed.'
+              exit 42
+            fi
+            curl --fail --location --retry 2 --max-time 240 -o /tmp/official-chatgpt.apk "$CHATGPT_TEST_APK_URL"
+            test -s /tmp/official-chatgpt.apk
+            # A bundle or XAPK cannot be installed as a single APK.
+            unzip -t /tmp/official-chatgpt.apk | tail -1
+            adb install -r /tmp/official-chatgpt.apk | tee emulator-evidence/chatgpt-install.txt
+            adb shell pm path com.openai.chatgpt | tee emulator-evidence/chatgpt-package.txt
+            test -n "$(cat emulator-evidence/chatgpt-package.txt)"
+            adb shell am start -a android.intent.action.VIEW               -d 'https://chatgpt.com/c/11111111-2222-3333-4444-555555555555'               -p com.openai.chatgpt | tee emulator-evidence/deeplink-activity.txt
+            sleep 6
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -4 | tee emulator-evidence/foreground.txt || true
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null || true
+            adb pull /sdcard/window.xml emulator-evidence/window.xml || true
+            adb shell screencap -p /sdcard/landing.png
+            adb pull /sdcard/landing.png emulator-evidence/landing.png
+            echo 'OFFICIAL_APP_INSTALLED_BUT_CHAT_AUTH_NOT_VERIFIED' | tee emulator-evidence/official-app-status.txt
+            # Opening an arbitrary deep link only tests registration/routing.
+            # Without an authenticated real conversation, do not report an
+            # existing chat reopened or a message successfully sent.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-android-emulator-evidence
+          path: emulator-evidence/
+          if-no-files-found: warn
