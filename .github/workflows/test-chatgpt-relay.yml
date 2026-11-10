@@ -1,4 +1,4 @@
-name: Test ChatGPT Relay WebSocket and Web Inputs
+name: Test ChatGPT Relay API, Files and Android Queue
 on:
   push:
     branches:
@@ -23,7 +23,11 @@ jobs:
           python -m pip install -r chatgpt-android-relay/web/requirements.txt httpx==0.28.1
           cd chatgpt-android-relay/web
           python tests/test_relay.py
-      - name: Test browser send button and Enter paths using DOM events
+      - name: Test multiuser rooms, file uploads/downloads, API queued jobs and Android acknowledgement
+        run: |
+          cd chatgpt-android-relay/web
+          python tests/test_api_v1.py
+      - name: Test API tester browser UI and request generation
         run: |
           cd chatgpt-android-relay/web
           npm install --no-save jsdom@25
