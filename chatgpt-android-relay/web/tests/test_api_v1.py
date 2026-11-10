@@ -13,6 +13,7 @@ os.environ["WEB_SESSION_SIGNING_KEY"] = "testing-session-key-longer-than-32-char
 
 from fastapi.testclient import TestClient
 from app import app
+import api_v1
 
 def main():
     with TestClient(app) as client:
@@ -97,9 +98,27 @@ def main():
         assert job["attachment_ids"]==[fid]
         assert client.get("/api/v1/jobs/"+jid,headers=auth_b).status_code==404
 
+        # Simulate one previous server-process job left 'running' in
+        # persistent storage when a new process first sees Android connect.
+        with api_v1.connection() as db:
+            orphan_id=api_v1.store_job(
+                db,"alice",rid,"chat.send","Old unconfirmed message")
+            db.execute("UPDATE jobs SET status='running' WHERE id=?",(orphan_id,))
+        assert client.get("/api/v1/jobs/"+orphan_id,
+                          headers=auth_a).json()["status"]=="running"
+
         with client.websocket_connect("/ws") as device:
             device.send_json({"role":"device","token":"android-testing-secret","deviceId":"android-main"})
             assert device.receive_json()["type"]=="auth.ok"
+            # Recovery is fail-closed, never re-queues an unknown delivery.
+            for _ in range(40):
+                orphan=client.get("/api/v1/jobs/"+orphan_id,
+                                   headers=auth_a).json()
+                if orphan["status"]=="failed":break
+                import time
+                time.sleep(.025)
+            assert orphan["status"]=="failed",orphan
+            assert orphan["stage"]=="server_restarted",orphan
             dispatched=device.receive_json()
             assert dispatched["type"]=="job",dispatched
             assert dispatched["job"]["id"]==jid
