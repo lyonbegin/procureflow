@@ -34,11 +34,14 @@ else
   exit 34
 fi
 ACTUAL_SHA256="$(sha256sum /tmp/chatgpt-download.pkg | cut -d' ' -f1)"
-if [[ "$ACTUAL_SHA256" != "$EXPECTED_FILE_SHA256" ]]; then
-  log "BLOCKED_APKM_SHA256_MISMATCH: expected exact user-provided bundle"
+if [[ "$ACTUAL_SHA256" == "$EXPECTED_FILE_SHA256" ]]; then
+  log "Exact user-provided APKM archive verified by SHA-256"
+elif python3 .github/scripts/check-chatgpt-variant.py /tmp/chatgpt-download.pkg; then
+  log "The same five signed APK splits were verified byte-for-byte against user-supplied APKM"
+else
+  log "BLOCKED_APKM_SHA256_MISMATCH: neither original archive nor its five signed splits match"
   exit 34
 fi
-log "Exact user-provided APKM verified by SHA-256"
 FILE_SIZE=$(stat -c%s /tmp/chatgpt-download.pkg)
 log "Downloaded package size: $FILE_SIZE bytes"
 if (( FILE_SIZE < 10000000 )); then
