@@ -16,18 +16,29 @@ grep -q 'package:' emulator-evidence/relay-package.txt || { log "BLOCKED: relay 
 log "CHECKPOINT 3: install genuine OpenAI-signed ChatGPT APK"
 # Google Play account interaction is not scripted, and no test account login
 # is fabricated. A downloaded APK is trusted ONLY after certificate pinning.
-if [[ -n "${CHATGPT_TEST_APK_URL:-}" ]]; then
-  URL="$CHATGPT_TEST_APK_URL"
-  log "Official app source: supplied via GitHub Actions secret"
+# Require the exact user-supplied 1.2026.300 variant. Never silently
+# download a different 'latest' APK or mark it as equivalent.
+EXPECTED_FILE_SHA256="695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44"
+if [[ -n "${CHATGPT_TEST_APK_LOCAL:-}" && -s "${CHATGPT_TEST_APK_LOCAL}" ]]; then
+  cp "${CHATGPT_TEST_APK_LOCAL}" /tmp/chatgpt-download.pkg
+  log "Official app source: local user-supplied .apkm"
+elif [[ -n "${CHATGPT_TEST_APK_URL:-}" ]]; then
+  log "Official app source: GitHub Actions secret download URL"
+  if ! curl --fail --location --retry 2 --connect-timeout 20 --max-time 240 \
+    -o /tmp/chatgpt-download.pkg "${CHATGPT_TEST_APK_URL}"; then
+    log "BLOCKED_OFFICIAL_DOWNLOAD: requested user .apkm not downloaded"
+    exit 34
+  fi
 else
-  URL="https://d.apkpure.com/b/XAPK/com.openai.chatgpt?version=latest"
-  log "Official app source: APKPure public XAPK; signing certificate will be pinned"
-fi
-if ! curl --fail --location --retry 2 --connect-timeout 20 --max-time 240 \
-  -o /tmp/chatgpt-download.pkg "$URL"; then
-  log "BLOCKED_OFFICIAL_DOWNLOAD: could not obtain signed com.openai.chatgpt package"
+  log "BLOCKED_APKM_TRANSFER: user .apkm is present only in ChatGPT sandbox; not accessible to this GitHub runner"
   exit 34
 fi
+ACTUAL_SHA256="$(sha256sum /tmp/chatgpt-download.pkg | cut -d' ' -f1)"
+if [[ "$ACTUAL_SHA256" != "$EXPECTED_FILE_SHA256" ]]; then
+  log "BLOCKED_APKM_SHA256_MISMATCH: expected exact user-provided bundle"
+  exit 34
+fi
+log "Exact user-provided APKM verified by SHA-256"
 FILE_SIZE=$(stat -c%s /tmp/chatgpt-download.pkg)
 log "Downloaded package size: $FILE_SIZE bytes"
 if (( FILE_SIZE < 10000000 )); then
@@ -56,21 +67,23 @@ for APK in "${APKS[@]}"; do
     exit 36
   fi
 done
-BASE=""
-for APK in "${APKS[@]}"; do
-  PKG=$("$AAPT" dump badging "$APK" 2>/dev/null | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -1)
-  if [[ "$PKG" == "com.openai.chatgpt" ]]; then BASE="$APK"; break; fi
-done
-if [[ -z "$BASE" ]]; then log "BLOCKED_WRONG_PACKAGE: no official com.openai.chatgpt base"; exit 37; fi
-log "Validated signed official app: $(basename "$BASE")"
-# Bundle splits can be in arbitrary filesystem order. Supply base first.
-SPLITS=()
-for APK in "${APKS[@]}"; do [[ "$APK" != "$BASE" ]] && SPLITS+=("$APK"); done
-if (("${#SPLITS[@]}" > 0)); then
-  adb install-multiple -r "$BASE" "${SPLITS[@]}" | tee emulator-evidence/chatgpt-install.txt
-else
-  adb install -r "$BASE" | tee emulator-evidence/chatgpt-install.txt
+BASE="/tmp/chatgpt-unpacked/base.apk"
+test -s "$BASE" || { log "BLOCKED_NO_BASE_APK"; exit 37; }
+APP_PKG=$("$AAPT" dump badging "$BASE" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -1)
+APP_VERSION=$("$AAPT" dump badging "$BASE" | sed -n "s/^package:.* versionName='\\([^']*\\)'.*/\\1/p" | head -1)
+if [[ "$APP_PKG" != "com.openai.chatgpt" || "$APP_VERSION" != "1.2026.300" ]]; then
+  log "BLOCKED_WRONG_PACKAGE_OR_VERSION: $APP_PKG $APP_VERSION"
+  exit 37
 fi
+EMULATOR_ABI="$(adb shell getprop ro.product.cpu.abi | tr -d '\\r')"
+test "$EMULATOR_ABI" = "x86_64" || { log "BLOCKED_WRONG_EMULATOR_ABI: $EMULATOR_ABI"; exit 38; }
+SPLITS=()
+for split in split_config.x86_64.apk split_config.xxhdpi.apk split_config.ko.apk split_config.en.apk; do
+  test -s "/tmp/chatgpt-unpacked/$split" || { log "BLOCKED_MISSING_SPLIT: $split"; exit 38; }
+  SPLITS+=("/tmp/chatgpt-unpacked/$split")
+done
+log "Verified exact x86_64, XXHDPI, Korean and English splits"
+adb install-multiple -r "$BASE" "${SPLITS[@]}" | tee emulator-evidence/chatgpt-install.txt
 adb shell pm path com.openai.chatgpt | tee emulator-evidence/chatgpt-package.txt
 grep -q 'package:' emulator-evidence/chatgpt-package.txt || { log "BLOCKED: official ChatGPT not installed"; exit 38; }
 log "CHECKPOINT 4: official ChatGPT ACTION_VIEW deep-link smoke test"
