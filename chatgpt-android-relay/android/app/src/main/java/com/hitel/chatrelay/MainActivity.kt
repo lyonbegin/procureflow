@@ -24,6 +24,9 @@ class MainActivity : Activity() {
                 val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
                     ?.contains("com.hitel.chatrelay", ignoreCase = true) == true
                 val service = ChatRelayService.instance != null
+                android.util.Log.i("HITELRelayStatus",
+                    "status pid="+android.os.Process.myPid()+
+                    " accessibilityEnabled="+enabled+" serviceInstance="+service)
                 val socket = prefs.getString("socket_state", "연결 기록 없음")
                 val reason = prefs.getString("socket_error", "")
                 statusView.text = "접근성 설정: ${if (enabled) "활성" else "비활성"}\n" +
