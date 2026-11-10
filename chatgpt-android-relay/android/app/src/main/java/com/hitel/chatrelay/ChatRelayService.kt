@@ -19,6 +19,8 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.io.File
+import kotlin.concurrent.thread
 
 class ChatRelayService : AccessibilityService() {
     companion object { @Volatile var instance: ChatRelayService? = null }
@@ -27,6 +29,13 @@ class ChatRelayService : AccessibilityService() {
     private var socket: WebSocket? = null
     private var active = false
     private var pendingSendId: String? = null
+    private var activeApiJob: JSONObject? = null
+    private var currentRoomId: String? = null
+    private var roomLastPrompt: String = ""
+    private val chrome = setOf("메뉴","새 채팅","메뉴 편집","ChatGPT에게 답변하기","복사","소리 내어 읽기",
+        "공유","추가 작업","좋아요","별로예요","음성 대화 시작","첨부파일","받아쓰기",
+        "ChatGPT","Copy","Share","Read aloud","New chat","Menu","Regenerate",
+        "Voice mode","Attach files")
     private var lastSnapshot = 0L
     private var generation = 0
     private val chatPackage = "com.openai.chatgpt"
@@ -77,6 +86,15 @@ class ChatRelayService : AccessibilityService() {
                             setConnectionState("인증 실패", data.optString("reason", "TOKEN 오류"))
                             webSocket.close(1000, "Auth rejected")
                         }
+                        "job" -> {
+                            val job = data.optJSONObject("job")
+                            if (job != null) main.post {
+                                try { receiveApiJob(job) }
+                                catch (e: Exception) {
+                                    finishApiJob(job.optString("id"), false, "Android job exception: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+                                }
+                            }
+                        }
                         "command" -> {
                             val cmdId = data.optString("id")
                             webSocket.send(JSONObject().put("type", "command.received")
@@ -120,12 +138,225 @@ class ChatRelayService : AccessibilityService() {
     private fun send(packet: JSONObject) { socket?.send(packet.toString()) }
     private fun sendLog(msg:String) { send(JSONObject().put("type","device.log").put("message",msg.take(500))) }
     private fun progress(id: String, stage: String) {
-        send(JSONObject().put("type", "command.progress").put("id", id).put("stage", stage.take(100)))
+        if (activeApiJob?.optString("id") == id) {
+            send(JSONObject().put("type", "job.progress").put("job_id", id).put("stage", stage.take(100)))
+        } else {
+            send(JSONObject().put("type", "command.progress").put("id", id).put("stage", stage.take(100)))
+        }
     }
     private fun done(id: String, ok: Boolean, detail: String) {
+        if (activeApiJob?.optString("id") == id) {
+            if (ok && detail.startsWith("send_confirmed")) {
+                progress(id, "전송 확인; ChatGPT 답변 추출 대기")
+                waitForAnswer(id, activeApiJob?.optString("text") ?: "", 0, "", 0)
+            } else {
+                finishApiJob(id, false, detail)
+            }
+            return
+        }
         val data=JSONObject().put("type",if(ok) "command.result" else "command.error").put("id",id)
         if(ok) data.put("result",JSONObject().put("ok",true).put("stage",detail)) else data.put("reason",detail)
         send(data)
+    }
+
+
+    // API jobs contain both the user and room IDs. Never send into an
+    // unverified room merely because an unrelated ChatGPT chat is open.
+    private fun receiveApiJob(job: JSONObject) {
+        val id = job.optString("id")
+        val room = job.optJSONObject("room")
+        val roomId = room?.optString("id") ?: ""
+        if (id.isBlank() || roomId.isBlank()) {
+            send(JSONObject().put("type","job.error").put("job_id",id)
+                .put("reason","Missing job or room identity"))
+            return
+        }
+        if (activeApiJob != null || pendingSendId != null) {
+            send(JSONObject().put("type","job.error").put("job_id",id)
+                .put("reason","Android controller is busy processing another job"))
+            return
+        }
+        activeApiJob = job
+        send(JSONObject().put("type","job.received").put("job_id",id)
+            .put("stage","Android job received; room="+roomId))
+        if (job.optString("action") == "room.delete") {
+            // ChatGPT deletion cannot be asserted from our current accessibility
+            // nodes. Return an explicit failure instead of deleting wrong data.
+            finishApiJob(id,false,"Room deletion needs verified ChatGPT conversation identity; no deletion attempted")
+            return
+        }
+        if (job.optString("action") != "chat.send") {
+            finishApiJob(id,false,"Unsupported API job action")
+            return
+        }
+        val attachments = job.optJSONArray("attachment_ids") ?: JSONArray()
+        if (attachments.length() > 0) {
+            progress(id, "파일 "+attachments.length()+"개 Android 저장소로 전송 준비")
+            stageFiles(job, attachments)
+            return
+        }
+        val text = job.optString("text")
+        if (text.isBlank()) {
+            finishApiJob(id,false,"Question text is empty")
+            return
+        }
+        val androidState = room.optString("android_state","uncreated")
+        if (currentRoomId == roomId) {
+            progress(id,"현재 확인된 방에서 대화 이어가기: "+roomId)
+            withChatApp(id) { sendChat(id,text) }
+        } else if (androidState == "uncreated") {
+            progress(id,"새 ChatGPT 채팅방 생성 요청: "+roomId)
+            withChatApp(id) { createRoomThenSend(id,roomId,text,0) }
+        } else {
+            finishApiJob(id,false,"Existing Android conversation is not verified. Requested room="+roomId+
+                "; current="+(currentRoomId ?: "unknown")+
+                ". Exact in-app room switching must be mapped before sending.")
+        }
+    }
+
+    private fun namedControl(labelWords: List<String>): AccessibilityNodeInfo? {
+        val all=nodes(rootInActiveWindow)
+        for (n in all) {
+            val v=(n.text?.toString().orEmpty()+" "+n.contentDescription?.toString().orEmpty()).trim().lowercase()
+            if (labelWords.none { v.contains(it) }) continue
+            var p: AccessibilityNodeInfo?=n
+            var depth=0
+            while (p!=null && !isClickTarget(p) && depth<5) {p=p.parent;depth++}
+            if (p!=null && isClickTarget(p))return p
+        }
+        return null
+    }
+
+    private fun createRoomThenSend(id: String, roomId: String, text: String, attempt: Int) {
+        if (activeApiJob?.optString("id") != id) return
+        if (rootInActiveWindow?.packageName?.toString()!=chatPackage) {
+            finishApiJob(id,false,"ChatGPT is not in foreground during room creation");return
+        }
+        val newChat = namedControl(listOf("새 채팅","new chat","new conversation"))
+        if(newChat!=null) {
+            if (!newChat.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                finishApiJob(id,false,"Could not click the New Chat control")
+                return
+            }
+            progress(id,"공식 ChatGPT 새 채팅 클릭")
+            main.postDelayed({
+                if (activeApiJob?.optString("id")!=id)return@postDelayed
+                val input=composerInput(nodes(rootInActiveWindow))
+                if(input==null){finishApiJob(id,false,"No composer after new-chat action");return@postDelayed}
+                // This identifies a fresh composer action, not a stable
+                // ChatGPT thread ID. Persisting/reselecting after restart still
+                // requires an in-app conversation identity verification.
+                currentRoomId=roomId
+                progress(id,"새 대화 입력창 확인")
+                sendChat(id,text)
+            },800)
+            return
+        }
+        if(attempt==0) {
+            val menu=namedControl(listOf("메뉴","menu","sidebar","open navigation"))
+            if(menu!=null && menu.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                progress(id,"채팅방 목록 메뉴 열기")
+                main.postDelayed({createRoomThenSend(id,roomId,text,1)},550)
+                return
+            }
+        }
+        finishApiJob(id,false,"New-chat button was not identified. Android UI snapshot required.")
+        snapshot()
+    }
+
+    private fun stageFiles(job: JSONObject, files: JSONArray) {
+        val jid=job.optString("id")
+        val prefs=getSharedPreferences("relay",MODE_PRIVATE)
+        val endpoint=prefs.getString("url","").orEmpty()
+            .ifBlank{"wss://chatgpt-relay-web-production.up.railway.app/ws"}
+            .replaceFirst("wss://","https://").removeSuffix("/ws")
+        val token=prefs.getString("token","").orEmpty()
+            .ifBlank{"dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn"}
+        thread(start=true,name="relay-file-stage") {
+            var downloaded=0
+            var problem=""
+            try{
+                val dir=File(filesDir,"relay-attachments").apply{mkdirs()}
+                for (i in 0 until files.length()) {
+                    val fid=files.optString(i)
+                    if(!fid.matches(Regex("file_[0-9a-f]{32}")))throw Exception("Invalid file id")
+                    val req=Request.Builder().url(endpoint+"/api/v1/device/jobs/"+jid+"/files/"+fid)
+                        .header("Authorization","Bearer "+token).build()
+                    client.newCall(req).execute().use{ response ->
+                        if(!response.isSuccessful)throw Exception("Download failed HTTP "+response.code)
+                        val bytes=response.body?.bytes() ?: throw Exception("Empty response")
+                        if(bytes.isEmpty()||bytes.size>15*1024*1024)throw Exception("File size outside limit")
+                        File(dir,fid+".bin").writeBytes(bytes)
+                        downloaded++
+                    }
+                }
+            } catch(e: Exception) { problem=e.javaClass.simpleName+": "+(e.message ?: "") }
+            main.post {
+                if (activeApiJob?.optString("id") != jid)return@post
+                if (problem.isNotEmpty()) {
+                    finishApiJob(jid,false,"Android file staging failed: "+problem)
+                } else {
+                    progress(jid,"Android 파일 "+downloaded+"개 내려받기 완료")
+                    finishApiJob(jid,false,"Files uploaded and staged on Android, but ChatGPT UI attachment is NOT VERIFIED. Question was not sent to avoid silently omitting files.")
+                }
+            }
+        }
+    }
+
+    private fun responseCandidate(question: String): String {
+        val data=nodes(rootInActiveWindow)
+        val others=data.mapNotNull { n ->
+            val value=n.text?.toString()?.trim().orEmpty()
+            if(value.isBlank()||n.isEditable||n.isClickable||value==question.trim()||
+                value in chrome||value.length>7000) null
+            else if(value.contains("메뉴") && value.length<22) null
+            else value
+        }
+        return others.lastOrNull().orEmpty()
+    }
+
+    private fun waitForAnswer(id: String, question: String, attempt: Int, previous: String, stable: Int) {
+        if (activeApiJob?.optString("id") != id) return
+        if(rootInActiveWindow?.packageName?.toString()!=chatPackage) {
+            finishApiJob(id,false,"ChatGPT foreground lost before response extraction")
+            return
+        }
+        val candidate=responseCandidate(question)
+        val nextStable=if(candidate.isNotBlank() && candidate==previous)stable+1 else 0
+        val hasStop=nodes(rootInActiveWindow).any { n ->
+            val label=accessibleLabel(n)
+            n.isVisibleToUser && n.isClickable &&
+                listOf("stop generating","stop response","생성 중지","응답 중지").any {label.contains(it)}
+        }
+        if(candidate.isNotBlank() && nextStable>=3 && !hasStop && attempt>=4) {
+            val rid=activeApiJob?.optJSONObject("room")?.optString("id").orEmpty()
+            roomLastPrompt=question
+            finishApiJob(id,true,"assistant_reply_stable",candidate,rid,"active")
+            return
+        }
+        if(attempt>=115) {
+            finishApiJob(id,false,"Message was submitted but assistant response was NOT verified within timeout")
+            return
+        }
+        if(attempt%5==0) progress(id,"답변 추출 확인 중 ("+attempt+"회, "+candidate.length+"자)")
+        main.postDelayed({waitForAnswer(id,question,attempt+1,candidate,nextStable)},950)
+    }
+
+    private fun finishApiJob(id:String, verified:Boolean, stage:String,
+                             resultText:String?=null,roomId:String?=null,roomState:String?=null) {
+        if(activeApiJob?.optString("id")!=id)return
+        val message=JSONObject().put("type",if(verified)"job.result" else "job.error")
+            .put("job_id",id).put("verified",verified).put("stage",stage.take(100))
+        if(verified){
+            message.put("result_text",resultText ?: "")
+            if(roomId!=null){message.put("room_id",roomId);message.put("room_state",roomState)}
+        }else{
+            message.put("reason",stage.take(400))
+        }
+        send(message)
+        if(!verified && currentRoomId==activeApiJob?.optJSONObject("room")?.optString("id"))
+            currentRoomId=null
+        activeApiJob=null
     }
 
     private fun performCommand(cmd: JSONObject) {
