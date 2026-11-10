@@ -4,6 +4,9 @@ on:
     branches: [feature/chatgpt-android-relay-20261110]
     paths:
       - '.github/workflows/test-chatgpt-real-emulator.yml'
+      - '.github/scripts/fetch-exact-chatgpt.mjs'
+      - '.github/scripts/check-chatgpt-variant.py'
+      - '.github/scripts/test-chatgpt-real-emulator.sh'
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,6 +22,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install download clients for exact APKM variant
+        run: npm install --prefix .github/scripts --no-save apkmirror-downloader @nirewen/apkcombo-downloader
+      - name: Retrieve matching OpenAI-signed APKM without publishing copyrighted APK
+        run: |
+          mkdir -p emulator-evidence
+          set -o pipefail
+          node .github/scripts/fetch-exact-chatgpt.mjs 2>&1 | tee emulator-evidence/public-download.log
       - name: Check Android virtualization availability
         run: |
           set -eu
@@ -26,6 +39,8 @@ jobs:
           ls -l /dev/kvm || { echo 'ERROR: KVM not available'; exit 1; }
           sudo chmod 666 /dev/kvm
       - name: Boot REAL Android emulator and install REAL applications
+        env:
+          CHATGPT_TEST_APK_LOCAL: /tmp/chatgpt-download.pkg
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
