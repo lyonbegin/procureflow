@@ -380,9 +380,14 @@ class ChatRelayService : AccessibilityService() {
         // independently demonstrate that identity. A new intent is an
         // idempotent way to target the specific ChatGPT conversation ID.
         val targetId=Uri.parse(link).lastPathSegment.orEmpty()
-        val expectedTitle=job.optString("target_chatgpt_title").ifBlank {
-            job.optJSONObject("room")?.optString("chatgpt_title").orEmpty()
+        val declaredTargetId=job.optString("target_conversation_id")
+        if(declaredTargetId.isNotBlank() && declaredTargetId!=targetId){
+            finishApiJob(jid,false,"Job conversation ID does not match deep-link URL")
+            return
         }
+        // Use only a title confirmed from ChatGPT itself. The Railway room
+        // label may be different from ChatGPT's automatically generated title.
+        val expectedTitle=job.optJSONObject("room")?.optString("chatgpt_title").orEmpty()
         val selectedTitle=selectedSidebarConversationTitle()
         if(selectedTitle!=null && expectedTitle.isNotBlank() &&
            normalizedRoomText(selectedTitle)!=normalizedRoomText(expectedTitle)) {
