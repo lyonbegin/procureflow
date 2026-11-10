@@ -62,7 +62,7 @@ class MainActivity : Activity() {
             setSingleLine()
             hint = "DEVICE_TOKEN"
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("token", "").orEmpty().ifBlank { "dpYZLhnMxOq02PNKGtTnBvzNSBAkLQ2Ip8zTzbEn" })
+            setText(prefs.getString("token", "").orEmpty())
         }
         root.addView(label("ChatGPT 원격 제어 앱 · 연결 진단"))
         root.addView(label("Railway WebSocket 주소"))
