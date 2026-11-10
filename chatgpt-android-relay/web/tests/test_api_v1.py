@@ -21,6 +21,12 @@ def main():
         key_a=user_a.json()["api_key"]
         assert len(key_a)>35
         auth_a={"X-API-Key":key_a}
+        assert client.get("/api/v1/auth/check").status_code==401
+        assert client.get("/api/v1/auth/check",headers=admin).json()=={
+            "authenticated":True,"role":"admin","user_id":None}
+        assert client.get("/api/v1/auth/check",headers=auth_a).json()=={
+            "authenticated":True,"role":"user","user_id":"alice"}
+        assert client.get("/api/v1/auth/check",headers={"X-API-Key":"invalid"}).status_code==403
         user_b=client.post("/api/v1/users",headers=admin,json={"user_id":"bob","name":"Bob"})
         assert user_b.status_code==200,user_b.text
         auth_b={"X-API-Key":user_b.json()["api_key"]}
