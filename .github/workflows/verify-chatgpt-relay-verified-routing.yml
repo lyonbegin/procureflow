@@ -46,7 +46,10 @@ jobs:
           activity=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/MainActivity.kt').read_text()
           assert 'setText(prefs.getString("token", "").orEmpty())' in activity
           assert 'setText(prefs.getString("token", "").orEmpty().ifBlank' not in activity
-          print('PASS: no composer-only approval, no embedded device credential, login and ANR gates')
+          assert 'val token = prefs.getString("token", "").orEmpty()' in s
+          assert 'val token = prefs.getString("token", "").orEmpty().ifBlank' not in s
+          assert 'val blocker = screenBlockReason(root)' in s
+          print('PASS: verified-anchor requirement, no embedded credential in UI/service, login and ANR gates')
           PY
       - name: Build Android APK without publishing it
         run: |
