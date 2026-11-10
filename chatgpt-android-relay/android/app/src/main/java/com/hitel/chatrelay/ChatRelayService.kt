@@ -217,16 +217,77 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         val androidState = room?.optString("android_state","uncreated") ?: "uncreated"
-        if (currentRoomId == roomId) {
-            progress(id,"현재 확인된 방에서 대화 이어가기: "+roomId)
-            withChatApp(id) { sendChat(id,text) }
-        } else if (androidState == "uncreated") {
+        if (androidState == "uncreated") {
             progress(id,"새 ChatGPT 채팅방 생성 요청: "+roomId)
             withChatApp(id) { createRoomThenSend(id,roomId,text,0) }
         } else {
-            finishApiJob(id,false,"Existing Android conversation is not verified. Requested room="+roomId+
-                "; current="+(currentRoomId ?: "unknown")+
-                ". Exact in-app room switching must be mapped before sending.")
+            verifyExistingRoom(job) {
+                progress(id,"대상 ChatGPT 방 확인 후 질문 입력")
+                sendChat(id,text)
+            }
+        }
+    }
+
+    // A room ID is not exposed by ChatGPT Accessibility. Recover the mapping
+    // only when a distinctive previous completed message from the same Railway
+    // room is visible in the foreground Android conversation.
+    private fun normalizedRoomText(text: String): String =
+        text.replace(Regex("\\s+"), " ").trim().lowercase()
+
+    private fun matchRoomAnchor(job: JSONObject): String? {
+        if (rootInActiveWindow?.packageName?.toString() != chatPackage) return null
+        val anchors = job.optJSONArray("room_anchors") ?: return null
+        if (anchors.length() == 0) return null
+        val visible = nodes(rootInActiveWindow).mapNotNull { n ->
+            val value = n.text?.toString().orEmpty()
+            if (n.isEditable || value.length < 24 || value.length > 50000) null
+            else normalizedRoomText(value)
+        }
+        for (i in 0 until anchors.length()) {
+            val anchor = anchors.optJSONObject(i)?.optString("text").orEmpty()
+            val normalized = normalizedRoomText(anchor)
+            if (normalized.length < 24) continue
+            // Require a substantial exact text run to exclude menu labels and
+            // unrelated short messages. A long answer may be divided into nodes.
+            val proof = normalized.take(120)
+            if (visible.any { node -> node.contains(proof) ||
+                    (node.length >= 45 && normalized.contains(node.take(100))) }) {
+                return anchor
+            }
+        }
+        return null
+    }
+
+    private fun visibleRoomAnchor(anchor: String): Boolean {
+        val normalized = normalizedRoomText(anchor)
+        if (normalized.length < 24) return false
+        return nodes(rootInActiveWindow).any { n ->
+            val text = if (n.isEditable) "" else normalizedRoomText(n.text?.toString().orEmpty())
+            text.contains(normalized.take(120)) ||
+                (text.length >= 45 && normalized.contains(text.take(100)))
+        }
+    }
+
+    private fun verifyExistingRoom(job: JSONObject, afterVerification: () -> Unit) {
+        val jid = job.optString("id")
+        val rid = job.optJSONObject("room")?.optString("id").orEmpty()
+        withChatApp(jid) {
+            val match = matchRoomAnchor(job)
+            if (match != null) {
+                currentRoomId = rid
+                roomLastPrompt = match
+                progress(jid, "기존 Railway 기록과 Android 화면 대조 성공 · 채팅방 복원")
+                afterVerification()
+            } else if (currentRoomId == rid &&
+                       (job.optJSONArray("room_anchors")?.length() ?: 0) == 0) {
+                // Same process, initial chat creation. A fresh controller
+                // cannot enter this branch, since currentRoomId starts null.
+                progress(jid, "현재 프로세스에서 생성한 채팅방 사용")
+                afterVerification()
+            } else {
+                progress(jid, "기존 채팅방 인증 실패 · 서버 기록이 현재 화면에 없음")
+                finishApiJob(jid,false,"Existing Android room not verified after restart or navigation. Open the correct ChatGPT conversation on the phone; no message was sent.")
+            }
         }
     }
 
@@ -409,9 +470,9 @@ class ChatRelayService : AccessibilityService() {
         }
         withChatApp(jid) {
             val anchor = roomLastPrompt
-            if (anchor.length < 6 || anchor !in visibleConversationText()) {
+            if (!visibleRoomAnchor(anchor)) {
                 finishApiJob(jid, false,
-                    "Cannot verify target conversation before opening its attachment picker")
+                    "Existing room is not visible before attachment picker; no file was selected")
                 snapshot()
                 return@withChatApp
             }
@@ -588,12 +649,14 @@ class ChatRelayService : AccessibilityService() {
             finishApiJob(jid, false, "No files staged for sharing")
             return
         }
-        if (state != "uncreated" && currentRoomId != roomId) {
-            finishApiJob(jid, false, "Wrong chat room: cannot share into an unverified existing conversation")
+        if (state == "active") {
+            verifyExistingRoom(job) {
+                pickFileInsideExistingRoom(job, staged)
+            }
             return
         }
-        if (state == "active") {
-            pickFileInsideExistingRoom(job, staged)
+        if (state != "uncreated") {
+            finishApiJob(jid, false, "Unsupported or unverified room state: " + state)
             return
         }
         withChatApp(jid) {
@@ -604,7 +667,7 @@ class ChatRelayService : AccessibilityService() {
                 progress(jid, "새 채팅방 이미지 공유 준비")
             } else {
                 val anchor = roomLastPrompt
-                if (anchor.length < 6 || visibleConversationText().none { it == anchor }) {
+                if (!visibleRoomAnchor(anchor)) {
                     finishApiJob(jid, false,
                         "Prior room identity is not visible. Refusing unsafe attachment to another chat")
                     snapshot()
@@ -660,7 +723,7 @@ class ChatRelayService : AccessibilityService() {
         val all = nodes(root)
         val input = composerInput(all)
         val visible = visibleConversationText()
-        if (shareRoomAnchor.isNotEmpty() && shareRoomAnchor !in visible) {
+        if (shareRoomAnchor.isNotEmpty() && !visibleRoomAnchor(shareRoomAnchor)) {
             // Share intent can open a different conversation. Do not leak data
             // across the user's separate chat sessions.
             finishApiJob(jid, false,
@@ -737,7 +800,8 @@ class ChatRelayService : AccessibilityService() {
         }
         if(candidate.isNotBlank() && nextStable>=3 && !hasStop && attempt>=4) {
             val rid=activeApiJob?.optJSONObject("room")?.optString("id").orEmpty()
-            roomLastPrompt=question
+            roomLastPrompt=if (candidate.length >= 24) candidate.take(200)
+                else question
             finishApiJob(id,true,"assistant_reply_stable",candidate,rid,"active")
             return
         }
@@ -770,8 +834,9 @@ class ChatRelayService : AccessibilityService() {
         }
         pendingPickerUri = null
         pendingPickerDisplayName = null
-        if(!verified && currentRoomId==activeApiJob?.optJSONObject("room")?.optString("id"))
-            currentRoomId=null
+        // Do not erase a verified room mapping because a file-picker or
+        // attachment verification failed. That was cascading all subsequent
+        // messages into "Wrong chat room" after the first failure.
         activeApiJob=null
     }
 
