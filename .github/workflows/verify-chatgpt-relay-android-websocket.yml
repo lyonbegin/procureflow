@@ -53,6 +53,12 @@ jobs:
         run: |
           gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
           sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Grant KVM hardware acceleration to runner (required for reliable boot)
+        run: |
+          set -euo pipefail
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Launch Android 15 x86_64 and exchange real server jobs and file bytes
         uses: reactivecircus/android-emulator-runner@v2
         with:
