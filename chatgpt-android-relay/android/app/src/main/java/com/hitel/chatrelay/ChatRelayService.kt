@@ -301,10 +301,124 @@ class ChatRelayService : AccessibilityService() {
         }
     }
 
+    // Decompiled ChatGPT 1.2026.300 AndroidManifest:
+    // com.openai.chatgpt.ChatGptDeeplinkActivity exported ACTION_VIEW,
+    // BROWSABLE, HTTPS chatgpt.com with pathPrefix /c/, /c2/, /uc/.
+    // This is an app-to-app URL operation, NOT ACTION_SEND.
+    private fun validChatGptConversationLink(url:String):Boolean {
+        return try {
+            val uri=Uri.parse(url)
+            if(uri.scheme!="https" || uri.host!="chatgpt.com" ||
+               uri.port!=-1 || uri.userInfo!=null || uri.fragment!=null)false
+            else {
+                val seg=uri.pathSegments
+                seg.size==2 && seg[0] in listOf("c","c2","uc") &&
+                    seg[1].matches(Regex("[A-Za-z0-9_-]{8,128}"))
+            }
+        }catch(ignored:Exception){false}
+    }
+
+    private fun openExactChatGptConversation(
+        job:JSONObject, onTargetReady:()->Unit
+    ) {
+        val jid=job.optString("id")
+        val rid=job.optJSONObject("room")?.optString("id").orEmpty()
+        val link=job.optString("target_chatgpt_url").ifBlank {
+            job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
+        }
+        if(!validChatGptConversationLink(link)) {
+            finishApiJob(jid,false,"Target conversation deep link is missing or invalid")
+            return
+        }
+        // A previous result from our app may already have the right chat
+        // visible; still navigate if there is no historical content to
+        // independently demonstrate that identity. A new intent is an
+        // idempotent way to target the specific ChatGPT conversation ID.
+        val anchors=job.optJSONArray("room_anchors")
+        val alreadyHere=currentRoomId==rid && matchRoomAnchor(job)!=null
+        if(alreadyHere){
+            progress(jid,"현재 열린 ChatGPT 대화가 이전 메시지와 일치 · 이동 생략")
+            onTargetReady()
+            return
+        }
+        val intent=Intent(Intent.ACTION_VIEW,Uri.parse(link)).apply {
+            setPackage(chatPackage)
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                     Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        try{
+            if(intent.resolveActivity(packageManager)==null){
+                finishApiJob(jid,false,
+                    "ChatGPT APK does not resolve ACTION_VIEW for /c/ conversation links")
+                return
+            }
+            progress(jid,"공식 ChatGPT 대화 URL로 이동 요청 · "+
+                Uri.parse(link).lastPathSegment.orEmpty().take(16))
+            startActivity(intent)
+        }catch(e:Exception){
+            finishApiJob(jid,false,
+                "ChatGPT ACTION_VIEW deep link launch error: "+
+                e.javaClass.simpleName)
+            return
+        }
+        main.postDelayed({
+            verifyDeepLinkLanding(job,onTargetReady,0,0)
+        },1100)
+    }
+
+    private fun verifyDeepLinkLanding(
+        job:JSONObject, onTargetReady:()->Unit,
+        attempt:Int, stable:Int
+    ) {
+        val jid=job.optString("id")
+        if(activeApiJob?.optString("id")!=jid)return
+        val root=rootInActiveWindow
+        val pkg=root?.packageName?.toString().orEmpty()
+        val all=nodes(root)
+        val composer=if(pkg==chatPackage && searchBarNode()==null)
+            composerInput(all) else null
+        val matching=if(composer!=null) matchRoomAnchor(job) else null
+        val nextStable=if(composer!=null)stable+1 else 0
+        if(matching!=null || nextStable>=4){
+            val rid=job.optJSONObject("room")?.optString("id").orEmpty()
+            currentRoomId=rid
+            roomLastPrompt=matching.orEmpty()
+            if(matching!=null){
+                progress(jid,"딥링크로 이동 후 대상 대화의 과거 메시지 확인")
+            }else{
+                progress(jid,"딥링크 ACTION_VIEW 후 공식 ChatGPT 입력창 확인 "+
+                    "(대화 ID는 접근성에 노출되지 않아 URL 라우팅 결과에 의존)")
+            }
+            onTargetReady()
+            return
+        }
+        if(attempt<20){
+            if(attempt%4==0)progress(jid,"ChatGPT 딥링크 착지 확인 중 · "+
+                (if(pkg.isEmpty())"loading" else pkg))
+            main.postDelayed({
+                verifyDeepLinkLanding(job,onTargetReady,attempt+1,nextStable)
+            },550)
+        }else{
+            snapshot()
+            finishApiJob(jid,false,
+                "ChatGPT did not show a conversation composer after /c/ deep link; "+
+                "wrong-room send blocked")
+        }
+    }
+
     private fun verifyExistingRoom(job: JSONObject, afterVerification: () -> Unit) {
         val jid = job.optString("id")
         val rid = job.optJSONObject("room")?.optString("id").orEmpty()
         withChatApp(jid) {
+            val link=job.optString("target_chatgpt_url").ifBlank {
+                job.optJSONObject("room")?.optString("chatgpt_url").orEmpty()
+            }
+            if(link.isNotBlank()){
+                openExactChatGptConversation(job,afterVerification)
+                return@withChatApp
+            }
             val match = matchRoomAnchor(job)
             if (match != null) {
                 currentRoomId = rid
