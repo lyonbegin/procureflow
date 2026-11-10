@@ -409,6 +409,35 @@ def claim_next_job():
                 raise RuntimeError("Job references unavailable attachment " + fid)
             details.append(dict(f))
         job["attachment_details"] = details
+        # A restarted controller has no volatile room mapping. Provide only
+        # previously COMPLETED messages from the SAME user and room so the
+        # Android accessibility layer can verify the visible conversation.
+        # Never include current/new/failed messages as verification anchors.
+        history = c.execute("""
+            SELECT m.text,m.role,m.job_id
+            FROM messages m JOIN jobs completed ON completed.id=m.job_id
+            WHERE m.user_id=? AND m.room_id=? AND m.job_id!=?
+              AND completed.status='completed'
+              AND m.role IN ('assistant','user')
+            ORDER BY m.created_at DESC,m.id DESC LIMIT 16
+        """, (job["user_id"], job["room_id"], job["id"])).fetchall()
+        anchors = []
+        seen = set()
+        for msg in history:
+            txt = " ".join(msg["text"].split())
+            # A short greeting or generic response cannot reliably identify
+            # an Android conversation; use distinctive nontrivial excerpts.
+            if len(txt) < 24 or len(txt) > 50000:
+                continue
+            first = txt[:200]
+            if first in seen:
+                continue
+            seen.add(first)
+            anchors.append({"role": msg["role"], "text": first,
+                            "from_job_id": msg["job_id"]})
+            if len(anchors) >= 8:
+                break
+        job["room_anchors"] = anchors
         job.pop("result_text",None)
         return job
 
