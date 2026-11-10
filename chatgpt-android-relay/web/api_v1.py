@@ -416,16 +416,6 @@ def claim_next_job():
         room = c.execute("SELECT * FROM rooms WHERE id=?", (r["room_id"],)).fetchone()
         job = public_job(item)
         job["room"] = dict(room)
-        details = []
-        for fid in job["attachment_ids"]:
-            f = c.execute(
-                "SELECT id,name,mime,size,sha256 FROM file_objects "
-                "WHERE id=? AND user_id=? AND room_id=? AND kind='input'",
-                (fid, job["user_id"], job["room_id"])
-            ).fetchone()
-            if not f:
-                raise RuntimeError("Job references unavailable attachment " + fid)
-            details.append(dict(f))
         # Deliver Google Drive links as ordinary question text, NEVER as
         # Android file attachments. The old Accessibility +/file-picker path is
         # deliberately disabled for API jobs.
