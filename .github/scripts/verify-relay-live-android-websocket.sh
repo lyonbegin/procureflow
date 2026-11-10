@@ -54,22 +54,48 @@ adb shell rm /data/local/tmp/ci-relay-config.xml
 
 adb shell am start -n com.hitel.chatrelay/.MainActivity \
   | tee android-socket-evidence/start.txt
-adb shell cmd appops set com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS allow
-
+# Match the previously successful controller smoke test: Android 15 may
+# revert secure accessibility settings before its manager is initialized.
+sleep 10
+EXISTING="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
+[[ "$EXISTING" == "null" ]] && EXISTING=""
+SERVICE='com.hitel.chatrelay/.ChatRelayService'
+case ":$EXISTING:" in
+  *":$SERVICE:"*) UPDATED="$EXISTING" ;;
+  "::") UPDATED="$SERVICE" ;;
+  *) UPDATED="$EXISTING:$SERVICE" ;;
+esac
 BOUND=0
-for attempt in 1 2 3 4 5; do
+: > android-socket-evidence/accessibility-attempts.txt
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
   adb shell cmd appops set com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS allow
-  adb shell settings put secure enabled_accessibility_services "com.hitel.chatrelay/.ChatRelayService"
+  adb shell settings put secure enabled_accessibility_services "$UPDATED"
   adb shell settings put secure accessibility_enabled 1
-  sleep 5
+  sleep 7
+  ACTUAL="$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')"
   adb shell dumpsys accessibility > android-socket-evidence/manager.txt
+  BOUND_NOW=no
   if grep -Fq 'Bound services:{Service[label=ChatGPT Relay Control' android-socket-evidence/manager.txt; then
+    BOUND_NOW=yes
+  fi
+  printf 'attempt=%d secure_enabled=%s manager_bound=%s\n' "$attempt" "$ACTUAL" "$BOUND_NOW" \
+    | tee -a android-socket-evidence/accessibility-attempts.txt
+  if [[ "$ACTUAL" == *"com.hitel.chatrelay"* && "$BOUND_NOW" == yes ]]; then
     BOUND=1
     echo "bound_attempt=$attempt" > android-socket-evidence/accessibility-result.txt
     break
   fi
 done
-test "$BOUND" = 1
+adb shell cmd appops get com.hitel.chatrelay ACCESS_RESTRICTED_SETTINGS \
+  > android-socket-evidence/final-restricted-appop.txt
+adb shell settings get secure enabled_accessibility_services \
+  > android-socket-evidence/final-secure-enabled.txt
+if [[ "$BOUND" != 1 ]]; then
+  adb logcat -d -v time -s AccessibilityManagerService:I HITELRelayLifecycle:I AndroidRuntime:E '*:S' \
+    > android-socket-evidence/accessibility-failure.log || true
+  echo 'FAIL_ACCESSIBILITY_SERVICE_DID_NOT_BIND' | tee android-socket-evidence/result.txt
+  exit 1
+fi
 
 ONLINE=0
 for attempt in $(seq 1 45); do
