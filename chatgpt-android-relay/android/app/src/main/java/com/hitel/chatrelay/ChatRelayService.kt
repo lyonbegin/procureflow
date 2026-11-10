@@ -501,10 +501,15 @@ class ChatRelayService : AccessibilityService() {
         val rid = job.optJSONObject("room")?.optString("id").orEmpty()
         withChatApp(jid) {
             val link=targetConversationUrl(job)
-            if(link.isNotBlank()){
+            if(link.isNotBlank() && validChatGptConversationLink(link)){
                 openExactChatGptConversation(job,afterVerification)
                 return@withChatApp
             }
+            // A malformed legacy URL must not dead-end an otherwise
+            // recoverable conversation. Continue ONLY to verified message
+            // anchors/history search; never guess a room ID.
+            if(link.isNotBlank()) progress(jid,
+                "이전 대화 URL 형식 오류 · 동일 대화의 이전 메시지로 검증 시도")
             val match = matchRoomAnchor(job)
             if (match != null) {
                 currentRoomId = rid
