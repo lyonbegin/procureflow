@@ -367,6 +367,15 @@ async def bind_legacy_android_chat(room_id: str, user_id: str | None = None,
         room=existing_room(c,room_id,uid)
         if room["status"]!="active":
             raise HTTPException(409,"Room is not active")
+        ongoing=c.execute("""SELECT * FROM jobs WHERE user_id=? AND room_id=?
+            AND action='room.bind' AND status IN ('queued','running')
+            ORDER BY created_at DESC LIMIT 1""",(uid,room_id)).fetchone()
+        if ongoing:
+            return public_job(ongoing)
+        c.execute("""UPDATE jobs SET status='failed',stage='superseded',
+            error='Replaced by explicit legacy room binding',updated_at=?
+            WHERE user_id=? AND action='room.open' AND status='queued'""",
+            (clock(),uid))
         marker="HITEL Relay room marker "+room_id
         jid=store_job(c,uid,room_id,"room.bind",marker,[])
         job=c.execute("SELECT * FROM jobs WHERE id=?",(jid,)).fetchone()
@@ -393,6 +402,17 @@ async def open_existing_chat_room(
             raise HTTPException(409, "Room is not active")
         if room["android_state"] != "active":
             raise HTTPException(409, "ChatGPT conversation has not been created yet")
+        # A quick sequence of web clicks should not queue dozens of
+        # stale navigation jobs or reopen a room after a newer selection.
+        active=c.execute("""SELECT * FROM jobs WHERE user_id=? AND room_id=?
+            AND action='room.open' AND status='running'
+            ORDER BY created_at DESC LIMIT 1""",(uid,room_id)).fetchone()
+        if active:
+            return public_job(active)
+        c.execute("""UPDATE jobs SET status='failed',stage='superseded',
+            error='Replaced by newer room selection',updated_at=?
+            WHERE user_id=? AND action='room.open' AND status='queued'""",
+            (clock(),uid))
         jid = store_job(c, uid, room_id, "room.open")
         job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
     if on_new_job:
