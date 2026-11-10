@@ -361,7 +361,9 @@ class ChatRelayService : AccessibilityService() {
     }
 
     private fun invalidateActiveConversationIdentity(reason:String) {
-        if(activeConversationId==null)return
+        // A newly created room has currentRoomId but no extracted ChatGPT URL.
+        // It still must be invalidated on manual navigation or app switching.
+        if(activeConversationId==null && currentRoomId==null)return
         sendLog("Active ChatGPT conversation cache invalidated: "+reason.take(70))
         activeConversationId=null
         currentRoomId=null
@@ -510,6 +512,7 @@ class ChatRelayService : AccessibilityService() {
                 progress(jid,"기존 대화 내용 검증 성공 · 이미 해당 채팅방 화면")
                 afterVerification()
             } else if (currentRoomId == rid &&
+                       chatComposerIsVisible() &&
                        (job.optJSONArray("room_anchors")?.length() ?: 0) == 0) {
                 // Only a newly created chat within the same process qualifies.
                 progress(jid,"현재 프로세스에서 생성한 채팅방 유지")
@@ -1793,7 +1796,7 @@ class ChatRelayService : AccessibilityService() {
         // Manual in-app chat switches invalidate the last relay-directed
         // conversation. Content/typing updates are NOT navigation.
         if(event.eventType==AccessibilityEvent.TYPE_VIEW_CLICKED &&
-            activeConversationId!=null) {
+            (activeConversationId!=null || currentRoomId!=null)) {
             val n=event.source
             val label=listOf(n?.text?.toString().orEmpty(),
                 n?.contentDescription?.toString().orEmpty(),
@@ -1810,7 +1813,8 @@ class ChatRelayService : AccessibilityService() {
                 invalidateActiveConversationIdentity("manual sidebar/chat navigation")
         }
         if(event.eventType==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            activeApiJob==null && activeConversationId!=null)
+            activeApiJob==null &&
+            (activeConversationId!=null || currentRoomId!=null))
             invalidateActiveConversationIdentity("window navigation outside relay")
         val now=System.currentTimeMillis()
         if(now-lastSnapshot<800) return
