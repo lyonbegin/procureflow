@@ -15,18 +15,28 @@
 .drive-setup a{color:#15559a;text-decoration:underline}
 .drive-working{opacity:.6}
 @media(max-width:1040px){.layout{grid-template-columns:1fr}.response{grid-template-columns:1fr}}@media(max-width:620px){.layout{padding:10px;gap:10px}.mast{padding:16px}.half{grid-template-columns:1fr}.panel>.inner{padding:12px}}
+#auth-notice{border:1px solid #d4a767;background:#fff7e8;color:#77430e;padding:14px 16px;border-radius:9px;margin:18px 20px 0;line-height:1.65}
+#auth-notice[hidden]{display:none}
+#auth-notice button{margin-left:8px}
+#api-auth-status{font-weight:600;border-radius:6px;padding:9px 10px;background:#fff6df}
+#api-auth-status.good{color:#216543;background:#edf8f1}
+#api-auth-status.bad{color:#a12d2d;background:#fff0ed}
+.auth-guide{font-size:12px;line-height:1.65;color:#586a80}
 </style></head>
 <body>
 <div class="app">
 <header class="mast"><div><h1>ChatGPT Android · API Test Console</h1><p>엔드포인트 테스트 / 사용자 분리 / 채팅방 CRUD / 파일 입출력 / Android 작업 큐</p></div>
 <div class="stats"><span class="chip" id="server-status">Server 확인 전</span><span class="chip" id="device-status">Android 확인 전</span><a href="/docs" target="_blank" rel="noopener">OpenAPI 문서</a></div></header>
+<div id="auth-notice" role="alert">웹 API 인증이 필요합니다. 아래 <strong>관리 콘솔 토큰</strong> 또는 <strong>사용자 API Key</strong>를 입력한 다음 <strong>인증 확인</strong>을 눌러 주십시오. 공개 웹 화면에는 비밀키가 포함되지 않습니다. <button id="auth-jump">인증 입력창으로 이동</button></div>
 <div class="layout">
 <div class="stack">
 <section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
 <div class="step"><div class="fields">
 <label for="admin-token">관리 콘솔 토큰 (시험용)</label><input id="admin-token" type="password" autocomplete="off" placeholder="이전에 발급된 CONSOLE_TOKEN을 입력하십시오">
-<div class="hint" id="api-auth-status" role="status" aria-live="polite">Railway 파일 API에는 관리 토큰 또는 사용자별 API Key가 필요합니다. 인증 정보는 공개 웹 소스에 포함하지 않습니다.</div>
-<label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" placeholder="사용자별 발급키를 입력하면 관리 토큰 대신 사용">
+<div id="api-auth-status" role="status" aria-live="polite">인증되지 않았습니다. 기존 관리자 토큰이나 사용자 API Key를 입력해 주십시오.</div>
+<label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" autocomplete="off" placeholder="사용자별 발급키를 입력하시면 관리 토큰 대신 사용합니다">
+<div class="row"><button class="primary" id="verify-auth">인증 확인 · API 연결</button><button id="forget-auth">입력된 인증키 지우기</button></div>
+<div class="auth-guide">Railway의 <strong>chatgpt-relay-web → Variables → CONSOLE_TOKEN</strong>에 등록된 관리자 값을 한 번 입력하시면 이 브라우저에서 다시 사용할 수 있습니다. 해당 값이 비공개라 확인할 수 없다면 Railway 관리자 권한으로 새 값을 설정해야 합니다. Android 기기 토큰은 여기에 넣지 마십시오.</div>
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
 <div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
@@ -114,26 +124,96 @@ for(const id of ['admin-token','user-api-key','user-id']) {
   $(id).addEventListener('input',()=>{
     localStorage.setItem(id==='admin-token'?'relay_admin_token':
                          id==='user-api-key'?'relay_user_api_key':'relay_user_id',$(id).value.trim());
+    if(id!=='user-id')renderAuthStatus(null);
   });
 }
+const authBanner=$('auth-notice');
+let authenticatedRole=null;
+function renderAuthStatus(info){
+  authenticatedRole=info?.authenticated?info.role:null;
+  const valid=!!authenticatedRole;
+  const status=$('api-auth-status');
+  status.className=valid?'good':'bad';
+  status.textContent=valid
+    ? '인증 완료 · '+(info.role==='admin'?'관리자':'사용자')+
+      (info.user_id?' ('+info.user_id+')':'')+' · 채팅방과 파일 API 사용 가능'
+    : (text('admin-token')||text('user-api-key')
+        ?'인증키가 입력되어 있습니다. 「인증 확인 · API 연결」을 눌러 검증해 주십시오.'
+        :'인증키가 없습니다. API 요청 전 관리자 토큰 또는 사용자 API Key를 입력해 주십시오.');
+  authBanner.hidden=valid;
+}
+renderAuthStatus(null);
+$('auth-jump').onclick=()=>{$('admin-token').focus();$('admin-token').scrollIntoView({block:'center',behavior:'smooth'});};
+$('forget-auth').onclick=()=>{
+  $('admin-token').value='';$('user-api-key').value='';
+  localStorage.removeItem('relay_admin_token');localStorage.removeItem('relay_user_api_key');
+  renderAuthStatus(null);
+};
+async function verifyAuthentication(){
+  if(!text('admin-token')&&!text('user-api-key')){
+    renderAuthStatus(null);$('admin-token').focus();return false;
+  }
+  const button=$('verify-auth');
+  button.disabled=true;
+  $('api-auth-status').textContent='Railway 인증을 확인하고 있습니다…';
+  try{
+    const response=await fetch('/api/v1/auth/check',{headers:credentials(),cache:'no-store'});
+    const info=await response.json();
+    if(!response.ok||info.authenticated!==true){
+      renderAuthStatus(null);
+      $('api-auth-status').textContent=response.status===403
+        ?'인증 실패(403): 입력하신 토큰이 올바르지 않습니다.'
+        :'인증 실패('+response.status+'): 관리자 토큰 또는 API Key를 확인해 주십시오.';
+      return false;
+    }
+    if(info.role==='user'&&info.user_id){
+      $('user-id').value=info.user_id;
+      localStorage.setItem('relay_user_id',info.user_id);
+    }
+    renderAuthStatus(info);
+    return true;
+  }catch(error){
+    renderAuthStatus(null);
+    $('api-auth-status').textContent='인증 확인 중 연결 오류: '+error.message;
+    return false;
+  }finally{button.disabled=false;}
+}
+$('verify-auth').onclick=()=>verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
 const fileChecks=new Map();
 let ws=null;
 let socketReady=false;
 function log(message){const stamp=new Date().toLocaleTimeString('ko-KR');logbox.textContent=(stamp+'  '+message+'\n'+(logbox.textContent==='API 명령과 Android 응답이 여기에 기록됩니다.'?'':logbox.textContent)).slice(0,24000);}
 function viewRequest(method,path,body){$('request-preview').textContent=method+' '+path+'\n'+(body===undefined?'':JSON.stringify(body,null,2));}
 function viewResponse(status,value){$('response-title').textContent='Response · HTTP '+status;$('response-preview').textContent=typeof value==='string'?value:JSON.stringify(value,null,2);}
-function credentials(){const key=text('user-api-key');return key?{'X-API-Key':key}:{'X-Console-Token':text('admin-token')};}
+function credentials(adminOnly=false){
+  const key=adminOnly?'':text('user-api-key');
+  return key?{'X-API-Key':key}:{'X-Console-Token':text('admin-token')};
+}
 function userId(){return text('user-id');}
 function selectedRoom(){const id=text('room-id');if(!id)throw Error('채팅방을 먼저 생성하거나 선택해 주십시오.');return id;}
 function queryUser(){return '?user_id='+encodeURIComponent(userId());}
 async function call(method,path,body,opt={}){
-  const headers=credentials();let args={method,headers};
+  // Never send empty credentials, which previously produced repeated HTTP 401.
+  const headers=credentials(!!opt.adminOnly);
+  const value=headers['X-API-Key']||headers['X-Console-Token'];
+  if(!value){
+    renderAuthStatus(null);
+    $('admin-token').focus();
+    throw Error('API 인증이 필요합니다. 01. 인증 및 사용자에서 관리자 토큰 또는 사용자 API Key를 입력하고 「인증 확인」을 눌러 주십시오.');
+  }
+  let args={method,headers};
   if(body!==undefined){if(body instanceof FormData){args.body=body;}else{headers['Content-Type']='application/json';args.body=JSON.stringify(body);}}
   const pathShow=path;viewRequest(method,pathShow,body instanceof FormData?Object.fromEntries([...body.entries()].map(([k,v])=>[k,v instanceof File?v.name:v])):body);
   try{const response=await fetch(path,args);const ct=response.headers.get('content-type')||'';
     const result=ct.includes('json')?await response.json():await response.text();
     viewResponse(response.status,result);log('HTTP '+response.status+' '+method+' '+path);
-    if(!response.ok){throw Error('HTTP '+response.status+': '+JSON.stringify(result));}
+    if(!response.ok){
+      if(response.status===401||response.status===403){
+        renderAuthStatus(null);
+        $('api-auth-status').textContent='API 인증 실패 (HTTP '+response.status+'). 01. 인증 및 사용자에서 토큰을 검증해 주십시오.';
+      }
+      throw Error('HTTP '+response.status+': '+JSON.stringify(result));
+    }
     return result;
   }catch(error){log('API 요청 오류: '+error.message);if(!('status'in error))viewResponse('ERROR',error.message);throw error;}
 }
@@ -149,10 +229,18 @@ ws.onmessage=e=>{const p=JSON.parse(e.data);log('WS '+JSON.stringify(p).slice(0,
  if(p.type==='job.result'||p.type==='job.error'){refreshJobs().catch(()=>{});refreshMessages().catch(()=>{});refreshFiles().catch(()=>{});}
 };ws.onerror=()=>{$('socket-state').textContent='WebSocket 오류';};ws.onclose=()=>{socketReady=false;$('socket-state').textContent='연결 종료';};
 };
-$('create-user').onclick=guard(async()=>{const uid=userId(),name=uid;const r=await call('POST','/api/v1/users',{user_id:uid,name});log('발급된 키는 응답 JSON에서 한 번만 확인 가능합니다. 외부 공유 금지.');});
-$('list-users').onclick=guard(async()=>{await call('GET','/api/v1/users');});
+$('create-user').onclick=guard(async()=>{
+  if(!text('admin-token'))throw Error('사용자 발급은 관리자 전용입니다. CONSOLE_TOKEN이 필요합니다.');
+  const uid=userId(),name=uid;
+  const r=await call('POST','/api/v1/users',{user_id:uid,name},{adminOnly:true});
+  log('사용자 API Key 발급 완료 · 응답 JSON에서 한 번 확인할 수 있습니다. 외부 공유 금지.');
+});
+$('list-users').onclick=guard(async()=>{
+  if(!text('admin-token'))throw Error('사용자 전체 조회는 관리자 전용입니다. CONSOLE_TOKEN이 필요합니다.');
+  await call('GET','/api/v1/users',undefined,{adminOnly:true});
+});
 async function refreshRooms(){const r=await call('GET','/api/v1/rooms'+queryUser());const root=$('room-list');root.replaceChildren();for(const item of r.rooms){const row=document.createElement('div');row.className='entry'+(item.id===text('room-id')?' selected':'');const b=document.createElement('button');b.className='entry-btn';b.textContent=item.title+'  ['+item.status+' / Android '+item.android_state+']';b.onclick=()=>{$('room-id').value=item.id;$('room-title').value=item.title;refreshRooms().catch(()=>{});refreshMessages().catch(()=>{});refreshFiles().catch(()=>{});};row.append(b);const c=document.createElement('code');c.textContent=item.id;row.append(c);root.append(row);}if(!r.rooms.length)root.textContent='채팅방 없음';}
-$('create-room').onclick=guard(async()=>{const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');const r=await call('POST','/api/v1/rooms',selectedUser({title}));$('room-id').value=r.id;await refreshRooms();if(r.drive_folder_id)log('Google Drive 채팅방 폴더 자동 생성: '+r.drive_folder_id);else log('Drive 미연결: 연결 후 채팅방 폴더를 생성할 수 있습니다.');});
+$('create-room').onclick=guard(async()=>{const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');const r=await call('POST','/api/v1/rooms',selectedUser({title}));$('room-id').value=r.id;await refreshRooms();log('Railway API 채팅방 생성 완료: '+r.id);});
 $('list-rooms').onclick=guard(refreshRooms);
 $('rename-room').onclick=guard(async()=>{const id=selectedRoom();const title=text('room-title');if(!title)throw Error('새 채팅방 이름을 입력하십시오.');await call('PATCH','/api/v1/rooms/'+id,selectedUser({title}));await refreshRooms();});
 $('delete-room').onclick=guard(async()=>{const id=selectedRoom();if(!confirm('이 채팅방의 Android 삭제 작업을 요청하시겠습니까? 실제 삭제 확인 전에는 완료로 표시되지 않습니다.'))return;await call('DELETE','/api/v1/rooms/'+id+queryUser());await refreshRooms();await refreshJobs();});
@@ -249,4 +337,7 @@ $('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms(
 $('clear-log').onclick=()=>logbox.textContent='';
 document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
 checkHealth().catch(e=>log('Health failed: '+e.message));
+if(text('admin-token')||text('user-api-key')){
+  verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
+}
 </script></body></html>
