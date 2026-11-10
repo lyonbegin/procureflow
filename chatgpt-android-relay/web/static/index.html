@@ -36,7 +36,7 @@
 <div id="api-auth-status" role="status" aria-live="polite">인증되지 않았습니다. 기존 관리자 토큰이나 사용자 API Key를 입력해 주십시오.</div>
 <label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" autocomplete="off" placeholder="사용자별 발급키를 입력하시면 관리 토큰 대신 사용합니다">
 <div class="row"><button class="primary" id="verify-auth">인증 확인 · API 연결</button><button id="forget-auth">입력된 인증키 지우기</button></div>
-<div class="auth-guide">Railway의 <strong>chatgpt-relay-web → Variables → CONSOLE_TOKEN</strong>에 등록된 관리자 값을 한 번 입력하시면 이 브라우저에서 다시 사용할 수 있습니다. 해당 값이 비공개라 확인할 수 없다면 Railway 관리자 권한으로 새 값을 설정해야 합니다. Android 기기 토큰은 여기에 넣지 마십시오.</div>
+<div class="auth-guide">이 브라우저에서 한 번 인증하시면 다음 접속부터 <strong>7일간 로그인 상태가 자동 복원</strong>됩니다. 기존에 브라우저에 저장된 인증키도 자동으로 채워집니다. 최초 1회 입력할 값은 Railway <strong>chatgpt-relay-web → Variables → CONSOLE_TOKEN</strong>에서 확인하실 수 있습니다. Android 기기 토큰은 여기에 넣지 마십시오.</div>
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
 <div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
@@ -144,26 +144,38 @@ function renderAuthStatus(info){
 }
 renderAuthStatus(null);
 $('auth-jump').onclick=()=>{$('admin-token').focus();$('admin-token').scrollIntoView({block:'center',behavior:'smooth'});};
-$('forget-auth').onclick=()=>{
+$('forget-auth').onclick=async()=>{
+  try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}
+  catch(error){log('세션 로그아웃 요청 실패: '+error.message);}
   $('admin-token').value='';$('user-api-key').value='';
   localStorage.removeItem('relay_admin_token');localStorage.removeItem('relay_user_api_key');
   renderAuthStatus(null);
 };
 async function verifyAuthentication(){
-  if(!text('admin-token')&&!text('user-api-key')){
-    renderAuthStatus(null);$('admin-token').focus();return false;
-  }
+  const hasKey=!!(text('admin-token')||text('user-api-key'));
   const button=$('verify-auth');
   button.disabled=true;
-  $('api-auth-status').textContent='Railway 인증을 확인하고 있습니다…';
+  $('api-auth-status').textContent='기본 인증 상태를 확인하고 있습니다…';
   try{
-    const response=await fetch('/api/v1/auth/check',{headers:credentials(),cache:'no-store'});
+    let response=await fetch(hasKey?'/api/v1/auth/session':'/api/v1/auth/check',
+      {method:hasKey?'POST':'GET',headers:credentials(),cache:'no-store',credentials:'same-origin'});
+    // If a stale user key was saved alongside a valid administrator key,
+    // select the administrator instead of looping forever on HTTP 403.
+    if(!response.ok&&hasKey&&text('user-api-key')&&text('admin-token')){
+      response=await fetch('/api/v1/auth/session',{
+        method:'POST',headers:{'X-Console-Token':text('admin-token')},
+        cache:'no-store',credentials:'same-origin'});
+      if(response.ok){
+        $('user-api-key').value='';
+        localStorage.removeItem('relay_user_api_key');
+      }
+    }
     const info=await response.json();
     if(!response.ok||info.authenticated!==true){
       renderAuthStatus(null);
-      $('api-auth-status').textContent=response.status===403
-        ?'인증 실패(403): 입력하신 토큰이 올바르지 않습니다.'
-        :'인증 실패('+response.status+'): 관리자 토큰 또는 API Key를 확인해 주십시오.';
+      $('api-auth-status').textContent=hasKey
+        ?'인증 실패('+response.status+'): 저장된 관리자 토큰이나 사용자 API Key를 확인해 주십시오.'
+        :'저장된 기본 인증 정보가 없습니다. 관리자 토큰 또는 API Key를 처음 한 번 입력해 주십시오.';
       return false;
     }
     if(info.role==='user'&&info.user_id){
@@ -171,6 +183,7 @@ async function verifyAuthentication(){
       localStorage.setItem('relay_user_id',info.user_id);
     }
     renderAuthStatus(info);
+    log(hasKey?'입력된 인증키 확인 완료 · 브라우저 기본 인증 유지':'이전 브라우저 인증 상태 자동 복원 완료');
     return true;
   }catch(error){
     renderAuthStatus(null);
@@ -196,7 +209,7 @@ async function call(method,path,body,opt={}){
   // Never send empty credentials, which previously produced repeated HTTP 401.
   const headers=credentials(!!opt.adminOnly);
   const value=headers['X-API-Key']||headers['X-Console-Token'];
-  if(!value){
+  if(!value&&!authenticatedRole){
     renderAuthStatus(null);
     $('admin-token').focus();
     throw Error('API 인증이 필요합니다. 01. 인증 및 사용자에서 관리자 토큰 또는 사용자 API Key를 입력하고 「인증 확인」을 눌러 주십시오.');
@@ -337,7 +350,7 @@ $('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms(
 $('clear-log').onclick=()=>logbox.textContent='';
 document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
 checkHealth().catch(e=>log('Health failed: '+e.message));
-if(text('admin-token')||text('user-api-key')){
-  verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
-}
+// Default to the previously verified session (HttpOnly cookie), then stored
+// browser credentials; no copy of the administrator token is published.
+verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
 </script></body></html>
