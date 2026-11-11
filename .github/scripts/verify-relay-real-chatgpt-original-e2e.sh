@@ -46,6 +46,60 @@ adb shell dumpsys package com.openai.chatgpt \
   | tee real-chatgpt-evidence/original-version.txt
 grep -q 'versionName=1.2026.300' real-chatgpt-evidence/original-version.txt
 
+# Android 15's emulator Pixel Launcher sometimes hangs and puts a system
+# ANR modal over the genuine ChatGPT screen. Recover only after independently
+# reading the EXACT system dialog/button from the device UI hierarchy.
+# Never dismiss arbitrary app dialogs or tap unverified coordinates.
+recover_emulator_frontend() {
+  local phase="$1"
+  for attempt in 1 2 3 4 5; do
+    local xml="real-chatgpt-evidence/ui-recovery-$phase-$attempt.xml"
+    timeout 30s adb shell uiautomator dump /sdcard/relay-recovery.xml >/dev/null 2>&1 || true
+    adb pull /sdcard/relay-recovery.xml "$xml" >/dev/null 2>&1 || true
+    [[ -f "$xml" ]] || break
+    local decision
+    decision="$(python3 - "$xml" <<'PY'
+import sys,re,xml.etree.ElementTree as ET
+try:
+  nodes=list(ET.parse(sys.argv[1]).iter('node'))
+except (ET.ParseError,OSError):
+  nodes=[]
+labels=[n.attrib.get('text','') or n.attrib.get('content-desc','') for n in nodes]
+def center(n):
+  m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.attrib.get('bounds',''))
+  if m:
+    a,b,c,d=map(int,m.groups())
+    return ((a+c)//2,(b+d)//2)
+def find(label):
+  for n in nodes:
+    if label in (n.attrib.get('text',''),n.attrib.get('content-desc','')):
+      if center(n):return center(n)
+if any('Pixel Launcher isn' in x and 'responding' in x for x in labels):
+  coords=find('Close app')
+  if coords:print('launcher_anr',*coords)
+elif any('Welcome to ChatGPT' in x for x in labels):
+  coords=find('Continue')
+  if coords:print('welcome_continue',*coords)
+elif any(x=='Skip' for x in labels):
+  coords=find('Skip')
+  if coords:print('guest_skip',*coords)
+PY
+    )"
+    if [[ -z "$decision" ]]; then break; fi
+    read -r kind x y <<< "$decision"
+    printf 'phase=%s attempt=%s action=%s x=%s y=%s\n' \
+      "$phase" "$attempt" "$kind" "$x" "$y" \
+      | tee -a real-chatgpt-evidence/ui-recovery-actions.txt
+    adb shell input tap "$x" "$y"
+    sleep 4
+    if [[ "$kind" == launcher_anr ]]; then
+      adb shell monkey -p com.openai.chatgpt -c android.intent.category.LAUNCHER 1 \
+        > /dev/null || true
+      sleep 6
+    fi
+  done
+}
+
 # The original app's first-run Welcome screen exposes a native "Skip" action.
 # Exercise that real UI instead of incorrectly classifying onboarding as an
 # absent New Chat control. Perform this BEFORE enabling AccessibilityService,
@@ -100,6 +154,8 @@ adb pull /sdcard/chatgpt-after-official-skip.png \
 # invalidate the very first-chat room isolation this test is meant to prove.
 echo 'DIRECT_GUEST_PROBE_SKIPPED_TO_PRESERVE_EMPTY_CHAT_FOR_RELAY' \
   | tee real-chatgpt-evidence/guest-direct-console.txt
+
+recover_emulator_frontend "before-controller"
 
 # Use Android run-as to configure ONLY the debuggable, isolated CI app.
 # The test WebSocket targets the Android emulator's dedicated host gateway.
@@ -175,6 +231,10 @@ adb shell dumpsys activity activities \
   > real-chatgpt-evidence/original-foreground-before-jobs.txt || true
 adb shell screencap -p /sdcard/real-chatgpt-before.png
 adb pull /sdcard/real-chatgpt-before.png real-chatgpt-evidence/real-chatgpt-before.png >/dev/null
+recover_emulator_frontend "before-job"
+adb shell screencap -p /sdcard/real-chatgpt-ready.png
+adb pull /sdcard/real-chatgpt-ready.png real-chatgpt-evidence/real-chatgpt-ready.png >/dev/null
+
 ONLINE=0
 for attempt in $(seq 1 45); do
   if python3 .github/scripts/relay-live-android-api.py online \
