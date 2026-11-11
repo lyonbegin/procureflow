@@ -1,0 +1,56 @@
+name: Success APK original source - real x86_64 AccessibilityService emulator baseline
+on:
+  push:
+    branches: [test/relay-success-apk-baseline-20261111]
+    paths:
+      - '.github/workflows/test-success-baseline-android-accessibility.yml'
+      - '.github/scripts/test-success-baseline-accessibility.sh'
+      - 'chatgpt-android-relay/android/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-accessibility-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Ensure original relay source, no rewritten guest-home methods
+        run: |
+          set -euo pipefail
+          grep -q 'class ChatRelayService : AccessibilityService()' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+          ! grep -q 'private fun freshGuestHomeComposer' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+          ! grep -q 'private fun handleOfficialGuestWelcome' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+          bash -n .github/scripts/test-success-baseline-accessibility.sh
+      - name: Compile original relay controller
+        run: gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+      - name: Enable KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Install original relay on actual Android 15 x86_64 and bind AccessibilityService
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/test-success-baseline-accessibility.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-success-relay-real-android-x86_64-accessibility
+          path: original-baseline-evidence/
+          if-no-files-found: warn
