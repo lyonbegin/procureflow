@@ -1486,6 +1486,12 @@ class ChatRelayService : AccessibilityService() {
         val id=cmd.optString("id")
         val action=cmd.optString("action")
         val payload=cmd.optJSONObject("payload") ?: JSONObject()
+        // Defense in depth: direct console commands do not carry an
+        // authenticated API room mapping. Never send in the foreground room.
+        if (action=="chat.send" || action=="chat.new") {
+            done(id,false,"ROOM_SCOPED_API_REQUIRED: use authenticated room jobs")
+            return
+        }
         if(action=="ui.snapshot") { snapshot(); done(id,true,"snapshot_sent"); return }
         if(action=="ui.back") {
             if(rootInActiveWindow?.packageName?.toString()!=chatPackage) { done(id,false,"ChatGPT not foreground"); return }
