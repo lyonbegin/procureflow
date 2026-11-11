@@ -94,6 +94,10 @@ fi
 adb shell screencap -p /sdcard/chatgpt-after-official-skip.png
 adb pull /sdcard/chatgpt-after-official-skip.png \
   real-chatgpt-evidence/chatgpt-after-official-skip.png >/dev/null
+# First isolate whether official ChatGPT guest mode can itself send a prompt
+# and receive the real assistant answer. This is native UI, not a simulated app.
+bash .github/scripts/probe-official-chatgpt-guest-send.sh \
+  | tee real-chatgpt-evidence/guest-direct-console.txt
 
 
 # Use Android run-as to configure ONLY the debuggable, isolated CI app.
@@ -240,6 +244,10 @@ file=json.loads((folder/'actual-file-attachment-job.json').read_text())
 report={
     'original_app_version':'1.2026.300',
     'real_android_transport_verified': True,
+    'direct_official_guest_reply_verified':
+        'PASS_DIRECT_OFFICIAL_GUEST_TEXT_SEND_AND_REPLY_42' in
+        (folder/'guest-direct-result.txt').read_text()
+        if (folder/'guest-direct-result.txt').exists() else False,
     'real_text_job':text,
     'real_file_attachment_job':file,
     'text_send_answer_verified': text['status']=='completed'
