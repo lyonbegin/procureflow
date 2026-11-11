@@ -35,20 +35,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          curl --fail --silent --show-error --location --retry 1 --max-time 30 \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' \
+            -o /tmp/universal-apkmirror.html \
+            'https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/' || true
           python3 - <<'PY'
-          import re,urllib.request,html
-          url='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
-          try:
-            request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-            page=urllib.request.urlopen(request,timeout=20).read().decode('utf-8','ignore')
-            links=set()
-            for match in re.findall(r'(?:href|data-href)=[\"\']([^\"\']+)',page):
-              link=html.unescape(match)
-              if any(term in link for term in ('download.php','download?id','start-download','download-button','key=')):
-                links.add(link.split('?key=')[0] if 'download.php' not in link else link)
-            print('PUBLIC_DOWNLOAD_LINKS:',repr(sorted(links)[:20]))
-          except Exception as exc:
-            print('PUBLIC_HTML_NOT_ACCESSIBLE:',str(exc))
+          import re,html
+          from pathlib import Path
+          p=Path('/tmp/universal-apkmirror.html')
+          if not p.exists():
+            print('APKMIRROR_NO_HTML')
+            raise SystemExit(0)
+          contents=p.read_text(errors='ignore')
+          print('HTML_LENGTH',len(contents))
+          urls=re.findall(r'(?:href|data-href)=[\"\\']([^\"\\']+)',contents)
+          candidates=[html.unescape(u) for u in urls if any(term in u.lower() for term in (
+            'download.php','download?id','start-download','/download/','key=',
+            '/download/?','download-button'))]
+          print('APKMIRROR_LINKS',repr(list(dict.fromkeys(candidates))[:40]))
+          for term in ('downloadButton','download-button','Download APK Bundle','download.php'):
+            idx=contents.find(term)
+            if idx>=0: print('HTML_CONTEXT',term,repr(contents[max(0,idx-120):idx+250]))
           PY
       - name: Report app-installation boundary
         run: |
