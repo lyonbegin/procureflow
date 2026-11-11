@@ -1,0 +1,66 @@
+name: Original Relay x86_64 real Android server WebSocket regression
+on:
+  push:
+    branches: [test/relay-success-apk-baseline-20261111]
+    paths:
+      - '.github/workflows/test-success-baseline-real-websocket.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-relay-live-ws:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Install isolated API requirements
+        run: python3 -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Permit only CI emulator localhost transport without touching persisted original source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt')
+          s=p.read_text()
+          old='if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) {'
+          new='if (!(url.startsWith("wss://") || url == "ws://10.0.2.2:8765/ws") || !url.endsWith("/ws") || token.length < 12) {'
+          assert s.count(old)==1, 'original WS validation changed unexpectedly'
+          s=s.replace(old,new)
+          old2='.replaceFirst("wss://", "https://").removeSuffix("/ws")'
+          new2='.replaceFirst("wss://", "https://").replaceFirst("ws://10.0.2.2:", "http://10.0.2.2:").removeSuffix("/ws")'
+          assert s.count(old2)==1, 'original attachment endpoint changed unexpectedly'
+          s=s.replace(old2,new2)
+          p.write_text(s)
+          print('PASS_CI_ONLY_EMULATOR_HOST_GATEWAY_ALLOWLIST')
+          PY
+          bash -n .github/scripts/verify-relay-live-android-websocket.sh
+      - name: Compile original Relay code with temporary CI-only transport permission
+        run: gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+      - name: Enable emulator hardware acceleration
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Actual Android 15 x86_64 Relay WebSocket and original file hash test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/verify-relay-live-android-websocket.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-relay-x86_64-real-websocket-evidence
+          path: android-socket-evidence/
+          if-no-files-found: warn
