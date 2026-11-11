@@ -222,13 +222,38 @@ if [[ "$BOUND" != 1 ]]; then
   exit 1
 fi
 
-# Attempt real official ChatGPT foreground activity on the emulator.
-adb shell monkey -p com.openai.chatgpt -c android.intent.category.LAUNCHER 1 \
-  | tee real-chatgpt-evidence/original-chatgpt-launch.txt
-sleep 8
-adb shell dumpsys activity activities \
-  | grep -E 'topResumedActivity|mResumedActivity' | head -4 \
-  > real-chatgpt-evidence/original-foreground-before-jobs.txt || true
+# Do not assume monkey's "Events injected: 1" proves the official app
+# is foreground: previous evidence had com.hitel.chatrelay still resumed.
+# Require the actual Android ActivityManager to report com.openai.chatgpt.
+OFFICIAL_FOREGROUND=0
+: > real-chatgpt-evidence/official-foreground-retries.txt
+for launch_attempt in 1 2 3 4 5; do
+  adb shell am start -W -a android.intent.action.MAIN \
+    -c android.intent.category.LAUNCHER -p com.openai.chatgpt \
+    > real-chatgpt-evidence/original-chatgpt-launch.txt 2>&1 || true
+  sleep 5
+  adb shell dumpsys activity activities \
+    | grep -E 'topResumedActivity|mResumedActivity' | head -4 \
+    > real-chatgpt-evidence/original-foreground-before-jobs.txt || true
+  printf 'attempt=%d foreground=%s\n' "$launch_attempt" \
+    "$(tr '\n' ' ' < real-chatgpt-evidence/original-foreground-before-jobs.txt)" \
+    | tee -a real-chatgpt-evidence/official-foreground-retries.txt
+  if grep -q 'topResumedActivity=.*com.openai.chatgpt/' \
+      real-chatgpt-evidence/original-foreground-before-jobs.txt; then
+    OFFICIAL_FOREGROUND=1
+    break
+  fi
+done
+if [[ "$OFFICIAL_FOREGROUND" != 1 ]]; then
+  echo 'FAIL_OFFICIAL_CHATGPT_NOT_FOREGROUND' \
+    | tee real-chatgpt-evidence/foreground-result.txt
+  adb shell screencap -p /sdcard/real-chatgpt-not-foreground.png
+  adb pull /sdcard/real-chatgpt-not-foreground.png \
+    real-chatgpt-evidence/real-chatgpt-not-foreground.png >/dev/null
+  exit 1
+fi
+echo 'PASS_OFFICIAL_CHATGPT_FOREGROUND_BEFORE_JOBS' \
+  | tee real-chatgpt-evidence/foreground-result.txt
 adb shell screencap -p /sdcard/real-chatgpt-before.png
 adb pull /sdcard/real-chatgpt-before.png real-chatgpt-evidence/real-chatgpt-before.png >/dev/null
 # NEVER invoke uiautomator after the AccessibilityService is bound:
