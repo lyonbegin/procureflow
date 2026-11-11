@@ -36,14 +36,14 @@ def main():
     if action == "init":
         post("/api/v1/users", json={"user_id": USER, "name": "Ephemeral Android CI"})
         room = post("/api/v1/rooms", json={
-            "user_id": USER, "title": "Actual Android WebSocket negative test"
+            "user_id": USER, "title": "Actual official ChatGPT Android end-to-end test"
         })
         print(room["id"])
     elif action == "text":
         room_id = sys.argv[2]
         job = post("/api/v1/rooms/" + room_id + "/messages",
                    json={"user_id": USER, "text":
-                         "Confirm no chat message is sent without the official ChatGPT app"})
+                         "Please reply with the exact phrase RELAY_ANDROID_REAL_APP_OK_20261111"})
         print(job["id"])
     elif action == "files":
         room_id = sys.argv[2]
@@ -56,7 +56,7 @@ def main():
             response = client.post(
                 BASE + "/api/v1/rooms/" + room_id + "/turns",
                 headers=ADMIN,
-                data={"user_id": USER, "text": "Inspect the real image and document bytes"},
+                data={"user_id": USER, "text": "Please read the attached PNG image and text document, and describe both."},
                 files=[
                     ("files", ("tiny.png", png, "image/png")),
                     ("files", ("document.txt", document, "text/plain")),
@@ -72,6 +72,20 @@ def main():
             {"id": f["id"], "name": f["name"], "sha256": f["sha256"]}
             for f in files
         ]}))
+    elif action == "observe":
+        jid = sys.argv[2]
+        for _ in range(240):
+            job = get("/api/v1/jobs/" + jid + "?user_id=" + USER)
+            if job["status"] in ("failed", "completed"):
+                break
+            time.sleep(.5)
+        else:
+            raise AssertionError("Android app job did not reach a final status")
+        print(json.dumps({
+            "job_id": jid, "status": job["status"], "stage": job.get("stage"),
+            "reason": job.get("error"), "result_text": job.get("result_text"),
+            "room_id": job.get("room_id"), "action": job.get("action")
+        }, ensure_ascii=False))
     elif action == "assert-failed":
         jid = sys.argv[2]
         for _ in range(90):
