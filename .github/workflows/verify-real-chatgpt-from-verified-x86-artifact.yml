@@ -34,6 +34,23 @@ jobs:
           python3 -m py_compile .github/scripts/relay-live-android-api.py
       - name: Install isolated server dependencies
         run: python3 -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Allow only emulator host-gateway WebSocket in this transient CI build
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt')
+          s=p.read_text()
+          a='if (!url.startsWith("wss://") || !url.endsWith("/ws") || token.length < 12) {'
+          b='if (!(url.startsWith("wss://") || url == "ws://10.0.2.2:8765/ws") || !url.endsWith("/ws") || token.length < 12) {'
+          assert s.count(a)==1, 'unexpected original WebSocket validation'
+          s=s.replace(a,b)
+          a='.replaceFirst("wss://", "https://").removeSuffix("/ws")'
+          b='.replaceFirst("wss://", "https://").replaceFirst("ws://10.0.2.2:", "http://10.0.2.2:").removeSuffix("/ws")'
+          assert s.count(a)==1, 'unexpected attachment URL mapping'
+          s=s.replace(a,b)
+          p.write_text(s)
+          print('PASS_ONLY_GITHUB_EMULATOR_HOST_GATEWAY_ENABLED')
+          PY
       - name: Build Android accessibility controller
         run: |
           set -euo pipefail
