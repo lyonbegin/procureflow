@@ -1,0 +1,94 @@
+name: Actual official ChatGPT x86_64 guest send and reply (no relay)
+on:
+  push:
+    branches: [test/relay-success-apk-baseline-20261111]
+    paths: [.github/workflows/probe-real-official-chatgpt-x86-guest-send.yml]
+  workflow_dispatch:
+permissions: {contents: read, actions: read}
+jobs:
+  authentic-chatgpt-guest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact 2630015 x86_64 original from SHA-verified artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/exact /tmp/original-chatgpt-splits real-chatgpt-evidence
+          gh run download 43007675195 --repo lyonbegin/procureflow \
+            --name exact-original-chatgpt-2630015-x86_64 --dir /tmp/exact
+          test "$(stat -c %s /tmp/exact/official-user-original.apkm)" = 101098896
+          printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/exact/official-user-original.apkm' \
+            | sha256sum -c | tee real-chatgpt-evidence/exact-user-package.txt
+          unzip -j -q /tmp/exact/official-user-original.apkm \
+            base.apk split_config.x86_64.apk split_config.xxhdpi.apk \
+            split_config.en.apk split_config.ko.apk -d /tmp/original-chatgpt-splits
+          bash -n .github/scripts/probe-official-chatgpt-guest-send.sh
+      - name: Enable KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Launch actual ChatGPT 1.2026.300 and send real question to guest ChatGPT
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 650
+          script: |
+            set -euo pipefail
+            adb install-multiple -r \
+              /tmp/original-chatgpt-splits/base.apk \
+              /tmp/original-chatgpt-splits/split_config.x86_64.apk \
+              /tmp/original-chatgpt-splits/split_config.xxhdpi.apk \
+              /tmp/original-chatgpt-splits/split_config.en.apk \
+              /tmp/original-chatgpt-splits/split_config.ko.apk \
+              | tee real-chatgpt-evidence/actual-install.txt
+            grep -q Success real-chatgpt-evidence/actual-install.txt
+            adb shell am start -W -n com.openai.chatgpt/.MainActivity \
+              | tee real-chatgpt-evidence/real-start.txt
+            sleep 16
+            for attempt in 1 2 3; do
+              timeout 35s adb shell uiautomator dump /sdcard/guest-first.xml >/dev/null 2>&1 || true
+              adb pull /sdcard/guest-first.xml real-chatgpt-evidence/guest-first.xml >/dev/null 2>&1 || true
+              [[ -s real-chatgpt-evidence/guest-first.xml ]] || continue
+              XY="$(python3 - <<'PY'
+import re,xml.etree.ElementTree as ET
+r=ET.parse('real-chatgpt-evidence/guest-first.xml').getroot()
+p={c:n for n in r.iter() for c in n}
+nodes=list(r.iter('node'))
+if any(n.get('text')=='Welcome to ChatGPT' for n in nodes):
+ for n in nodes:
+  if n.get('text')!='Skip':continue
+  while n is not None:
+   if n.get('clickable')=='true':
+    m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.get('bounds',''))
+    if m:
+     a,b,c,d=map(int,m.groups());print((a+c)//2,(b+d)//2);break
+   n=p.get(n)
+  break
+PY
+)"
+              if [[ -z "$XY" ]]; then break; fi
+              read -r X Y <<< "$XY"
+              adb shell input tap "$X" "$Y"
+              echo "guest_skip attempt=$attempt x=$X y=$Y" >> real-chatgpt-evidence/guest-onboarding-actions.txt
+              sleep 8
+            done
+            bash .github/scripts/probe-official-chatgpt-guest-send.sh \
+              | tee real-chatgpt-evidence/guest-probe-console.txt
+            grep -q 'PASS_DIRECT_OFFICIAL_GUEST_TEXT_SEND_AND_REPLY_42' \
+              real-chatgpt-evidence/guest-direct-result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genuine-x86_64-chatgpt-2630015-guest-direct-send-evidence
+          path: real-chatgpt-evidence/
+          if-no-files-found: warn
