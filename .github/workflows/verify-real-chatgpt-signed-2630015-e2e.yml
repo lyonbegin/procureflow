@@ -1,7 +1,7 @@
 name: REAL signed ChatGPT 1.2026.300 send reply attachment + relay on Android 15
 on:
   push:
-    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    branches: [fix/chatgpt-relay-verified-routing-20261110, test/relay-success-apk-baseline-20261111]
     paths:
       - .github/workflows/verify-real-chatgpt-signed-2630015-e2e.yml
       - .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
@@ -30,12 +30,21 @@ jobs:
         run: |
           gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
           sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
-      - name: Restore verified 1.2026.300 ARM64 application from CI cache
-        uses: actions/cache/restore@v4
-        with:
-          path: /tmp/chatgpt-2630015-x86.xapk
-          key: trusted-chatgpt-xapk-2630015-b24f4bfbb3cf293f
-          fail-on-cache-miss: true
+      - name: Acquire version-pinned signed official app (branch-independent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # GitHub cache is branch-scoped: an acquisition on the fix branch
+          # is NOT visible to this isolated success-APK regression branch.
+          # Always verify package version and the pinned signing certificate
+          # in the NEXT step before installing, never trust the CDN alone.
+          curl -fL --retry 3 --retry-all-errors --max-time 540 \
+            -H 'User-Agent: Mozilla/5.0' \
+            'https://d.apkpure.net/b/XAPK/com.openai.chatgpt?versionCode=2630015' \
+            -o /tmp/chatgpt-2630015-x86.xapk
+          test "$(stat -c %s /tmp/chatgpt-2630015-x86.xapk)" -gt 60000000
+          unzip -tq /tmp/chatgpt-2630015-x86.xapk >/dev/null
+          sha256sum /tmp/chatgpt-2630015-x86.xapk
       - name: Extract and reverify official package signature and version
         run: |
           set -euo pipefail
