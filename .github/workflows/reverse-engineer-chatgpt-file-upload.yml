@@ -55,6 +55,17 @@ jobs:
             fi
             grep -Rn -E -C 3               '/files/(upload|blob-upload|process_upload_stream|import_image)|uploadUrl|fileId|BlockBlob|x-ms-blob-type'               "$dest" --include='*.java' 2>/dev/null | head -90               > "upload-re-results/${cls}-matched-lines.txt" || true
             find "$dest" -name '*.java' -printf '%p\n' | head -20               > "upload-re-results/${cls}-class-files.txt"
+            # Preserve only small requested code regions of upload-specific classes.
+            file="$dest/sources/defpackage/$cls.java"
+            if test -f "$file"; then
+              case "$cls" in
+                zs10) sed -n '100,200p' "$file" ;;
+                vx10) sed -n '50,135p' "$file" ;;
+                ws10) sed -n '35,115p' "$file" ;;
+                jmt|gmt) sed -n '1,95p' "$file" ;;
+                oyd) grep -n -C 9 -F '/files/blob-upload' "$file" | head -100 ;;
+              esac > "upload-re-results/$cls-selected-code.txt"
+            fi
           done
           echo "Static analysis only. No login tokens, network replay, deployment, or third-party file sending." >> upload-re-results/summary.txt
           cat upload-re-results/summary.txt
@@ -65,6 +76,7 @@ jobs:
           name: Genuine-ChatGPT-File-Upload-API-Reverse-Engineering-Evidence
           path: |
             upload-re-results/summary.txt
+            upload-re-results/*-selected-code.txt
             upload-re-results/*-matched-lines.txt
             upload-re-results/*-class-files.txt
           retention-days: 15
