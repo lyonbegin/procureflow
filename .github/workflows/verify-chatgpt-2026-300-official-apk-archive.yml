@@ -57,6 +57,34 @@ jobs:
             idx=contents.find(term)
             if idx>=0: print('HTML_CONTEXT',term,repr(contents[max(0,idx-120):idx+250]))
           PY
+      - name: Probe version-pinned official APKMirror download endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp
+          curl --fail --silent --show-error --location --max-time 30 \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' \
+            -o universal-page.html \
+            'https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
+          LINK="$(python3 - <<'PY'
+          import re,html
+          page=open('/tmp/universal-page.html').read()
+          m=re.search(r'href=["\\']([^"\\']+/download/\\?key=[^"\\']+)["\\']',page)
+          if not m:
+            raise SystemExit('DOWNLOAD_LINK_NOT_FOUND')
+          print('https://www.apkmirror.com'+html.unescape(m.group(1)))
+          PY
+          )"
+          # Never print a transient signed URL to the shared log.
+          curl --location --range 0-2047 --max-time 45 --silent --show-error \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' \
+            -w 'status=%{http_code} bytes=%{size_download} mime=%{content_type} final_domain=%{remote_ip}\n' \
+            -o /tmp/apkmirror-probe.bin "$LINK"
+          file /tmp/apkmirror-probe.bin
+          python3 - <<'PY'
+          p=open('/tmp/apkmirror-probe.bin','rb').read(30)
+          print('ZIP_MAGIC',p[:4].hex())
+          PY
       - name: Report app-installation boundary
         run: |
           echo 'Archive inspection only; no authenticated ChatGPT send is claimed.'
