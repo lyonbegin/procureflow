@@ -1185,20 +1185,38 @@ class ChatRelayService : AccessibilityService() {
 
     private fun pickerClickByNames(all: List<AccessibilityNodeInfo>,
                                    names: List<String>): Boolean {
-        val match = all.firstOrNull { n ->
+        // The genuine ChatGPT attachment sheet exposes text and clickable
+        // ancestors in separate Compose nodes. Never stop at the first text
+        // match if that node is not the interactive sheet row.
+        val matches = all.filter { n ->
             n.isVisibleToUser && names.any { key ->
                 val v = (n.text?.toString().orEmpty() + " " +
                     n.contentDescription?.toString().orEmpty()).trim()
                 v.equals(key, ignoreCase = true) ||
                     (key.length >= 8 && v.contains(key, ignoreCase = true))
             }
-        } ?: return false
-        var target: AccessibilityNodeInfo? = match
-        for (depth in 0..5) {
-            if (target == null || isClickTarget(target)) break
-            target = target.parent
         }
-        return target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        for (match in matches) {
+            var target: AccessibilityNodeInfo? = match
+            for (depth in 0..5) {
+                if (target == null || isClickTarget(target)) break
+                target = target.parent
+            }
+            if (target != null && isClickTarget(target) &&
+                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        }
+        return false
+    }
+
+    private fun pickerVisibleNodes(): List<AccessibilityNodeInfo> {
+        // A native picker/bottom sheet may live in a distinct interactive
+        // accessibility window, separate from rootInActiveWindow.
+        val combined = ArrayList<AccessibilityNodeInfo>()
+        combined.addAll(nodes(rootInActiveWindow))
+        for (window in windows) {
+            window.root?.let { combined.addAll(nodes(it)) }
+        }
+        return combined
     }
 
     // Only ever select the unique file name we inserted into MediaStore.
@@ -1212,13 +1230,18 @@ class ChatRelayService : AccessibilityService() {
         if (activeApiJob?.optString("id") != jid) return
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString().orEmpty()
-        val all = nodes(root)
+        val all = pickerVisibleNodes()
         val expected = pendingPickerDisplayName.orEmpty()
         if (expected.isBlank()) {
             finishApiJob(jid, false, "No expected filename for file picker")
             return
         }
-        if (pkg.isNotEmpty() && pkg != chatPackage) {
+        val externalPicker = windows.any { w ->
+            val external = w.root?.packageName?.toString().orEmpty().lowercase()
+            external.contains("documentsui") || external.contains("photopicker") ||
+                external.contains("mediaprovider")
+        }
+        if ((pkg.isNotEmpty() && pkg != chatPackage) || externalPicker) {
             if (pickerClickByNames(all, listOf(expected))) {
                 progress(jid, "시스템 파일 선택기에서 고유 이름 " + expected + " 선택")
                 main.postDelayed({ verifyPickerAttachment(jid,staged,index,0) },900)
@@ -1253,6 +1276,17 @@ class ChatRelayService : AccessibilityService() {
                     return
                 }
             } else {
+                // The genuine 1.2026.300 Files row may remain visible after
+                // an initial accessibility click. Retry only that observed,
+                // named row rather than guessing screen coordinates.
+                if (attempt in listOf(4, 9) &&
+                    pickerClickByNames(all, listOf("Files", "파일"))) {
+                    progress(jid, "ChatGPT 첨부 메뉴 Files 항목 재선택")
+                    main.postDelayed({
+                        waitInChatPicker(jid,staged,index,attempt+1,1)
+                    },650)
+                    return
+                }
                 // Selecting a file can return immediately to the composer.
                 val signals = composerAttachmentSignals()
                 val named = all.any { n ->
@@ -1294,7 +1328,7 @@ class ChatRelayService : AccessibilityService() {
                 return
             }
             val all = nodes(root)
-            val input = composerInput(all)
+            val input = composerInput(all) ?: opaqueChatGptComposer(all)
             val file = staged[index]
             val names = listOf(file.name,pendingPickerDisplayName.orEmpty()).filter { it.length>=5 }
             val named = all.any { n ->
