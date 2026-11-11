@@ -1,0 +1,71 @@
+name: Static RE - Genuine ChatGPT Android file upload code (NO DEPLOY)
+on:
+  push:
+    branches: [research/chatgpt-file-upload-internals-20261111]
+    paths: [.github/workflows/reverse-engineer-chatgpt-file-upload.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  decompile-upload-methods-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21'}
+      - name: Restore exact original x86_64 APKM verified by SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/original /tmp/apk-extract
+          gh run download 43007675195 --repo lyonbegin/procureflow             --name exact-original-chatgpt-2630015-x86_64             --dir /tmp/original
+          find /tmp/original -type f -maxdepth 2 -printf '%p %s bytes\n'
+          APK=/tmp/original/official-user-original.apkm
+          test -s "$APK"
+          echo '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/original/official-user-original.apkm' | sha256sum -c
+          unzip -p "$APK" base.apk > /tmp/apk-extract/base.apk
+          for n in '' 4 5 6; do
+            unzip -p /tmp/apk-extract/base.apk "classes${n}.dex" > "/tmp/apk-extract/classes${n}.dex"
+          done
+      - name: Obtain stock Jadx 1.5.6 CLI decompiler
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3             'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip'             -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --version
+      - name: Decompile ONLY selected obfuscated DEX classes with file upload API calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p upload-re-results
+          for spec in '4:oyd' '5:vx10' '5:ws10' '6:jmt' '5:gmt' ':zs10'; do
+            n="${spec%%:*}"
+            cls="${spec##*:}"
+            src="/tmp/apk-extract/classes${n}.dex"
+            dest="upload-re-results/${cls}"
+            mkdir -p "$dest"
+            echo "=== ANALYZE $cls (classes${n}.dex) ===" | tee -a upload-re-results/summary.txt
+            if timeout 155 /tmp/jadx/bin/jadx               --no-res --threads-count 2 --single-class "$cls"               -d "$dest" "$src" > "$dest/decompiler.log" 2>&1; then
+              echo "JADX_OK $cls" | tee -a upload-re-results/summary.txt
+            else
+              echo "JADX_FAILED $cls" | tee -a upload-re-results/summary.txt
+            fi
+            grep -Rn -E -C 3               '/files/(upload|blob-upload|process_upload_stream|import_image)|uploadUrl|fileId|BlockBlob|x-ms-blob-type'               "$dest" --include='*.java' 2>/dev/null | head -90               > "upload-re-results/${cls}-matched-lines.txt" || true
+            find "$dest" -name '*.java' -printf '%p\n' | head -20               > "upload-re-results/${cls}-class-files.txt"
+          done
+          echo "Static analysis only. No login tokens, network replay, deployment, or third-party file sending." >> upload-re-results/summary.txt
+          cat upload-re-results/summary.txt
+      - name: Save targeted analysis evidence, not the copyrighted whole app
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Genuine-ChatGPT-File-Upload-API-Reverse-Engineering-Evidence
+          path: |
+            upload-re-results/summary.txt
+            upload-re-results/*-matched-lines.txt
+            upload-re-results/*-class-files.txt
+          retention-days: 15
+          if-no-files-found: warn
