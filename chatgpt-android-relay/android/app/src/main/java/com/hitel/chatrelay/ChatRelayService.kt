@@ -1651,9 +1651,13 @@ class ChatRelayService : AccessibilityService() {
             done(id, false, "CHATGPT_GUEST_ONBOARDING_STILL_VISIBLE: Skip failed; no message sent")
             return true
         }
+        // The signed 1.2026.300 app can show a second Welcome screen
+        // containing Continue after the initial Skip screen. Prefer Skip
+        // when both exist; never advance a login or unrelated Continue button.
         val label = all.firstOrNull { it.text?.toString()?.trim() == "Skip" }
+            ?: all.firstOrNull { it.text?.toString()?.trim() == "Continue" }
         if (label == null) {
-            done(id, false, "CHATGPT_GUEST_ONBOARDING_SKIP_MISSING: no message sent")
+            done(id, false, "CHATGPT_GUEST_ONBOARDING_ACTION_MISSING: no message sent")
             return true
         }
         var control: AccessibilityNodeInfo? = label
@@ -1663,10 +1667,10 @@ class ChatRelayService : AccessibilityService() {
         }
         if (control?.isClickable != true ||
             control.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true) {
-            done(id, false, "CHATGPT_GUEST_ONBOARDING_SKIP_NOT_CLICKABLE: no message sent")
+            done(id, false, "CHATGPT_GUEST_ONBOARDING_ACTION_NOT_CLICKABLE: no message sent")
             return true
         }
-        progress(id, "공식 ChatGPT 첫 실행 Skip 클릭 후 화면 전환 재확인")
+        progress(id, "공식 ChatGPT 첫 실행 안내 버튼 클릭 후 화면 전환 재확인")
         main.postDelayed({
             if (activeApiJob?.optString("id") == id) {
                 withChatApp(id, work)
