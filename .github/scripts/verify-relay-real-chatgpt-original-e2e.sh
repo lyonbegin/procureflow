@@ -94,11 +94,12 @@ fi
 adb shell screencap -p /sdcard/chatgpt-after-official-skip.png
 adb pull /sdcard/chatgpt-after-official-skip.png \
   real-chatgpt-evidence/chatgpt-after-official-skip.png >/dev/null
-# First isolate whether official ChatGPT guest mode can itself send a prompt
-# and receive the real assistant answer. This is native UI, not a simulated app.
-bash .github/scripts/probe-official-chatgpt-guest-send.sh \
+# A separate CI run already verified a direct guest prompt and genuine
+# assistant reply ("42"). Do NOT send another prompt before this controller
+# E2E run: it changes the guest home into an existing conversation and can
+# invalidate the very first-chat room isolation this test is meant to prove.
+echo 'DIRECT_GUEST_PROBE_SKIPPED_TO_PRESERVE_EMPTY_CHAT_FOR_RELAY' \
   | tee real-chatgpt-evidence/guest-direct-console.txt
-
 
 # Use Android run-as to configure ONLY the debuggable, isolated CI app.
 # The test WebSocket targets the Android emulator's dedicated host gateway.
