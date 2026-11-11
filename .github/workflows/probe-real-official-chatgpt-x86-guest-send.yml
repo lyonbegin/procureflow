@@ -60,22 +60,22 @@ jobs:
               adb pull /sdcard/guest-first.xml real-chatgpt-evidence/guest-first.xml >/dev/null 2>&1 || true
               [[ -s real-chatgpt-evidence/guest-first.xml ]] || continue
               XY="$(python3 - <<'PY'
-import re,xml.etree.ElementTree as ET
-r=ET.parse('real-chatgpt-evidence/guest-first.xml').getroot()
-p={c:n for n in r.iter() for c in n}
-nodes=list(r.iter('node'))
-if any(n.get('text')=='Welcome to ChatGPT' for n in nodes):
- for n in nodes:
-  if n.get('text')!='Skip':continue
-  while n is not None:
-   if n.get('clickable')=='true':
-    m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.get('bounds',''))
-    if m:
-     a,b,c,d=map(int,m.groups());print((a+c)//2,(b+d)//2);break
-   n=p.get(n)
-  break
-PY
-)"
+            import re,xml.etree.ElementTree as ET
+            r=ET.parse('real-chatgpt-evidence/guest-first.xml').getroot()
+            p={c:n for n in r.iter() for c in n}
+            nodes=list(r.iter('node'))
+            if any(n.get('text')=='Welcome to ChatGPT' for n in nodes):
+             for n in nodes:
+              if n.get('text')!='Skip':continue
+              while n is not None:
+               if n.get('clickable')=='true':
+                m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.get('bounds',''))
+                if m:
+                 a,b,c,d=map(int,m.groups());print((a+c)//2,(b+d)//2);break
+               n=p.get(n)
+              break
+            PY
+            )"
               if [[ -z "$XY" ]]; then break; fi
               read -r X Y <<< "$XY"
               adb shell input tap "$X" "$Y"
