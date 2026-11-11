@@ -1,0 +1,45 @@
+name: Diagnose genuine ChatGPT first-run evidence (no mocked app)
+on:
+  push:
+    branches: [test/relay-success-apk-baseline-20261111]
+    paths:
+      - '.github/workflows/diagnose-real-chatgpt-onboarding-from-captured-ui.yml'
+      - '.github/scripts/verify-real-chatgpt-onboarding-evidence.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze-original-chatgpt-android-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve the genuine Android 15 + official 1.2026.300 UI capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 42975216307 \
+            -R lyonbegin/procureflow \
+            -n actual-official-chatgpt-2026-300-e2e-evidence \
+            -D captured-android-ui
+          test -s captured-android-ui/chatgpt-first-run.xml
+          test -s captured-android-ui/real-chatgpt-end.xml
+      - name: Prove the Skip click was not a successful transition
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/verify-real-chatgpt-onboarding-evidence.py \
+            captured-android-ui/chatgpt-first-run.xml \
+            captured-android-ui/real-chatgpt-end.xml \
+            captured-android-ui/official-onboarding-diagnosis.json \
+            | tee captured-android-ui/official-onboarding-result.txt
+          grep -q 'CONFIRMED_ONBOARDING_STUCK_AFTER_REPORTED_SKIP_TAP' \
+            captured-android-ui/official-onboarding-result.txt
+          echo 'PASS_FORENSIC_DIAGNOSIS_ONLY_NO_FRESH_MESSAGE_SENT'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: exact-official-chatgpt-onboarding-regression-forensics
+          path: |
+            captured-android-ui/official-onboarding-result.txt
+            captured-android-ui/official-onboarding-diagnosis.json
+          if-no-files-found: warn
