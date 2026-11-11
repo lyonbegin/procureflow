@@ -1,0 +1,55 @@
+name: Obtain and inspect signed ChatGPT 1.2026.300 Android package (isolated)
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/verify-chatgpt-2026-300-official-apk-archive.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Download entire version-pinned ChatGPT Android XAPK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p inspect
+          curl --fail --show-error --location --retry 2 --max-time 600 \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' \
+            'https://d.apkpure.com/b/XAPK/com.openai.chatgpt?versionCode=2630015' \
+            --output /tmp/chatgpt-2026.300.xapk
+          file /tmp/chatgpt-2026.300.xapk | tee inspect/file-type.txt
+          stat -c 'size=%s' /tmp/chatgpt-2026.300.xapk | tee inspect/size.txt
+          test "$(stat -c %s /tmp/chatgpt-2026.300.xapk)" -gt 70000000
+          sha256sum /tmp/chatgpt-2026.300.xapk | tee inspect/archive-sha256.txt
+          unzip -tq /tmp/chatgpt-2026.300.xapk | tee inspect/integrity.txt
+          unzip -Z1 /tmp/chatgpt-2026.300.xapk | tee inspect/entries.txt
+          unzip -p /tmp/chatgpt-2026.300.xapk manifest.json > inspect/manifest.json || true
+          cat inspect/manifest.json
+          if ! grep -q -E 'x86_64|x86|armeabi|arm64' inspect/entries.txt; then
+            echo 'ARCH_SPLIT_NOT_NAMED_IN_ARCHIVE'
+          fi
+      - name: Inspect APKMirror download-page links for universal x86_64 variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re,urllib.request,html
+          url='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
+          try:
+            request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
+            page=urllib.request.urlopen(request,timeout=20).read().decode('utf-8','ignore')
+            links=set()
+            for match in re.findall(r'(?:href|data-href)=[\"\']([^\"\']+)',page):
+              link=html.unescape(match)
+              if any(term in link for term in ('download.php','download?id','start-download','download-button','key=')):
+                links.add(link.split('?key=')[0] if 'download.php' not in link else link)
+            print('PUBLIC_DOWNLOAD_LINKS:',repr(sorted(links)[:20]))
+          except Exception as exc:
+            print('PUBLIC_HTML_NOT_ACCESSIBLE:',str(exc))
+          PY
+      - name: Report app-installation boundary
+        run: |
+          echo 'Archive inspection only; no authenticated ChatGPT send is claimed.'
