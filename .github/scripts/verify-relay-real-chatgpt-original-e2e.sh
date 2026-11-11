@@ -31,13 +31,30 @@ test "$(tr -d '\r' < real-chatgpt-evidence/abi.txt)" = "x86_64"
 adb install -r chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk \
   | tee real-chatgpt-evidence/install.txt
 grep -q Success real-chatgpt-evidence/install.txt
-# Install exact user-provided original APKM split set alongside the controller.
-adb install-multiple -r \
-  /tmp/chatgpt-original-splits/base.apk \
-  /tmp/chatgpt-original-splits/split_config.x86_64.apk \
-  /tmp/chatgpt-original-splits/split_config.xxhdpi.apk \
-  /tmp/chatgpt-original-splits/split_config.en.apk \
-  /tmp/chatgpt-original-splits/split_config.ko.apk \
+# Install the officially signed version-pinned app APK set on the same
+# emulator as the controller. Archive identity is reported separately:
+# the user's APKMirror original or the independently signer-verified XAPK.
+if [[ "${OFFICIAL_CHATGPT_SPLIT_KIND:-original-x86}" == "apkpure-arm64" ]]; then
+  apk_parts=(
+    /tmp/pinned-official/com.openai.chatgpt.apk
+    /tmp/pinned-official/config.arm64_v8a.apk
+    /tmp/pinned-official/config.en.apk
+    /tmp/pinned-official/config.mdpi.apk
+  )
+  echo 'SIGNED_APKPURE_XAPK_VERSION_2630015_ARM64_NOT_BYTE_IDENTICAL_TO_USER_APKM' \
+    | tee real-chatgpt-evidence/official-archive-provenance.txt
+else
+  apk_parts=(
+    /tmp/chatgpt-original-splits/base.apk
+    /tmp/chatgpt-original-splits/split_config.x86_64.apk
+    /tmp/chatgpt-original-splits/split_config.xxhdpi.apk
+    /tmp/chatgpt-original-splits/split_config.en.apk
+    /tmp/chatgpt-original-splits/split_config.ko.apk
+  )
+  echo 'BYTE_IDENTICAL_TO_USER_ORIGINAL_APKM' \
+    | tee real-chatgpt-evidence/official-archive-provenance.txt
+fi
+adb install-multiple -r "${apk_parts[@]}" \
   | tee real-chatgpt-evidence/install-original-chatgpt.txt
 grep -q Success real-chatgpt-evidence/install-original-chatgpt.txt
 adb shell pm path com.openai.chatgpt | tee real-chatgpt-evidence/original-package.txt
