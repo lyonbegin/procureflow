@@ -32,15 +32,15 @@
 <div class="stack">
 <section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
 <div class="step"><div class="fields">
-<label for="admin-token">관리 콘솔 토큰 (직접 입력)</label><input id="admin-token" type="password" autocomplete="off" placeholder="관리 콘솔 토큰을 입력하십시오">
+<label for="admin-token">관리 콘솔 토큰 (기본값 적용)</label><input id="admin-token" type="password" autocomplete="off" value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn" placeholder="테스트 기본 토큰">
 <div id="api-auth-status" role="status" aria-live="polite">인증되지 않았습니다. 기존 관리자 토큰이나 사용자 API Key를 입력해 주십시오.</div>
 <label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" autocomplete="off" placeholder="사용자별 발급키를 입력하시면 관리 토큰 대신 사용합니다">
 <div class="row"><button class="primary" id="verify-auth">인증 확인 · API 연결</button><button id="forget-auth">입력된 인증키 지우기</button></div>
-<div class="auth-guide">관리자 토큰은 HTML이나 브라우저 영구 저장소에 포함하지 않습니다. 첫 연결 시 직접 입력하시거나 기존 HttpOnly 세션을 이용하십시오.</div>
+<div class="auth-guide">이 테스트 페이지에는 요청하신 기존 기본값이 미리 입력됩니다. 별도 입력 없이 API 테스트를 시작하실 수 있습니다.</div>
 <div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
 <div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
 <div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
-<div class="warning">시험용 API 콘솔입니다. 파일 업로드 시 사용자별 API Key를 권장합니다. 관리자 토큰은 웹 소스와 브라우저 영구 저장소에 저장하지 않습니다. 운영 환경에는 별도 로그인 및 권한 관리가 필요합니다.</div>
+<div class="warning">시험용 API 콘솔입니다. 파일 업로드 시 사용자별 API Key를 권장합니다. 관리자 토큰은 웹 소스에 포함하지 않고 이 브라우저에만 저장합니다. 운영 환경에는 별도 로그인 및 권한 관리가 필요합니다.</div>
 </div></section>
 
 <section class="panel"><h2>02. 채팅방 엔드포인트 <span class="small">Rooms</span></h2><div class="inner">
@@ -127,19 +127,23 @@
 const $=id=>document.getElementById(id);
 const text=(id)=>$(id).value.trim();
 const logbox=$('event-log');
-// Credentials are held in memory only. An existing HttpOnly session cookie
-// may independently authorize API requests after reload.
-// Remove credentials previously persisted by historical versions.
-localStorage.removeItem('relay_admin_token');
-localStorage.removeItem('relay_user_api_key');
-$('admin-token').value='';
-$('user-api-key').value='';
+// Persist credentials only on the current browser device, not in the public HTML.
+// The operator explicitly requested the previous test console default.
+// Keep explicit custom browser values, but restore the historical default
+// on fresh browsers so test buttons work without manual credential entry.
+$('admin-token').value=localStorage.getItem('relay_admin_token')||$('admin-token').defaultValue;
+$('user-api-key').value=localStorage.getItem('relay_user_api_key')||'';
+// The test default is administrator-scoped. A stale user API key should not
+// unintentionally override it when reopening the test console.
+if ($('admin-token').value && !$('user-api-key').value)
+  localStorage.setItem('relay_admin_token',$('admin-token').value);
 $('user-id').value=localStorage.getItem('relay_user_id')||'tester-a';
-$('user-id').addEventListener('input',()=>{
-  localStorage.setItem('relay_user_id',$('user-id').value.trim());
-});
-for(const id of ['admin-token','user-api-key']) {
-  $(id).addEventListener('input',()=>renderAuthStatus(null));
+for(const id of ['admin-token','user-api-key','user-id']) {
+  $(id).addEventListener('input',()=>{
+    localStorage.setItem(id==='admin-token'?'relay_admin_token':
+                         id==='user-api-key'?'relay_user_api_key':'relay_user_id',$(id).value.trim());
+    if(id!=='user-id')renderAuthStatus(null);
+  });
 }
 const authBanner=$('auth-notice');
 let authenticatedRole=null;
@@ -181,15 +185,15 @@ async function verifyAuthentication(){
         cache:'no-store',credentials:'same-origin'});
       if(response.ok){
         $('user-api-key').value='';
-        // User key only existed in the current form; no persisted secret.
+        localStorage.removeItem('relay_user_api_key');
       }
     }
     const info=await response.json();
     if(!response.ok||info.authenticated!==true){
       renderAuthStatus(null);
       $('api-auth-status').textContent=hasKey
-        ?'인증 실패('+response.status+'): 입력한 관리자 토큰이나 사용자 API Key를 확인해 주십시오.'
-        :'기존 인증 세션이 없습니다. 관리자 토큰 또는 API Key를 입력해 주십시오.';
+        ?'인증 실패('+response.status+'): 저장된 관리자 토큰이나 사용자 API Key를 확인해 주십시오.'
+        :'저장된 기본 인증 정보가 없습니다. 관리자 토큰 또는 API Key를 처음 한 번 입력해 주십시오.';
       return false;
     }
     if(info.role==='user'&&info.user_id){
@@ -479,7 +483,7 @@ $('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms(
 $('clear-log').onclick=()=>logbox.textContent='';
 document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
 checkHealth().catch(e=>log('Health failed: '+e.message));
-// Restore a previously authenticated HttpOnly session; no browser-persisted
-// token or HTML-embedded administrator secret is available.
+// Default to the previously verified session (HttpOnly cookie), then stored
+// browser credentials; no copy of the administrator token is published.
 verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
 </script></body></html>
