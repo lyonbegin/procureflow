@@ -342,6 +342,14 @@ timeout 30s adb shell uiautomator dump /sdcard/real-chatgpt-end.xml > /dev/null 
 adb pull /sdcard/real-chatgpt-end.xml real-chatgpt-evidence/real-chatgpt-end.xml >/dev/null 2>&1 || true
 adb logcat -d -v time -s HITELRelayLifecycle:I HITELRelayStatus:I AndroidRuntime:E '*:S' \
   > real-chatgpt-evidence/real-runtime.log || true
+# If controller routing fails, independently test the same *official* app UI.
+# This runs only AFTER controller job evidence is captured and must never
+# turn an unsuccessful relay E2E result into a success.
+if ! grep -q '"status": "completed"' real-chatgpt-evidence/actual-text-job.json; then
+  echo 'RELAY_TEXT_FAILED_ATTEMPTING_INDEPENDENT_REAL_APP_GUEST_SEND'
+  bash .github/scripts/probe-official-chatgpt-guest-send.sh \
+    > real-chatgpt-evidence/guest-direct-probe.log 2>&1 || true
+fi
 python3 - <<'PY'
 import json
 from pathlib import Path
