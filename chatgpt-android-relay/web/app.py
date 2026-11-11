@@ -19,7 +19,10 @@ CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
 MAX_MESSAGE_SIZE = 100_000
-ALLOWED = {"chat.send", "chat.new", "chat.stop", "ui.snapshot", "ui.back"}
+# Legacy console commands have no verified room_id. Never let them
+# submit a prompt or create a thread in whichever chat happens to be foreground.
+ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
+ROOM_SCOPED_ONLY = {"chat.send", "chat.new"}
 consoles: set[WebSocket] = set()
 device: WebSocket | None = None
 pending: dict[str, dict[str, Any]] = {}
@@ -182,6 +185,10 @@ async def socket(ws: WebSocket):
                     cmd_id = str(msg.get("id", ""))[:80]
                     action = str(msg.get("action", ""))
                     payload = msg.get("payload", {})
+                    if action in ROOM_SCOPED_ONLY:
+                        await transmit(ws, event("command.error", id=cmd_id,
+                            reason="ROOM_SCOPED_API_REQUIRED: use /api/v1/rooms/{room_id}/turns"))
+                        continue
                     if action not in ALLOWED or not cmd_id or not isinstance(payload, dict):
                         await transmit(ws, event("command.error", id=cmd_id, reason="Invalid command"))
                         continue
