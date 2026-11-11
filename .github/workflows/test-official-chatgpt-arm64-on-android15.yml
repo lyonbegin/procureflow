@@ -1,0 +1,86 @@
+name: Install signed official ChatGPT 1.2026.300 ARM64 on Android 15 emulator (real APK)
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/test-official-chatgpt-arm64-on-android15.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  real-official-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore vetted original version 2630015 Android XAPK
+        uses: actions/cache/restore@v4
+        id: package-cache
+        with:
+          path: /tmp/chatgpt-2630015-x86.xapk
+          key: trusted-chatgpt-xapk-2630015-b24f4bfbb3cf293f
+          fail-on-cache-miss: true
+      - name: Extract exact package and verify OpenAI signer
+        run: |
+          set -euo pipefail
+          mkdir -p official-real-evidence /tmp/pinned-official
+          unzip -tq /tmp/chatgpt-2630015-x86.xapk \
+            | tee official-real-evidence/zip-integrity.txt
+          unzip -j -oq /tmp/chatgpt-2630015-x86.xapk \
+            com.openai.chatgpt.apk config.arm64_v8a.apk config.en.apk config.mdpi.apk \
+            -d /tmp/pinned-official/
+          SDKROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SIGNER="$(find "$SDKROOT/build-tools" -type f -name apksigner -print | sort -V | tail -1)"
+          AAPT="$(find "$SDKROOT/build-tools" -type f -name aapt -print | sort -V | tail -1)"
+          "$AAPT" dump badging /tmp/pinned-official/com.openai.chatgpt.apk \
+            | head -4 | tee official-real-evidence/app-version.txt
+          grep -Eq "package: name='com.openai.chatgpt'.*versionCode='2630015'.*versionName='1.2026.300'" official-real-evidence/app-version.txt
+          "$SIGNER" verify --print-certs /tmp/pinned-official/com.openai.chatgpt.apk \
+            | tee official-real-evidence/app-signer.txt
+          grep -iq 'b24f4bfbb3cf293f938703b9d87027c1102cc36dc4fa206910e08927db40473c' official-real-evidence/app-signer.txt
+          echo PASS_AUTHENTIC_VERSION_AND_SIGNATURE
+      - name: Enable KVM
+        run: |
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -w /dev/kvm
+      - name: Install and start signed official ARM64 ChatGPT on x86_64 Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 650
+          script: |
+            set -euo pipefail
+            mkdir -p official-real-evidence
+            adb shell getprop ro.product.cpu.abilist | tee official-real-evidence/supported-abis.txt
+            adb shell getprop ro.dalvik.vm.native.bridge | tee official-real-evidence/native-bridge.txt
+            adb install-multiple -r \
+              /tmp/pinned-official/com.openai.chatgpt.apk \
+              /tmp/pinned-official/config.arm64_v8a.apk \
+              /tmp/pinned-official/config.en.apk \
+              /tmp/pinned-official/config.mdpi.apk \
+              2>&1 | tee official-real-evidence/actual-install.txt
+            grep -q Success official-real-evidence/actual-install.txt
+            adb shell dumpsys package com.openai.chatgpt \
+              | grep -E 'versionName=|versionCode=' | head -6 | tee official-real-evidence/installed-version.txt
+            adb shell am start -W -n com.openai.chatgpt/.MainActivity \
+              | tee official-real-evidence/start.txt
+            sleep 12
+            adb shell dumpsys activity activities \
+              | grep -E 'topResumedActivity|mResumedActivity' | head -5 \
+              | tee official-real-evidence/foreground.txt || true
+            adb shell screencap -p /sdcard/official-chatgpt.png
+            adb pull /sdcard/official-chatgpt.png official-real-evidence/official-chatgpt.png
+            echo PASS_OFFICIAL_1_2026_300_INSTALLED_AND_STARTED \
+              | tee official-real-evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: official-chatgpt-arm64-on-x86-android15-evidence
+          path: official-real-evidence/
+          if-no-files-found: warn
