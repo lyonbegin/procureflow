@@ -1,0 +1,29 @@
+name: Probe official ChatGPT Android 1.2026.300 package for isolated E2E
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/probe-public-chatgpt-2026-300-apk.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-public-android-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Fetch publicly hosted 1.2026.300 APK archive (never an auth cookie)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error \
+            -o /tmp/chatgpt-2026-300.xapk \
+            'https://d.apkpure.com/b/XAPK/com.openai.chatgpt?versionCode=2630015'
+          echo "archive_size=$(stat -c %s /tmp/chatgpt-2026-300.xapk)"
+          file /tmp/chatgpt-2026-300.xapk
+          test "$(stat -c %s /tmp/chatgpt-2026-300.xapk)" -gt 40000000
+          unzip -tq /tmp/chatgpt-2026-300.xapk | tail -3
+          unzip -Z1 /tmp/chatgpt-2026-300.xapk | grep -Ei '(base\.apk|config\.x86_64|manifest\.json|\.apk$)' | head -40
+      - name: Report boundary
+        run: |
+          echo 'This probe does not install, publish, or authenticate any APK.'
+          echo 'Source archive SHA256 must be independently compared to official Android signing certificate before using it.'
