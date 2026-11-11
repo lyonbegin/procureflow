@@ -231,7 +231,9 @@ adb shell dumpsys activity activities \
   > real-chatgpt-evidence/original-foreground-before-jobs.txt || true
 adb shell screencap -p /sdcard/real-chatgpt-before.png
 adb pull /sdcard/real-chatgpt-before.png real-chatgpt-evidence/real-chatgpt-before.png >/dev/null
-recover_emulator_frontend "before-job"
+# NEVER invoke uiautomator after the AccessibilityService is bound:
+# on this Android 15 emulator the dump itself brings the controller Activity
+# to foreground and can destroy the service. Use a non-invasive screenshot.
 adb shell screencap -p /sdcard/real-chatgpt-ready.png
 adb pull /sdcard/real-chatgpt-ready.png real-chatgpt-evidence/real-chatgpt-ready.png >/dev/null
 
