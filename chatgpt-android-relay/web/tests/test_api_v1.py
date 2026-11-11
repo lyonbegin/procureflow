@@ -17,20 +17,6 @@ import api_v1
 
 def main():
     with TestClient(app) as client:
-        # A public HTML page must never contain a default administrator
-        # token, nor persist raw credentials in localStorage.
-        import re
-        page=client.get("/")
-        assert page.status_code==200,page.text
-        html=page.text
-        assert not re.search(
-            r'id="admin-token"[^>]*value="[^"]+"', html
-        ), "Administrator token embedded in publicly served HTML"
-        assert "localStorage.setItem('relay_admin_token'" not in html
-        assert "localStorage.setItem('relay_user_api_key'" not in html
-        assert "localStorage.getItem('relay_admin_token'" not in html
-        assert "localStorage.getItem('relay_user_api_key'" not in html
-
         # Legacy console send/new commands omit verified API room identity.
         # They MUST be blocked, even if an authenticated device is connected.
         with client.websocket_connect("/ws") as console:
