@@ -46,6 +46,8 @@ class ChatRelayService : AccessibilityService() {
     private var routedIdentityGeneration: Long = -1L
     private var deepLinkRoutedJobId: String? = null
     private var roomLastPrompt: String = ""
+    private var guestWelcomeJobId: String? = null
+    private var guestWelcomeAttempts = 0
     private data class StagedAttachment(
         val id: String, val name: String, val mime: String, val file: File,
         val uri: Uri
@@ -1626,7 +1628,55 @@ class ChatRelayService : AccessibilityService() {
         return null
     }
 
+    // Original ChatGPT 1.2026.300 can show an actual full-screen Welcome
+    // flow after Skip or after reopening the app. The text "Skip" itself
+    // has clickable=false: its native clickable ancestor owns the action.
+    // Never interpret this onboarding UI as a verified chat composer.
+    private fun handleOfficialGuestWelcome(
+        id: String, work: () -> Unit
+    ): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (root.packageName?.toString() != chatPackage) return false
+        val all = nodes(root)
+        if (!all.any { it.text?.toString()?.trim() == "Welcome to ChatGPT" }) {
+            guestWelcomeJobId = null
+            guestWelcomeAttempts = 0
+            return false
+        }
+        if (guestWelcomeJobId != id) {
+            guestWelcomeJobId = id
+            guestWelcomeAttempts = 0
+        }
+        if (++guestWelcomeAttempts > 4) {
+            done(id, false, "CHATGPT_GUEST_ONBOARDING_STILL_VISIBLE: Skip failed; no message sent")
+            return true
+        }
+        val label = all.firstOrNull { it.text?.toString()?.trim() == "Skip" }
+        if (label == null) {
+            done(id, false, "CHATGPT_GUEST_ONBOARDING_SKIP_MISSING: no message sent")
+            return true
+        }
+        var control: AccessibilityNodeInfo? = label
+        for (attempt in 0..9) {
+            if (control?.isClickable == true) break
+            control = control?.parent
+        }
+        if (control?.isClickable != true ||
+            control.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true) {
+            done(id, false, "CHATGPT_GUEST_ONBOARDING_SKIP_NOT_CLICKABLE: no message sent")
+            return true
+        }
+        progress(id, "공식 ChatGPT 첫 실행 Skip 클릭 후 화면 전환 재확인")
+        main.postDelayed({
+            if (activeApiJob?.optString("id") == id) {
+                withChatApp(id, work)
+            }
+        }, 1400L)
+        return true
+    }
+
     private fun withChatApp(id: String, work: () -> Unit) {
+        if (handleOfficialGuestWelcome(id, work)) return
         val blocker=screenBlockReason(rootInActiveWindow)
         if(activeApiJob?.optString("id")==id && blocker!=null) {
             done(id,false,blocker)
@@ -1658,6 +1708,7 @@ class ChatRelayService : AccessibilityService() {
                 return
             }
             if(rootInActiveWindow?.packageName?.toString()==chatPackage) {
+                if (handleOfficialGuestWelcome(id, work)) return
                 progress(id, "ChatGPT 실행 화면 활성")
                 work()
             }
