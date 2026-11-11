@@ -58,7 +58,7 @@ jobs:
             set -euo pipefail
             mkdir -p official-real-evidence
             adb shell getprop ro.product.cpu.abilist | tee official-real-evidence/supported-abis.txt
-            adb shell getprop ro.dalvik.vm.native.bridge | tee official-real-evidence/native-bridge.txt
+            (adb shell getprop ro.dalvik.vm.native.bridge || true) | tee official-real-evidence/native-bridge.txt
             adb install-multiple -r \
               /tmp/pinned-official/com.openai.chatgpt.apk \
               /tmp/pinned-official/config.arm64_v8a.apk \
