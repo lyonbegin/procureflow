@@ -388,6 +388,8 @@ done < real-chatgpt-evidence/file-checks.txt
 test "$VERIFY_COUNT" -eq 2
 test "$(wc -l < real-chatgpt-evidence/verified-file-sha256.txt)" -eq 2
 
+adb logcat -d -v time -s HITELRelayPicker:I '*:S' \
+  > real-chatgpt-evidence/picker-accessibility-windows.log || true
 adb shell dumpsys accessibility > real-chatgpt-evidence/final-accessibility.txt
 adb shell screencap -p /sdcard/relay-live-ws.png
 adb pull /sdcard/relay-live-ws.png real-chatgpt-evidence/controller-live-ws.png >/dev/null
