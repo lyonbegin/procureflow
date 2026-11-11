@@ -139,22 +139,17 @@ async def socket(ws: WebSocket):
             if auth.get("deviceId", DEVICE_ID) != DEVICE_ID:
                 await ws.close(code=1008)
                 return
+            # First authenticated Android session remains the owner until it
+            # actually disconnects. Replacing it on every new connection caused
+            # two devices to kick each other off at 5-second intervals, which
+            # interrupted file selection and failed active jobs.
             if device is not None and device is not ws:
-                # Transfer ownership before any await. The previous socket
-                # must not acknowledge a job subsequently assigned to this
-                # new device session.
-                previous_device = device
-                device = ws
-                if active_job_id:
-                    api_v1.release_running_job(
-                        active_job_id, "Android device session was superseded")
-                    await broadcast(event(
-                        "job.error", job_id=active_job_id,
-                        reason="Device session replaced; not retried to avoid duplicates"))
-                    active_job_id = None
-                await previous_device.close(code=1001)
-            else:
-                device = ws
+                await transmit(ws, event("auth.error",
+                    reason="Another Android relay is already connected; disable its accessibility service before switching."))
+                await ws.close(code=1008, reason="Duplicate Android relay")
+                print("[relay] secondary Android rejected without disconnecting the active job", flush=True)
+                return
+            device = ws
             print("[relay] Android authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
