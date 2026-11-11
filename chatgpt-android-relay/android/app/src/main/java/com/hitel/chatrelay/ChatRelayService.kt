@@ -1253,6 +1253,18 @@ class ChatRelayService : AccessibilityService() {
         }
     }
 
+    private fun visiblePickerNodes(): List<AccessibilityNodeInfo> {
+        // The ChatGPT 1.2026.300 attachment popup is sometimes hosted in
+        // a separate accessibility window, not rootInActiveWindow.
+        val output = ArrayList<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { output.addAll(nodes(it)) }
+        for (window in windows) {
+            val root = window.root ?: continue
+            if (root != rootInActiveWindow) output.addAll(nodes(root))
+        }
+        return output
+    }
+
     private fun pickerClickByNames(all: List<AccessibilityNodeInfo>,
                                    names: List<String>): Boolean {
         val match = all.firstOrNull { n ->
@@ -1268,7 +1280,20 @@ class ChatRelayService : AccessibilityService() {
             if (target == null || isClickTarget(target)) break
             target = target.parent
         }
-        return target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            return true
+        // Jetpack Compose text/menu accessibility nodes may expose a label and
+        // bounds but reject ACTION_CLICK. A real gesture on the exact node's
+        // recorded bounds is safe; never tap an unverified screen coordinate.
+        val bounds = Rect().also { match.getBoundsInScreen(it) }
+        if (bounds.isEmpty || !match.isVisibleToUser) return false
+        val path = Path().apply {
+            moveTo(bounds.exactCenterX(), bounds.exactCenterY())
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 95))
+            .build()
+        return dispatchGesture(gesture, null, main)
     }
 
     // Only ever select the unique file name we inserted into MediaStore.
@@ -1282,7 +1307,7 @@ class ChatRelayService : AccessibilityService() {
         if (activeApiJob?.optString("id") != jid) return
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString().orEmpty()
-        val all = nodes(root)
+        val all = visiblePickerNodes()
         val expected = pendingPickerDisplayName.orEmpty()
         if (expected.isBlank()) {
             finishApiJob(jid, false, "No expected filename for file picker")
@@ -1323,6 +1348,17 @@ class ChatRelayService : AccessibilityService() {
                     return
                 }
             } else {
+                // If a Jetpack Compose attachment popup remained open after
+                // the first ACTION_CLICK, retry the exact Files item (not a
+                // guessed first photo or arbitrary system picker entry).
+                if (menuStage == 1 && attempt in listOf(4, 10, 16) &&
+                    pickerClickByNames(all, listOf("Files", "파일", "문서"))) {
+                    progress(jid, "공식 ChatGPT Files 메뉴 항목 재선택")
+                    main.postDelayed({
+                        waitInChatPicker(jid,staged,index,attempt+1,1)
+                    },750)
+                    return
+                }
                 // Selecting a file can return immediately to the composer.
                 val signals = composerAttachmentSignals()
                 val named = all.any { n ->
