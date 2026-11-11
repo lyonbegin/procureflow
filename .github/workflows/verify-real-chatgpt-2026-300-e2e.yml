@@ -46,8 +46,33 @@ jobs:
           USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36'
           PAGE='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
           mkdir -p real-chatgpt-evidence /tmp/chatgpt-original-splits
-          curl --fail --silent --show-error --location --retry 2 --max-time 45 \
-            -H "User-Agent: $USER_AGENT" --output /tmp/original-page.html "$PAGE"
+          # APKMirror sometimes returns HTTP 403 to shared CI runner IPs.
+          # Try the two documented hostname forms and cache-busting requests;
+          # never accept a different file (final archive SHA256 remains exact).
+          PAGE_READY=0
+          for candidate in "$PAGE" "${PAGE/www.apkmirror.com/apkmirror.com}" \
+                           "$PAGE?ci=20261111"; do
+            for attempt in 1 2 3; do
+              code="$(curl --location --silent --show-error --max-time 45 \
+                --output /tmp/original-page.html --write-out '%{http_code}' \
+                -H "User-Agent: $USER_AGENT" \
+                -H 'Accept-Language: en-US,en;q=0.9' \
+                -H 'Accept: text/html,application/xhtml+xml' \
+                "$candidate" || true)"
+              echo "APKMIRROR_PAGE_HTTP=$code variant_attempt=$attempt"
+              if [[ "$code" == 200 ]] && \
+                 grep -q '/download/?key=' /tmp/original-page.html; then
+                PAGE_READY=1
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$PAGE_READY" == 1 ]]; then break; fi
+          done
+          if [[ "$PAGE_READY" != 1 ]]; then
+            echo 'FAIL_APKMIRROR_PAGE_ACCESS: all fresh requests failed'
+            exit 1
+          fi
           STEP_URL="$(python3 - <<'PY'
           import re,html
           s=open('/tmp/original-page.html').read()
