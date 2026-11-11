@@ -39,12 +39,6 @@ jobs:
           set -euo pipefail
           gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
           sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
-      - name: Restore previously verified original APKM (isolated CI cache)
-        uses: actions/cache@v4
-        id: original-apkm-cache
-        with:
-          path: /tmp/official-user-original.apkm
-          key: original-chatgpt-2026-300-695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44
       - name: Download EXACT user-supplied original APKM from APKMirror and verify SHA256
         shell: bash
         run: |
@@ -52,41 +46,8 @@ jobs:
           USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36'
           PAGE='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
           mkdir -p real-chatgpt-evidence /tmp/chatgpt-original-splits
-          # A once-verified original must survive a failed E2E run.
-          # Do not re-download when the exact original is present.
-          if [[ -f /tmp/official-user-original.apkm ]] &&
-             printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' | sha256sum -c >/dev/null; then
-            echo 'EXACT_USER_ORIGINAL_RESTORED_FROM_CI_CACHE'
-          else
-            rm -f /tmp/official-user-original.apkm
-            # APKMirror sometimes returns HTTP 403 to shared CI runner IPs.
-          # Try the two documented hostname forms and cache-busting requests;
-          # never accept a different file (final archive SHA256 remains exact).
-          PAGE_READY=0
-          for candidate in "$PAGE" "${PAGE/www.apkmirror.com/apkmirror.com}" \
-                           "$PAGE?ci=20261111"; do
-            for attempt in 1 2 3; do
-              code="$(curl --location --silent --show-error --max-time 45 \
-                --output /tmp/original-page.html --write-out '%{http_code}' \
-                -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
-                -H "User-Agent: $USER_AGENT" \
-                -H 'Accept-Language: en-US,en;q=0.9' \
-                -H 'Accept: text/html,application/xhtml+xml' \
-                "$candidate" || true)"
-              echo "APKMIRROR_PAGE_HTTP=$code variant_attempt=$attempt"
-              if [[ "$code" == 200 ]] && \
-                 grep -q '/download/?key=' /tmp/original-page.html; then
-                PAGE_READY=1
-                break
-              fi
-              sleep 2
-            done
-            if [[ "$PAGE_READY" == 1 ]]; then break; fi
-          done
-          if [[ "$PAGE_READY" != 1 ]]; then
-            echo 'FAIL_APKMIRROR_PAGE_ACCESS: all fresh requests failed'
-            exit 1
-          fi
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 \
+            -H "User-Agent: $USER_AGENT" --output /tmp/original-page.html "$PAGE"
           STEP_URL="$(python3 - <<'PY'
           import re,html
           s=open('/tmp/original-page.html').read()
@@ -95,11 +56,8 @@ jobs:
           print('https://www.apkmirror.com'+html.unescape(m.group(1)))
           PY
           )"
-          curl --fail --silent --show-error --location --retry 4 \
-            --retry-all-errors --retry-delay 2 --max-time 70 \
-            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
-            -H "User-Agent: $USER_AGENT" -e "$PAGE" \
-            --output /tmp/intermediate-original.html "$STEP_URL"
+          curl --fail --silent --show-error --location --retry 2 --max-time 45 \
+            -H "User-Agent: $USER_AGENT" --output /tmp/intermediate-original.html "$STEP_URL"
           FULL_URL="$(python3 - <<'PY'
           import re,html
           s=open('/tmp/intermediate-original.html').read()
@@ -108,12 +66,9 @@ jobs:
           print('https://www.apkmirror.com'+html.unescape(m.group(1)))
           PY
           )"
-          curl --fail --silent --show-error --location --retry 4 \
-            --retry-all-errors --retry-delay 2 --max-time 600 \
-            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
-            -H "User-Agent: $USER_AGENT" -e "$STEP_URL" \
+          curl --fail --silent --show-error --location --retry 2 --max-time 600 \
+            -H "User-Agent: $USER_AGENT" -e "$PAGE" \
             --output /tmp/official-user-original.apkm "$FULL_URL"
-          fi
           file /tmp/official-user-original.apkm
           test "$(stat -c %s /tmp/official-user-original.apkm)" -eq 101098896
           printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' \
@@ -124,10 +79,10 @@ jobs:
             -d /tmp/chatgpt-original-splits
           ls -lh /tmp/chatgpt-original-splits | tee real-chatgpt-evidence/verified-original-splits.txt
           echo 'EXACT_USER_ORIGINAL_APKM_READY'
-      - name: Save verified original APKM as private workflow artifact
+      - name: Preserve exact x86_64 user APKM for following regression runs
         uses: actions/upload-artifact@v4
         with:
-          name: verified-chatgpt-original-2630015
+          name: exact-original-chatgpt-2630015-x86_64
           path: /tmp/official-user-original.apkm
           retention-days: 7
           if-no-files-found: error
