@@ -172,6 +172,66 @@ adb pull /sdcard/chatgpt-after-official-skip.png \
 echo 'DIRECT_GUEST_PROBE_SKIPPED_TO_PRESERVE_EMPTY_CHAT_FOR_RELAY' \
   | tee real-chatgpt-evidence/guest-direct-console.txt
 
+# The prior official app capture stayed on Welcome after "SKIP_CLICKED".
+# Never interpret adb input tap's exit code as proof of guest login success.
+GUEST_COMPOSER_CONFIRMED=0
+for guest_transition in 1 2 3 4 5; do
+  XML_AFTER="real-chatgpt-evidence/guest-after-action-$guest_transition.xml"
+  timeout 35s adb shell uiautomator dump /sdcard/relay-guest-after.xml >/dev/null 2>&1 || true
+  adb pull /sdcard/relay-guest-after.xml "$XML_AFTER" >/dev/null 2>&1 || true
+  if [[ ! -s "$XML_AFTER" ]]; then sleep 3; continue; fi
+  DECISION="$(python3 - "$XML_AFTER" <<'PYUI'
+import re,sys,xml.etree.ElementTree as ET
+try: root=ET.parse(sys.argv[1]).getroot()
+except (OSError,ET.ParseError): print('wait'); raise SystemExit(0)
+nodes=list(root.iter('node'))
+parents={c:p for p in root.iter() for c in p}
+labels={x.strip() for n in nodes for x in (n.attrib.get('text',''),n.attrib.get('content-desc','')) if x.strip()}
+welcome='Welcome to ChatGPT' in labels
+login=bool({'Continue with Google','Log in or sign up'} & labels)
+editable=any(n.attrib.get('editable')=='true' and n.attrib.get('enabled')=='true' for n in nodes)
+if editable and not welcome and not login:
+ print('ready');raise SystemExit(0)
+def clickable(label):
+ for n in nodes:
+  if label not in (n.attrib.get('text',''),n.attrib.get('content-desc','')):continue
+  p=n
+  while p is not None:
+   a=p.attrib
+   if a.get('clickable')=='true' and a.get('enabled')=='true':
+    m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',a.get('bounds',''))
+    if m:
+     x1,y1,x2,y2=map(int,m.groups());return ((x1+x2)//2,(y1+y2)//2)
+   p=parents.get(p)
+if welcome:
+ for label in ('Skip','Continue'):
+  point=clickable(label)
+  if point: print('tap',label.lower(),*point);raise SystemExit(0)
+ print('welcome_no_action')
+else:print('non_composer')
+PYUI
+)"
+  echo "attempt=$guest_transition decision=$DECISION" | tee -a real-chatgpt-evidence/guest-transition-actions.txt
+  read -r STATE TARGET ACTION_X ACTION_Y <<< "$DECISION"
+  if [[ "$STATE" == ready ]]; then
+    GUEST_COMPOSER_CONFIRMED=1
+    echo 'PASS_REAL_OFFICIAL_CHATGPT_COMPOSER_OBSERVED_AFTER_ONBOARDING' | tee real-chatgpt-evidence/guest-onboarding-confirmed.txt
+    break
+  fi
+  if [[ "$STATE" == tap ]]; then
+    adb shell input tap "$ACTION_X" "$ACTION_Y"
+    sleep 6
+  else
+    sleep 4
+  fi
+done
+if [[ "$GUEST_COMPOSER_CONFIRMED" != 1 ]]; then
+  adb shell screencap -p /sdcard/chatgpt-guest-onboarding-blocked.png
+  adb pull /sdcard/chatgpt-guest-onboarding-blocked.png real-chatgpt-evidence/chatgpt-guest-onboarding-blocked.png >/dev/null || true
+  echo 'FAIL_OFFICIAL_CHATGPT_WELCOME_NOT_DISMISSED_NO_COMPOSER_NO_RELAY_JOB' | tee real-chatgpt-evidence/guest-onboarding-confirmed.txt
+  exit 22
+fi
+
 recover_emulator_frontend "before-controller"
 
 # Use Android run-as to configure ONLY the debuggable, isolated CI app.
