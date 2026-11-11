@@ -1671,7 +1671,7 @@ class ChatRelayService : AccessibilityService() {
     // Both the web submit button and Enter use chat.send. The Android side must
     // resolve the icon in the *current* ChatGPT view, not inject a keyboard key
     // or rely on an English contentDescription that may be absent.
-    private fun sendChat(id: String, text: String) {
+    private fun sendChat(id: String, text: String, focusAttempt: Int = 0) {
         if (pendingSendId != null) {
             done(id, false, "Another message is still being submitted")
             return
@@ -1696,16 +1696,47 @@ class ChatRelayService : AccessibilityService() {
             return
         }
         progress(id, "ChatGPT 입력창 발견")
-        pendingSendId = id
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
         if (!input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-            pendingSendId = null
-            done(id, false, "ACTION_SET_TEXT failed")
+            // The real 1.2026.300 guest composer is a Compose semantic View,
+            // not an EditText. Tap only its exact reported accessibility
+            // bounds, then retry a single time after focus to expose its
+            // editable text action. Never use an arbitrary screen coordinate.
+            val label=input.contentDescription?.toString()?.trim()?.lowercase()
+            if (focusAttempt==0 && label=="ask chatgpt") {
+                val bounds=Rect().also { input.getBoundsInScreen(it) }
+                if (!bounds.isEmpty) {
+                    val path=Path().apply {
+                        moveTo(bounds.exactCenterX(),bounds.exactCenterY())
+                    }
+                    val gesture=GestureDescription.Builder()
+                        .addStroke(GestureDescription.StrokeDescription(path,0,80))
+                        .build()
+                    val requested=dispatchGesture(gesture,
+                        object : GestureResultCallback() {
+                            override fun onCompleted(description:GestureDescription) {
+                                main.postDelayed({
+                                    if(activeApiJob?.optString("id")==id)
+                                        sendChat(id,text,1)
+                                },450)
+                            }
+                            override fun onCancelled(description:GestureDescription) {
+                                done(id,false,"ChatGPT composer focus gesture cancelled")
+                            }
+                        },main)
+                    if(requested){
+                        progress(id,"실제 ChatGPT 입력창에 초점 요청")
+                        return
+                    }
+                }
+            }
+            done(id, false, "ChatGPT composer does not support ACTION_SET_TEXT after focus")
             return
         }
+        pendingSendId = id
         progress(id, "질문 텍스트 입력 완료")
         sendLog("Composer text inserted; resolving actual ChatGPT submit action")
         main.postDelayed({ submitAfterText(id, text, 0) }, 350)
@@ -1732,6 +1763,15 @@ class ChatRelayService : AccessibilityService() {
             )
             variant !in forbidden
         }.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+            ?: all.firstOrNull { n ->
+                // Exact original ChatGPT 1.2026.300 shows a Compose semantic
+                // android.view.View with content-desc "Ask ChatGPT". In the
+                // Android 15 UI dump it has editable=false but is the visible
+                // composer placeholder, not the login email/password field.
+                n.isVisibleToUser && n.isEnabled &&
+                    n.contentDescription?.toString()?.trim()?.lowercase() ==
+                        "ask chatgpt"
+            }
     }
 
     private fun isClickTarget(n: AccessibilityNodeInfo): Boolean {
