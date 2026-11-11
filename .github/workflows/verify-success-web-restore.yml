@@ -1,0 +1,49 @@
+name: Verify restored 2026-11-11 successful Relay web snapshot (isolated)
+on:
+  push:
+    branches: [restore/relay-web-success-20261111]
+    paths: [.github/workflows/verify-success-web-restore.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-original-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - name: Verify exact successful snapshot files and unchanged APK
+        run: |
+          set -euo pipefail
+          test "$(git hash-object chatgpt-android-relay/web/static/index.html)" = "2e4ff06b6f9a86fda748fcdee1ac7e2f4645eb95"
+          test "$(git hash-object chatgpt-android-relay/web/app.py)" = "1247fd6c3318494c244c1fa7157a3842d368ec94"
+          test "$(git hash-object chatgpt-android-relay/web/api_v1.py)" = "2a541bf2db6e277736d12cfba6f52a1cc169c296"
+          test "$(git hash-object chatgpt-android-relay/web/tests/test_api_v1.py)" = "85546e9867dc042766893280edc82f1cc7965ca4"
+          test "$(git hash-object chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk)" = "c1a485870cac7f24dff1ed0d347cb824042d1865"
+          python3 -m py_compile chatgpt-android-relay/web/app.py chatgpt-android-relay/web/api_v1.py
+          echo PASS_EXACT_SNAPSHOT_AND_APK_PRESERVED
+      - name: Install web test requirements (isolated)
+        run: python3 -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Exercise historical room, message, file and WebSocket API regressions
+        run: python3 chatgpt-android-relay/web/tests/test_api_v1.py
+      - name: Exercise historical browser page behavior without production server
+        run: |
+          npm install --no-save --no-package-lock --prefix chatgpt-android-relay/web jsdom@24
+          node chatgpt-android-relay/web/tests/test_browser.mjs
+      - name: Preserve test result summary
+        if: success()
+        run: |
+          mkdir -p web-restore-evidence
+          echo "PASS_EXACT_20261111_SUCCESS_WEB_SNAPSHOT" > web-restore-evidence/result.txt
+          echo "PASS_EPHEMERAL_WEB_API_AND_BROWSER_TESTS" >> web-restore-evidence/result.txt
+          echo "NO_PRODUCTION_DATABASE_MUTATION" >> web-restore-evidence/result.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: historical-relay-web-restoration-verification
+          path: web-restore-evidence/
+          if-no-files-found: warn
