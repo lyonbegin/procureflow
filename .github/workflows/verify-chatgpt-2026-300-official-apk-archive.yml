@@ -69,7 +69,7 @@ jobs:
           LINK="$(python3 - <<'PY'
           import re,html
           page=open('/tmp/universal-page.html').read()
-          m=re.search(r"""href=['"]([^'"]+/download/\\?key=[^'"]+)['"]""",page)
+          m=re.search(r"""href=['"]([^'"]+/download/[?]key=[^'"]+)['"]""",page)
           if not m:
             raise SystemExit('DOWNLOAD_LINK_NOT_FOUND')
           print('https://www.apkmirror.com'+html.unescape(m.group(1)))
