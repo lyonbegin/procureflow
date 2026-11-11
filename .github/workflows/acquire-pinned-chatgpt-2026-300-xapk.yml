@@ -1,4 +1,4 @@
-name: Acquire signed ChatGPT 1.2026.300 x86_64 XAPK for REAL Android UI test
+name: Acquire signed ChatGPT 1.2026.300 ARM64 XAPK for REAL Android UI test
 on:
   push:
     branches: [fix/chatgpt-relay-verified-routing-20261110]
@@ -42,11 +42,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MAP="$(find /tmp/chatgpt-pinned-apks -type f -name '*.apk' | head -1)"
-          BASE="$(find /tmp/chatgpt-pinned-apks -type f -name 'base.apk' -print -quit)"
-          if [[ -z "$BASE" ]]; then
-            BASE="$MAP"
-          fi
+          BASE="$(find /tmp/chatgpt-pinned-apks -type f \( -name 'base.apk' -o -name 'com.openai.chatgpt.apk' \) -print -quit)"
+          test -f "$BASE"
           SDKROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           AAPT="$(find "$SDKROOT/build-tools" -type f -name aapt -print | sort -V | tail -1)"
           SIGNER="$(find "$SDKROOT/build-tools" -type f -name apksigner -print | sort -V | tail -1)"
@@ -60,10 +57,10 @@ jobs:
           # Certificate from APKMirror's verified official ChatGPT 1.2026.300.
           grep -iq 'b24f4bfbb3cf293f938703b9d87027c1102cc36dc4fa206910e08927db40473c' \
             signed-archive-evidence/base-signing.txt
-          grep -Eq 'x86_64|x86' signed-archive-evidence/apk-files.txt
-          echo 'PASS_OFFICIAL_CHATGPT_VERSION_SIGNATURE_AND_X86_SPLIT' \
+          grep -q 'config.arm64_v8a.apk' signed-archive-evidence/apk-files.txt
+          echo 'PASS_OFFICIAL_CHATGPT_VERSION_SIGNATURE_AND_ARM64_SPLIT' \
             | tee signed-archive-evidence/result.txt
-      - name: Cache signed version-pinned XAPK for REAL E2E
+      - name: Cache signed version-pinned ARM64 XAPK for REAL E2E
         uses: actions/cache/save@v4
         with:
           path: /tmp/chatgpt-2630015-x86.xapk
