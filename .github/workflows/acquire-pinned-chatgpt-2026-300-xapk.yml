@@ -1,0 +1,76 @@
+name: Acquire signed ChatGPT 1.2026.300 x86_64 XAPK for REAL Android UI test
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/acquire-pinned-chatgpt-2026-300-xapk.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  pin-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch full version-pinned XAPK from reachable public CDN
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p signed-archive-evidence
+          curl -fL --retry 3 --retry-all-errors --max-time 540 \
+            -H 'User-Agent: Mozilla/5.0' \
+            'https://d.apkpure.net/b/XAPK/com.openai.chatgpt?versionCode=2630015' \
+            -o /tmp/chatgpt-2630015-x86.xapk
+          stat -c 'bytes=%s' /tmp/chatgpt-2630015-x86.xapk \
+            | tee signed-archive-evidence/archive-size.txt
+          test "$(stat -c %s /tmp/chatgpt-2630015-x86.xapk)" -gt 60000000
+          sha256sum /tmp/chatgpt-2630015-x86.xapk \
+            | tee signed-archive-evidence/archive-sha256.txt
+          unzip -tq /tmp/chatgpt-2630015-x86.xapk \
+            | tail -5 | tee signed-archive-evidence/zip-integrity.txt
+          unzip -Z1 /tmp/chatgpt-2630015-x86.xapk \
+            | tee signed-archive-evidence/archive-entries.txt
+          if unzip -Z1 /tmp/chatgpt-2630015-x86.xapk | grep -q '^manifest.json$'; then
+            unzip -p /tmp/chatgpt-2630015-x86.xapk manifest.json \
+              > signed-archive-evidence/xapk-manifest.json
+          fi
+          mkdir -p /tmp/chatgpt-pinned-apks
+          unzip -oq /tmp/chatgpt-2630015-x86.xapk -d /tmp/chatgpt-pinned-apks
+          find /tmp/chatgpt-pinned-apks -type f -name '*.apk' -printf '%P\n' \
+            | tee signed-archive-evidence/apk-files.txt
+          test "$(wc -l < signed-archive-evidence/apk-files.txt)" -ge 2
+      - name: Verify Android version, exact package and trusted APK signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAP="$(find /tmp/chatgpt-pinned-apks -type f -name '*.apk' | head -1)"
+          BASE="$(find /tmp/chatgpt-pinned-apks -type f -name 'base.apk' -print -quit)"
+          if [[ -z "$BASE" ]]; then
+            BASE="$MAP"
+          fi
+          SDKROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          AAPT="$(find "$SDKROOT/build-tools" -type f -name aapt -print | sort -V | tail -1)"
+          SIGNER="$(find "$SDKROOT/build-tools" -type f -name apksigner -print | sort -V | tail -1)"
+          test -x "$AAPT" && test -x "$SIGNER"
+          "$AAPT" dump badging "$BASE" | head -10 \
+            | tee signed-archive-evidence/base-badging.txt
+          grep -Eq "package: name='com.openai.chatgpt'.*versionCode='2630015'.*versionName='1.2026.300'" \
+            signed-archive-evidence/base-badging.txt
+          "$SIGNER" verify --print-certs "$BASE" \
+            | tee signed-archive-evidence/base-signing.txt
+          # Certificate from APKMirror's verified official ChatGPT 1.2026.300.
+          grep -iq 'b24f4bfbb3cf293f938703b9d87027c1102cc36dc4fa206910e08927db40473c' \
+            signed-archive-evidence/base-signing.txt
+          grep -Eq 'x86_64|x86' signed-archive-evidence/apk-files.txt
+          echo 'PASS_OFFICIAL_CHATGPT_VERSION_SIGNATURE_AND_X86_SPLIT' \
+            | tee signed-archive-evidence/result.txt
+      - name: Cache signed version-pinned XAPK for REAL E2E
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/chatgpt-2630015-x86.xapk
+          key: trusted-chatgpt-xapk-2630015-b24f4bfbb3cf293f
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: genuine-chatgpt-2630015-package-verification-evidence
+          path: signed-archive-evidence/
+          if-no-files-found: warn
