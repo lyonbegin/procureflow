@@ -1778,15 +1778,36 @@ class ChatRelayService : AccessibilityService() {
         if (pendingSendId != id) return
         val root = rootInActiveWindow
         if (root?.packageName?.toString() == chatPackage) {
-            val input = composerInput(nodes(root))
+            val all = nodes(root)
+            val input = composerInput(all)
             val actual = input?.text?.toString()?.trim() ?: ""
-            // This is observable evidence that the composer cleared after the
-            // submit action. performAction returning true alone is insufficient.
+            // Verification for normal editable composers is unchanged.
             if (input != null && actual.isBlank()) {
                 progress(id, "전송 확인 · 입력창 비워짐")
                 finishSend(id, true, "send_confirmed_composer_cleared_via_" + method)
                 main.postDelayed({ snapshot() }, 700)
                 return
+            }
+            // The verified 1.2026.300 guest composer exposes NO editable node.
+            // In this case require the actual outgoing message to appear as a
+            // separate visible message ABOVE the composer; tapping a button or
+            // finding the same text in the input area is not proof of sending.
+            val opaque = opaqueChatGptComposer(all)
+            if (input == null && opaque != null) {
+                val composerRect = Rect().also { opaque.getBoundsInScreen(it) }
+                val outgoingVisible = all.any { n ->
+                    val textInNode = n.text?.toString()?.trim().orEmpty()
+                    val bounds = Rect().also { n.getBoundsInScreen(it) }
+                    n.isVisibleToUser && !n.isEditable &&
+                        textInNode == text.trim() &&
+                        bounds.bottom < composerRect.top - 12
+                }
+                if (outgoingVisible) {
+                    progress(id, "전송 확인 · ChatGPT 대화 영역에 실제 사용자 메시지 표시")
+                    finishSend(id, true, "send_confirmed_outgoing_message_visible_via_" + method)
+                    main.postDelayed({ snapshot() }, 700)
+                    return
+                }
             }
         }
         if (attempt < 10) {
