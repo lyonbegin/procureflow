@@ -39,6 +39,12 @@ jobs:
           set -euo pipefail
           gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
           sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Restore previously verified original APKM (isolated CI cache)
+        uses: actions/cache@v4
+        id: original-apkm-cache
+        with:
+          path: /tmp/official-user-original.apkm
+          key: original-chatgpt-2026-300-695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44
       - name: Download EXACT user-supplied original APKM from APKMirror and verify SHA256
         shell: bash
         run: |
@@ -46,7 +52,14 @@ jobs:
           USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36'
           PAGE='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
           mkdir -p real-chatgpt-evidence /tmp/chatgpt-original-splits
-          # APKMirror sometimes returns HTTP 403 to shared CI runner IPs.
+          # A once-verified original must survive a failed E2E run.
+          # Do not re-download when the exact original is present.
+          if [[ -f /tmp/official-user-original.apkm ]] &&
+             printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' | sha256sum -c >/dev/null; then
+            echo 'EXACT_USER_ORIGINAL_RESTORED_FROM_CI_CACHE'
+          else
+            rm -f /tmp/official-user-original.apkm
+            # APKMirror sometimes returns HTTP 403 to shared CI runner IPs.
           # Try the two documented hostname forms and cache-busting requests;
           # never accept a different file (final archive SHA256 remains exact).
           PAGE_READY=0
@@ -100,6 +113,7 @@ jobs:
             -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
             -H "User-Agent: $USER_AGENT" -e "$STEP_URL" \
             --output /tmp/official-user-original.apkm "$FULL_URL"
+          fi
           file /tmp/official-user-original.apkm
           test "$(stat -c %s /tmp/official-user-original.apkm)" -eq 101098896
           printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' \
@@ -110,6 +124,13 @@ jobs:
             -d /tmp/chatgpt-original-splits
           ls -lh /tmp/chatgpt-original-splits | tee real-chatgpt-evidence/verified-original-splits.txt
           echo 'EXACT_USER_ORIGINAL_APKM_READY'
+      - name: Save verified original APKM as private workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-chatgpt-original-2630015
+          path: /tmp/official-user-original.apkm
+          retention-days: 7
+          if-no-files-found: error
       - name: Grant KVM for real Android emulator
         run: |
           set -euo pipefail
