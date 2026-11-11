@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/verify-real-chatgpt-2026-300-e2e.yml
       - .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+      - .github/scripts/probe-official-chatgpt-guest-send.sh
       - .github/scripts/relay-live-android-api.py
       - chatgpt-android-relay/android/**
       - chatgpt-android-relay/web/**
