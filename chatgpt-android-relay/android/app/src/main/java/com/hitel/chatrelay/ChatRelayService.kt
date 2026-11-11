@@ -883,7 +883,9 @@ class ChatRelayService : AccessibilityService() {
                 n.text?.toString()?.trim()?.lowercase()
             else null
         }
-        return texts.any { it == "what’s on your mind?" ||
+        // Actual ChatGPT 1.2026.300 guest home is labeled "How can I help?".
+        return texts.any { it == "how can i help?" ||
+                             it == "what’s on your mind?" ||
                              it == "what's on your mind?" } &&
             texts.any { it == "log in" } &&
             texts.none { it.contains("welcome to chatgpt") }
