@@ -867,6 +867,28 @@ class ChatRelayService : AccessibilityService() {
         return null
     }
 
+    // Real official ChatGPT 1.2026.300 guest home exposes a blank
+    // "What's on your mind?" composer, but no "New Chat" control.
+    // Only treat that *distinctive blank home screen* as a newly created
+    // conversation. A generic visible composer is NOT sufficient: it may
+    // belong to another existing conversation.
+    private fun freshGuestHomeComposer(): Boolean {
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != chatPackage || searchBarNode() != null)
+            return false
+        val all = nodes(root)
+        if (composerInput(all) == null) return false
+        val texts = all.mapNotNull { n ->
+            if (n.isVisibleToUser && !n.isEditable)
+                n.text?.toString()?.trim()?.lowercase()
+            else null
+        }
+        return texts.any { it == "what’s on your mind?" ||
+                             it == "what's on your mind?" } &&
+            texts.any { it == "log in" } &&
+            texts.none { it.contains("welcome to chatgpt") }
+    }
+
     private fun createRoomThenSend(id: String, roomId: String, text: String, attempt: Int) {
         if (activeApiJob?.optString("id") != id) return
         if (rootInActiveWindow?.packageName?.toString()!=chatPackage) {
@@ -892,6 +914,15 @@ class ChatRelayService : AccessibilityService() {
                 progress(id,"새 대화 입력창 확인")
                 sendChat(id,text)
             },800)
+            return
+        }
+        if (freshGuestHomeComposer()) {
+            currentRoomId = roomId
+            activeConversationId = null
+            routedIdentityGeneration = -1
+            roomLastPrompt = ""
+            progress(id,"공식 ChatGPT 비로그인 새 대화 홈 확인 · 실제 질문 전송")
+            sendChat(id,text)
             return
         }
         if(attempt==0) {
@@ -1147,6 +1178,15 @@ class ChatRelayService : AccessibilityService() {
                 roomLastPrompt = ""
                 pickFileInsideExistingRoom(job,staged)
             },800)
+            return
+        }
+        if (freshGuestHomeComposer()) {
+            currentRoomId = rid
+            activeConversationId = null
+            routedIdentityGeneration = -1
+            roomLastPrompt = ""
+            progress(jid,"공식 ChatGPT 비로그인 새 대화 홈 확인 · 파일 첨부 시작")
+            pickFileInsideExistingRoom(job,staged)
             return
         }
         if (attempt == 0) {
