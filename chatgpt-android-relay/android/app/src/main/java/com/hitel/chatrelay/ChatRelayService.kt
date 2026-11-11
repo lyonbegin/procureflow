@@ -1232,6 +1232,26 @@ class ChatRelayService : AccessibilityService() {
         val pkg = root?.packageName?.toString().orEmpty()
         val all = pickerVisibleNodes()
         val expected = pendingPickerDisplayName.orEmpty()
+        if (attempt in listOf(0, 3, 8, 15, 25, 30)) {
+            val windowInfo = windows.mapNotNull { w ->
+                w.root?.packageName?.toString()
+            }.distinct().joinToString(",")
+            val candidates = all.filter { it.isVisibleToUser }.mapNotNull { n ->
+                val label = (n.text?.toString().orEmpty() + " " +
+                    n.contentDescription?.toString().orEmpty()).trim()
+                if (label.contains("file", ignoreCase = true) ||
+                    label.contains("browse", ignoreCase = true) ||
+                    label.contains("downloads", ignoreCase = true) ||
+                    label.contains("ChatGPTRelay", ignoreCase = true)) {
+                    val clickable = generateSequence(n) { it.parent }
+                        .take(6).any { it.isClickable }
+                    label.take(65) + "[clickableParent=" + clickable + "]"
+                } else null
+            }.distinct().take(12).joinToString(" | ")
+            android.util.Log.i("HITELRelayPicker",
+                "attempt=$attempt stage=$menuStage activePkg=$pkg windows=$windowInfo " +
+                "visibleFileLabels=$candidates")
+        }
         if (expected.isBlank()) {
             finishApiJob(jid, false, "No expected filename for file picker")
             return
