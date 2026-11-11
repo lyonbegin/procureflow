@@ -1,0 +1,74 @@
+name: Publish tested Relay APK to existing Railway web
+on:
+  push:
+    branches: [fix/relay-official-file-login-gate-20261111]
+    paths: [.github/workflows/publish-tested-relay-to-existing-web.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish-existing-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Restore verified installable APK from successful build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/relay-release
+          gh run download 43025246121 --repo lyonbegin/procureflow \
+            --name ChatGPT-Relay-Control-tested-login-gate-APK \
+            --dir /tmp/relay-release
+          APK=/tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk
+          test -s "$APK"
+          echo 'c7912c1e7ffb04d6b66daa457352c5193bdb11850df297b5a08840edc8922e6a  /tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk' | sha256sum -c
+      - name: Replace APK on existing deployed site branch, preserve all API and UI features
+        run: |
+          set -euo pipefail
+          git fetch origin feature/chatgpt-android-relay-20261110
+          git checkout -B publish-existing-railway origin/feature/chatgpt-android-relay-20261110
+          ROOT=chatgpt-android-relay/web/static
+          cp /tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk \
+            "$ROOT/ChatGPT-Relay-Control.apk"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('chatgpt-android-relay/web/static/index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='<div id="auth-notice" role="alert">'
+          assert s.count(marker)==1, 'Cannot find existing authentication panel insertion point'
+          tag='id="relay-apk-release"'
+          panel=(
+             '<div id="relay-apk-release" style="margin:16px 20px 0;padding:14px 16px;'
+             'border:1px solid #dfe4eb;background:#fff;border-radius:9px">'
+             '<strong>Android 릴레이 앱</strong> &nbsp;'
+             '<a href="/download/ChatGPT-Relay-Control.apk" download '
+             'style="display:inline-block;padding:9px 12px;background:#15243b;'
+             'border-radius:7px;color:#fff;text-decoration:none">'
+             '최신 릴레이 APK 다운로드</a>'
+             '<div style="margin-top:8px;font-size:12px;color:#586a80">'
+             '공식 ChatGPT 앱에서 실제 질문 전송·답변 수신 검증 완료. '
+             '파일 첨부는 공식 ChatGPT 앱 로그인 후 이용해 주십시오. '
+             '기존 API 관리·채팅방·파일 기능은 유지됩니다.'
+             '</div></div>\n'
+          )
+          if tag not in s:
+              s=s.replace(marker,panel+marker)
+          p.write_text(s,encoding='utf-8')
+          PY
+          sha256sum "$ROOT/ChatGPT-Relay-Control.apk"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$ROOT/ChatGPT-Relay-Control.apk" "$ROOT/index.html"
+          if git diff --cached --quiet; then
+            echo 'SITE_ALREADY_HAS_CURRENT_RELEASE'
+          else
+            git commit -m 'Deploy tested Relay APK and download link on existing Railway web'
+            git push origin HEAD:feature/chatgpt-android-relay-20261110
+          fi
+          echo "EXISTING_SITE_BRANCH_PUBLISHED=$(git rev-parse HEAD)"
