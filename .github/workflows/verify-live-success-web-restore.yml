@@ -1,0 +1,43 @@
+name: Verify LIVE restored Relay webpage and unchanged Android APK
+on:
+  push:
+    branches: [restore/relay-web-success-20261111]
+    paths: [.github/workflows/verify-live-success-web-restore.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify live Railway health, exact historical HTML, and unmodified APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://chatgpt-relay-web-production.up.railway.app'
+          mkdir -p live-evidence
+          curl -fLsS --retry 6 --retry-delay 5 --max-time 35 \
+            "$BASE/health" -o live-evidence/health.json
+          python3 - <<'PY'
+          import json
+          v=json.load(open('live-evidence/health.json'))
+          assert v.get('status')=='ok',v
+          print('PASS_LIVE_RAILWAY_HEALTH')
+          PY
+          curl -fLsS --retry 6 --retry-delay 5 --max-time 35 \
+            "$BASE/" -o live-evidence/live-index.html
+          cmp chatgpt-android-relay/web/static/index.html live-evidence/live-index.html
+          echo PASS_LIVE_EXACT_20261111_SUCCESS_WEB_HTML
+          curl -fLsS --retry 6 --retry-delay 5 --max-time 60 \
+            "$BASE/download/ChatGPT-Relay-Control.apk" -o live-evidence/live-relay.apk
+          cmp chatgpt-android-relay/web/static/ChatGPT-Relay-Control.apk live-evidence/live-relay.apk
+          echo PASS_LIVE_ANDROID_APK_UNMODIFIED
+          sha256sum live-evidence/live-index.html live-evidence/live-relay.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-restored-relay-website-evidence
+          path: live-evidence/health.json
+          if-no-files-found: warn
