@@ -85,6 +85,20 @@ jobs:
           p=open('/tmp/apkmirror-probe.bin','rb').read(30)
           print('ZIP_MAGIC',p[:4].hex())
           PY
+          python3 - <<'PY'
+          import re,html
+          s=open('/tmp/apkmirror-probe.bin',errors='ignore').read()
+          a=re.findall(r"""(?:href|src|data-href)=['"]([^'"]+)['"]""",s)
+          links=list(dict.fromkeys(html.unescape(x) for x in a
+            if any(v in x.lower() for v in ('download.php','download?id',
+            'download/', 'downloadfile','downloadbutton','cdn',
+            '/wp-content/themes/apkmirror'))))
+          print('INTERMEDIATE_DOWNLOAD_LINKS',repr(links[:25]))
+          for term in ('downloadButton','download.php','Your download','Download APK Bundle',
+                       'downloadFile','window.location','application/zip'):
+            idx=s.find(term)
+            if idx>=0: print('INTERMEDIATE_CONTEXT',term,repr(s[max(idx-130,0):idx+270]))
+          PY
       - name: Report app-installation boundary
         run: |
           echo 'Archive inspection only; no authenticated ChatGPT send is claimed.'
