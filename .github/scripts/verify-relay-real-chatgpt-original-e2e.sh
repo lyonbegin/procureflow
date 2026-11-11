@@ -192,7 +192,7 @@ login=bool({'Continue with Google','Log in or sign up'} & labels)
 editable=any(n.attrib.get('editable')=='true' and n.attrib.get('enabled')=='true' for n in nodes)
 # Actual 1.2026.300 has a keyboard-focused non-editable View labeled
 # "Ask ChatGPT" on the authentic "Ready when you are." guest home.
-opaque_home='Ask ChatGPT' in labels and bool({'Ready when you are.','What can I help with?'} & labels)
+opaque_home=all(label in labels for label in ('Ask ChatGPT','Menu','Log in','Send Message'))
 if (editable or opaque_home) and not welcome and not login:
  print('ready');raise SystemExit(0)
 def clickable(label):
