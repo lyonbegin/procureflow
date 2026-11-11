@@ -55,6 +55,7 @@ jobs:
             for attempt in 1 2 3; do
               code="$(curl --location --silent --show-error --max-time 45 \
                 --output /tmp/original-page.html --write-out '%{http_code}' \
+                -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
                 -H "User-Agent: $USER_AGENT" \
                 -H 'Accept-Language: en-US,en;q=0.9' \
                 -H 'Accept: text/html,application/xhtml+xml' \
@@ -81,8 +82,11 @@ jobs:
           print('https://www.apkmirror.com'+html.unescape(m.group(1)))
           PY
           )"
-          curl --fail --silent --show-error --location --retry 2 --max-time 45 \
-            -H "User-Agent: $USER_AGENT" --output /tmp/intermediate-original.html "$STEP_URL"
+          curl --fail --silent --show-error --location --retry 4 \
+            --retry-all-errors --retry-delay 2 --max-time 70 \
+            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
+            -H "User-Agent: $USER_AGENT" -e "$PAGE" \
+            --output /tmp/intermediate-original.html "$STEP_URL"
           FULL_URL="$(python3 - <<'PY'
           import re,html
           s=open('/tmp/intermediate-original.html').read()
@@ -91,8 +95,10 @@ jobs:
           print('https://www.apkmirror.com'+html.unescape(m.group(1)))
           PY
           )"
-          curl --fail --silent --show-error --location --retry 2 --max-time 600 \
-            -H "User-Agent: $USER_AGENT" -e "$PAGE" \
+          curl --fail --silent --show-error --location --retry 4 \
+            --retry-all-errors --retry-delay 2 --max-time 600 \
+            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
+            -H "User-Agent: $USER_AGENT" -e "$STEP_URL" \
             --output /tmp/official-user-original.apkm "$FULL_URL"
           file /tmp/official-user-original.apkm
           test "$(stat -c %s /tmp/official-user-original.apkm)" -eq 101098896
