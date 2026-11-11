@@ -99,6 +99,28 @@ jobs:
             idx=s.find(term)
             if idx>=0: print('INTERMEDIATE_CONTEXT',term,repr(s[max(idx-130,0):idx+270]))
           PY
+      - name: Download exact APKMirror original and verify user-submitted SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(python3 - <<'PY'
+          import re,html
+          page=open('/tmp/apkmirror-probe.bin',encoding='utf-8').read()
+          m=re.search(r"""id=['"]download-link['"][^>]*href=['"]([^'"]*download[.]php[?]id=16946670[^'"]+)['"]""",page)
+          if not m: raise SystemExit('DIRECT_APKM_LINK_NOT_FOUND')
+          print('https://www.apkmirror.com'+html.unescape(m.group(1)))
+          PY
+          )"
+          curl --fail --location --retry 2 --max-time 600 --silent --show-error \
+            -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' \
+            -e 'https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/' \
+            --output /tmp/user-original-android-chatgpt.apkm "$URL"
+          file /tmp/user-original-android-chatgpt.apkm
+          stat -c 'original_size=%s' /tmp/user-original-android-chatgpt.apkm
+          sha256sum /tmp/user-original-android-chatgpt.apkm
+          printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/user-original-android-chatgpt.apkm' | sha256sum -c
+          unzip -tq /tmp/user-original-android-chatgpt.apkm | tail -2
+          echo 'ORIGINAL_APKM_IDENTICAL_TO_USER_SUPPLIED_FILE'
       - name: Report app-installation boundary
         run: |
           echo 'Archive inspection only; no authenticated ChatGPT send is claimed.'
