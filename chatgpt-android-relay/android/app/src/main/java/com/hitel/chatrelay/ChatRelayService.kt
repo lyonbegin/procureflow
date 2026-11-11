@@ -1282,6 +1282,23 @@ class ChatRelayService : AccessibilityService() {
             external.contains("documentsui") || external.contains("photopicker") ||
                 external.contains("mediaprovider")
         }
+        val pickerPackage = pkg.lowercase()
+        val photoPickerVisible = externalPicker ||
+            pickerPackage.contains("photopicker") ||
+            pickerPackage.contains("mediaprovider")
+        // Genuine Android screenshot: "파일 추가" > "파일 업로드" >
+        // "최근" with unrelated files. The system Photo Picker is sometimes
+        // a separate window even while ChatGPT remains the foreground root.
+        // Previously that external-window detection skipped the Upload files
+        // row entirely, then searched forever for a filename in "Recent".
+        if (menuStage == 0 && (pkg == chatPackage || photoPickerVisible) &&
+            pickerClickByNames(all, listOf("파일 업로드", "파일 찾아보기",
+                "기기에서 파일", "기기에서 업로드", "Upload files",
+                "Upload file", "Browse files", "Choose files"))) {
+            progress(jid, "ChatGPT/Android 파일 추가 화면에서 파일 업로드 선택 · 시스템 파일 탐색기로 이동")
+            main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,1) },850)
+            return
+        }
         if ((pkg.isNotEmpty() && pkg != chatPackage) || externalPicker) {
             if (pickerClickByNames(all, listOf(expected))) {
                 progress(jid, "시스템 파일 선택기에서 고유 이름 " + expected + " 선택")
@@ -1292,6 +1309,18 @@ class ChatRelayService : AccessibilityService() {
                 pickerClickByNames(all, listOf("다운로드","Downloads","Download"))) {
                 progress(jid, "Android Downloads 폴더 선택")
                 main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,2) },650)
+                return
+            }
+            // DocumentsUI initially lands on "Recent", where our freshly
+            // published Downloads/ChatGPTRelay item may not be indexed yet.
+            // Open only the named navigation drawer, then go to Downloads.
+            if (menuStage == 1 && attempt >= 3 &&
+                pickerPackage.contains("documentsui") &&
+                pickerClickByNames(all, listOf("Show roots",
+                    "Show navigation drawer", "Open navigation drawer",
+                    "탐색 메뉴", "위치 메뉴", "Browse locations"))) {
+                progress(jid, "Android 파일 탐색기 위치 메뉴 열기 · Downloads 폴더 탐색")
+                main.postDelayed({ waitInChatPicker(jid,staged,index,attempt+1,1) },650)
                 return
             }
             if (menuStage == 2 &&
@@ -1350,8 +1379,10 @@ class ChatRelayService : AccessibilityService() {
             },500)
         } else {
             snapshot()
-            finishApiJob(jid,false,
-                "Android file picker could not locate this job's unique filename: " + expected)
+            val reason = if (photoPickerVisible && menuStage <= 1)
+                "Android Photo Picker did not open Files/Downloads for expected: " + expected
+            else "Android file picker could not locate this job's unique filename: " + expected
+            finishApiJob(jid,false, reason)
         }
     }
 
