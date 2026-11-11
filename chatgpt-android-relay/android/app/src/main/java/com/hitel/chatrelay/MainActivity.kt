@@ -7,9 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -56,42 +54,19 @@ class MainActivity : Activity() {
             text = value
             setOnClickListener { onClick() }
         }
-        val url = EditText(this).apply {
-            setSingleLine()
-            hint = "wss://...up.railway.app/ws"
-            setText(prefs.getString("url", "").orEmpty().ifBlank { "wss://chatgpt-relay-web-production.up.railway.app/ws" })
-        }
-        val token = EditText(this).apply {
-            setSingleLine()
-            hint = "DEVICE_TOKEN"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs.getString("token", "").orEmpty())
-        }
-        root.addView(label("ChatGPT 원격 제어 앱 · 연결 진단"))
-        root.addView(label("Railway WebSocket 주소"))
-        root.addView(url, ViewGroup.LayoutParams(-1, -2))
-        root.addView(label("Android 전용 DEVICE_TOKEN"))
-        root.addView(token, ViewGroup.LayoutParams(-1, -2))
-        root.addView(button("설정 저장 및 다시 연결") {
-            val address = url.text.toString().trim()
-            val tokenValue = token.text.toString().trim()
-            val localCI = (applicationInfo.flags and
-                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
-                address == "ws://10.0.2.2:8765/ws"
-            if ((!address.startsWith("wss://") && !localCI) ||
-                !address.endsWith("/ws")) {
-                url.error = "wss://.../ws 형태로 입력하십시오"
-                return@button
-            }
-            if (tokenValue.length < 12) {
-                token.error = "토큰을 확인하십시오"
-                return@button
-            }
-            prefs.edit().putString("url", address).putString("token", tokenValue).apply()
-            if (ChatRelayService.instance == null) {
-                android.widget.Toast.makeText(this, "접근성 서비스를 먼저 켜주십시오", android.widget.Toast.LENGTH_LONG).show()
+        // The AccessibilityService connects automatically in onServiceConnected().
+        // No DEVICE_TOKEN, address entry, pairing code or setup-save step on Android.
+        root.addView(label("ChatGPT 릴레이 · 자동 연결"))
+        root.addView(label("접근성 서비스를 활성화하면 기존 Railway 서버에 자동 연결됩니다."))
+        root.addView(button("연결 다시 시도") {
+            val service = ChatRelayService.instance
+            if (service == null) {
+                android.widget.Toast.makeText(this,
+                    "접근성 서비스를 먼저 활성화해 주십시오",
+                    android.widget.Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             } else {
-                ChatRelayService.instance?.connectFromPrefs()
+                service.connectFromPrefs()
             }
         })
         root.addView(button("접근성 서비스 설정 열기") {
@@ -106,7 +81,7 @@ class MainActivity : Activity() {
         root.addView(label("연결 상태 (1초마다 갱신)"))
         statusView = label("진단 시작 중")
         root.addView(statusView)
-        root.addView(label("인증 성공이면 웹에 'Android 연결됨'이 표시됩니다. 미연결이면 접근성 설정과 최근 오류를 확인하십시오."))
+        root.addView(label("서버 연결에 성공하면 기존 웹페이지에 'Android 연결됨'이 표시됩니다. 별도의 기기 토큰 입력은 필요하지 않습니다."))
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
     }
