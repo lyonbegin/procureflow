@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p upload-re-results
-          for spec in '4:oyd' '5:vx10' '5:ws10' '6:jmt' '5:gmt' ':zs10'; do
+          for spec in '4:oyd' '5:vx10' '5:ws10' '6:jmt' '5:gmt' ':zs10' '5:wv10' '5:imt' '6:lmt' '5:ts10'; do
             n="${spec%%:*}"
             cls="${spec##*:}"
             src="/tmp/apk-extract/classes${n}.dex"
@@ -62,7 +62,7 @@ jobs:
                 zs10) sed -n '100,200p' "$file" ;;
                 vx10) sed -n '50,135p' "$file" ;;
                 ws10) sed -n '35,115p' "$file" ;;
-                jmt|gmt) sed -n '1,95p' "$file" ;;
+                jmt|gmt|wv10|imt|lmt|ts10) sed -n '1,170p' "$file" ;;
                 oyd) grep -n -C 9 -F '/files/blob-upload' "$file" | head -100 || true ;;
               esac > "upload-re-results/$cls-selected-code.txt"
             fi
