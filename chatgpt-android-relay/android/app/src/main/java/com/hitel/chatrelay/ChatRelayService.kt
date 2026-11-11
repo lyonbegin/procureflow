@@ -885,13 +885,23 @@ class ChatRelayService : AccessibilityService() {
                 n.text?.toString()?.trim()?.lowercase()
             else null
         }
-        // Actual ChatGPT 1.2026.300 guest home is labeled "How can I help?".
-        return texts.any { it == "how can i help?" ||
-                             it == "what can i help with?" ||
-                             it == "what’s on your mind?" ||
-                             it == "what's on your mind?" } &&
-            texts.any { it == "log in" } &&
-            texts.none { it.contains("welcome to chatgpt") }
+        // A truly empty official guest home has its distinctive greeting.
+        // The optional top-bar "Log in" is not stable after onboarding and
+        // must not be required. Reject login/onboarding overlays and any
+        // visible previous conversation content instead of guessing.
+        val greeting = texts.any { it == "how can i help?" ||
+                                   it == "what can i help with?" ||
+                                   it == "what’s on your mind?" ||
+                                   it == "what's on your mind?" }
+        val blocking = screenBlockReason(root) != null ||
+            texts.any { it.contains("welcome to chatgpt") ||
+                        it.contains("log in or create an account") }
+        val messageHistory = all.any { n ->
+            n.isVisibleToUser && !n.isEditable &&
+                (n.viewIdResourceName?.contains("message", ignoreCase=true) == true ||
+                 n.contentDescription?.toString()?.contains("message from", ignoreCase=true) == true)
+        }
+        return greeting && !blocking && !messageHistory
     }
 
     private fun createRoomThenSend(id: String, roomId: String, text: String, attempt: Int) {
