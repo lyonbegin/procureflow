@@ -48,7 +48,7 @@ jobs:
             raise SystemExit(0)
           contents=p.read_text(errors='ignore')
           print('HTML_LENGTH',len(contents))
-          urls=re.findall(r'(?:href|data-href)=[\"\\']([^\"\\']+)',contents)
+          urls=re.findall(r"""(?:href|data-href)=['"]([^'"]+)""",contents)
           candidates=[html.unescape(u) for u in urls if any(term in u.lower() for term in (
             'download.php','download?id','start-download','/download/','key=',
             '/download/?','download-button'))]
