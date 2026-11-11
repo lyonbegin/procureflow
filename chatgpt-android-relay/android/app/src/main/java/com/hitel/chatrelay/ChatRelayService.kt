@@ -885,6 +885,7 @@ class ChatRelayService : AccessibilityService() {
         }
         // Actual ChatGPT 1.2026.300 guest home is labeled "How can I help?".
         return texts.any { it == "how can i help?" ||
+                             it == "what can i help with?" ||
                              it == "what’s on your mind?" ||
                              it == "what's on your mind?" } &&
             texts.any { it == "log in" } &&
@@ -1310,6 +1311,20 @@ class ChatRelayService : AccessibilityService() {
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString().orEmpty()
         val all = visiblePickerNodes()
+        // Actual official ChatGPT 1.2026.300 guest screenshot showed a
+        // sign-in sheet as soon as the attachment button was pressed. Do not
+        // misclassify this as a missing file in the Android picker.
+        val uploadLoginGate=all.any { n ->
+            val t=(n.text?.toString().orEmpty()+" "+
+                n.contentDescription?.toString().orEmpty()).lowercase()
+            t.contains("sign up or log in to analyze images and files") ||
+                t.contains("이미지와 파일") && t.contains("로그인")
+        }
+        if (uploadLoginGate) {
+            finishApiJob(jid,false,
+                "CHATGPT_FILE_LOGIN_REQUIRED: official ChatGPT requires sign-in to attach files")
+            return
+        }
         val expected = pendingPickerDisplayName.orEmpty()
         if (expected.isBlank()) {
             finishApiJob(jid, false, "No expected filename for file picker")
