@@ -1601,7 +1601,7 @@ class ChatRelayService : AccessibilityService() {
     private fun confirmedFreshGuestHome(all: List<AccessibilityNodeInfo>): Boolean {
         return all.any { n ->
             n.isVisibleToUser && n.text?.toString()?.trim() in listOf(
-                "Ready when you are.", "What can I help with?"
+                "Ready when you are.", "What can I help with?", "How can I help?"
             )
         } && opaqueChatGptComposer(all) != null &&
             all.none { n ->
