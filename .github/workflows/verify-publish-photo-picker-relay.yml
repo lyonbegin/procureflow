@@ -1,0 +1,133 @@
+name: Verify Android file picker routing and publish to EXISTING Railway relay
+on:
+  push:
+    branches: [fix/relay-photo-picker-upload-20261111]
+    paths:
+      - '.github/workflows/verify-publish-photo-picker-relay.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: verify-publish-existing-relay-picker
+  cancel-in-progress: false
+jobs:
+  verify-then-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original Android file identity and new picker menu routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt').read_text()
+          assert s.count('val photoPickerVisible = externalPicker') == 1
+          assert 'pickerClickByNames(all, listOf("파일 업로드", "파일 찾아보기"' in s
+          assert s.index('val photoPickerVisible = externalPicker') < s.index('if ((pkg.isNotEmpty() && pkg != chatPackage) || externalPicker)')
+          assert 'MediaStore.MediaColumns.IS_PENDING, 0' in s
+          assert 'Environment.DIRECTORY_DOWNLOADS + "/ChatGPTRelay"' in s
+          assert 'pickerClickByNames(all, listOf(expected))' in s
+          assert 'CHATGPT_LOGIN_REQUIRED_FOR_FILE_ATTACH' in s
+          m=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/MainActivity.kt').read_text()
+          assert 'Android 전용 DEVICE_TOKEN' not in m and 'EditText(' not in m
+          print('PASS_PHOTO_PICKER_UPLOAD_ROW_ROUTED_BEFORE_RECENT_FILES_SEARCH')
+          print('PASS_EXPECTED_FILENAME_AND_CHATGPT_ROOM_PROTECTION_UNCHANGED')
+          PY
+          cp chatgpt-android-relay/web/tests/test_device_owner.py /tmp/relay-owner-regression.py
+      - name: Install isolated FastAPI test requirements
+        run: python3 -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Verify duplicate Android connections never kick out active client
+        run: python3 chatgpt-android-relay/web/tests/test_device_owner.py
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Build corrected APK
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+          mkdir -p deliverables
+          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk deliverables/ChatGPT-Relay-Control.apk
+          test "$(stat -c %s deliverables/ChatGPT-Relay-Control.apk)" -gt 3000000
+          sha256sum deliverables/ChatGPT-Relay-Control.apk | tee deliverables/SHA256.txt
+      - name: Enable KVM hardware acceleration
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Verify install and AccessibilityService on real Android 15 x86_64 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/verify-android-no-manual-device-token.sh
+      - name: Publish APK and single-session protection on EXISTING Railway source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_APK="$PWD/deliverables/ChatGPT-Relay-Control.apk"
+          git fetch origin feature/chatgpt-android-relay-20261110
+          git checkout -B publish-existing-relay origin/feature/chatgpt-android-relay-20261110
+          WEB=chatgpt-android-relay/web
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('chatgpt-android-relay/web/app.py')
+          s=p.read_text()
+          old='''            if device is not None and device is not ws:
+                await device.close(code=1001)
+            device = ws'''
+          new='''            # Prevent two Android relays from disconnecting one another
+            # and interrupting an in-progress ChatGPT file selection.
+            if device is not None and device is not ws:
+                await transmit(ws, event("auth.error",
+                    reason="Another Android relay is already connected; disable its accessibility service before switching."))
+                await ws.close(code=1008, reason="Duplicate Android relay")
+                return
+            device = ws'''
+          assert s.count(old)==1, 'Production WebSocket ownership code changed; abort safely'
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
+          PYTHONPATH="$PWD/$WEB" python3 /tmp/relay-owner-regression.py
+          cp "$SOURCE_APK" "$WEB/static/ChatGPT-Relay-Control.apk"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('chatgpt-android-relay/web/static/index.html')
+          s=p.read_text()
+          assert 'id="relay-apk-release"' in s
+          old='Android 앱에는 디바이스 토큰 입력이 없으며 접근성 활성화 후 자동 연결됩니다.'
+          new='Android 앱은 토큰 입력 없이 자동 연결됩니다. 파일 업로드 창의 고유 파일 자동 선택을 개선했습니다.'
+          assert old in s, 'Existing download banner unexpectedly changed'
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+          sha256sum "$WEB/static/ChatGPT-Relay-Control.apk"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$WEB/app.py" "$WEB/static/index.html" "$WEB/static/ChatGPT-Relay-Control.apk"
+          git diff --cached --check
+          git commit -m 'fix(relay): navigate ChatGPT file upload picker; prevent device session thrash'
+          git push origin HEAD:feature/chatgpt-android-relay-20261110
+          echo "EXISTING_RAILWAY_COMMIT=$(git rev-parse HEAD)"
+      - name: Attach APK and Android UI evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ChatGPT-Relay-FilePicker-AutoSelect-APK
+          path: |
+            deliverables/
+            android-tokenless-evidence/
+          retention-days: 30
+          if-no-files-found: warn
