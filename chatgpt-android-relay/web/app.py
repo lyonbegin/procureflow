@@ -19,7 +19,10 @@ CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
 MAX_MESSAGE_SIZE = 100_000
-ALLOWED = {"chat.send", "chat.new", "chat.stop", "ui.snapshot", "ui.back"}
+# Legacy console commands have no verified room_id. Never let them
+# submit a prompt or create a thread in whichever chat happens to be foreground.
+ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
+ROOM_SCOPED_ONLY = {"chat.send", "chat.new"}
 consoles: set[WebSocket] = set()
 device: WebSocket | None = None
 pending: dict[str, dict[str, Any]] = {}
@@ -27,14 +30,23 @@ recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
 active_job_id: str | None = None
 job_dispatch_lock = asyncio.Lock()
+recovery_checked = False
 
 async def dispatch_next():
-    global active_job_id
+    global active_job_id, recovery_checked
     if device is None or active_job_id:
         return
     async with job_dispatch_lock:
         if device is None or active_job_id:
             return
+        if not recovery_checked:
+            recovered = api_v1.fail_orphaned_running_jobs()
+            recovery_checked = True
+            if recovered:
+                print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
+        failed_missing = api_v1.fail_queued_jobs_with_unavailable_files()
+        if failed_missing:
+            print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
         job = api_v1.claim_next_job()
         if job is None:
             return
@@ -128,8 +140,21 @@ async def socket(ws: WebSocket):
                 await ws.close(code=1008)
                 return
             if device is not None and device is not ws:
-                await device.close(code=1001)
-            device = ws
+                # Transfer ownership before any await. The previous socket
+                # must not acknowledge a job subsequently assigned to this
+                # new device session.
+                previous_device = device
+                device = ws
+                if active_job_id:
+                    api_v1.release_running_job(
+                        active_job_id, "Android device session was superseded")
+                    await broadcast(event(
+                        "job.error", job_id=active_job_id,
+                        reason="Device session replaced; not retried to avoid duplicates"))
+                    active_job_id = None
+                await previous_device.close(code=1001)
+            else:
+                device = ws
             print("[relay] Android authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
@@ -160,6 +185,10 @@ async def socket(ws: WebSocket):
                     cmd_id = str(msg.get("id", ""))[:80]
                     action = str(msg.get("action", ""))
                     payload = msg.get("payload", {})
+                    if action in ROOM_SCOPED_ONLY:
+                        await transmit(ws, event("command.error", id=cmd_id,
+                            reason="ROOM_SCOPED_API_REQUIRED: use /api/v1/rooms/{room_id}/turns"))
+                        continue
                     if action not in ALLOWED or not cmd_id or not isinstance(payload, dict):
                         await transmit(ws, event("command.error", id=cmd_id, reason="Invalid command"))
                         continue
@@ -186,6 +215,11 @@ async def socket(ws: WebSocket):
                         pending.pop(cmd_id, None)
                         await transmit(ws, event("command.error", id=cmd_id, reason="Device transport failed"))
                 elif role == "device":
+                    if device is not ws:
+                        # A replaced WebSocket is no longer authorized to
+                        # mutate the currently active job or its room state.
+                        await ws.close(code=1008)
+                        break
                     if kind in {"job.received", "job.progress", "job.result", "job.error"}:
                         jid = str(msg.get("job_id", ""))
                         if jid != active_job_id:
@@ -195,17 +229,57 @@ async def socket(ws: WebSocket):
                             api_v1.update_job(jid, stage=stage)
                             await broadcast(event(kind, job_id=jid, stage=stage))
                         else:
-                            good = kind == "job.result" and msg.get("verified") is True
-                            stage = str(msg.get("stage", "completed" if good else "failed"))[:100]
-                            output = str(msg.get("result_text", ""))[:100000] if good else None
+                            # Never trust a device-reported room_id as the target
+                            # for a job. Bind successful acknowledgements to the
+                            # *server-assigned* room of the currently running job.
+                            # A mismatched room must fail closed before any
+                            # assistant message or room state can be recorded.
+                            with api_v1.connection() as c:
+                                assigned = c.execute(
+                                    "SELECT room_id,action FROM jobs WHERE id=? AND status='running'",
+                                    (jid,),
+                                ).fetchone()
+                            assigned_room = assigned["room_id"] if assigned else None
+                            action = assigned["action"] if assigned else None
+                            reported_room = msg.get("room_id")
+                            identity_ok = bool(
+                                assigned_room and isinstance(reported_room, str)
+                                and reported_room == assigned_room
+                            )
+                            claimed_success = kind == "job.result" and msg.get("verified") is True
+                            reported_stage = str(msg.get("stage", ""))[:100]
+                            expected_stage = {
+                                "chat.send": "assistant_reply_stable",
+                                "room.bind": "assistant_reply_stable",
+                                "room.open": "room_open_verified",
+                            }.get(action)
+                            output = str(msg.get("result_text", ""))[:100000]
+                            proof_ok = bool(
+                                expected_stage and reported_stage == expected_stage
+                                and (action == "room.open" or output.strip())
+                            )
+                            good = claimed_success and identity_ok and proof_ok
+                            mismatch = claimed_success and not identity_ok
+                            invalid_proof = claimed_success and identity_ok and not proof_ok
+                            stage = ("ROOM_ID_MISMATCH" if mismatch else
+                                     "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
+                                     reported_stage or ("completed" if good else "failed"))
+                            reason = ("Android completion room_id did not match the assigned job room"
+                                      if mismatch else
+                                      "Android completion did not provide action-specific verification"
+                                      if invalid_proof else
+                                      str(msg.get("reason", "Android action was not verified"))[:500])
                             api_v1.update_job(jid, status="completed" if good else "failed",
-                                              stage=stage, result_text=output,
-                                              error=None if good else str(msg.get("reason", "Android action was not verified"))[:500])
-                            if good and msg.get("room_id") and msg.get("room_state"):
-                                api_v1.set_room_android_state(str(msg["room_id"]), str(msg["room_state"]), str(msg.get("android_title", "")) or None)
-                            await broadcast(event(kind, job_id=jid, verified=good,
+                                              stage=stage, result_text=output if good else None,
+                                              error=None if good else reason)
+                            if good and msg.get("room_state"):
+                                api_v1.set_room_android_state(
+                                    assigned_room, str(msg["room_state"]),
+                                    str(msg.get("android_title", "")) or None)
+                            await broadcast(event("job.result" if good else "job.error",
+                                                  job_id=jid, verified=good,
                                                   stage=stage, result_text=output,
-                                                  reason=msg.get("reason")))
+                                                  reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
                             active_job_id = None
                             await dispatch_next()

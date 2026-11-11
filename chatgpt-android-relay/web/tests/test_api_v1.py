@@ -13,9 +13,23 @@ os.environ["WEB_SESSION_SIGNING_KEY"] = "testing-session-key-longer-than-32-char
 
 from fastapi.testclient import TestClient
 from app import app
+import api_v1
 
 def main():
     with TestClient(app) as client:
+        # Legacy console send/new commands omit verified API room identity.
+        # They MUST be blocked, even if an authenticated device is connected.
+        with client.websocket_connect("/ws") as console:
+            console.send_json({"role":"console","token":"admin-testing-secret"})
+            assert console.receive_json()["type"]=="auth.ok"
+            for action in ("chat.send","chat.new"):
+                console.send_json({
+                    "type":"command", "id":"legacy-"+action,
+                    "action":action,"payload":{"text":"Never send to current room"}})
+                denied=console.receive_json()
+                assert denied["type"]=="command.error",denied
+                assert "ROOM_SCOPED_API_REQUIRED" in denied["reason"],denied
+
         admin={"X-Console-Token":"admin-testing-secret"}
         user_a=client.post("/api/v1/users",headers=admin,json={"user_id":"alice","name":"Alice"})
         assert user_a.status_code==200,user_a.text
@@ -97,9 +111,27 @@ def main():
         assert job["attachment_ids"]==[fid]
         assert client.get("/api/v1/jobs/"+jid,headers=auth_b).status_code==404
 
+        # Simulate one previous server-process job left 'running' in
+        # persistent storage when a new process first sees Android connect.
+        with api_v1.connection() as db:
+            orphan_id=api_v1.store_job(
+                db,"alice",rid,"chat.send","Old unconfirmed message")
+            db.execute("UPDATE jobs SET status='running' WHERE id=?",(orphan_id,))
+        assert client.get("/api/v1/jobs/"+orphan_id,
+                          headers=auth_a).json()["status"]=="running"
+
         with client.websocket_connect("/ws") as device:
             device.send_json({"role":"device","token":"android-testing-secret","deviceId":"android-main"})
             assert device.receive_json()["type"]=="auth.ok"
+            # Recovery is fail-closed, never re-queues an unknown delivery.
+            for _ in range(40):
+                orphan=client.get("/api/v1/jobs/"+orphan_id,
+                                   headers=auth_a).json()
+                if orphan["status"]=="failed":break
+                import time
+                time.sleep(.025)
+            assert orphan["status"]=="failed",orphan
+            assert orphan["stage"]=="server_restarted",orphan
             dispatched=device.receive_json()
             assert dispatched["type"]=="job",dispatched
             assert dispatched["job"]["id"]==jid
@@ -328,16 +360,133 @@ def main():
                               "verified":True,"result_text":"",
                               "room_id":linked_id,"room_state":"active",
                               "stage":"deeplink_app_landed"})
+            # A deep-link landing is not proof of an existing room.
             for _ in range(40):
                 opened_status=client.get("/api/v1/jobs/"+opened.json()["id"],
+                                         headers=auth_a).json()
+                if opened_status["status"]=="failed":break
+                time.sleep(.025)
+            assert opened_status["status"]=="failed",opened_status
+            assert opened_status["stage"]=="UNVERIFIED_JOB_COMPLETION"
+            assert client.get("/api/v1/rooms/"+linked_id,
+                              headers=auth_a).json()["android_state"]=="unverified"
+            verified_open=client.post("/api/v1/rooms/"+linked_id+"/open",headers=auth_a)
+            assert verified_open.status_code==200,verified_open.text
+            assert device.receive_json()["job"]["id"]==verified_open.json()["id"]
+            device.send_json({"type":"job.result","job_id":verified_open.json()["id"],
+                "verified":True,"result_text":"","room_id":linked_id,
+                "room_state":"active","stage":"room_open_verified"})
+            for _ in range(40):
+                opened_status=client.get("/api/v1/jobs/"+verified_open.json()["id"],
                                          headers=auth_a).json()
                 if opened_status["status"]=="completed":break
                 time.sleep(.025)
             assert opened_status["status"]=="completed",opened_status
             assert client.get("/api/v1/rooms/"+linked_id,headers=auth_a).json()["android_state"]=="active"
+            # Adversarial routing test: one valid Android device must NOT
+            # complete Alice's job while reporting Bob's unrelated room.
+            foreign_room=client.post("/api/v1/rooms",headers=auth_b,
+                json={"title":"Bob private room"}).json()["id"]
+            bad_job=client.post("/api/v1/rooms/"+linked_id+"/messages",
+                headers=auth_a,json={"text":"Check wrong-room completion"}).json()["id"]
+            # The API must reject relinking while that message is in flight.
+            assert client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
+                json={"chatgpt_url":None}).status_code==409
+            bad_packet=device.receive_json()
+            assert bad_packet["type"]=="job" and bad_packet["job"]["id"]==bad_job
+            device.send_json({"type":"job.result","job_id":bad_job,"verified":True,
+                "result_text":"MUST NEVER SAVE AS AN ANSWER","room_id":foreign_room,
+                "room_state":"active","stage":"assistant_reply_stable"})
+            for _ in range(40):
+                wrong_state=client.get("/api/v1/jobs/"+bad_job,headers=auth_a).json()
+                if wrong_state["status"]=="failed":break
+                time.sleep(.025)
+            assert wrong_state["status"]=="failed",wrong_state
+            assert wrong_state["stage"]=="ROOM_ID_MISMATCH",wrong_state
+            assert client.get("/api/v1/rooms/"+foreign_room,
+                              headers=auth_b).json()["android_state"]=="uncreated"
+            messages=client.get("/api/v1/rooms/"+linked_id+"/messages",
+                                headers=auth_a).json()["messages"]
+            assert not any(m["role"]=="assistant" and
+                           m["text"]=="MUST NEVER SAVE AS AN ANSWER" for m in messages)
+
+            # An unbound Android success without room_id is rejected as well.
+            missing_job=client.post("/api/v1/rooms/"+linked_id+"/messages",
+                headers=auth_a,json={"text":"Check missing room identity"}).json()["id"]
+            assert device.receive_json()["job"]["id"]==missing_job
+            device.send_json({"type":"job.result","job_id":missing_job,
+                "verified":True,"result_text":"MISSING ROOM INVALID",
+                "stage":"assistant_reply_stable"})
+            for _ in range(40):
+                missing_state=client.get("/api/v1/jobs/"+missing_job,
+                                         headers=auth_a).json()
+                if missing_state["status"]=="failed":break
+                time.sleep(.025)
+            assert missing_state["status"]=="failed",missing_state
+            assert missing_state["stage"]=="ROOM_ID_MISMATCH",missing_state
+
+            # Once no job is pending, unlinking invalidates the previous
+            # Android verification and does not keep the old ChatGPT title.
             update=client.patch("/api/v1/rooms/"+linked_id,headers=auth_a,
                                 json={"chatgpt_url":None})
             assert update.status_code==200 and update.json()["chatgpt_url"] is None
+            assert update.json()["android_state"]=="uncreated",update.json()
+            assert update.json()["chatgpt_title"] is None,update.json()
+
+            # A -> B -> A is verified at the SERVER routing layer only.
+            # Each dispatched job must bind its own URL, owner and room ID,
+            # and must never inherit the other room's assistant history.
+            urls=[
+                "https://chatgpt.com/c/aaaaaaaa-1111-2222-3333-444444444444",
+                "https://chatgpt.com/c/bbbbbbbb-1111-2222-3333-444444444444",
+            ]
+            rooms_ab=[]
+            for room_index in range(2):
+                created=client.post("/api/v1/rooms",headers=auth_a,
+                    json={"title":"Switch test "+str(room_index),
+                          "chatgpt_url":urls[room_index]})
+                assert created.status_code==200,created.text
+                rooms_ab.append(created.json()["id"])
+            turns=[
+                (rooms_ab[0],"A uniquely isolated first request",
+                 "A assistant response alpha unique"),
+                (rooms_ab[1],"B uniquely isolated first request",
+                 "B assistant response bravo unique"),
+                (rooms_ab[0],"A second request after visiting B",
+                 "A assistant response after return"),
+            ]
+            for turn_index,(target_id,prompt,answer) in enumerate(turns):
+                created=client.post("/api/v1/rooms/"+target_id+"/messages",
+                    headers=auth_a,json={"text":prompt})
+                assert created.status_code==200,created.text
+                turn_id=created.json()["id"]
+                packet=device.receive_json()
+                assert packet["type"]=="job",packet
+                item=packet["job"]
+                assert item["id"]==turn_id and item["room"]["id"]==target_id
+                assert item["user_id"]=="alice"
+                assert item["target_chatgpt_url"]==urls[0 if target_id==rooms_ab[0] else 1]
+                if turn_index==2:
+                    anchors=item["room_anchors"]
+                    assert any(a["text"]=="A assistant response alpha unique" for a in anchors),anchors
+                    assert not any("B assistant response bravo" in a["text"] for a in anchors),anchors
+                device.send_json({"type":"job.result","job_id":turn_id,
+                    "verified":True,"result_text":answer,"room_id":target_id,
+                    "room_state":"active","stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    current=client.get("/api/v1/jobs/"+turn_id,headers=auth_a).json()
+                    if current["status"]=="completed":break
+                    time.sleep(.025)
+                assert current["status"]=="completed",current
+            a_messages=client.get("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                                  headers=auth_a).json()["messages"]
+            b_messages=client.get("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                                  headers=auth_a).json()["messages"]
+            assert [m["role"] for m in a_messages]==[
+                "user","assistant","user","assistant"],a_messages
+            assert [m["role"] for m in b_messages]==["user","assistant"],b_messages
+            assert not any("bravo" in m["text"] for m in a_messages)
+            assert not any("alpha" in m["text"] for m in b_messages)
 
             dele=client.delete("/api/v1/rooms/"+rid,headers=auth_a)
             assert dele.status_code==200 and dele.json()["status"]=="delete_pending"
@@ -351,6 +500,93 @@ def main():
                 time.sleep(.025)
             assert dr["status"]=="delete_failed",dr
             assert client.get("/api/v1/rooms/"+rid+"/messages",headers=auth_a).status_code==200
+
+            # Replacing the Android WebSocket must FAIL the in-flight job
+            # without retrying it or accepting an obsolete session's ack.
+            interrupted=client.post("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                headers=auth_a,json={"text":"Unacknowledged work before reconnect"})
+            assert interrupted.status_code==200,interrupted.text
+            interrupted_jid=interrupted.json()["id"]
+            first_device_job=device.receive_json()
+            assert first_device_job["type"]=="job"
+            assert first_device_job["job"]["id"]==interrupted_jid
+            with client.websocket_connect("/ws") as replacement_device:
+                replacement_device.send_json({
+                    "role":"device","token":"android-testing-secret",
+                    "deviceId":"android-main"})
+                assert replacement_device.receive_json()["type"]=="auth.ok"
+                for _ in range(40):
+                    stopped=client.get("/api/v1/jobs/"+interrupted_jid,
+                                       headers=auth_a).json()
+                    if stopped["status"]=="failed":break
+                    time.sleep(.025)
+                assert stopped["status"]=="failed",stopped
+                assert stopped["stage"]=="connection_lost",stopped
+                assert not any(m["role"]=="assistant" and m["job_id"]==interrupted_jid
+                    for m in client.get("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                                        headers=auth_a).json()["messages"])
+                # A fresh subsequent job is assigned to the new controller.
+                continued=client.post("/api/v1/rooms/"+rooms_ab[1]+"/messages",
+                    headers=auth_a,json={"text":"New connection can receive work"})
+                assert continued.status_code==200,continued.text
+                new_id=continued.json()["id"]
+                new_packet=replacement_device.receive_json()
+                assert new_packet["type"]=="job" and new_packet["job"]["id"]==new_id
+                replacement_device.send_json({
+                    "type":"job.result","job_id":new_id,"verified":True,
+                    "result_text":"Completed by replacement session",
+                    "room_id":rooms_ab[1],"room_state":"active",
+                    "stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    reconnected=client.get("/api/v1/jobs/"+new_id,
+                                           headers=auth_a).json()
+                    if reconnected["status"]=="completed":break
+                    time.sleep(.025)
+                assert reconnected["status"]=="completed",reconnected
+
+                # Remove the original test attachment bytes after upload.
+                # This poisoned job MUST fail, then permit a later valid
+                # queued job to reach the same authenticated device.
+                lost=client.post("/api/v1/files",headers=auth_a,
+                    data={"user_id":"alice","room_id":rooms_ab[0]},
+                    files={"file":("lost-document.txt",b"temp payload","text/plain")})
+                assert lost.status_code==200,lost.text
+                lost_fid=lost.json()["id"]
+                with api_v1.connection() as db:
+                    stored=db.execute("SELECT relative_path FROM file_objects WHERE id=?",
+                                      (lost_fid,)).fetchone()
+                (api_v1.FILES / stored["relative_path"]).unlink()
+                poison=client.post("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                    headers=auth_a,json={
+                        "text":"Should not send this document after its bytes vanished",
+                        "attachment_ids":[lost_fid]})
+                assert poison.status_code==200,poison.text
+                poison_jid=poison.json()["id"]
+                for _ in range(40):
+                    blocked=client.get("/api/v1/jobs/"+poison_jid,
+                                      headers=auth_a).json()
+                    if blocked["status"]=="failed":break
+                    time.sleep(.025)
+                assert blocked["status"]=="failed",blocked
+                assert blocked["stage"]=="input_file_unavailable",blocked
+                valid=client.post("/api/v1/rooms/"+rooms_ab[0]+"/messages",
+                    headers=auth_a,json={"text":"Valid job after missing file"})
+                assert valid.status_code==200,valid.text
+                valid_jid=valid.json()["id"]
+                verified_packet=replacement_device.receive_json()
+                assert verified_packet["type"]=="job",verified_packet
+                assert verified_packet["job"]["id"]==valid_jid
+                replacement_device.send_json({
+                    "type":"job.result","job_id":valid_jid,"verified":True,
+                    "result_text":"Valid job executed after poison recovery",
+                    "room_id":rooms_ab[0],"room_state":"active",
+                    "stage":"assistant_reply_stable"})
+                for _ in range(40):
+                    final_ok=client.get("/api/v1/jobs/"+valid_jid,
+                                        headers=auth_a).json()
+                    if final_ok["status"]=="completed":break
+                    time.sleep(.025)
+                assert final_ok["status"]=="completed",final_ok
 
     print("PASS: API users/authorization/rooms/messages/jobs/input-output files/Android websocket",flush=True)
 

@@ -384,19 +384,31 @@ def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
             sets.append("title=?");values.append(data.title)
         if "chatgpt_url" in fields:
             url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+            previous=c.execute("SELECT chatgpt_url FROM rooms WHERE id=?",
+                               (room_id,)).fetchone()["chatgpt_url"]
+            if url != previous:
+                # Do not retarget a queued/running job in the middle of an
+                # Android conversation. Its completion must retain the target
+                # to which it was originally dispatched.
+                unfinished=c.execute("""SELECT id FROM jobs
+                    WHERE room_id=? AND status IN ('queued','running')
+                    LIMIT 1""",(room_id,)).fetchone()
+                if unfinished:
+                    raise HTTPException(409,
+                        "Cannot change ChatGPT conversation while jobs are pending")
             if url and c.execute("""SELECT id FROM rooms
                 WHERE user_id=? AND chatgpt_url=? AND id!=? AND status!='deleted'""",
                 (uid,url,room_id)).fetchone():
                 raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
-            sets.append("chatgpt_url=?");values.append(url)
-            # Existing conversations linked by their canonical URL are
-            # navigable immediately, but aren't marked verified until Android
-            # actually opens their specific URL and shows a composer.
-            old_state=c.execute("SELECT android_state FROM rooms WHERE id=?",
-                                (room_id,)).fetchone()["android_state"]
-            if old_state in ("uncreated","unverified"):
+            if url != previous:
+                sets.append("chatgpt_url=?");values.append(url)
+                # Even if the prior conversation was active, a changed link
+                # is unverified. Clear stale Android and ChatGPT titles.
                 sets.append("android_state=?")
                 values.append("unverified" if url else "uncreated")
+                sets.append("android_title=NULL")
+                if "chatgpt_title" not in fields:
+                    sets.append("chatgpt_title=NULL")
         if "chatgpt_title" in fields:
             sets.append("chatgpt_title=?")
             values.append((data.chatgpt_title or "").strip() or None)
@@ -704,6 +716,53 @@ def device_upload_output(job_id: str, file: UploadFile = File(...), authorized=D
         raise HTTPException(404, "Job not available for output")
     return _write_upload(file, job["user_id"], job["room_id"], job_id, "output")
 
+def fail_queued_jobs_with_unavailable_files():
+    """Remove poison jobs from the queue without retrying unknown input bytes.
+
+    If a Railway file has disappeared since upload, claim_next_job would raise
+    while constructing the device packet and leave the SAME job at the front of
+    the queue indefinitely. Fail only such jobs; keep later jobs available.
+    """
+    failures = 0
+    with connection() as c:
+        queued = c.execute("""SELECT id,user_id,room_id,attachment_ids
+                              FROM jobs WHERE status='queued'
+                              ORDER BY created_at,id""").fetchall()
+        for job in queued:
+            reason = None
+            try:
+                ids = json.loads(job["attachment_ids"])
+                if not isinstance(ids, list):
+                    raise ValueError("Invalid attachment ID list")
+                for fid in ids:
+                    entry = c.execute("""SELECT kind,relative_path,drive_url,drive_shared
+                                         FROM file_objects
+                                         WHERE id=? AND user_id=? AND room_id=?""",
+                                      (fid,job["user_id"],job["room_id"])).fetchone()
+                    if entry is None:
+                        reason = "File metadata missing for queued job"
+                        break
+                    if entry["kind"] == "input":
+                        if not (FILES / entry["relative_path"]).is_file():
+                            reason = "Original Railway file bytes missing for queued job"
+                            break
+                    elif entry["kind"] == "drive":
+                        if not entry["drive_url"] or not entry["drive_shared"]:
+                            reason = "Legacy Drive file is not explicitly shared"
+                            break
+                    else:
+                        reason = "Queued attachment has an unsupported file kind"
+                        break
+            except (TypeError,ValueError,json.JSONDecodeError):
+                reason = "Queued attachment IDs could not be parsed"
+            if reason:
+                c.execute("""UPDATE jobs SET status='failed',stage='input_file_unavailable',
+                             error=?,updated_at=? WHERE id=? AND status='queued'""",
+                          (reason,clock(),job["id"]))
+                failures += 1
+    return failures
+
+
 def claim_next_job():
     with connection() as c:
         r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
@@ -849,6 +908,30 @@ def set_room_android_state(room_id: str, state: str, android_title: str | None =
     with connection() as c:
         c.execute("UPDATE rooms SET android_state=?,android_title=COALESCE(?,android_title),updated_at=? WHERE id=?",
                   (state, android_title,clock(),room_id))
+
+def fail_orphaned_running_jobs():
+    """Fail tasks left running by an earlier server process.
+
+    Our relay has a single active Android worker per process. After a server
+    restart no running task can be safely resumed: it may have submitted
+    the text before the connection disappeared. Never retry it silently.
+    This runs once on the first Android connection in each server process.
+    """
+    with connection() as c:
+        rows = c.execute(
+            "SELECT id,room_id,action FROM jobs WHERE status='running'"
+        ).fetchall()
+        for item in rows:
+            c.execute("""UPDATE jobs SET status='failed',stage='server_restarted',
+                error=?,updated_at=? WHERE id=?""",
+                ("Server restarted; delivery unknown; not automatically retried",
+                 clock(), item["id"]))
+            if item["action"] == "room.delete":
+                c.execute("""UPDATE rooms SET status='delete_failed',updated_at=?
+                             WHERE id=? AND status='delete_pending'""",
+                          (clock(),item["room_id"]))
+        return len(rows)
+
 
 def release_running_job(job_id, reason="Device disconnected; will retry"):
     with connection() as c:
