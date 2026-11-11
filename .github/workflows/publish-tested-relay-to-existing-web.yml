@@ -1,74 +1,92 @@
-name: Publish tested Relay APK to existing Railway web
+name: Publish tokenless Android Relay APK to existing Railway web
 on:
   push:
     branches: [fix/relay-official-file-login-gate-20261111]
-    paths: [.github/workflows/publish-tested-relay-to-existing-web.yml]
+    paths:
+      - .github/workflows/publish-tested-relay-to-existing-web.yml
   workflow_dispatch:
 permissions:
   contents: write
-  actions: read
 jobs:
-  publish-existing-site:
+  verify-and-publish-existing-site:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
-      - name: Restore verified installable APK from successful build
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Verify Android UI no longer exposes manual device token or URL fields
         run: |
           set -euo pipefail
+          UI=chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/MainActivity.kt
+          ! grep -Fq 'EditText(' "$UI"
+          ! grep -Fq '설정 저장 및 다시 연결' "$UI"
+          grep -Fq 'ChatGPT 릴레이 · 자동 연결' "$UI"
+          grep -Fq 'connectFromPrefs()' "$UI"
+          grep -Fq 'CHATGPT_LOGIN_REQUIRED_FOR_FILE_ATTACH' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+          bash -n .github/scripts/verify-android-no-manual-device-token.sh
+      - name: Build Android relay app from corrected source
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
           mkdir -p /tmp/relay-release
-          gh run download 43025246121 --repo lyonbegin/procureflow \
-            --name ChatGPT-Relay-Control-tested-login-gate-APK \
-            --dir /tmp/relay-release
-          APK=/tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk
-          test -s "$APK"
-          echo 'c7912c1e7ffb04d6b66daa457352c5193bdb11850df297b5a08840edc8922e6a  /tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk' | sha256sum -c
-      - name: Replace APK on existing deployed site branch, preserve all API and UI features
+          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk /tmp/relay-release/ChatGPT-Relay-Control.apk
+          test "$(stat -c %s /tmp/relay-release/ChatGPT-Relay-Control.apk)" -gt 3000000
+          sha256sum /tmp/relay-release/ChatGPT-Relay-Control.apk
+      - name: Enable emulator KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Verify on actual Android 15 x86_64 that no token input is shown and Accessibility binds
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/verify-android-no-manual-device-token.sh
+      - name: Publish ONLY APK and link information on previous Railway branch
         run: |
           set -euo pipefail
+          APK=/tmp/relay-release/ChatGPT-Relay-Control.apk
+          test -s "$APK"
           git fetch origin feature/chatgpt-android-relay-20261110
           git checkout -B publish-existing-railway origin/feature/chatgpt-android-relay-20261110
           ROOT=chatgpt-android-relay/web/static
-          cp /tmp/relay-release/ChatGPT-Relay-Control-tested-login-gate.apk \
-            "$ROOT/ChatGPT-Relay-Control.apk"
+          cp "$APK" "$ROOT/ChatGPT-Relay-Control.apk"
           python3 - <<'PY'
           from pathlib import Path
           p=Path('chatgpt-android-relay/web/static/index.html')
           s=p.read_text(encoding='utf-8')
-          marker='<div id="auth-notice" role="alert">'
-          assert s.count(marker)==1, 'Cannot find existing authentication panel insertion point'
-          tag='id="relay-apk-release"'
-          panel=(
-             '<div id="relay-apk-release" style="margin:16px 20px 0;padding:14px 16px;'
-             'border:1px solid #dfe4eb;background:#fff;border-radius:9px">'
-             '<strong>Android 릴레이 앱</strong> &nbsp;'
-             '<a href="/download/ChatGPT-Relay-Control.apk" download '
-             'style="display:inline-block;padding:9px 12px;background:#15243b;'
-             'border-radius:7px;color:#fff;text-decoration:none">'
-             '최신 릴레이 APK 다운로드</a>'
-             '<div style="margin-top:8px;font-size:12px;color:#586a80">'
-             '공식 ChatGPT 앱에서 실제 질문 전송·답변 수신 검증 완료. '
-             '파일 첨부는 공식 ChatGPT 앱 로그인 후 이용해 주십시오. '
-             '기존 API 관리·채팅방·파일 기능은 유지됩니다.'
-             '</div></div>\n'
-          )
-          if tag not in s:
-              s=s.replace(marker,panel+marker)
+          old='파일 첨부는 공식 ChatGPT 앱 로그인 후 이용해 주십시오.'
+          new='Android 앱에는 디바이스 토큰 입력이 없으며 접근성 활성화 후 자동 연결됩니다. 파일 첨부는 공식 ChatGPT 앱 로그인 후 이용해 주십시오.'
+          assert old in s, 'Existing download panel changed; abort rather than overwrite UI'
+          s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
           PY
           sha256sum "$ROOT/ChatGPT-Relay-Control.apk"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add "$ROOT/ChatGPT-Relay-Control.apk" "$ROOT/index.html"
-          if git diff --cached --quiet; then
-            echo 'SITE_ALREADY_HAS_CURRENT_RELEASE'
-          else
-            git commit -m 'Deploy tested Relay APK and download link on existing Railway web'
-            git push origin HEAD:feature/chatgpt-android-relay-20261110
-          fi
-          echo "EXISTING_SITE_BRANCH_PUBLISHED=$(git rev-parse HEAD)"
+          git commit -m 'fix(android): deploy automatic connection APK without token input'
+          git push origin HEAD:feature/chatgpt-android-relay-20261110
+          echo "EXISTING_RAILWAY_SITE_COMMIT=$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ChatGPT-Relay-Control-AutoConnect-APK
+          path: |
+            /tmp/relay-release/ChatGPT-Relay-Control.apk
+            android-tokenless-evidence/
+          retention-days: 30
+          if-no-files-found: warn
