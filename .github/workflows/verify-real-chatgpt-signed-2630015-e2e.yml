@@ -1,7 +1,7 @@
 name: REAL signed ChatGPT 1.2026.300 send reply attachment + relay on Android 15
 on:
   push:
-    branches: [fix/chatgpt-relay-verified-routing-20261110, test/relay-success-apk-baseline-20261111]
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
     paths:
       - .github/workflows/verify-real-chatgpt-signed-2630015-e2e.yml
       - .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
