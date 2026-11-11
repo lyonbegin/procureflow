@@ -37,6 +37,41 @@ elif mode=='send':
     if ('send' in label or 'submit' in label) and n.attrib.get('clickable')=='true' and center(n):
       print(center(n)); break
 PY
+# The authentic 1.2026.300 guest onboarding can display a second
+# "Welcome to ChatGPT / Continue" sheet *after* the preceding Skip step.
+# The previous CI stopped here because it never clicked this real button.
+# Resolve the button from the actual accessibility XML, never send while
+# the onboarding modal still covers the conversation composer.
+for welcome_attempt in 1 2 3 4; do
+  if [[ ! -f real-chatgpt-evidence/guest-before.xml ]]; then break; fi
+  WELCOME_COORDS="$(python3 - <<'PY'
+from pathlib import Path
+import re,xml.etree.ElementTree as ET
+p=Path('real-chatgpt-evidence/guest-before.xml')
+try: nodes=list(ET.parse(p).iter('node'))
+except (OSError,ET.ParseError): nodes=[]
+if any('Welcome to ChatGPT' in n.attrib.get('text','') for n in nodes):
+  for n in nodes:
+    if n.attrib.get('text','').strip()=='Continue':
+      b=n.attrib.get('bounds','')
+      m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',b)
+      if m:
+        x1,y1,x2,y2=map(int,m.groups())
+        print((x1+x2)//2,(y1+y2)//2)
+        break
+PY
+  )"
+  if [[ -z "$WELCOME_COORDS" ]]; then break; fi
+  read -r WX WY <<< "$WELCOME_COORDS"
+  echo "ACTUAL_OFFICIAL_WELCOME_CONTINUE_TAP=$WX,$WY" \
+    | tee -a real-chatgpt-evidence/guest-direct-result.txt
+  adb shell input tap "$WX" "$WY"
+  sleep 7
+  timeout 35s adb shell uiautomator dump /sdcard/guest-before.xml >/dev/null 2>&1 || true
+  adb pull /sdcard/guest-before.xml real-chatgpt-evidence/guest-before.xml >/dev/null 2>&1 || true
+  adb shell screencap -p /sdcard/guest-after-continue.png
+  adb pull /sdcard/guest-after-continue.png real-chatgpt-evidence/guest-after-continue.png >/dev/null
+done
 COORDS="$(python3 /tmp/guest-coordinates.py real-chatgpt-evidence/guest-before.xml input)"
 if [[ -z "$COORDS" ]]; then
   echo 'DIRECT_GUEST_INPUT_NOT_DISCOVERED' | tee real-chatgpt-evidence/guest-direct-result.txt
