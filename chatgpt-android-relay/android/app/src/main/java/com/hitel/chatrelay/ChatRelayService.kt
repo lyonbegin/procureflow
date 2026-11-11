@@ -863,6 +863,16 @@ class ChatRelayService : AccessibilityService() {
             },800)
             return
         }
+        // The genuine guest home already IS an empty new conversation.
+        // It has no separate "New Chat" control until a first message exists.
+        if (confirmedFreshGuestHome(nodes(rootInActiveWindow))) {
+            currentRoomId = roomId
+            activeConversationId = null
+            routedIdentityGeneration = -1
+            progress(id, "공식 ChatGPT 빈 게스트 홈 확인 · 새 대화에 입력")
+            sendChat(id, text)
+            return
+        }
         if(attempt==0) {
             val menu=namedControl(listOf("메뉴","menu","sidebar","open navigation"))
             if(menu!=null && menu.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -1102,6 +1112,13 @@ class ChatRelayService : AccessibilityService() {
             },800)
             return
         }
+        if (confirmedFreshGuestHome(nodes(rootInActiveWindow))) {
+            currentRoomId = rid
+            roomLastPrompt = ""
+            progress(jid, "실제 ChatGPT 빈 게스트 홈 확인 · 첨부 메뉴 사용")
+            pickFileInsideExistingRoom(job, staged)
+            return
+        }
         if (attempt == 0) {
             val menu = namedControl(listOf("메뉴","menu","sidebar","open navigation"))
             if (menu?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
@@ -1115,7 +1132,7 @@ class ChatRelayService : AccessibilityService() {
 
     private fun findComposerAttachButton(): AccessibilityNodeInfo? {
         val all = nodes(rootInActiveWindow)
-        val composer = composerInput(all) ?: return null
+        val composer = composerInput(all) ?: opaqueChatGptComposer(all) ?: return null
         val ir = Rect().also { composer.getBoundsInScreen(it) }
         val px = resources.displayMetrics.density
         return all.filter { n ->
@@ -1518,6 +1535,28 @@ class ChatRelayService : AccessibilityService() {
     private fun composerInput(all: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
         return all.filter { it.isEditable && it.isVisibleToUser && it.isEnabled }
             .maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+    }
+
+    // Verified from the actual signed 1.2026.300 x86_64 guest UI dump.
+    // Its composer is a non-editable Android View, with contentDescription
+    // "Ask ChatGPT". Do not globally reclassify it as an EditText.
+    private fun opaqueChatGptComposer(all: List<AccessibilityNodeInfo>): AccessibilityNodeInfo? {
+        return all.firstOrNull { n ->
+            n.isEnabled && n.isVisibleToUser &&
+                n.contentDescription?.toString()?.trim()?.equals(
+                    "Ask ChatGPT", ignoreCase = true
+                ) == true
+        }
+    }
+
+    private fun confirmedFreshGuestHome(all: List<AccessibilityNodeInfo>): Boolean {
+        return all.any { n ->
+            n.isVisibleToUser && n.text?.toString()?.trim() == "Ready when you are."
+        } && opaqueChatGptComposer(all) != null &&
+            all.none { n ->
+                n.isVisibleToUser &&
+                    n.text?.toString()?.contains("Welcome to ChatGPT") == true
+            }
     }
 
     private fun isClickTarget(n: AccessibilityNodeInfo): Boolean {
