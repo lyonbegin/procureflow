@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/diagnose-real-chatgpt-onboarding-from-captured-ui.yml'
       - '.github/scripts/verify-real-chatgpt-onboarding-evidence.py'
+      - '.github/scripts/verify-relay-real-chatgpt-original-e2e.sh'
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,6 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate actual E2E guest-screen guard before UI rerun
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+          grep -q 'GUEST_COMPOSER_CONFIRMED=0' .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+          grep -q 'FAIL_OFFICIAL_CHATGPT_WELCOME_NOT_DISMISSED_NO_COMPOSER_NO_RELAY_JOB' .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+          echo 'PASS_E2E_SCRIPT_SYNTAX_AND_REQUIRED_ONBOARDING_GUARD'
       - name: Retrieve the genuine Android 15 + official 1.2026.300 UI capture
         env:
           GH_TOKEN: ${{ github.token }}
