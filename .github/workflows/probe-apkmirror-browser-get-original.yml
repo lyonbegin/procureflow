@@ -1,0 +1,62 @@
+name: Browser download exact user ChatGPT APKM 1.2026.300 (isolated)
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/probe-apkmirror-browser-get-original.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  real-browser-apkm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install Chromium browser driver
+        run: |
+          python3 -m pip install --quiet playwright
+          python3 -m playwright install chromium
+      - name: Use actual browser navigation to acquire exact original without account
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/probe-apkmirror-browser.py <<'PY'
+          import os,hashlib,urllib.parse
+          from playwright.sync_api import sync_playwright
+          url='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
+          try:
+            with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
+              ctx=browser.new_context(accept_downloads=True,
+                  user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36')
+              page=ctx.new_page()
+              resp=page.goto(url,wait_until='domcontentloaded',timeout=45000)
+              print('PAGE_STATUS',resp.status if resp else None,'TITLE',page.title())
+              anchors=page.locator('a[href*="/download/?key="]')
+              print('STEP_LINKS',anchors.count())
+              if not anchors.count():raise RuntimeError('NO_BROWSER_STEP_LINK')
+              step=urllib.parse.urljoin(page.url,anchors.first.get_attribute('href'))
+              response=page.goto(step,wait_until='domcontentloaded',timeout=45000)
+              print('STEP_STATUS',response.status if response else None,'TITLE',page.title())
+              button=page.locator('#download-link')
+              print('DIRECT_LINKS',button.count())
+              if not button.count():raise RuntimeError('NO_BROWSER_DOWNLOAD_LINK')
+              final=urllib.parse.urljoin(page.url,button.first.get_attribute('href'))
+              print('DIRECT_DOWNLOAD_PATH',urllib.parse.urlparse(final).path)
+              # Download may raise a navigation-aborted error on success;
+              # playwright's download event is the deciding evidence.
+              with page.expect_download(timeout=180000) as receiver:
+                try: page.goto(final,wait_until='commit',timeout=180000)
+                except Exception as ex:print('NAVIGATION_NOTE',type(ex).__name__,str(ex)[:130])
+              download=receiver.value
+              download.save_as('/tmp/official-chatgpt-original.apkm')
+              size=os.path.getsize('/tmp/official-chatgpt-original.apkm')
+              digest=hashlib.file_digest(open('/tmp/official-chatgpt-original.apkm','rb'),'sha256').hexdigest()
+              print('FINAL_SIZE',size,'FINAL_SHA256',digest)
+              assert size==101098896,'WRONG_ORIGINAL_SIZE'
+              assert digest=='695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44','WRONG_ORIGINAL_SHA'
+              print('PASS_EXACT_OFFICIAL_CHATGPT_APKM_BROWSER_DOWNLOAD')
+              browser.close()
+          except Exception as e:
+            print('FAIL_REAL_BROWSER_DOWNLOAD',type(e).__name__,str(e)[:500])
+            raise
+          PY
+          python3 /tmp/probe-apkmirror-browser.py
