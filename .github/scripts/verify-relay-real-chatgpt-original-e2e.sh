@@ -228,8 +228,10 @@ fi
 OFFICIAL_FOREGROUND=0
 : > real-chatgpt-evidence/official-foreground-retries.txt
 for launch_attempt in 1 2 3 4 5; do
-  adb shell am start -W -a android.intent.action.MAIN \
-    -c android.intent.category.LAUNCHER -p com.openai.chatgpt \
+  # The package-only MAIN/LAUNCHER command is not resolved on this
+  # emulator despite an installed official app. This exact Activity was
+  # independently observed in the earlier guest-screen evidence.
+  adb shell am start -W -n com.openai.chatgpt/.MainActivity \
     > real-chatgpt-evidence/original-chatgpt-launch.txt 2>&1 || true
   sleep 5
   adb shell dumpsys activity activities \
