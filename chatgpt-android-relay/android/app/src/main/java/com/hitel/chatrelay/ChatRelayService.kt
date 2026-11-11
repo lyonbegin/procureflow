@@ -1499,7 +1499,7 @@ class ChatRelayService : AccessibilityService() {
     // Both the web submit button and Enter use chat.send. The Android side must
     // resolve the icon in the *current* ChatGPT view, not inject a keyboard key
     // or rely on an English contentDescription that may be absent.
-    private fun sendChat(id: String, text: String) {
+    private fun sendChat(id: String, text: String, focusAttempt: Int = 0) {
         if (pendingSendId != null) {
             done(id, false, "Another message is still being submitted")
             return
@@ -1510,10 +1510,59 @@ class ChatRelayService : AccessibilityService() {
             done(id, false, "ChatGPT window not active")
             return
         }
-        val input = composerInput(nodes(root))
+        val all = nodes(root)
+        val input = composerInput(all)
         if (input == null) {
-            done(id, false, "ChatGPT editable composer not found")
-            snapshot()
+            // Android 13+ exposes a supported InputConnection to Accessibility
+            // Services via FLAG_INPUT_METHOD_EDITOR. This app's real 1.2026.300
+            // composer is a non-editable "Ask ChatGPT" View even when focused.
+            val opaque = opaqueChatGptComposer(all)
+            if (opaque == null || Build.VERSION.SDK_INT < 33) {
+                done(id, false, "No editable or verified Ask ChatGPT composer")
+                snapshot()
+                return
+            }
+            val connection = getInputMethod()?.currentInputConnection
+            if (connection == null) {
+                if (focusAttempt >= 3) {
+                    done(id, false, "ChatGPT keyboard InputConnection not available after focus")
+                    snapshot()
+                    return
+                }
+                val bounds = Rect().also { opaque.getBoundsInScreen(it) }
+                if (bounds.isEmpty()) {
+                    done(id, false, "Ask ChatGPT composer has no usable bounds")
+                    snapshot()
+                    return
+                }
+                val path = Path().apply {
+                    moveTo(bounds.exactCenterX(), bounds.exactCenterY())
+                }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
+                    .build()
+                val requested = dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription) {
+                        main.postDelayed({ sendChat(id, text, focusAttempt + 1) }, 500)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription) {
+                        done(id, false, "ChatGPT composer focus gesture was cancelled")
+                    }
+                }, main)
+                if (!requested) done(id, false, "Cannot focus opaque ChatGPT composer")
+                return
+            }
+            pendingSendId = id
+            progress(id, "공식 ChatGPT InputConnection 확보 · 직접 텍스트 입력")
+            try {
+                connection.commitText(text, 1, null)
+            } catch (e: Exception) {
+                pendingSendId = null
+                done(id, false, "Accessibility IME commitText rejected: " +
+                    e.javaClass.simpleName)
+                return
+            }
+            main.postDelayed({ submitAfterText(id, text, 0) }, 400)
             return
         }
         progress(id, "ChatGPT 입력창 발견")
@@ -1649,18 +1698,26 @@ class ChatRelayService : AccessibilityService() {
         }
         val all = nodes(root)
         val input = composerInput(all)
-        if (input == null) {
+        val composer = input ?: opaqueChatGptComposer(all)
+        if (composer == null) {
             if (attempt < 7) main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 300)
-            else finishSend(id, false, "Composer unavailable after text insertion")
+            else finishSend(id, false, "Verified composer unavailable after text insertion")
             return
         }
-        val current = input.text?.toString()?.trim() ?: ""
-        if (current.isEmpty()) {
+        // For opaque native views, verify the actual IME's text content, rather
+        // than requiring isEditable=true in the UI accessibility tree.
+        val current = if (input != null) {
+            input.text?.toString()?.trim() ?: ""
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            getInputMethod()?.currentInputConnection
+                ?.getSurroundingText(1024, 1024, 0)?.text?.toString()?.trim() ?: ""
+        } else ""
+        if (!current.contains(text.trim())) {
             if (attempt < 7) main.postDelayed({ submitAfterText(id, text, attempt + 1) }, 300)
-            else finishSend(id, false, "Composer text disappeared before submit; verify manually")
+            else finishSend(id, false, "IME text not verified before ChatGPT submit")
             return
         }
-        val candidate = findSendTarget(all, input)
+        val candidate = findSendTarget(all, composer)
         if (candidate != null) {
             progress(id, "전송 버튼 탐색 성공: " + candidate.second)
             val target = candidate.first
@@ -1703,7 +1760,7 @@ class ChatRelayService : AccessibilityService() {
         // The IME action works ONLY when the focused editable node exposes it.
         // On multiline chat boxes ordinary Enter may add a newline, so never
         // inject raw key events or an implicit keyboard gesture.
-        if (Build.VERSION.SDK_INT >= 30 &&
+        if (Build.VERSION.SDK_INT >= 30 && input != null &&
             input.actionList.any {
                 it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
             } &&
@@ -1713,7 +1770,7 @@ class ChatRelayService : AccessibilityService() {
             main.postDelayed({ verifySubmission(id, text, 0, "ime_enter") }, 450)
             return
         }
-        sendNodeDiagnostics(all, input)
+        sendNodeDiagnostics(all, composer)
         finishSend(id, false, "Send control not identified; text entered but NOT sent")
     }
 
