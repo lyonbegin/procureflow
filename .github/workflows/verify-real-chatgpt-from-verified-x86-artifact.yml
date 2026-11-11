@@ -1,7 +1,7 @@
 name: Genuine ChatGPT x86_64 original artifact - real app relay E2E
 on:
   push:
-    branches: [test/relay-success-apk-baseline-20261111]
+    branches: [test/relay-success-apk-baseline-20261111, fix/relay-official-file-login-gate-20261111]
     paths:
       - .github/workflows/verify-real-chatgpt-from-verified-x86-artifact.yml
       - .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
