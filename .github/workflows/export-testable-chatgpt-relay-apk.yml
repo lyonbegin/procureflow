@@ -1,0 +1,43 @@
+name: Build downloadable ChatGPT Relay Control APK from tested login-gate fix
+on:
+  push:
+    branches: [fix/relay-official-file-login-gate-20261111]
+    paths:
+      - .github/workflows/export-testable-chatgpt-relay-apk.yml
+      - chatgpt-android-relay/android/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-test-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.9'}
+      - name: Verify tested login-gate patch in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'CHATGPT_LOGIN_REQUIRED_FOR_FILE_ATTACH' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+          grep -Fq 'private fun sendChat' chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt
+      - name: Build installable debug APK
+        run: gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+      - name: Label build and verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p deliverables
+          cp chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk deliverables/ChatGPT-Relay-Control-tested-login-gate.apk
+          test "$(stat -c %s deliverables/ChatGPT-Relay-Control-tested-login-gate.apk)" -gt 3000000
+          sha256sum deliverables/ChatGPT-Relay-Control-tested-login-gate.apk | tee deliverables/SHA256.txt
+          printf '%s\n' "Git commit: $GITHUB_SHA" "Branch: $GITHUB_REF_NAME" > deliverables/BUILD_SOURCE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-Relay-Control-tested-login-gate-APK
+          path: deliverables/
+          retention-days: 30
+          if-no-files-found: error
