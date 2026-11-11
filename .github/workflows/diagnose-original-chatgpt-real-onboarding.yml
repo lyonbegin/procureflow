@@ -1,0 +1,38 @@
+name: Diagnose original official ChatGPT Android onboarding evidence
+on:
+  push:
+    branches: [test/relay-success-apk-baseline-20261111]
+    paths:
+      - '.github/workflows/diagnose-original-chatgpt-real-onboarding.yml'
+      - '.github/scripts/diagnose-official-chatgpt-onboarding.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-onboarding-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download prior REAL official ChatGPT x86_64 UI evidence from this repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 42975216307 \
+            --repo lyonbegin/procureflow \
+            --name actual-official-chatgpt-2026-300-e2e-evidence \
+            --dir real-chatgpt-evidence
+          test -s real-chatgpt-evidence/chatgpt-first-run.xml
+          test -s real-chatgpt-evidence/real-chatgpt-end.xml
+          test -s real-chatgpt-evidence/real-chatgpt-ready.png
+      - name: Determine if previously reported Skip tap actually changed app UI
+        run: |
+          python3 .github/scripts/diagnose-official-chatgpt-onboarding.py real-chatgpt-evidence \
+            | tee real-chatgpt-evidence/onboarding-diagnosis.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verified-official-chatgpt-onboarding-root-cause
+          path: real-chatgpt-evidence/onboarding-diagnosis.json
+          if-no-files-found: warn
