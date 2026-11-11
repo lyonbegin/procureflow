@@ -1840,6 +1840,24 @@ class ChatRelayService : AccessibilityService() {
         val explicit = named.minByOrNull { distance(it) }
         if (explicit != null) return Pair(explicit, "named_or_resource_id")
 
+        // The original ChatGPT 1.2026.300 exposes the exact semantic
+        // "Send Message" icon, but on the guest screen uiautomator reports
+        // clickable=false. The caller already has a gesture fallback for
+        // ACTION_CLICK rejection; select only this exact named node adjacent
+        // to the verified composer, never an arbitrary icon.
+        val semanticSend=all.filter { n ->
+            n.isVisibleToUser && n.isEnabled &&
+                n.contentDescription?.toString()?.trim()
+                    ?.equals("Send Message", ignoreCase=true) == true
+        }.filter { n ->
+            val r=Rect().also { n.getBoundsInScreen(it) }
+            !r.isEmpty && r.right >= ir.right - (150*dp).toInt() &&
+                r.left <= ir.right + (75*dp).toInt() &&
+                r.bottom >= ir.top - (90*dp).toInt() &&
+                r.top <= ir.bottom + (65*dp).toInt()
+        }
+        if (semanticSend.size==1) return Pair(semanticSend.first(),"exact_semantic_send_message")
+
         // Compose interfaces may publish an icon without a contentDescription.
         // Restrict the fallback to a small, enabled clickable control directly
         // right of and overlapping the bottom of the known input field.
