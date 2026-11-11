@@ -1231,6 +1231,27 @@ class ChatRelayService : AccessibilityService() {
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString().orEmpty()
         val all = pickerVisibleNodes()
+        // Verified against the genuine ChatGPT 1.2026.300 guest attachment
+        // screen (real Android evidence run 43013654199). This is an
+        // authentication gate, NOT an Android DocumentsUI picker failure.
+        // Do not retry/select guessed files or click authentication controls.
+        val visibleLabels = all.filter { it.isVisibleToUser }.map { n ->
+            (n.text?.toString().orEmpty() + " " +
+                n.contentDescription?.toString().orEmpty()).trim().lowercase()
+        }
+        val fileLoginGate = visibleLabels.any { label ->
+            label.contains("sign up or log in to analyze images and files") ||
+                label.contains("log in to analyze images and files") ||
+                label.contains("이미지와 파일을 분석하려면") ||
+                label.contains("파일을 분석하려면 로그인")
+        }
+        if (pkg == chatPackage && fileLoginGate) {
+            snapshot()
+            finishApiJob(jid, false,
+                "CHATGPT_LOGIN_REQUIRED_FOR_FILE_ATTACH: official app guest " +
+                "session blocks images/files; sign in to the official ChatGPT app")
+            return
+        }
         val expected = pendingPickerDisplayName.orEmpty()
         if (attempt in listOf(0, 3, 8, 15, 25, 30)) {
             val windowInfo = windows.mapNotNull { w ->
