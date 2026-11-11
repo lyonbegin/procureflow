@@ -63,7 +63,7 @@ jobs:
                 vx10) sed -n '50,135p' "$file" ;;
                 ws10) sed -n '35,115p' "$file" ;;
                 jmt|gmt) sed -n '1,95p' "$file" ;;
-                oyd) grep -n -C 9 -F '/files/blob-upload' "$file" | head -100 ;;
+                oyd) grep -n -C 9 -F '/files/blob-upload' "$file" | head -100 || true ;;
               esac > "upload-re-results/$cls-selected-code.txt"
             fi
           done
