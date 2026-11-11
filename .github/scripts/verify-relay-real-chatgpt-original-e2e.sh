@@ -46,6 +46,56 @@ adb shell dumpsys package com.openai.chatgpt \
   | tee real-chatgpt-evidence/original-version.txt
 grep -q 'versionName=1.2026.300' real-chatgpt-evidence/original-version.txt
 
+# The original app's first-run Welcome screen exposes a native "Skip" action.
+# Exercise that real UI instead of incorrectly classifying onboarding as an
+# absent New Chat control. Perform this BEFORE enabling AccessibilityService,
+# because uiautomator dumps may cause service lifecycle churn on Android 15.
+GUEST_SKIP=0
+for onboard_attempt in 1 2 3; do
+  adb shell monkey -p com.openai.chatgpt -c android.intent.category.LAUNCHER 1 \
+    > real-chatgpt-evidence/onboarding-launch.txt || true
+  sleep 12
+  timeout 35s adb shell uiautomator dump /sdcard/chatgpt-first-run.xml >/dev/null 2>&1 || true
+  adb pull /sdcard/chatgpt-first-run.xml real-chatgpt-evidence/chatgpt-first-run.xml >/dev/null 2>&1 || true
+  if [[ -f real-chatgpt-evidence/chatgpt-first-run.xml ]]; then
+    CENTER="$(python3 - <<'PY'
+from pathlib import Path
+import re
+import xml.etree.ElementTree as ET
+path=Path('real-chatgpt-evidence/chatgpt-first-run.xml')
+try:
+  tree=ET.parse(path)
+  for n in tree.iter('node'):
+    if n.attrib.get('text')=='Skip' or n.attrib.get('content-desc')=='Skip':
+      m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.attrib.get('bounds',''))
+      if m:
+        x1,y1,x2,y2=map(int,m.groups())
+        print((x1+x2)//2,(y1+y2)//2)
+        break
+except (ET.ParseError,OSError):
+  pass
+PY
+    )"
+    if [[ -n "$CENTER" ]]; then
+      read -r SX SY <<< "$CENTER"
+      adb shell input tap "$SX" "$SY"
+      GUEST_SKIP=1
+      echo "OFFICIAL_FIRST_RUN_SKIP_CLICKED attempt=$onboard_attempt x=$SX y=$SY" \
+        | tee real-chatgpt-evidence/guest-onboarding-result.txt
+      sleep 14
+      break
+    fi
+  fi
+done
+if [[ "$GUEST_SKIP" -ne 1 ]]; then
+  echo 'OFFICIAL_FIRST_RUN_SKIP_NOT_FOUND' \
+    | tee real-chatgpt-evidence/guest-onboarding-result.txt
+fi
+adb shell screencap -p /sdcard/chatgpt-after-official-skip.png
+adb pull /sdcard/chatgpt-after-official-skip.png \
+  real-chatgpt-evidence/chatgpt-after-official-skip.png >/dev/null
+
+
 # Use Android run-as to configure ONLY the debuggable, isolated CI app.
 # The test WebSocket targets the Android emulator's dedicated host gateway.
 cat > real-chatgpt-evidence/ci-relay-config.xml <<'XML'
