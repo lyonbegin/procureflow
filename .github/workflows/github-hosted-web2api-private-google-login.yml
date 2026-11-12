@@ -40,6 +40,36 @@ jobs:
           assert 'upload-artifact' not in s
           print('PASS_PUBLIC_REPOSITORY_BROWSER_SECURITY_PREFLIGHT')
           PY
+  synthetic-security-smoke:
+    if: github.event_name == 'push'
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install remote display, reverse tunnel and encryption dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xvfb xauth x11vnc novnc websockify nginx apache2-utils gnupg
+      - name: Generate throwaway test passwords only inside temporary GitHub runner
+        run: |
+          echo "W2A_LOGIN_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "W2A_PROFILE_KEY=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+      - name: Test Chrome, CDP, protected VNC, Cloudflare tunnel and encrypted archive without signing into Google
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: bash .github/scripts/w2a_hosted_login.sh smoke
   github-hosted-browser:
     if: github.event_name == 'workflow_dispatch'
     needs: preflight
