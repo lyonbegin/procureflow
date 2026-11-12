@@ -167,6 +167,44 @@ for attempt in range(90):
     if hits: url=hits[-1]; break
   time.sleep(1)
 if not url: raise SystemExit('CLOUDFLARE_TUNNEL_NOT_READY')
+# Verify Cloudflare -> nginx authentication -> noVNC websocket end-to-end.
+import urllib.request,urllib.error,base64,http.client,ssl
+from urllib.parse import urlparse
+userpass=('operator:'+os.environ['W2A_LOGIN_PASSWORD']).encode('utf-8')
+basic='Basic '+base64.b64encode(userpass).decode('ascii')
+url_html=url+'/vnc.html'
+checked=False
+for _ in range(35):
+  try:
+    try:
+      urllib.request.urlopen(url_html,timeout=7)
+      raise SystemExit('SECURITY_ERROR_PUBLIC_REMOTE_DESKTOP_HAS_NO_AUTH')
+    except urllib.error.HTTPError as exc:
+      if exc.code!=401: raise
+    req=urllib.request.Request(url_html,headers={'Authorization':basic})
+    with urllib.request.urlopen(req,timeout=7) as rr:
+      assert rr.status==200,rr.status
+      assert b'noVNC' in rr.read(110000)
+    host=urlparse(url).hostname
+    cc=http.client.HTTPSConnection(host,timeout=8,context=ssl.create_default_context())
+    cc.request('GET','/websockify',headers={
+      'Authorization':basic,
+      'Connection':'Upgrade',
+      'Upgrade':'websocket',
+      'Sec-WebSocket-Key':base64.b64encode(os.urandom(16)).decode('ascii'),
+      'Sec-WebSocket-Version':'13'
+    })
+    up=cc.getresponse()
+    assert up.status==101, 'REMOTE_WEBSOCKET_STATUS_'+str(up.status)
+    cc.close()
+    checked=True
+    break
+  except Exception as exc:
+    if 'SECURITY_ERROR' in str(exc): raise
+    time.sleep(1)
+if not checked:
+  raise SystemExit('REMOTE_TUNNEL_VNC_WEBSOCKET_NOT_READY')
+print('PASS_PUBLIC_TUNNEL_LOGIN_GATE_401_200_AND_VNC_WEBSOCKET_101')
 if os.environ.get('W2A_MODE')=='smoke':
   print('PASS_ENCRYPTED_TUNNEL_URL_RESOLVED_NO_REMOTE_LOGIN_URL_EXPOSED')
 else:
