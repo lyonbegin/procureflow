@@ -1,0 +1,77 @@
+name: ChatGPT Web2API - GitHub-hosted Chrome Google login
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'login: private browser for 20 minutes; verify: restore encrypted Chrome profile and test Web2API'
+        required: true
+        type: choice
+        options: [login, verify]
+        default: login
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: chatgpt-web2api-hosted-session
+  cancel-in-progress: false
+jobs:
+  hosted-browser:
+    name: Private Chrome on GITHUB-HOSTED Ubuntu (NOT local PC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      W2A_LOGIN_PASSWORD: ${{ secrets.W2A_LOGIN_PASSWORD }}
+      W2A_PROFILE_KEY: ${{ secrets.W2A_PROFILE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require private GitHub repository secrets before opening any browser
+        run: |
+          python3 - <<'PY'
+          import os
+          a=os.environ.get('W2A_LOGIN_PASSWORD','')
+          b=os.environ.get('W2A_PROFILE_KEY','')
+          if len(a)<24 or len(b)<32 or a==b:
+              raise SystemExit(
+                  'MISSING_GITHUB_ACTIONS_SECRETS: Add W2A_LOGIN_PASSWORD (24+ chars) and '
+                  'a distinct W2A_PROFILE_KEY (32+ chars) to this repository in '
+                  'Settings > Secrets and variables > Actions. '
+                  'NEVER add passwords or Chrome profiles to public source code.'
+              )
+          print('PASS_REQUIRED_PRIVATE_ACTIONS_SECRETS_PRESENT')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/github-hosted-chatgpt-web2api-chrome-20261112
+      - name: Check audited helper script
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/w2a_hosted_login.sh
+          grep -Fq 'PASS_REMOTE_CHROME_PASSWORD_GATE_401_UNAUTHORIZED_200_AUTHORIZED' .github/scripts/w2a_hosted_login.sh
+          grep -Fq 'gpg --batch --yes --pinentry-mode loopback' .github/scripts/w2a_hosted_login.sh
+          echo PASS_SECURE_REMOTE_BROWSER_HELPER_CHECK
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install Xvfb/noVNC, password-gated nginx and encryption prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xvfb xauth x11vnc novnc websockify nginx apache2-utils gnupg
+          test -f /usr/share/novnc/vnc.html
+      - name: Start private Chrome browser and ChatGPT Web2API inside GitHub Actions
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: bash .github/scripts/w2a_hosted_login.sh "${{ inputs.mode }}"
+      - name: Persist encrypted Chrome session - never publish plaintext login cookies
+        if: success() && inputs.mode == 'login'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-web2api-encrypted-profile
+          path: ${{ runner.temp }}/chatgpt-w2a/encrypted-profile/chrome-profile.tar.gz.gpg
+          retention-days: 14
+          if-no-files-found: error
