@@ -1,4 +1,4 @@
-name: GitHub-hosted Chrome + ChatGPT Web2API smoke (NO local PC, NO deploy)
+name: GitHub-hosted Chrome Web2API secured login gateway smoke (NO user credentials)
 on:
   push:
     branches: [experiment/github-hosted-chatgpt-web2api-chrome-20261112]
@@ -7,107 +7,38 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
-  hosted-chrome:
-    name: Chrome/CDP/Web2API on GitHub-hosted Ubuntu
+  verify-secure-remote-chrome:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install Google Chrome for Testing in this temporary GitHub-hosted runner
-        id: setup_chrome
-        uses: browser-actions/setup-chrome@v2
+        with: {python-version: '3.11'}
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
         with:
           chrome-version: stable
           install-dependencies: true
-      - name: Confirm Chrome binary and runner identity (not user's computer)
-        env:
-          CHROME_BINARY: ${{ steps.setup_chrome.outputs.chrome-path }}
+      - name: Verify script syntax and no unencrypted profile uploads
         run: |
-          set -euo pipefail
-          echo "RUNNER_NAME=$RUNNER_NAME"
-          echo "RUNNER_OS=$RUNNER_OS"
-          "$CHROME_BINARY" --version | tee /tmp/github-hosted-chrome-version.txt
-          test -x "$CHROME_BINARY"
-      - name: Start a headed virtual display and Chrome CDP on localhost only
-        env:
-          CHROME_BINARY: ${{ steps.setup_chrome.outputs.chrome-path }}
+          bash -n .github/scripts/w2a_hosted_login.sh
+          grep -Fq 'PASS_ONLY_ENCRYPTED_PROFILE_READY_FOR_UPLOAD' .github/scripts/w2a_hosted_login.sh
+          grep -Fq 'auth_basic_user_file' .github/scripts/w2a_hosted_login.sh
+          echo PASS_SECURE_LOGIN_SCRIPT_PRESENT
+      - name: Install GitHub-hosted VNC and password gate dependencies
         run: |
-          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb xauth
-          mkdir -p "$RUNNER_TEMP/w2a-browser-profile"
-          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$RUNNER_TEMP/xvfb.log" 2>&1 &
-          echo DISPLAY=:99 >> "$GITHUB_ENV"
-          sleep 2
-          DISPLAY=:99 "$CHROME_BINARY" \
-            --no-sandbox --disable-dev-shm-usage --no-first-run \
-            --no-default-browser-check --remote-debugging-address=127.0.0.1 \
-            --remote-debugging-port=9222 \
-            --user-data-dir="$RUNNER_TEMP/w2a-browser-profile" \
-            https://chatgpt.com/ >"$RUNNER_TEMP/chrome.log" 2>&1 &
-          python3 - <<'PY'
-          import json,time,urllib.request
-          version=None
-          for _ in range(60):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:9222/json/version',timeout=2) as f:
-                      version=json.load(f)
-                  break
-              except Exception:
-                  time.sleep(1)
-          assert version, 'No Chrome CDP endpoint on GitHub-hosted runner'
-          assert version.get('Browser','').startswith('Chrome/'),version
-          print('PASS_GITHUB_HOSTED_CHROME_CDP_9222')
-          print('CHROME_VERSION='+version['Browser'])
-          with urllib.request.urlopen('http://127.0.0.1:9222/json/list',timeout=3) as f:
-              tabs=json.load(f)
-          print('OPEN_TABS='+str(len(tabs)))
-          print('TARGET_CHATGPT_TAB_PRESENT='+str(any('chatgpt.com' in t.get('url','') for t in tabs)))
-          assert any('chatgpt.com' in t.get('url','') for t in tabs)
-          PY
-      - name: Install existing ChatGPT Web2API project into the GitHub-hosted runner
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xvfb xauth x11vnc novnc websockify nginx apache2-utils gnupg
+          test -f /usr/share/novnc/vnc.html
+      - name: Generate disposable test passwords only in the GitHub-hosted runner
         run: |
-          set -euo pipefail
-          git clone --depth 1 https://github.com/MartinezS8/chatgpt-web2api.git "$RUNNER_TEMP/web2api"
-          python3 -m pip install "$RUNNER_TEMP/web2api"
-          command -v chatgpt-web2api
-          chatgpt-web2api --help > /tmp/chatgpt-web2api-help.txt
-          echo PASS_GITHUB_HOSTED_WEB2API_INSTALLED
-      - name: Probe actual Web2API process (do not simulate Google login)
+          echo "W2A_LOGIN_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "W2A_PROFILE_KEY=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+      - name: Launch Chrome, Web2API, secured remote desktop tunnel and GPG encryption smoke
         env:
-          DISPLAY: ':99'
-        run: |
-          set -euo pipefail
-          mkdir -p browser-evidence
-          nohup chatgpt-web2api --port 18080 --cdp-port 9222 \
-            > "$RUNNER_TEMP/web2api.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/web2api.pid"
-          python3 - <<'PY'
-          import urllib.request,time,json
-          probe={"runner":"github-hosted","chrome_cdp":"verified","google_chatgpt_login":"NOT_ATTEMPTED","web2api_installed":True}
-          for i in range(20):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:18080/health',timeout=2) as f:
-                      probe["http_status"]=f.status
-                      probe["health"]=f.read(2000).decode("utf-8","replace")
-                  break
-              except Exception:
-                  time.sleep(1)
-          if "http_status" not in probe:
-              probe["health"]="not ready: Web2API may be awaiting interactive ChatGPT login"
-          print(json.dumps(probe,ensure_ascii=False,indent=2))
-          open('browser-evidence/smoke-result.json','w').write(json.dumps(probe,ensure_ascii=False,indent=2))
-          PY
-          cp /tmp/github-hosted-chrome-version.txt browser-evidence/chrome-version.txt
-          echo 'NOT_AUTHENTICATED: Google login must be performed interactively on the remote Chrome session, and must not be replaced by a fabricated login.' > browser-evidence/auth-status.txt
-      - name: Upload non-sensitive diagnostics (no browser profile or cookies)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: github-hosted-chrome-web2api-smoke
-          path: browser-evidence/
-          if-no-files-found: warn
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/w2a_hosted_login.sh smoke
