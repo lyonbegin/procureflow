@@ -133,8 +133,20 @@ raw=('operator:'+os.environ['W2A_LOGIN_PASSWORD']).encode()
 req=urllib.request.Request(url,headers={
     'Authorization':'Basic '+base64.b64encode(raw).decode()
 })
-with urllib.request.urlopen(req,timeout=5) as response:
-  assert response.status==200
+for attempt in range(40):
+  try:
+    with urllib.request.urlopen(req,timeout=3) as response:
+      assert response.status==200
+      assert b'noVNC' in response.read(100000)
+    break
+  except urllib.error.HTTPError as exc:
+    if exc.code not in (502,503,504):
+      raise
+    time.sleep(1)
+  except (urllib.error.URLError,TimeoutError):
+    time.sleep(1)
+else:
+  raise SystemExit('NOVNC_BACKEND_STILL_UNAVAILABLE_AFTER_40_SECONDS')
 print('PASS_REMOTE_CHROME_PASSWORD_GATE_401_UNAUTHORIZED_200_AUTHORIZED')
 PY
   curl -fsSL --retry 3 \
