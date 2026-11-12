@@ -7,7 +7,8 @@ ARCHIVE="$ROOT/encrypted-profile"
 mkdir -p "$ROOT" "$PROFILE" "$ARCHIVE"
 chmod 700 "$ROOT" "$PROFILE" "$ARCHIVE"
 MODE="$1"
-if [ "$MODE" != "login" ] && [ "$MODE" != "verify" ]; then
+export W2A_MODE="$MODE"
+if [ "$MODE" != "login" ] && [ "$MODE" != "verify" ] && [ "$MODE" != "smoke" ]; then
   echo "INVALID_MODE"; exit 2
 fi
 
@@ -21,7 +22,7 @@ print('PASS_PRIVATE_SECRETS_CONFIGURED_NO_SECRET_VALUES_PRINTED')
 PY
 
 # Restore previously encrypted browser session, if any.
-if [ -n "$GH_TOKEN" ]; then
+if [ "$MODE" != "smoke" ] && [ -n "$GH_TOKEN" ]; then
   export GH_PROMPT_DISABLED=1
   PREVIOUS_RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=chatgpt-web2api-encrypted-profile&per_page=50" --jq '.artifacts | map(select(.expired==false)) | .[0].workflow_run.id // ""' || true)"
   if [ -n "$PREVIOUS_RUN" ]; then
@@ -76,7 +77,7 @@ DISPLAY=:99 chatgpt-web2api --port 18080 --cdp-port 9222 \
 echo $! > "$ROOT/web2api.pid"
 echo "PASS_WEB2API_LAUNCHED_LOCALHOST_ONLY"
 
-if [ "$MODE" = "login" ]; then
+if [ "$MODE" = "login" ] || [ "$MODE" = "smoke" ]; then
   # Access to the live browser is protected by nginx HTTP Basic Auth
   # with a user-configured GitHub Action Secret. The VNC service is localhost only.
   x11vnc -display :99 -localhost -rfbport 5900 -forever \
@@ -154,7 +155,10 @@ for attempt in range(90):
     if hits: url=hits[-1]; break
   time.sleep(1)
 if not url: raise SystemExit('CLOUDFLARE_TUNNEL_NOT_READY')
-print('REMOTE_LOGIN_LINK='+url+'/vnc.html?autoconnect=true&resize=remote')
+if os.environ.get('W2A_MODE')=='smoke':
+  print('PASS_ENCRYPTED_TUNNEL_URL_RESOLVED_NO_REMOTE_LOGIN_URL_EXPOSED')
+else:
+  print('REMOTE_LOGIN_LINK='+url+'/vnc.html?autoconnect=true&resize=remote')
 print('REMOTE_LOGIN_USERNAME=operator')
 print('REMOTE_LOGIN_PASSWORD=the W2A_LOGIN_PASSWORD repository Action secret (never printed)')
 print('LOGIN_INSTRUCTIONS=Use Google account on chatgpt.com in this remote Chrome window. The window closes at the end of this run.')
@@ -162,7 +166,7 @@ PY
 
   # An active GitHub-hosted job is deliberately kept alive for supervised login.
   # Session is NOT assumed valid until the user has actually logged in.
-  sleep 1200
+  if [ "$MODE" = "login" ]; then sleep 1200; fi
 fi
 
 python3 - <<'PY'
@@ -177,7 +181,7 @@ except Exception as exc:
 print('GOOGLE_LOGIN_NOT_CLAIMED_WITHOUT_VALID_SESSION_EVIDENCE')
 PY
 
-if [ "$MODE" = "login" ]; then
+if [ "$MODE" = "login" ] || [ "$MODE" = "smoke" ]; then
   # Close Chrome cleanly before archiving its database files.
   kill "$(cat "$ROOT/web2api.pid")" 2>/dev/null || true
   kill "$(cat "$ROOT/chrome.pid")" 2>/dev/null || true
@@ -191,6 +195,11 @@ if [ "$MODE" = "login" ]; then
     3<<<"$W2A_PROFILE_KEY"
   rm -f "$ROOT/chrome-profile.tar.gz"
   test -s "$ARCHIVE/chrome-profile.tar.gz.gpg"
+  if [ "$MODE" = "smoke" ]; then
+    gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --decrypt -o /dev/null "$ARCHIVE/chrome-profile.tar.gz.gpg" 3<<<"$W2A_PROFILE_KEY"
+    echo "PASS_SMOKE_GPG_ENCRYPTION_AND_DECRYPTION"
+    rm -f "$ARCHIVE/chrome-profile.tar.gz.gpg"
+  fi
   echo "PASS_ONLY_ENCRYPTED_PROFILE_READY_FOR_UPLOAD"
   echo "PROFILE_ENCRYPTION_KEY_NEVER_LOGGED"
 fi
