@@ -1,0 +1,43 @@
+name: ProcureFlow real n8n CLI scenario via public same-origin gateway
+on:
+  push:
+    branches: [feat/n8n-native-editable-procurement-20261028]
+    paths:
+      - n8n/native-editor/runner/**
+      - n8n/native-editor/Caddyfile
+      - .github/workflows/verify-procureflow-native-runner.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  run-one-native-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute immutable S01 in actual n8n CLI (no real bid)
+        run: |
+          node --input-type=module <<'NODE'
+          const BASE='https://procureflow-n8n-native-canvas-production.up.railway.app';
+          const r=await fetch(BASE+'/api/demo-run/run/S01',{method:'POST',headers:{Origin:BASE},signal:AbortSignal.timeout(100000)});
+          const body=await r.json();
+          console.log('S01_NATIVE_GATEWAY_STATUS',r.status);
+          console.log('S01_NATIVE_GATEWAY_RESULT',JSON.stringify(body).slice(0,1800));
+          if(!r.ok||body.engine!=='n8n-cli-2.44.6'||!body.success||body.bidSubmitted!==false){
+            throw Error('S01 native execution not verified');
+          }
+          const {readFileSync}=await import('node:fs');
+          const names=new Set(JSON.parse(readFileSync('n8n/workflows/S01.json','utf8')).nodes.map(n=>n.name));
+          if(!Array.isArray(body.executedNodes)||body.executedNodes.length<8||
+             !body.executedNodes.every(n=>names.has(n)))
+            throw Error('Native per-node runData names missing or do not match immutable S01 nodes: '+JSON.stringify(body.executedNodes));
+          console.log('NATIVE_ACTUAL_NODE_NAMES_VERIFIED',body.executedNodes.length);
+          console.log('S01_REAL_N8N_CLI_PASS');
+          NODE
+      - name: Reject code injection and unsupported workflow IDs
+        run: |
+          node --input-type=module <<'NODE'
+          const BASE='https://procureflow-n8n-native-canvas-production.up.railway.app';
+          const response=await fetch(BASE+'/api/demo-run/run/../../rest/workflows',{method:'POST',headers:{Origin:BASE}});
+          if(response.ok)throw Error('Unexpected arbitrary execution route exposed');
+          console.log('ARBITRARY_EXECUTION_ROUTE_REJECTED',response.status);
+          NODE

@@ -1,0 +1,61 @@
+name: Native n8n prefix-step CLI tests in a local isolated runner
+on:
+  push:
+    branches: [feat/n8n-native-editable-procurement-20261028]
+    paths:
+      - n8n/native-editor/runner/**
+      - .github/workflows/test-procureflow-safe-n8n-local-steps.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  native-step-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and start isolated genuine n8n CLI service
+        run: |
+          set -euxo pipefail
+          docker build -f n8n/native-editor/runner/Dockerfile -t procureflow-native-scenario-runner:test .
+          docker run -d --rm --name n8n-native-scenario-e2e -p 127.0.0.1:3001:3001 -e PORT=3001 procureflow-native-scenario-runner:test
+          ok=0
+          for i in $(seq 1 70); do
+            if curl -fsS http://127.0.0.1:3001/healthz >/dev/null; then ok=1;break;fi
+            sleep 2
+          done
+          test "$ok" -eq 1
+          curl -fsS http://127.0.0.1:3001/scenarios | grep -q S10
+          echo 'ISOLATED_NATIVE_N8N_CLI_READY'
+      - name: Run immutable S01 prefixes 1 and 2 via n8n execute then entire workflow
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const base='http://127.0.0.1:3001';
+          const origin='https://procureflow-n8n-native-canvas-production.up.railway.app';
+          const w=JSON.parse(readFileSync('n8n/workflows/S01.json','utf8'));
+          const incoming=new Set(Object.values(w.connections).flatMap(o=>Object.values(o).flat(2).map(c=>c.node)));
+          const order=[];let cur=w.nodes.find(n=>!incoming.has(n.name))?.name;
+          while(cur&&!order.includes(cur)){order.push(cur);cur=Object.values(w.connections[cur]||{}).flat(2)[0]?.node;}
+          async function run(path){
+            const r=await fetch(base+path,{method:'POST',headers:{Origin:origin},signal:AbortSignal.timeout(100000)});
+            const body=await r.json();console.log(path,r.status,JSON.stringify(body).slice(0,1900));
+            if(!r.ok||!body.success)throw Error('Native CLI run failed');
+            return body;
+          }
+          for(const k of [1,2]){
+            const b=await run('/run-step/S01/'+String(k).padStart(2,'0'));
+            if(b.stepIndex!==k||b.targetNode!==order[k-1]||!b.lastStepCompleted||
+               b.executedNodes.length!==k||b.executedNodes.some((v,i)=>v!==order[i])||
+               b.ancestorsReexecuted!==true||b.bidSubmitted!==false)
+               throw Error('Native prefix '+k+' did not run exact ancestors: '+JSON.stringify(b));
+          }
+          const full=await run('/run/S01');
+          if(full.executedNodes.length!==18||full.ancestorsReexecuted!==false)
+            throw Error('Native full execution mismatch');
+          const invalid=await fetch(base+'/run-step/S01/99',{method:'POST',headers:{Origin:origin}});
+          if(invalid.ok)throw Error('Out-of-range step accepted');
+          console.log('NATIVE_SINGLE_NEXT_FULL_AND_BOUNDS_E2E_PASS');
+          NODE
+      - name: Dump logs if failed
+        if: failure()
+        run: docker logs --tail 130 n8n-native-scenario-e2e || true

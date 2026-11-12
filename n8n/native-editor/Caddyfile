@@ -1,0 +1,59 @@
+:{$PORT:3000} {
+    encode zstd gzip
+    @health path /health /healthz
+    handle @health {
+        respond "ok" 200
+    }
+    @landing path / /index.html
+    handle @landing {
+        root * /srv/site
+        rewrite * /index.html
+        file_server
+    }
+    handle_path /demo-data/* {
+        root * /srv/data
+        file_server
+    }
+    # n8n's generated SPA index is served at /; keep the browser URL on
+    # /workflows/demo so the original Vue router opens its demo route.
+    @nativeDemo {
+        method GET HEAD
+        path /workflows/demo
+    }
+    handle @nativeDemo {
+        rewrite * /
+        reverse_proxy http://procureflow-n8n-upstream-preview.railway.internal:5678 {
+            header_up X-Forwarded-Proto https
+        }
+    }
+    # Public demo can execute only immutable S01-S10 fixtures on a private runner.
+    # The runner rejects browser-supplied workflow code/URLs and enforces rate limits.
+    @scenarioRunner {
+        path /api/demo-run/run/S01 /api/demo-run/run/S02 /api/demo-run/run/S03 /api/demo-run/run/S04 /api/demo-run/run/S05 /api/demo-run/run/S06 /api/demo-run/run/S07 /api/demo-run/run/S08 /api/demo-run/run/S09 /api/demo-run/run/S10 /api/demo-run/run-step/* /api/demo-run/scenarios
+        method GET POST
+    }
+    handle @scenarioRunner {
+        uri strip_prefix /api/demo-run
+        reverse_proxy http://procureflow-n8n-safe-scenario-ru.railway.internal:3001
+    }
+    # Allow only read-only requests to a dedicated, credential-free preview instance.
+    @preview {
+        method GET HEAD
+        path /workflows/demo /assets/* /static/* /types/* /rest/* /favicon.ico /favicon.png /icons/* /node-icons/*
+    }
+    handle @preview {
+        reverse_proxy http://procureflow-n8n-upstream-preview.railway.internal:5678 {
+            header_up X-Forwarded-Proto https
+            header_up X-Forwarded-Host {host}
+        }
+    }
+    handle {
+        respond "실제 업무 실행과 n8n 관리자 기능은 이 테스트 포털에서 사용할 수 없습니다." 403
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Cache-Control "no-store"
+        -WWW-Authenticate
+    }
+}
