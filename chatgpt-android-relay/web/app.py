@@ -135,19 +135,20 @@ async def download_controller():
 @app.get("/health")
 async def health():
     return {"status": "ok", "deviceOnline": device is not None,
+            "web2apiOnline": web2api_device is not None,
             "activeApiJob": active_job_id,
             "consoleCount": len(consoles),
             "lastCommand": {"stage": last_command.get("stage", "idle")}}
 
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
-    global device, active_job_id
+    global device, web2api_device, active_job_id, active_job_transport
     await ws.accept()
     role = ""
     actions_worker = False
     try:
         initial = await asyncio.wait_for(ws.receive_text(), timeout=10)
-        if len(initial) > 4096:
+        if len(initial) > 12000:
             await ws.close(code=1009)
             return
         auth = json.loads(initial)
@@ -158,9 +159,9 @@ async def socket(ws: WebSocket):
         # Second, short-lived authentication path ONLY for the exact GitHub
         # Actions Chrome worker. The existing Android/console tokens stay
         # unchanged, and OIDC cannot authorize a console connection.
-        oidc_token = auth.get("oidc_token", "") if role == "device" else ""
+        oidc_token = auth.get("oidc_token", "") if role == "web2api" else ""
         valid_actions = bool(
-            role == "device" and isinstance(oidc_token, str) and oidc_token
+            role == "web2api" and isinstance(oidc_token, str) and oidc_token
             and await asyncio.to_thread(verify_worker_identity, oidc_token)
         )
         if not (valid_legacy or valid_actions):
@@ -178,13 +179,14 @@ async def socket(ws: WebSocket):
                 # new device session.
                 previous_device = device
                 device = ws
-                if active_job_id:
+                if active_job_id and active_job_transport == "android":
                     api_v1.release_running_job(
                         active_job_id, "Android device session was superseded")
                     await broadcast(event(
                         "job.error", job_id=active_job_id,
                         reason="Device session replaced; not retried to avoid duplicates"))
                     active_job_id = None
+                    active_job_transport = None
                 await previous_device.close(code=1001)
             else:
                 device = ws
@@ -192,10 +194,33 @@ async def socket(ws: WebSocket):
             await transmit(ws, event("auth.ok", role="device"))
             await broadcast(event("device.status", online=True, deviceId=DEVICE_ID))
             await dispatch_next()
+        elif role == "web2api":
+            if auth.get("deviceId") != "web2api-main":
+                await ws.close(code=1008)
+                return
+            if web2api_device is not None and web2api_device is not ws:
+                old_worker = web2api_device
+                web2api_device = ws
+                if active_job_id and active_job_transport == "web2api":
+                    api_v1.release_running_job(
+                        active_job_id, "Chrome worker session replaced; no automatic retry")
+                    await broadcast(event(
+                        "job.error", job_id=active_job_id,
+                        reason="Chrome worker replaced; not retried"))
+                    active_job_id = None
+                    active_job_transport = None
+                await old_worker.close(code=1001)
+            else:
+                web2api_device = ws
+            print("[relay] GitHub Chrome worker authenticated", flush=True)
+            await transmit(ws, event("auth.ok", role="web2api"))
+            await broadcast(event("web2api.status", online=True, worker="github-chrome"))
+            await dispatch_next()
         else:
             consoles.add(ws)
             print("[relay] Web console authenticated", flush=True)
-            await transmit(ws, event("auth.ok", role="console", deviceOnline=device is not None))
+            await transmit(ws, event("auth.ok", role="console", deviceOnline=device is not None,
+                                    web2apiOnline=web2api_device is not None))
             for packet in list(recent):
                 await transmit(ws, packet)
         while True:
