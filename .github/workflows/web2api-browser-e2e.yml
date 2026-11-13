@@ -1,0 +1,37 @@
+name: Chromium E2E - click Railway Web2API and verify real answer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/web2api-browser-e2e.yml
+permissions:
+  contents: read
+jobs:
+  click-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install Playwright browser client
+        run: python3 -m pip install -q playwright==1.56.0
+      - name: Open real Railway page, click actual button, and verify ChatGPT reply
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: python3 .github/scripts/w2a_browser_e2e.py
+      - name: Preserve browser evidence from success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: railway-web2api-browser-e2e-evidence
+          path: ${{ runner.temp }}/w2a-browser-e2e/*.png
+          retention-days: 2
+          if-no-files-found: warn
