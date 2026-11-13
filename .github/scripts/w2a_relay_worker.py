@@ -55,6 +55,8 @@ def get_oidc_token() -> str:
 def extract_conversation_id(job: dict[str, Any]) -> str | None:
     target = job.get("target_conversation_id")
     if not target:
+        if job.get("target_chatgpt_url"):
+            raise ValueError("UNVERIFIED_TARGET_CONVERSATION")
         return None
     if not isinstance(target, str) or not CONVERSATION_ID.fullmatch(target):
         raise ValueError("UNVERIFIED_TARGET_CONVERSATION")
@@ -72,7 +74,7 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
         raise ValueError("WEB2API_CHOICES_MISSING")
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     answer = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(answer, str) or not answer.strip():
+    if not isinstance(answer, str) or not answer.strip() or len(answer) > 100000:
         raise ValueError("WEB2API_ASSISTANT_REPLY_MISSING")
     cid = response.get("conversation_id")
     if not isinstance(cid, str) or not CONVERSATION_ID.fullmatch(cid):
@@ -95,7 +97,7 @@ def post_chat(text: str, cid: str | None) -> tuple[str, str]:
         CHAT_API, data=raw, method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=170) as response:
+    with urllib.request.urlopen(request, timeout=138) as response:
         if response.status != 200:
             raise RuntimeError("WEB2API_HTTP_NOT_200")
         data = json.load(response)
@@ -112,7 +114,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     action = job.get("action")
     if action != "chat.send":
         raise ValueError("UNSUPPORTED_WEB_WORKER_ACTION")
-    if job.get("attachment_ids"):
+    if job.get("attachment_ids") or job.get("attachment_details") or job.get("drive_links"):
         # Never silently replace a native binary attachment with a URL or text.
         raise ValueError("WEB2API_BINARY_ATTACHMENT_NOT_VERIFIED")
     content = job.get("text")
