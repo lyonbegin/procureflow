@@ -165,6 +165,8 @@ $('auth-jump').onclick=()=>{$('admin-token').focus();$('admin-token').scrollInto
 $('forget-auth').onclick=async()=>{
   try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}
   catch(error){log('세션 로그아웃 요청 실패: '+error.message);}
+  socketWanted=false;clearSocketTimers();
+  if(ws){const old=ws;ws=null;old.close();}
   $('admin-token').value='';$('user-api-key').value='';
   localStorage.removeItem('relay_admin_token');localStorage.removeItem('relay_user_api_key');
   renderAuthStatus(null);
@@ -252,14 +254,94 @@ function guard(fn){return async()=>{try{await fn();}catch(error){log('오류: '+
 function selectedUser(obj={}){const key=text('user-api-key');return key?obj:Object.assign({user_id:userId()},obj);}
 async function checkHealth(){const r=await fetch('/health');const j=await r.json();$('server-status').textContent=r.ok?'서버 온라인':'서버 오류';$('server-status').classList.toggle('ok',r.ok);$('device-status').textContent=j.deviceOnline?'Android 온라인':'Android 오프라인';$('device-status').classList.toggle('ok',j.deviceOnline);viewResponse(r.status,j);log('Health: '+JSON.stringify(j));}
 $('check-health').onclick=guard(checkHealth);
-$('connect-events').onclick=()=>{if(ws)ws.close();socketReady=false;ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');$('socket-state').textContent='연결 시도';
-ws.onopen=()=>ws.send(JSON.stringify({role:'console',token:text('admin-token')}));
-ws.onmessage=e=>{const p=JSON.parse(e.data);log('WS '+JSON.stringify(p).slice(0,350));
- if(p.type==='auth.ok'){socketReady=true;$('socket-state').textContent='웹 이벤트 인증 완료';$('device-status').textContent=p.deviceOnline?'Android 온라인':'Android 오프라인';}
- if(p.type==='device.status'){$('device-status').textContent=p.online?'Android 온라인':'Android 오프라인';$('device-status').classList.toggle('ok',p.online);}
- if(p.type==='job.result'||p.type==='job.error'){refreshJobs().catch(()=>{});refreshMessages().catch(()=>{});refreshFiles().catch(()=>{});}
-};ws.onerror=()=>{$('socket-state').textContent='WebSocket 오류';};ws.onclose=()=>{socketReady=false;$('socket-state').textContent='연결 종료';};
+
+let socketWanted=false;
+let wsRetryTimer=null;
+let wsPingTimer=null;
+let wsRetryCount=0;
+let lastPongAt=0;
+function clearSocketTimers(){
+  if(wsRetryTimer!==null){clearTimeout(wsRetryTimer);wsRetryTimer=null;}
+  if(wsPingTimer!==null){clearInterval(wsPingTimer);wsPingTimer=null;}
+}
+function planSocketReconnect(){
+  if(!socketWanted||wsRetryTimer!==null)return;
+  if(!text('admin-token')){
+    $('socket-state').textContent='관리자 토큰을 확인한 후 이벤트에 연결해 주십시오.';
+    socketWanted=false;return;
+  }
+  const wait=Math.min(20000,1000*Math.pow(2,Math.min(wsRetryCount,5)));
+  wsRetryCount+=1;
+  $('socket-state').textContent='연결 종료 · '+Math.ceil(wait/1000)+'초 후 자동 재연결';
+  wsRetryTimer=setTimeout(()=>{wsRetryTimer=null;openEventSocket();},wait);
+}
+function openEventSocket(){
+  if(!socketWanted)return;
+  const token=text('admin-token');
+  if(!token){socketWanted=false;$('socket-state').textContent='관리자 토큰 필요';return;}
+  const old=ws;
+  const client=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws=client;socketReady=false;
+  if(old && old!==client)old.close();
+  $('socket-state').textContent='연결 시도';
+  client.onopen=()=>{
+    if(ws!==client)return;
+    lastPongAt=Date.now();
+    client.send(JSON.stringify({role:'console',token}));
+  };
+  client.onmessage=e=>{
+    if(ws!==client)return;
+    let p;
+    try{p=JSON.parse(e.data);}catch(error){log('WebSocket 메시지 해석 실패');return;}
+    if(p.type==='pong'){lastPongAt=Date.now();return;}
+    log('WS '+JSON.stringify(p).slice(0,350));
+    if(p.type==='auth.error'){
+      socketWanted=false;socketReady=false;
+      $('socket-state').textContent='이벤트 인증 실패 · 관리자 토큰 확인 필요';
+      clearSocketTimers();client.close();return;
+    }
+    if(p.type==='auth.ok'){
+      socketReady=true;wsRetryCount=0;lastPongAt=Date.now();
+      $('socket-state').textContent='웹 이벤트 인증 완료';
+      $('device-status').textContent=p.deviceOnline?'Android 온라인':'Android 오프라인';
+      $('device-status').classList.toggle('ok',!!p.deviceOnline);
+      if(wsPingTimer!==null)clearInterval(wsPingTimer);
+      wsPingTimer=setInterval(()=>{
+        if(ws!==client||client.readyState!==WebSocket.OPEN)return;
+        if(Date.now()-lastPongAt>65000){
+          log('WebSocket heartbeat 응답 지연 · 연결 재시도');
+          client.close();return;
+        }
+        client.send(JSON.stringify({type:'ping'}));
+      },20000);
+    }
+    if(p.type==='device.status'){
+      $('device-status').textContent=p.online?'Android 온라인':'Android 오프라인';
+      $('device-status').classList.toggle('ok',!!p.online);
+    }
+    if(p.type==='job.result'||p.type==='job.error'){
+      refreshJobs().catch(()=>{});
+      refreshMessages().catch(()=>{});
+      refreshFiles().catch(()=>{});
+    }
+  };
+  client.onerror=()=>{
+    if(ws===client)$('socket-state').textContent='WebSocket 통신 오류';
+  };
+  client.onclose=()=>{
+    if(ws!==client)return;
+    ws=null;socketReady=false;clearSocketTimers();
+    $('socket-state').textContent='연결 종료';
+    planSocketReconnect();
+  };
+}
+$('connect-events').onclick=()=>{
+  socketWanted=true;wsRetryCount=0;clearSocketTimers();openEventSocket();
 };
+window.addEventListener('online',()=>{
+  if(socketWanted&&!ws){clearSocketTimers();openEventSocket();}
+});
+
 $('create-user').onclick=guard(async()=>{
   if(!text('admin-token'))throw Error('사용자 발급은 관리자 전용입니다. CONSOLE_TOKEN이 필요합니다.');
   const uid=userId(),name=uid;
