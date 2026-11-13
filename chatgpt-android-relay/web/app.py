@@ -281,7 +281,7 @@ async def socket(ws: WebSocket):
                         break
                     if kind in {"job.received", "job.progress", "job.result", "job.error"}:
                         jid = str(msg.get("job_id", ""))
-                        if jid != active_job_id or active_job_transport != role:
+                        if jid != active_job_id or active_job_transport != ("android" if role == "device" else "web2api"):
                             continue
                         if kind in {"job.received", "job.progress"}:
                             stage = str(msg.get("stage", kind))[:100]
