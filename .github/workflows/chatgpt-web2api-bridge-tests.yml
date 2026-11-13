@@ -44,7 +44,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_web2api_bridge.py' -v
           python -m unittest discover -s tests -p 'test_web2api_coexistence.py' -v
           python -m py_compile app.py api_v1.py gh_oidc.py
-          echo PASS_WEB2API_SCOPED_RELAY_CONTRACTS
+          echo PASS_WEB2API_SCOPED_RELAY_CONTRACTS_AND_BROWSER_ANDROID_COEXISTENCE
       - name: Verify worker protocol without accessing ChatGPT
         run: |
           set -euo pipefail
