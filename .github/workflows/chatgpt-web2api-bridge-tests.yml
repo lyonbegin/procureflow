@@ -1,39 +1,58 @@
-name: Verify free GitHub ChatGPT relay worker authentication (isolated)
+name: Verify GitHub ChatGPT Web2API relay bridge in isolation
+
 on:
   workflow_dispatch:
   push:
     paths:
       - .github/workflows/chatgpt-web2api-bridge-tests.yml
+      - .github/scripts/w2a_relay_worker.py
+      - .github/scripts/test_w2a_relay_worker.py
+
 permissions:
   contents: read
+
 jobs:
-  trust-check:
+  bridge-contracts:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main worker and tests
+        uses: actions/checkout@v4
+      - name: Checkout isolated relay implementation branch separately
+        uses: actions/checkout@v4
         with:
           ref: feature/chatgpt-web2api-relay-bridge-20261113
+          path: bridge-source
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install existing relay dependencies and run signed JWT regressions
+      - name: Install free worker and existing relay dependencies
         run: |
           set -euo pipefail
-          cd chatgpt-android-relay/web
-          python -m pip install -q -r requirements.txt
+          python -m pip install -q -r bridge-source/chatgpt-android-relay/web/requirements.txt
+          python -m pip install -q websockets==13.1
+      - name: Signed GitHub OIDC negative and positive tests
+        run: |
+          set -euo pipefail
+          cd bridge-source/chatgpt-android-relay/web
           python -m unittest discover -s tests -p 'test_gh_oidc.py' -v
-          python -m unittest discover -s tests -p 'test_web2api_bridge.py' -v
-          python -m py_compile app.py gh_oidc.py
-          echo PASS_RELAY_GITHUB_OIDC_AUTHENTICATION_TESTED_ISOLATED
-      - name: Verify GitHub Chrome worker protocol against isolated fixtures
-        run: |
-          python3 .github/scripts/test_w2a_relay_worker.py
-          python3 -m py_compile .github/scripts/w2a_relay_worker.py
-          echo PASS_GITHUB_WORKER_PROTOCOL_AND_ROOM_GUARDS
-      - name: Check original relay API tests without touching Railway
+      - name: Scoped room persistence and WebSocket contract tests
         run: |
           set -euo pipefail
-          cd chatgpt-android-relay/web
+          cd bridge-source/chatgpt-android-relay/web
+          python -m unittest discover -s tests -p 'test_web2api_room_persistence.py' -v
+          python -m unittest discover -s tests -p 'test_web2api_bridge.py' -v
+          python -m py_compile app.py api_v1.py gh_oidc.py
+          echo PASS_WEB2API_SCOPED_RELAY_CONTRACTS
+      - name: Verify worker protocol without accessing ChatGPT
+        run: |
+          set -euo pipefail
+          python .github/scripts/test_w2a_relay_worker.py
+          python -m py_compile .github/scripts/w2a_relay_worker.py
+          echo PASS_WEB2API_WORKER_PROTOCOL_GUARDS
+      - name: Verify original server API regression
+        run: |
+          set -euo pipefail
+          cd bridge-source/chatgpt-android-relay/web
           python tests/test_api_v1.py
-          echo PASS_RELAY_ROOM_API_REGRESSIONS
+          echo PASS_RELAY_ORIGINAL_API_REGRESSIONS
