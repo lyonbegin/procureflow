@@ -7,6 +7,7 @@ on:
       - .github/workflows/chatgpt-web2api-verify-session.yml
       - .github/scripts/w2a_verify_session.py
       - .github/scripts/w2a_verify_chat_completion.py
+      - .github/scripts/w2a_diagnose_live_browser.py
 
 permissions:
   contents: read
@@ -121,3 +122,30 @@ jobs:
           DISPLAY: :99
         run: |
           python3 .github/scripts/w2a_verify_chat_completion.py
+      - name: Collect safe browser and Web2API error categories on failure
+        if: failure()
+        env:
+          DISPLAY: :99
+        run: |
+          python3 .github/scripts/w2a_diagnose_live_browser.py || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          path=Path(os.environ["RUNNER_TEMP"])/"w2a-check"/"web2api.log"
+          if not path.exists():
+              print("DIAG_WEB2API_LOG_ABSENT")
+          else:
+              text=path.read_text(encoding="utf-8",errors="replace").lower()
+              classes={
+                  "generation_stuck":("generationstuckerror","generation stuck","generation_stuck"),
+                  "composer_not_found":("no composer found","composer not present"),
+                  "timeout":("timed out","timeout","time limit"),
+                  "send_readiness":("sendreadinesserror","send readiness","send button"),
+                  "cdp_disconnect":("cdp disconn","websocket closed","socket closed"),
+                  "auth":("not logged in","auth failed","session expired"),
+                  "rate_limit":("rate limit","too many requests"),
+              }
+              for name,terms in classes.items():
+                  print("DIAG_WEB2API_"+name.upper()+"="+str(sum(text.count(t) for t in terms)))
+              print("DIAG_WEB2API_LOG_LINES="+str(len(text.splitlines())))
+          PY
