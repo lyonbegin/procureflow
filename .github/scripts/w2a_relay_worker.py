@@ -155,7 +155,7 @@ async def run(max_seconds: int = 1500) -> None:
                 close_timeout=5, max_size=3 * 1024 * 1024,
             ) as socket:
                 await socket.send(json.dumps({
-                    "role": "device", "deviceId": "android-main",
+                    "role": "web2api", "deviceId": "web2api-main",
                     "oidc_token": token,
                 }))
                 first = json.loads(await asyncio.wait_for(socket.recv(), timeout=20))
