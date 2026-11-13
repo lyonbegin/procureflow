@@ -183,8 +183,9 @@ async def demo_start(request: Request):
     host = request.headers.get("host", "").split(":")[0]
     if origin and origin != ("https://" + host) and origin != ("http://" + host):
         raise HTTPException(403, "Cross-site test requests denied")
-    if web2api_device is None:
-        raise HTTPException(409, "GitHub Chrome worker is not connected")
+    # Queue the fixed, isolated test even when the GitHub Chrome runner is
+    # offline. A scheduled GitHub Actions workflow starts the runner when
+    # this queue is non-empty. Do not expose a disabled button.
     if active_job_id:
         raise HTTPException(409, "Another test is already running")
     now = api_v1.clock()
@@ -213,7 +214,9 @@ async def demo_start(request: Request):
              "user", DEMO_QUESTION, now),
         )
     await dispatch_next()
-    return {"started": True, "testState": "queued"}
+    return {"started": True, "testState": "queued",
+            "workerConnected": web2api_device is not None,
+            "notice": "Test request queued. GitHub Actions picks it up when scheduled."}
 
 
 @app.websocket("/ws")
