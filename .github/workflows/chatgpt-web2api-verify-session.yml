@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - .github/workflows/chatgpt-web2api-verify-session.yml
+      - .github/scripts/w2a_verify_session.py
 
 permissions:
   contents: read
