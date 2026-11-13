@@ -144,6 +144,8 @@ async def run(max_seconds: int = 1500) -> None:
     address = ws_destination()
     deadline = time.monotonic() + max_seconds
     attempts = 0
+    authenticated_once = False
+    seen_jobs: set[str] = set()
     while time.monotonic() < deadline:
         attempts += 1
         try:
@@ -160,6 +162,7 @@ async def run(max_seconds: int = 1500) -> None:
                 if first.get("type") != "auth.ok":
                     raise RuntimeError("RELAY_OIDC_AUTH_REJECTED")
                 print("PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED", flush=True)
+                authenticated_once = True
                 attempts = 0
                 while time.monotonic() < deadline:
                     raw = await asyncio.wait_for(
@@ -176,6 +179,10 @@ async def run(max_seconds: int = 1500) -> None:
                         jid, rid = job.get("id"), job.get("room_id")
                         if not isinstance(jid, str) or not isinstance(rid, str):
                             continue
+                        if jid in seen_jobs:
+                            print("REFUSE_DUPLICATE_RELAY_JOB", flush=True)
+                            continue
+                        seen_jobs.add(jid)
                         await socket.send(json.dumps({
                             "type": "job.received", "job_id": jid,
                             "room_id": rid, "stage": "web2api_received",
@@ -214,8 +221,14 @@ async def run(max_seconds: int = 1500) -> None:
             break
         await asyncio.sleep(min(30, max(2, 2 ** min(attempts, 4))))
     print("RELAY_ACTIONS_WORKER_RUN_ENDED", flush=True)
+    if not authenticated_once:
+        raise RuntimeError("RELAY_OIDC_AUTH_NEVER_SUCCEEDED")
 
 
 if __name__ == "__main__":
     duration = int(os.environ.get("W2A_WORKER_SECONDS", "600"))
-    asyncio.run(run(max_seconds=max(60, min(1500, duration))))
+    try:
+        asyncio.run(run(max_seconds=max(60, min(1500, duration))))
+    except Exception as exc:
+        print("FAIL_RELAY_WORKER_"+type(exc).__name__,flush=True)
+        sys.exit(1)
