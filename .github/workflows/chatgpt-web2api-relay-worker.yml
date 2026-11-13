@@ -1,0 +1,144 @@
+name: ChatGPT - GitHub Chrome Web2API relay worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      work_minutes:
+        description: "Run temporary GitHub Chrome worker for this many minutes"
+        type: choice
+        required: true
+        default: "10"
+        options:
+          - "5"
+          - "10"
+          - "20"
+  push:
+    paths:
+      - .github/workflows/chatgpt-web2api-relay-worker.yml
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: chatgpt-web2api-relay-worker
+  cancel-in-progress: false
+
+jobs:
+  verify-github-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chatgpt-web2api-relay-bridge-20261113
+          path: bridge-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify genuine GitHub OIDC JWT against pinned relay trust policy
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q 'PyJWT[crypto]==2.10.1' websockets==13.1
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path("bridge-source/chatgpt-android-relay/web").resolve()))
+          sys.path.insert(0,str(Path(".github/scripts").resolve()))
+          from gh_oidc import verify_worker_identity
+          from w2a_relay_worker import get_oidc_token
+          token = get_oidc_token()
+          if not verify_worker_identity(token):
+              raise SystemExit("FAIL_REAL_GITHUB_OIDC_CLAIMS")
+          print("PASS_REAL_SIGNED_GITHUB_OIDC_TRUST",flush=True)
+          PY
+
+  live-chrome-worker:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify-github-identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      RELAY_WS_URL: wss://chatgpt-relay-web-production.up.railway.app/ws
+      W2A_WORKER_SECONDS: ${{ fromJSON(inputs.work_minutes) * 60 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Restore prior encrypted ChatGPT Chrome session only on runner
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography playwright==1.56.0 websockets==13.1
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-live-worker"
+          mkdir -p "$ROOT" "$ROOT/download"
+          chmod 700 "$ROOT"
+          gh run download 43353952660 --repo "$GITHUB_REPOSITORY" \
+            --name chatgpt-web2api-encrypted-profile --dir "$ROOT/download" >/dev/null
+          test -s "$ROOT/download/secure-profile.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/secure-profile.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_ENCRYPTED_CHATGPT_LOGIN_RESTORED
+      - name: Start authenticated Chrome with private loopback CDP
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-live-worker"
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:9222/json/version > /dev/null 2>&1; then
+              echo PASS_CHROME_CDP_READY
+              break
+            fi
+            if [ "$i" -eq 50 ]; then echo FAIL_CHROME_CDP_START; exit 1; fi
+            sleep 2
+          done
+      - name: Confirm ChatGPT signed-in session actually works
+        run: python3 .github/scripts/w2a_verify_session.py
+      - name: Launch the original, narrowly patched Web2API
+        env:
+          DISPLAY: :99
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-live-worker"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 -m pip install -q "$ROOT/original"
+          chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+            >"$ROOT/web2api.log" 2>&1 &
+          for i in $(seq 1 50); do
+            if curl -fsS --max-time 4 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo PASS_ORIGINAL_WEB2API_HEALTH
+              break
+            fi
+            if [ "$i" -eq 50 ]; then echo FAIL_ORIGINAL_WEB2API_START; exit 1; fi
+            sleep 2
+          done
+      - name: Run temporary Web2API-to-Railway relay worker
+        env:
+          DISPLAY: :99
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/w2a_relay_worker.py
