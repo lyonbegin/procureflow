@@ -18,8 +18,6 @@ import asyncio
 import json
 import os
 import re
-import ssl
-import sys
 import time
 import urllib.parse
 import urllib.request
@@ -165,7 +163,7 @@ async def run(max_seconds: int = 1500) -> None:
                 attempts = 0
                 while time.monotonic() < deadline:
                     raw = await asyncio.wait_for(
-                        socket.recv(), timeout=max(1, min(60, deadline - time.monotonic()))
+                        socket.recv(), timeout=max(1, deadline - time.monotonic())
                     )
                     item = json.loads(raw)
                     typ = item.get("type")
@@ -219,4 +217,5 @@ async def run(max_seconds: int = 1500) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    duration = int(os.environ.get("W2A_WORKER_SECONDS", "600"))
+    asyncio.run(run(max_seconds=max(60, min(1500, duration))))
