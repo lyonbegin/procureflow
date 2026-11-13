@@ -50,7 +50,7 @@ class RelayBridgeTests(unittest.TestCase):
     def test_worker_binds_first_reply_then_rejects_wrong_chat(self,_):
         first=self.enqueue("First verified turn")
         with self.client.websocket_connect("/ws") as ws:
-            ws.send_json({"role":"device","deviceId":"android-main",
+            ws.send_json({"role":"web2api","deviceId":"web2api-main",
                           "oidc_token":"signed-test-token-not-real"})
             self.assertEqual(ws.receive_json()["type"],"auth.ok")
             packet=ws.receive_json()
@@ -111,7 +111,7 @@ class RelayBridgeTests(unittest.TestCase):
     @patch("app.verify_worker_identity",return_value=False)
     def test_unsigned_worker_denied(self,_):
         with self.client.websocket_connect("/ws") as ws:
-            ws.send_json({"role":"device","deviceId":"android-main",
+            ws.send_json({"role":"web2api","deviceId":"web2api-main",
                           "oidc_token":"unsigned"})
             self.assertEqual(ws.receive_json()["type"],"auth.error")
 
