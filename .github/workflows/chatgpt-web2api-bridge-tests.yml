@@ -70,6 +70,12 @@ jobs:
           PY
           node --check /tmp/relay-bridge-ui.js
           echo PASS_WEB2API_WORKER_UI_SYNTAX
+      - name: Verify public token-free test UI and private API isolation
+        run: |
+          set -euo pipefail
+          cd bridge-source/chatgpt-android-relay/web
+          python -m unittest discover -s tests -p 'test_public_smoke.py' -v
+          echo PASS_NO_TOKEN_PUBLIC_UI_AND_PRIVATE_DATA_GUARDS
       - name: Verify original server API regression
         run: |
           set -euo pipefail
