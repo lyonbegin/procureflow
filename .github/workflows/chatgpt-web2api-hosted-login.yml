@@ -1,27 +1,29 @@
-name: ChatGPT Web2API - direct Google login smoke test
+name: ChatGPT - free Chrome login and reusable session
 
 on:
   workflow_dispatch:
   push:
     paths:
       - .github/workflows/chatgpt-web2api-hosted-login.yml
-      - .github/scripts/w2a_google_login_probe.py
 
 permissions:
   contents: read
+  actions: read
+  statuses: write
 
 concurrency:
-  group: chatgpt-web2api-google-login-probe
+  group: chatgpt-free-chrome-login
   cancel-in-progress: false
 
 jobs:
-  login-probe:
-    name: Existing Google secrets -> GitHub Chrome -> ChatGPT
+  chrome-session:
+    name: Protected one-time Chrome session on GitHub Actions
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 27
     env:
-      FREEMOA_GOOGLE_EMAIL: ${{ secrets.FREEMOA_GOOGLE_EMAIL }}
+      GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      W2A_ACCESS_SHA256: 9ce83cde9c185b716d8b51071c321ac1805aa6016baf871394f65670ccea29c6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,47 +34,169 @@ jobs:
         with:
           chrome-version: stable
           install-dependencies: true
-      - name: Install existing Chrome browser control dependency
+      - name: Install free remote-browser dependencies
         run: |
-          python -m pip install -q playwright==1.56.0
+          set -euo pipefail
+          python3 -m pip install -q cryptography
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
-          python -m py_compile .github/scripts/w2a_google_login_probe.py
-      - name: Start local-only Chrome and attempt Google sign-in
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            xvfb xauth x11vnc novnc websockify nginx
+          python3 -m py_compile .github/scripts/w2a_login_gateway.py .github/scripts/w2a_profile_crypto.py
+          test -f /usr/share/novnc/vnc.html
+          test -n "$FREEMOA_GOOGLE_PASSWORD"
+          echo PASS_EXISTING_SECRET_NO_ADDITIONAL_W2A_PASSWORD
+      - name: Start Chrome and protected login page; save encrypted profile when finished
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           set -euo pipefail
-          export DISPLAY=:99
-          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$RUNNER_TEMP/w2a-xvfb.log" 2>&1 &
-          sleep 3
-          if [ ! -S /tmp/.X11-unix/X99 ]; then
-            echo FAIL_XVFB_START
-            tail -n 20 "$RUNNER_TEMP/w2a-xvfb.log" || true
-            exit 1
+          ROOT="$RUNNER_TEMP/w2a-live"
+          mkdir -p "$ROOT" "$ROOT/restore"
+          chmod 700 "$ROOT"
+
+          # Restore the most recent encrypted Chrome profile, never raw cookies.
+          PREVIOUS="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=50&name=chatgpt-web2api-encrypted-profile" --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty' 2>/dev/null || true)"
+          if [ -n "$PREVIOUS" ]; then
+            if gh run download "$PREVIOUS" --repo "$GITHUB_REPOSITORY" --name chatgpt-web2api-encrypted-profile --dir "$ROOT/restore" >/dev/null 2>&1; then
+              if [ -s "$ROOT/restore/secure-profile.bin" ]; then
+                if ! python3 .github/scripts/w2a_profile_crypto.py restore "$ROOT/restore/secure-profile.bin" "$ROOT"; then
+                  echo PROFILE_RESTORE_FAILED_STARTING_FRESH
+                  rm -rf "$ROOT/chrome-profile"
+                fi
+              fi
+            fi
           fi
-          mkdir -p "$RUNNER_TEMP/w2a-profile"
+          mkdir -p "$ROOT/chrome-profile"
+          chmod 700 "$ROOT/chrome-profile"
+
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
           "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
             --no-first-run --no-default-browser-check \
             --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
-            --user-data-dir="$RUNNER_TEMP/w2a-profile" \
-            https://chatgpt.com >"$RUNNER_TEMP/w2a-chrome.log" 2>&1 &
-          for i in $(seq 1 40); do
-            if curl --silent --fail http://127.0.0.1:9222/json/version >/dev/null; then
-              echo PASS_GITHUB_CHROME_CDP_LOCAL
-              break
-            fi
-            if [ "$i" -eq 40 ]; then
-              echo FAIL_GITHUB_CHROME_CDP_STARTUP
-              tail -n 35 "$RUNNER_TEMP/w2a-chrome.log" || true
-              tail -n 15 "$RUNNER_TEMP/w2a-xvfb.log" || true
+            --user-data-dir="$ROOT/chrome-profile" \
+            'https://chatgpt.com/auth/login' >"$ROOT/chrome.log" 2>&1 &
+          CHROME_PID=$!
+          for i in $(seq 1 45); do
+            if curl --silent --fail http://127.0.0.1:9222/json/version > /dev/null; then break; fi
+            if [ "$i" -eq 45 ]; then
+              echo FAIL_CHROME_STARTUP
+              tail -n 20 "$ROOT/chrome.log" || true
               exit 1
             fi
             sleep 2
           done
-          python .github/scripts/w2a_google_login_probe.py
-      - name: Summary
-        if: always()
-        run: |
-          echo "This one-off test uses no W2A_LOGIN_PASSWORD, no W2A_PROFILE_KEY, and opens no public browser tunnel."
-          echo "Chrome session remains on the ephemeral GitHub runner only; nothing is uploaded."
+          echo PASS_CHROME_LOGIN_PAGE_OPEN
+
+          python3 .github/scripts/w2a_login_gateway.py >"$ROOT/gateway.log" 2>&1 &
+          for i in $(seq 1 20); do
+            if curl --silent --fail http://127.0.0.1:8899/health >/dev/null; then break; fi
+            if [ "$i" -eq 20 ]; then echo FAIL_AUTH_GATE_STARTUP; exit 1; fi
+            sleep 1
+          done
+
+          x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -nopw -quiet \
+            >"$ROOT/x11vnc.log" 2>&1 &
+          websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900 \
+            >"$ROOT/websockify.log" 2>&1 &
+          cat >"$ROOT/nginx.conf" <<'NGINX'
+          worker_processes 1;
+          pid /tmp/w2a-free-login-nginx.pid;
+          error_log /dev/stderr warn;
+          events { worker_connections 512; }
+          http {
+            access_log off;
+            server {
+              listen 127.0.0.1:8088;
+              server_tokens off;
+              location = /grant {
+                proxy_pass http://127.0.0.1:8899;
+              }
+              location = /finish {
+                proxy_pass http://127.0.0.1:8899;
+              }
+              location = /_auth {
+                internal;
+                proxy_pass http://127.0.0.1:8899/verify;
+                proxy_pass_request_body off;
+                proxy_set_header Content-Length "";
+                proxy_set_header Cookie $http_cookie;
+              }
+              location / {
+                auth_request /_auth;
+                proxy_pass http://127.0.0.1:6080;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_read_timeout 1200s;
+                proxy_buffering off;
+              }
+            }
+          }
+          NGINX
+          nginx -t -c "$ROOT/nginx.conf"
+          nginx -c "$ROOT/nginx.conf" -g 'daemon off;' >"$ROOT/nginx.log" 2>&1 &
+          STATUS="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/vnc.html)"
+          if [ "$STATUS" != 401 ]; then echo FAIL_BROWSER_NOT_AUTH_PROTECTED; exit 1; fi
+          echo PASS_BROWSER_REJECTS_UNAUTHORIZED_ACCESS
+
+          curl -fsSL --retry 3 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o "$ROOT/cloudflared"
+          chmod 700 "$ROOT/cloudflared"
+          "$ROOT/cloudflared" tunnel --no-autoupdate --url http://127.0.0.1:8088 \
+            >"$ROOT/tunnel.log" 2>&1 &
+          TUNNEL=""
+          for i in $(seq 1 70); do
+            TUNNEL="$(grep -Eo 'https://[a-z0-9-]+[.]trycloudflare[.]com' "$ROOT/tunnel.log" | tail -n 1 || true)"
+            if [ -n "$TUNNEL" ]; then break; fi
+            sleep 2
+          done
+          if [ -z "$TUNNEL" ]; then
+            echo FAIL_FREE_TUNNEL_SETUP
+            tail -n 15 "$ROOT/tunnel.log" || true
+            exit 1
+          fi
+          READY=false
+          for i in $(seq 1 25); do
+            STATUS="$(curl -L -s -o /dev/null -w '%{http_code}' --max-time 10 "$TUNNEL/vnc.html" || true)"
+            if [ "$STATUS" = 401 ]; then READY=true; break; fi
+            sleep 3
+          done
+          if [ "$READY" != true ]; then echo FAIL_TUNNEL_AUTH_GATE_TEST; exit 1; fi
+
+          # Publish only the PROTECTED tunnel hostname in the public GitHub
+          # commit status. The private one-time access code is not published.
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending -f context=chatgpt-manual-login \
+            -f target_url="$TUNNEL" \
+            -f description='Protected GitHub Chrome is ready; private access code delivered separately' \
+            >/dev/null
+          echo PASS_PROTECTED_REMOTE_CHROME_READY
+          echo PUBLIC_TUNNEL_HOST_ONLY="$TUNNEL"
+          echo USE_PRIVATE_CHAT_LINK_TO_AUTHENTICATE
+          echo LOGIN_FINISH_ENDPOINT_AVAILABLE
+
+          # No background work is promised by ChatGPT; the external Actions
+          # job waits only while this explicitly started test is active.
+          for i in $(seq 1 210); do
+            if [ -f "$RUNNER_TEMP/w2a-save-requested" ]; then
+              echo USER_REQUESTED_CHROME_SESSION_SAVE
+              break
+            fi
+            sleep 5
+          done
+          kill "$CHROME_PID" 2>/dev/null || true
+          sleep 4
+          python3 .github/scripts/w2a_profile_crypto.py save \
+            "$ROOT/chrome-profile" "$ROOT/secure-profile.bin"
+          echo PASS_ENCRYPTED_CHROME_PROFILE_READY
+      - name: Save encrypted browser session only
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-web2api-encrypted-profile
+          path: ${{ runner.temp }}/w2a-live/secure-profile.bin
+          if-no-files-found: error
+          retention-days: 7
