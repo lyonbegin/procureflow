@@ -1,0 +1,34 @@
+name: Resolve official ChatGPT 1.2026.300 APKMirror download for emulator
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/probe-chatgpt-apkmirror-direct-download.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect APKMirror version download HTML and redirects without authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import requests,re,html
+          u="https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/"
+          s=requests.Session()
+          s.headers.update({"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"})
+          try:
+              r=s.get(u,timeout=25)
+              print("PAGE_STATUS",r.status_code,"SIZE",len(r.content),"FINAL_URL",r.url)
+              text=r.text
+              for match in re.finditer(r'<a[^>]+(?:href|data-href)="[^"]+"[^>]*>',text,re.I):
+                  tag=html.unescape(match.group(0))
+                  if any(x in tag.lower() for x in ("download","key=","file","apkm")):
+                      print("LINK",tag[:450])
+              for x in ("download.php","download/?key","download-file","please wait","cloudflare","captcha"):
+                  print("MARKER",x,x in text.lower())
+          except Exception as e:print("PROBE_EXCEPTION",type(e).__name__,str(e))
+          PY

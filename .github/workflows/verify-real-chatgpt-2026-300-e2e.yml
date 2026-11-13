@@ -1,0 +1,158 @@
+name: REAL official ChatGPT 1.2026.300 Android send answer attachment E2E
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths:
+      - .github/workflows/verify-real-chatgpt-2026-300-e2e.yml
+      - .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+      - .github/scripts/probe-official-chatgpt-guest-send.sh
+      - .github/scripts/relay-live-android-api.py
+      - chatgpt-android-relay/android/**
+      - chatgpt-android-relay/web/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-official-chatgpt-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Validate actual UI test syntax
+        run: |
+          bash -n .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+          python3 -m py_compile .github/scripts/relay-live-android-api.py
+      - name: Install isolated server dependencies
+        run: python3 -m pip install -r chatgpt-android-relay/web/requirements.txt
+      - name: Build Android accessibility controller
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+          sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Restore previously verified original APKM (isolated CI cache)
+        uses: actions/cache@v4
+        id: original-apkm-cache
+        with:
+          path: /tmp/official-user-original.apkm
+          key: original-chatgpt-2026-300-695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44
+      - name: Download EXACT user-supplied original APKM from APKMirror and verify SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          USER_AGENT='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36'
+          PAGE='https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
+          mkdir -p real-chatgpt-evidence /tmp/chatgpt-original-splits
+          # A once-verified original must survive a failed E2E run.
+          # Do not re-download when the exact original is present.
+          if [[ -f /tmp/official-user-original.apkm ]] &&
+             printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' | sha256sum -c >/dev/null; then
+            echo 'EXACT_USER_ORIGINAL_RESTORED_FROM_CI_CACHE'
+          else
+            rm -f /tmp/official-user-original.apkm
+            # APKMirror sometimes returns HTTP 403 to shared CI runner IPs.
+          # Try the two documented hostname forms and cache-busting requests;
+          # never accept a different file (final archive SHA256 remains exact).
+          PAGE_READY=0
+          for candidate in "$PAGE" "${PAGE/www.apkmirror.com/apkmirror.com}" \
+                           "$PAGE?ci=20261111"; do
+            for attempt in 1 2 3; do
+              code="$(curl --location --silent --show-error --max-time 45 \
+                --output /tmp/original-page.html --write-out '%{http_code}' \
+                -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
+                -H "User-Agent: $USER_AGENT" \
+                -H 'Accept-Language: en-US,en;q=0.9' \
+                -H 'Accept: text/html,application/xhtml+xml' \
+                "$candidate" || true)"
+              echo "APKMIRROR_PAGE_HTTP=$code variant_attempt=$attempt"
+              if [[ "$code" == 200 ]] && \
+                 grep -q '/download/?key=' /tmp/original-page.html; then
+                PAGE_READY=1
+                break
+              fi
+              sleep 2
+            done
+            if [[ "$PAGE_READY" == 1 ]]; then break; fi
+          done
+          if [[ "$PAGE_READY" != 1 ]]; then
+            echo 'FAIL_APKMIRROR_PAGE_ACCESS: all fresh requests failed'
+            exit 1
+          fi
+          STEP_URL="$(python3 - <<'PY'
+          import re,html
+          s=open('/tmp/original-page.html').read()
+          m=re.search(r"""href=['"]([^'"]+/download/[?]key=[^'"]+)['"]""",s)
+          if not m: raise SystemExit('FAIL_APKMIRROR_APKM_LINK_NOT_FOUND')
+          print('https://www.apkmirror.com'+html.unescape(m.group(1)))
+          PY
+          )"
+          curl --fail --silent --show-error --location --retry 4 \
+            --retry-all-errors --retry-delay 2 --max-time 70 \
+            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
+            -H "User-Agent: $USER_AGENT" -e "$PAGE" \
+            --output /tmp/intermediate-original.html "$STEP_URL"
+          FULL_URL="$(python3 - <<'PY'
+          import re,html
+          s=open('/tmp/intermediate-original.html').read()
+          m=re.search(r"""id=['"]download-link['"][^>]*href=['"]([^'"]*download[.]php[?]id=16946670[^'"]+)['"]""",s)
+          if not m: raise SystemExit('FAIL_APKMIRROR_DIRECT_DOWNLOAD_LINK_NOT_FOUND')
+          print('https://www.apkmirror.com'+html.unescape(m.group(1)))
+          PY
+          )"
+          curl --fail --silent --show-error --location --retry 4 \
+            --retry-all-errors --retry-delay 2 --max-time 600 \
+            -b /tmp/apkmirror-session.cookies -c /tmp/apkmirror-session.cookies \
+            -H "User-Agent: $USER_AGENT" -e "$STEP_URL" \
+            --output /tmp/official-user-original.apkm "$FULL_URL"
+          fi
+          file /tmp/official-user-original.apkm
+          test "$(stat -c %s /tmp/official-user-original.apkm)" -eq 101098896
+          printf '%s\n' '695598014d4db8ef284a7171bf9f6382fff5629aba2c9960b710d539b4fe2b44  /tmp/official-user-original.apkm' \
+            | sha256sum -c | tee real-chatgpt-evidence/original-apkm-verified.txt
+          unzip -tq /tmp/official-user-original.apkm | tee real-chatgpt-evidence/original-apkm-integrity.txt
+          unzip -j -q /tmp/official-user-original.apkm \
+            base.apk split_config.x86_64.apk split_config.xxhdpi.apk split_config.en.apk split_config.ko.apk \
+            -d /tmp/chatgpt-original-splits
+          ls -lh /tmp/chatgpt-original-splits | tee real-chatgpt-evidence/verified-original-splits.txt
+          echo 'EXACT_USER_ORIGINAL_APKM_READY'
+      - name: Save verified original APKM as private workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-chatgpt-original-2630015
+          path: /tmp/official-user-original.apkm
+          retention-days: 7
+          if-no-files-found: error
+      - name: Grant KVM for real Android emulator
+        run: |
+          set -euo pipefail
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -w /dev/kvm
+      - name: Install original official APKM plus controller and execute actual send/reply/attachments
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis_playstore
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 650
+          script: bash .github/scripts/verify-relay-real-chatgpt-original-e2e.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: actual-official-chatgpt-2026-300-e2e-evidence
+          path: real-chatgpt-evidence/
+          if-no-files-found: warn

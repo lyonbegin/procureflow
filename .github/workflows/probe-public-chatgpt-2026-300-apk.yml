@@ -1,0 +1,36 @@
+name: Probe public ChatGPT 1.2026.300 Android APKM transport to CI
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/probe-public-chatgpt-2026-300-apk.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Inspect public and version-pinned archive endpoints without bypassing protection
+        shell: bash
+        run: |
+          set -uo pipefail
+          urls=(
+            'https://apkpure.net/chatgpt/com.openai.chatgpt/download/1.2026.300'
+            'https://test-yandex.apkpure.net/chatgpt/com.openai.chatgpt/download/1.2026.300'
+            'https://d.apkpure.com/b/XAPK/com.openai.chatgpt?versionCode=2630015'
+            'https://d.apkpure.net/b/XAPK/com.openai.chatgpt?versionCode=2630015'
+            'https://www.apkmirror.com/apk/openai/chatgpt/chatgpt-1-2026-300-release/chatgpt-1-2026-300-2-android-apk-download/'
+            'https://apkcombo.com/chatgpt/com.openai.chatgpt/download/apk'
+          )
+          for url in "${urls[@]}"; do
+            printf '\nSOURCE=%s\n' "$url"
+            # This only probes response metadata; an HTTP 200 HTML page
+            # does not count as a successful original APKM download.
+            curl --retry 0 --max-time 22 --silent --show-error --location \
+              --range 0-2047 --output /tmp/response.bin \
+              --write-out 'status=%{http_code} size=%{size_download} type=%{content_type} url=%{url_effective}\n' \
+              -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36' "$url" || true
+            file /tmp/response.bin 2>/dev/null || true
+          done
+          echo 'PUBLIC_APK_SOURCE_PROBE_COMPLETE_NO_UNVERIFIED_INSTALL'

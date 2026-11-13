@@ -1,0 +1,51 @@
+name: Probe authentic ChatGPT 1.2026.300 mirror delivery for real E2E
+on:
+  push:
+    branches: [fix/chatgpt-relay-verified-routing-20261110]
+    paths: [.github/workflows/probe-alternate-official-chatgpt-xapk.yml]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  pinned-2630015:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - name: Attempt public, version-pinned APK mirrors independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p proof
+          cat > /tmp/urls.txt <<'URLS'
+          https://d.apkpure.net/b/XAPK/com.openai.chatgpt?versionCode=2630015
+          https://d.apkpure.com/b/XAPK/com.openai.chatgpt?versionCode=2630015
+          https://d.apkpure.net/b/XAPK/com.openai.chatgpt?version=1.2026.300
+          https://apkpure.net/chatgpt/com.openai.chatgpt/download/1.2026.300
+          https://apkpure.com/chatgpt/com.openai.chatgpt/download/1.2026.300
+          https://chatgpt.en.uptodown.com/android/download/1.2026.300
+          URLS
+          n=0
+          while IFS= read -r url; do
+            n=$((n+1))
+            echo "CANDIDATE_$n"
+            curl -L -sS --max-time 65 --retry 1 -H 'User-Agent: Mozilla/5.0' \
+              --range 0-65535 \
+              -o "/tmp/probe-$n.bin" \
+              -w 'HTTP=%{http_code} TYPE=%{content_type} LENGTH=%{size_download} FINAL=%{url_effective}\n' \
+              "$url" >"/tmp/probe-$n-meta.txt" || true
+            # Truncate any transient querystring/signed CDN tokens from public logs.
+            sed -E 's/([?&](key|token|sig|signature|auth|expires)=[^& ]+)/[query-parameter-redacted]/Ig' \
+              "/tmp/probe-$n-meta.txt" | sed -E 's/(FINAL=https?:\/\/[^/? ]+).*/\1/'
+            file -b "/tmp/probe-$n.bin" || true
+            head -c 4 "/tmp/probe-$n.bin" | od -An -tx1
+            if [[ "$(head -c 2 "/tmp/probe-$n.bin" || true)" == PK ]]; then
+              echo "ZIP_MAGIC_CANDIDATE_$n"
+              cp "/tmp/probe-$n-meta.txt" "proof/candidate-$n.txt"
+            fi
+          done < /tmp/urls.txt
+          echo 'Public mirrors probed; no app install, no credentials.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-android-mirror-probe
+          path: proof/
+          if-no-files-found: warn

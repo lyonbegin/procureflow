@@ -1,0 +1,94 @@
+name: Verify ChatGPT Relay routing safety (no production publish)
+on:
+  push:
+    branches:
+      - fix/chatgpt-relay-verified-routing-20261110
+    paths:
+      - 'chatgpt-android-relay/android/**'
+      - '.github/workflows/verify-chatgpt-relay-verified-routing.yml'
+      - '.github/scripts/verify-relay-controller-emulator.sh'
+  workflow_dispatch:
+concurrency:
+  group: chatgpt-relay-routing-safety
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  controller-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Prepare hardware accelerated Android emulator
+        run: |
+          set -euo pipefail
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Verify no composer-only conversation confirmation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/ChatRelayService.kt').read_text()
+          start=s.index('    private fun verifyDeepLinkLanding(')
+          end=s.index('    private fun verifyExistingRoom(', start)
+          body=s[start:end]
+          assert 'if(matching!=null){' in body, 'historical message anchor is mandatory'
+          assert 'if(matching!=null || nextStable>=4)' not in body, 'composer-only approval is forbidden'
+          assert 'UNVERIFIED_CONVERSATION' in body
+          assert 'screenBlockReason(root)' in body
+          assert 'EMULATOR_SYSTEM_ANR' in s
+          assert 'CHATGPT_LOGIN_REQUIRED' in s
+          activity=Path('chatgpt-android-relay/android/app/src/main/java/com/hitel/chatrelay/MainActivity.kt').read_text()
+          assert 'setText(prefs.getString("token", "").orEmpty())' in activity
+          assert 'setText(prefs.getString("token", "").orEmpty().ifBlank' not in activity
+          assert 'val token = prefs.getString("token", "").orEmpty()' in s
+          assert 'val token = prefs.getString("token", "").orEmpty().ifBlank' not in s
+          assert 'val blocker = screenBlockReason(root)' in s
+          assert 'if(activeConversationId==null && currentRoomId==null)return' in s
+          assert '(activeConversationId!=null || currentRoomId!=null)' in s
+          assert 'chatComposerIsVisible() &&' in s
+          assert 'val promptIndex=data.indexOfLast' in s
+          assert 'if(promptIndex<0)return ""' in s
+          assert 'link.isNotBlank() && validChatGptConversationLink(link)' in s
+          assert 'TYPE_TEXT_VARIATION_EMAIL_ADDRESS' in s
+          assert 'TYPE_TEXT_VARIATION_WEB_PASSWORD' in s
+          print('PASS: verified anchors, invalid-URL history fallback, cache reset, login composer exclusion, credential removal')
+          PY
+      - name: Build Android APK without publishing it
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p chatgpt-android-relay/android :app:assembleDebug
+          sha256sum chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Run relay controller smoke test on Android 15 x86_64
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/verify-relay-controller-emulator.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relay-controller-routing-safety-evidence
+          path: controller-evidence/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: relay-controller-unpublished-debug-apk
+          path: chatgpt-android-relay/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
