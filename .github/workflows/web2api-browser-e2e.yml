@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - .github/workflows/web2api-browser-e2e.yml
+      - .github/scripts/w2a_browser_e2e.py
 permissions:
   contents: read
 jobs:
