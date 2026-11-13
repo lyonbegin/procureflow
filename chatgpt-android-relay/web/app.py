@@ -268,17 +268,36 @@ async def socket(ws: WebSocket):
                                 expected_stage and reported_stage == expected_stage
                                 and (action == "room.open" or output.strip())
                             )
-                            good = claimed_success and identity_ok and proof_ok
+                            # For the verified GitHub Web2API worker only:
+                            # the actual ChatGPT conversation returned by the
+                            # original Web2API must be the room's immutable target.
+                            # This also binds a new Railway room on its FIRST
+                            # successful turn, so turn #2 cannot drift away.
+                            browser_conversation_ok = True
+                            if (valid_actions and action == "chat.send"
+                                    and claimed_success and identity_ok and proof_ok):
+                                browser_conversation_ok = bool(
+                                    api_v1.bind_verified_browser_conversation(
+                                        jid, assigned_room, msg.get("chatgpt_url")
+                                    )
+                                )
+                            good = (claimed_success and identity_ok
+                                    and proof_ok and browser_conversation_ok)
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
+                            wrong_browser_chat = (claimed_success and identity_ok
+                                                  and proof_ok and not browser_conversation_ok)
                             stage = ("ROOM_ID_MISMATCH" if mismatch else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
+                                     "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
                                      reported_stage or ("completed" if good else "failed"))
-                            reason = ("Android completion room_id did not match the assigned job room"
+                            reason = ("Worker completion room_id did not match the assigned job room"
                                       if mismatch else
-                                      "Android completion did not provide action-specific verification"
+                                      "Worker completion did not provide action-specific verification"
                                       if invalid_proof else
-                                      str(msg.get("reason", "Android action was not verified"))[:500])
+                                      "Web2API conversation did not match its assigned room"
+                                      if wrong_browser_chat else
+                                      str(msg.get("reason", "Remote action was not verified"))[:500])
                             api_v1.update_job(jid, status="completed" if good else "failed",
                                               stage=stage, result_text=output if good else None,
                                               error=None if good else reason)
