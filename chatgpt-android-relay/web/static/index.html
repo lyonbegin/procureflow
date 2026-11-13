@@ -252,7 +252,23 @@ async function call(method,path,body,opt={}){
 }
 function guard(fn){return async()=>{try{await fn();}catch(error){log('오류: '+error.message);}};}
 function selectedUser(obj={}){const key=text('user-api-key');return key?obj:Object.assign({user_id:userId()},obj);}
-async function checkHealth(){const r=await fetch('/health');const j=await r.json();$('server-status').textContent=r.ok?'서버 온라인':'서버 오류';$('server-status').classList.toggle('ok',r.ok);$('device-status').textContent=j.deviceOnline?'Android 온라인':'Android 오프라인';$('device-status').classList.toggle('ok',j.deviceOnline);viewResponse(r.status,j);log('Health: '+JSON.stringify(j));}
+let androidOnline=false;
+let web2apiOnline=false;
+function updateWorkerStatus(){
+  const state=web2apiOnline&&androidOnline?'Chrome·Android 온라인':
+    web2apiOnline?'GitHub Chrome 온라인':
+    androidOnline?'Android 온라인':'작업자 오프라인';
+  $('device-status').textContent=state;
+  $('device-status').classList.toggle('ok',web2apiOnline||androidOnline);
+}
+async function checkHealth(){
+  const r=await fetch('/health');const j=await r.json();
+  $('server-status').textContent=r.ok?'서버 온라인':'서버 오류';
+  $('server-status').classList.toggle('ok',r.ok);
+  androidOnline=!!j.deviceOnline;web2apiOnline=!!j.web2apiOnline;
+  updateWorkerStatus();
+  viewResponse(r.status,j);log('Health: '+JSON.stringify(j));
+}
 $('check-health').onclick=guard(checkHealth);
 
 let socketWanted=false;
@@ -303,8 +319,8 @@ function openEventSocket(){
     if(p.type==='auth.ok'){
       socketReady=true;wsRetryCount=0;lastPongAt=Date.now();
       $('socket-state').textContent='웹 이벤트 인증 완료';
-      $('device-status').textContent=p.deviceOnline?'Android 온라인':'Android 오프라인';
-      $('device-status').classList.toggle('ok',!!p.deviceOnline);
+      androidOnline=!!p.deviceOnline;web2apiOnline=!!p.web2apiOnline;
+      updateWorkerStatus();
       if(wsPingTimer!==null)clearInterval(wsPingTimer);
       wsPingTimer=setInterval(()=>{
         if(ws!==client||client.readyState!==WebSocket.OPEN)return;
@@ -316,8 +332,10 @@ function openEventSocket(){
       },20000);
     }
     if(p.type==='device.status'){
-      $('device-status').textContent=p.online?'Android 온라인':'Android 오프라인';
-      $('device-status').classList.toggle('ok',!!p.online);
+      androidOnline=!!p.online;updateWorkerStatus();
+    }
+    if(p.type==='web2api.status'){
+      web2apiOnline=!!p.online;updateWorkerStatus();
     }
     if(p.type==='job.result'||p.type==='job.error'){
       refreshJobs().catch(()=>{});
