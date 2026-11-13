@@ -270,25 +270,12 @@ async def socket(ws: WebSocket):
                                 expected_stage and reported_stage == expected_stage
                                 and (action == "room.open" or output.strip())
                             )
-                            # For the verified GitHub Web2API worker only:
-                            # the actual ChatGPT conversation returned by the
-                            # original Web2API must be the room's immutable target.
-                            # This also binds a new Railway room on its FIRST
-                            # successful turn, so turn #2 cannot drift away.
-                            browser_conversation_ok = True
-                            if (valid_actions and action == "chat.send"
-                                    and claimed_success and identity_ok and proof_ok):
-                                browser_conversation_ok = bool(
-                                    api_v1.bind_verified_browser_conversation(
-                                        jid, assigned_room, msg.get("chatgpt_url")
-                                    )
-                                )
-                            good = (claimed_success and identity_ok
-                                    and proof_ok and browser_conversation_ok)
+                            # Do not mutate a room until verified result and
+                            # conversation URL are committed together.
+                            good = claimed_success and identity_ok and proof_ok
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
-                            wrong_browser_chat = (claimed_success and identity_ok
-                                                  and proof_ok and not browser_conversation_ok)
+                            wrong_browser_chat = False
                             stage = ("ROOM_ID_MISMATCH" if mismatch else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
                                      "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
@@ -315,7 +302,7 @@ async def socket(ws: WebSocket):
                                         jid, assigned_room, output, url)
                                     good = saved_by_web2api
                                 if not good:
-                                    stage = "WEB2API_CONVERSATION_UNVERIFIED"
+                                    stage = "ROOM_CONVERSATION_ID_MISMATCH"
                                     reason = "Chrome worker conversation URL or job scope not verified"
                             if not saved_by_web2api:
                                 api_v1.update_job(jid, status="completed" if good else "failed",
