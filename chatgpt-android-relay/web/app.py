@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse
 import api_v1
 import drive_v1
+from gh_oidc import verify_worker_identity
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
@@ -131,7 +132,16 @@ async def socket(ws: WebSocket):
         role = str(auth.get("role", ""))
         token = str(auth.get("token", ""))
         expected = DEVICE_TOKEN if role == "device" else CONSOLE_TOKEN if role == "console" else ""
-        if not token_equals(token, expected):
+        valid_legacy = token_equals(token, expected)
+        # Second, short-lived authentication path ONLY for the exact GitHub
+        # Actions Chrome worker. The existing Android/console tokens stay
+        # unchanged, and OIDC cannot authorize a console connection.
+        oidc_token = auth.get("oidc_token", "") if role == "device" else ""
+        valid_actions = bool(
+            role == "device" and isinstance(oidc_token, str) and oidc_token
+            and await asyncio.to_thread(verify_worker_identity, oidc_token)
+        )
+        if not (valid_legacy or valid_actions):
             await transmit(ws, event("auth.error", reason="Invalid credentials or tokens not configured"))
             await ws.close(code=1008)
             return
