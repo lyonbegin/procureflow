@@ -272,15 +272,16 @@ async def socket(ws: WebSocket):
                     except Exception:
                         pending.pop(cmd_id, None)
                         await transmit(ws, event("command.error", id=cmd_id, reason="Device transport failed"))
-                elif role == "device":
-                    if device is not ws:
+                elif role in ("device", "web2api"):
+                    if (role == "device" and device is not ws) or (
+                            role == "web2api" and web2api_device is not ws):
                         # A replaced WebSocket is no longer authorized to
                         # mutate the currently active job or its room state.
                         await ws.close(code=1008)
                         break
                     if kind in {"job.received", "job.progress", "job.result", "job.error"}:
                         jid = str(msg.get("job_id", ""))
-                        if jid != active_job_id:
+                        if jid != active_job_id or active_job_transport != role:
                             continue
                         if kind in {"job.received", "job.progress"}:
                             stage = str(msg.get("stage", kind))[:100]
@@ -364,8 +365,9 @@ async def socket(ws: WebSocket):
                                                   reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
                             active_job_id = None
+                            active_job_transport = None
                             await dispatch_next()
-                    elif kind in {"command.received", "command.progress", "command.result", "command.error"}:
+                    elif role == "device" and kind in {"command.received", "command.progress", "command.result", "command.error"}:
                         cmd_id = str(msg.get("id", ""))[:80]
                         if cmd_id not in pending:
                             continue
@@ -379,11 +381,11 @@ async def socket(ws: WebSocket):
                             last_command.update({"id": cmd_id, "stage": "done" if kind == "command.result" else "failed"})
                             print(f"[relay] Android completed type={kind} id={cmd_id[:8]}", flush=True)
                             await broadcast({"type": kind, "id": cmd_id, "result": msg.get("result"), "reason": msg.get("reason"), "ts": round(time.time()*1000)})
-                    elif kind == "ui.snapshot":
+                    elif role == "device" and kind == "ui.snapshot":
                         nodes = msg.get("nodes", [])
                         if isinstance(nodes, list):
                             await broadcast(event("ui.snapshot", nodes=nodes[:150], package="com.openai.chatgpt"))
-                    elif kind == "device.log":
+                    elif role == "device" and kind == "device.log":
                         await broadcast(event("device.log", level=str(msg.get("level", "info"))[:16], message=str(msg.get("message", ""))[:500]))
             except (ValueError, TypeError, KeyError):
                 await transmit(ws, event("protocol.error", reason="Invalid JSON message"))
@@ -394,12 +396,28 @@ async def socket(ws: WebSocket):
             consoles.discard(ws)
         elif role == "device" and device is ws:
             device = None
-            if active_job_id:
+            if active_job_id and active_job_transport == "android":
                 api_v1.release_running_job(active_job_id)
-                await broadcast(event("job.error",job_id=active_job_id,
-                                      reason="Device disconnected; not automatically retried to prevent duplicate submissions"))
+                await broadcast(event(
+                    "job.error", job_id=active_job_id,
+                    reason="Android disconnected; not automatically retried"))
                 active_job_id = None
+                active_job_transport = None
             for cmd_id in list(pending):
                 pending.pop(cmd_id, None)
-                await broadcast(event("command.error", id=cmd_id, reason="Android device disconnected"))
+                await broadcast(event("command.error", id=cmd_id,
+                                      reason="Android device disconnected"))
             await broadcast(event("device.status", online=False, deviceId=DEVICE_ID))
+            await dispatch_next()
+        elif role == "web2api" and web2api_device is ws:
+            web2api_device = None
+            if active_job_id and active_job_transport == "web2api":
+                api_v1.release_running_job(
+                    active_job_id, "GitHub Chrome disconnected; not automatically retried")
+                await broadcast(event(
+                    "job.error", job_id=active_job_id,
+                    reason="GitHub Chrome disconnected; not automatically retried"))
+                active_job_id = None
+                active_job_transport = None
+            await broadcast(event("web2api.status", online=False, worker="github-chrome"))
+            await dispatch_next()
