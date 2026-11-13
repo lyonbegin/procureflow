@@ -902,6 +902,49 @@ def update_job(job_id: str, status: str | None = None, stage: str | None = None,
                       (clock(),j["room_id"]))
         return True
 
+def bind_verified_browser_conversation(job_id: str, room_id: str, url: str) -> bool:
+    """Bind only the conversation returned by the actual completed Web2API turn.
+
+    Prevent one Railway room from silently changing its ChatGPT target,
+    even if the worker reports a mismatched ID. Existing Android flows
+    are not changed; only a verified GitHub Web2API worker calls this.
+    """
+    try:
+        normalized = normalize_chatgpt_conversation_url(url)
+    except (HTTPException, ValueError, TypeError):
+        return False
+    if not normalized:
+        return False
+    with connection() as c:
+        job = c.execute(
+            "SELECT user_id,room_id,action,status FROM jobs WHERE id=?", (job_id,)
+        ).fetchone()
+        if (not job or job["room_id"] != room_id or
+                job["action"] != "chat.send" or job["status"] != "running"):
+            return False
+        row = c.execute(
+            "SELECT user_id,chatgpt_url,status FROM rooms WHERE id=?", (room_id,)
+        ).fetchone()
+        if (not row or row["user_id"] != job["user_id"] or
+                row["status"] != "active"):
+            return False
+        existing = row["chatgpt_url"]
+        if existing and existing != normalized:
+            return False
+        conflict = c.execute("""SELECT id FROM rooms WHERE user_id=?
+            AND chatgpt_url=? AND id!=? AND status!='deleted' LIMIT 1""",
+            (job["user_id"], normalized, room_id)
+        ).fetchone()
+        if conflict:
+            return False
+        if not existing:
+            c.execute(
+                "UPDATE rooms SET chatgpt_url=?, android_state='active', updated_at=? WHERE id=?",
+                (normalized, clock(), room_id),
+            )
+        return True
+
+
 def set_room_android_state(room_id: str, state: str, android_title: str | None = None):
     if state not in {"uncreated","active","unverified","deleted"}:
         return
