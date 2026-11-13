@@ -945,6 +945,56 @@ def bind_verified_browser_conversation(job_id: str, room_id: str, url: str) -> b
         return True
 
 
+
+def complete_web2api_job(job_id: str, room_id: str, result_text: str,
+                         chatgpt_url: str) -> bool:
+    """Complete a GitHub Chrome answer and bind its proven conversation atomically.
+
+    Do not accept a mismatched URL, another user's room, a previously finished
+    job, or a conversation already linked to a different room. A reconnect
+    must never replay a completed turn.
+    """
+    if not isinstance(result_text, str) or not result_text.strip() or len(result_text) > 100000:
+        return False
+    try:
+        normalized = normalize_chatgpt_conversation_url(chatgpt_url)
+    except HTTPException:
+        return False
+    if not normalized:
+        return False
+
+    with connection() as c:
+        row = c.execute("""SELECT j.*,r.chatgpt_url AS saved_chatgpt_url,
+                               r.status AS room_status
+                            FROM jobs j JOIN rooms r ON r.id=j.room_id
+                            WHERE j.id=? AND j.room_id=? AND j.user_id=r.user_id
+                            """, (job_id, room_id)).fetchone()
+        if (not row or row["status"] != "running" or
+                row["action"] != "chat.send" or row["room_status"] != "active"):
+            return False
+        if row["saved_chatgpt_url"] and row["saved_chatgpt_url"] != normalized:
+            return False
+        duplicate = c.execute("""SELECT 1 FROM rooms
+             WHERE user_id=? AND id!=? AND chatgpt_url=? AND status!='deleted'
+             LIMIT 1""", (row["user_id"],room_id,normalized)).fetchone()
+        if duplicate:
+            return False
+
+        timestamp=clock()
+        c.execute("""UPDATE rooms SET chatgpt_url=?,android_state='active',
+                     updated_at=? WHERE id=? AND user_id=?""",
+                  (normalized,timestamp,room_id,row["user_id"]))
+        c.execute("""UPDATE jobs SET status='completed',stage='assistant_reply_stable',
+                     error=NULL,result_text=?,updated_at=?
+                     WHERE id=? AND room_id=? AND status='running'""",
+                  (result_text,timestamp,job_id,room_id))
+        c.execute("""INSERT INTO messages(id,user_id,room_id,job_id,role,text,created_at)
+                     VALUES(?,?,?,?,?,?,?)""",
+                  ("msg_"+new_id(),row["user_id"],room_id,job_id,
+                   "assistant",result_text,timestamp))
+    return True
+
+
 def set_room_android_state(room_id: str, state: str, android_title: str | None = None):
     if state not in {"uncreated","active","unverified","deleted"}:
         return
