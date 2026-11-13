@@ -763,9 +763,15 @@ def fail_queued_jobs_with_unavailable_files():
     return failures
 
 
-def claim_next_job():
+def claim_next_job(only_user_id: str | None = None):
     with connection() as c:
-        r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
+        if only_user_id is None:
+            r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
+        else:
+            r = c.execute(
+                "SELECT * FROM jobs WHERE status='queued' AND user_id=? "
+                "ORDER BY created_at,id LIMIT 1", (only_user_id,)
+            ).fetchone()
         if not r:
             return None
         c.execute("UPDATE jobs SET status='running',stage='dispatched',updated_at=? WHERE id=?",
