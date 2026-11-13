@@ -135,7 +135,7 @@ async def block_legacy_private_apis_in_public_test(request: Request, call_next):
 
 @app.get("/")
 async def home():
-    return FileResponse(ROOT / "static" / "index.html")
+    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
 
 @app.get("/download/ChatGPT-Relay-Control.apk")
 async def download_controller():
