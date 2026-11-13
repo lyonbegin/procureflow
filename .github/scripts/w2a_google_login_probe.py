@@ -13,6 +13,7 @@ import time
 import urllib.request
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from urllib.parse import urlparse
 
 CDP = "http://127.0.0.1:9222"
 ROOT = "https://chatgpt.com"
@@ -78,6 +79,20 @@ def attempt_google(context, page, email, password):
 
     google_page = find_google_page(context, page)
     if google_page is None:
+        safe_hosts = sorted({
+            (urlparse(tab.url).hostname or "unknown")
+            for tab in context.pages if not tab.is_closed()
+        })
+        print("GOOGLE_OAUTH_BROWSER_HOSTS=" + ",".join(safe_hosts), flush=True)
+        for tab in context.pages:
+            try:
+                body = tab.locator("body").inner_text(timeout=2000).lower()
+                if any(t in body for t in ("captcha", "access denied", "verify you are human", "checking your browser", "보안 확인", "오류가 발생", "something went wrong")):
+                    print("GOOGLE_OAUTH_BLOCK_OR_CHALLENGE_VISIBLE", flush=True)
+                if "google" in body:
+                    print("GOOGLE_TEXT_PRESENT_BUT_PROVIDER_NOT_REACHED", flush=True)
+            except Exception:
+                pass
         print("BLOCKED_GOOGLE_PROVIDER_PAGE_NOT_FOUND", flush=True)
         return False
 
