@@ -67,7 +67,7 @@ class WorkerCoexistence(unittest.TestCase):
                     self.assertEqual(android.receive_json()["type"],"pong")
 
                     uploaded=client.post("/api/v1/files",
-                        headers=headers,data={"room_id":rid},
+                        headers=headers,data={"user_id":a.json()["user_id"],"room_id":rid},
                         files={"file":("source.txt",b"original bytes","text/plain")})
                     self.assertEqual(uploaded.status_code,200,uploaded.text)
                     attachment=uploaded.json()["id"]
