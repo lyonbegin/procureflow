@@ -47,6 +47,13 @@ class TestGithubOidcWorkerIdentity(unittest.TestCase):
     def test_exact_trusted_workflow(self):
         self.assertTrue(self.verify(self.token()))
 
+    def test_exact_scheduled_worker_is_accepted(self):
+        self.assertTrue(self.verify(self.token(event_name="schedule")))
+
+    def test_scheduled_wrong_workflow_still_rejected(self):
+        self.assertFalse(self.verify(self.token(
+            event_name="schedule", workflow_ref="lyonbegin/procureflow/.github/workflows/other.yml@refs/heads/main")))
+
     def test_wrong_audience(self):
         self.assertFalse(self.verify(self.token(aud="something-else")))
 
