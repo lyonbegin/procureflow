@@ -8,6 +8,7 @@ on:
       - .github/scripts/w2a_verify_session.py
       - .github/scripts/w2a_verify_chat_completion.py
       - .github/scripts/w2a_diagnose_live_browser.py
+      - .github/scripts/w2a_patch_vendor_dom.py
 
 permissions:
   contents: read
@@ -85,6 +86,8 @@ jobs:
           ROOT="$RUNNER_TEMP/w2a-check"
           git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
           git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 -m py_compile "$ROOT/original/src/chatgpt_web2api/completion_detector.py" "$ROOT/original/src/chatgpt_web2api/cdp_driver.py"
           python3 -m pip install -q "$ROOT/original"
           echo PASS_ORIGINAL_WEB2API_PINNED_SOURCE_INSTALLED
           chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
