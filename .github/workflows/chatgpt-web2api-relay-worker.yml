@@ -15,6 +15,8 @@ on:
   push:
     paths:
       - .github/workflows/chatgpt-web2api-relay-worker.yml
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
@@ -26,7 +28,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-queued-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      start: ${{ steps.check.outputs.start }}
+    steps:
+      - name: Check whether a token-free Web2API test is awaiting Chrome
+        id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != schedule ]; then
+            echo "start=true" >> "$GITHUB_OUTPUT"
+            echo PASS_INTERACTIVE_ACTIONS_RUN
+            exit 0
+          fi
+          STATUS_FILE="$(mktemp)"
+          if ! curl -fsSL --retry 2 --max-time 15 \
+            https://chatgpt-relay-web-production.up.railway.app/demo/status \
+            -o "$STATUS_FILE"; then
+            echo "start=false" >> "$GITHUB_OUTPUT"
+            echo SKIP_NO_VERIFIED_RELAY_STATUS
+            exit 0
+          fi
+          if python3 - "$STATUS_FILE" <<'PY'
+          import json,sys
+          try:
+              state=json.load(open(sys.argv[1],encoding='utf-8'))
+              assert state.get('server')=='online'
+              assert state.get('testState')=='queued'
+              assert state.get('workerConnected') is False
+          except Exception:
+              sys.exit(1)
+          PY
+          then
+            echo "start=true" >> "$GITHUB_OUTPUT"
+            echo PASS_QUEUED_TEST_REQUEST_NEEDS_CHROME
+          else
+            echo "start=false" >> "$GITHUB_OUTPUT"
+            echo SKIP_CHROME_NOT_NEEDED
+          fi
   verify-github-identity:
+    needs: check-queued-test
+    if: github.event_name != 'schedule' || needs.check-queued-test.outputs.start == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
@@ -56,8 +102,8 @@ jobs:
           PY
 
   live-chrome-worker:
-    if: github.event_name == 'workflow_dispatch'
-    needs: verify-github-identity
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.check-queued-test.outputs.start == 'true')
+    needs: [verify-github-identity, check-queued-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 27
     env:
