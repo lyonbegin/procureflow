@@ -1,0 +1,40 @@
+name: Verify original ChatGPT relay UI reconnect without deploying
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/verify-chatgpt-relay-ui-reconnect.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ui-syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/chatgpt-relay-verified-routing-20261110
+      - name: Extract and validate original UI script
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source=Path("chatgpt-android-relay/web/static/index.html").read_text(encoding="utf-8")
+          found=re.findall(r'<script[^>]*>([\s\S]*?)</script>',source)
+          assert len(found)==1, "expected original single inline script"
+          script=found[0]
+          assert "function openEventSocket()" in script
+          assert "function planSocketReconnect()" in script
+          assert "client.onclose" in script
+          assert "type:'ping'" in script
+          assert "p.type==='pong'" in script
+          assert "socketWanted=false;clearSocketTimers()" in script
+          Path("/tmp/chatgpt-relay-ui-script.js").write_text(script,encoding="utf-8")
+          print("PASS_ORIGINAL_UI_AND_SOCKET_RECOVERY_PRESENT")
+          PY
+          node --check /tmp/chatgpt-relay-ui-script.js
+          echo PASS_RELAY_JS_SYNTAX
