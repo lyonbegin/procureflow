@@ -51,13 +51,23 @@ class PublicNoLoginSmoke(unittest.TestCase):
         self.assertNotIn("conversation",str(r.json()).lower())
         self.assertNotIn("result_text",str(r.json()).lower())
 
-    def test_no_worker_does_not_enqueue_or_access_existing_data(self):
+    def test_offline_worker_accepts_exactly_one_queued_test_without_private_access(self):
         r=self.client.post("/demo/start")
-        self.assertEqual(r.status_code,409)
+        self.assertEqual(r.status_code,200,r.text)
+        self.assertTrue(r.json()["started"])
+        self.assertFalse(r.json()["workerConnected"])
         with api_v1.connection() as db:
-            self.assertEqual(db.execute(
-                "SELECT count(*) FROM jobs WHERE user_id=?", (app.DEMO_UID,)
-            ).fetchone()[0],0)
+            jobs=db.execute(
+                "SELECT * FROM jobs WHERE user_id=?", (app.DEMO_UID,)
+            ).fetchall()
+        self.assertEqual(len(jobs),1)
+        self.assertEqual(jobs[0]["status"],"queued")
+        self.assertEqual(jobs[0]["text"],app.DEMO_QUESTION)
+        self.assertEqual(jobs[0]["room_id"],app.DEMO_ROOM)
+        status=self.client.get("/demo/status").json()
+        self.assertEqual(status["testState"],"queued")
+        self.assertFalse(status["workerConnected"])
+        self.assertEqual(self.client.post("/demo/start").status_code,429)
 
     def test_fixed_prompt_and_rate_limit(self):
         app.web2api_device=object()
