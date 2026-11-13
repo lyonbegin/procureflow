@@ -26,6 +26,11 @@ jobs:
           python -m unittest discover -s tests -p 'test_web2api_bridge.py' -v
           python -m py_compile app.py gh_oidc.py
           echo PASS_RELAY_GITHUB_OIDC_AUTHENTICATION_TESTED_ISOLATED
+      - name: Verify GitHub Chrome worker protocol against isolated fixtures
+        run: |
+          python3 .github/scripts/test_w2a_relay_worker.py
+          python3 -m py_compile .github/scripts/w2a_relay_worker.py
+          echo PASS_GITHUB_WORKER_PROTOCOL_AND_ROOM_GUARDS
       - name: Check original relay API tests without touching Railway
         run: |
           set -euo pipefail
