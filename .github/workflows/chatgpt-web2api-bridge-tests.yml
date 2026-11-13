@@ -23,6 +23,7 @@ jobs:
           cd chatgpt-android-relay/web
           python -m pip install -q -r requirements.txt
           python -m unittest discover -s tests -p 'test_gh_oidc.py' -v
+          python -m unittest discover -s tests -p 'test_web2api_bridge.py' -v
           python -m py_compile app.py gh_oidc.py
           echo PASS_RELAY_GITHUB_OIDC_AUTHENTICATION_TESTED_ISOLATED
       - name: Check original relay API tests without touching Railway
