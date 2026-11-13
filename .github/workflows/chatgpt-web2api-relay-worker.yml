@@ -64,7 +64,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
       RELAY_WS_URL: wss://chatgpt-relay-web-production.up.railway.app/ws
-      W2A_WORKER_SECONDS: ${{ fromJSON(inputs.work_minutes) * 60 }}
+      W2A_WORKER_SECONDS: ${{ inputs.work_minutes == '5' && '300' || inputs.work_minutes == '20' && '1200' || '600' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
