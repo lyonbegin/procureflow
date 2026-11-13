@@ -123,6 +123,7 @@ async def socket(ws: WebSocket):
     global device, active_job_id
     await ws.accept()
     role = ""
+    actions_worker = False
     try:
         initial = await asyncio.wait_for(ws.receive_text(), timeout=10)
         if len(initial) > 4096:
@@ -145,6 +146,7 @@ async def socket(ws: WebSocket):
             await transmit(ws, event("auth.error", reason="Invalid credentials or tokens not configured"))
             await ws.close(code=1008)
             return
+        actions_worker = valid_actions
         if role == "device":
             if auth.get("deviceId", DEVICE_ID) != DEVICE_ID:
                 await ws.close(code=1008)
@@ -298,10 +300,28 @@ async def socket(ws: WebSocket):
                                       "Web2API conversation did not match its assigned room"
                                       if wrong_browser_chat else
                                       str(msg.get("reason", "Remote action was not verified"))[:500])
-                            api_v1.update_job(jid, status="completed" if good else "failed",
-                                              stage=stage, result_text=output if good else None,
-                                              error=None if good else reason)
-                            if good and msg.get("room_state"):
+                            # A verified OIDC worker is not an Android app.
+                            # It must prove the *returned* conversation URL,
+                            # not merely report a success stage. Only persist
+                            # the returned assistant text atomically with the
+                            # room URL when the server also validates its scope.
+                            saved_by_web2api = False
+                            if good and actions_worker:
+                                url = msg.get("chatgpt_url")
+                                if action != "chat.send" or not isinstance(url, str):
+                                    good = False
+                                else:
+                                    saved_by_web2api = api_v1.complete_web2api_job(
+                                        jid, assigned_room, output, url)
+                                    good = saved_by_web2api
+                                if not good:
+                                    stage = "WEB2API_CONVERSATION_UNVERIFIED"
+                                    reason = "Chrome worker conversation URL or job scope not verified"
+                            if not saved_by_web2api:
+                                api_v1.update_job(jid, status="completed" if good else "failed",
+                                                  stage=stage, result_text=output if good else None,
+                                                  error=None if good else reason)
+                            if good and msg.get("room_state") and not saved_by_web2api:
                                 api_v1.set_room_android_state(
                                     assigned_room, str(msg["room_state"]),
                                     str(msg.get("android_title", "")) or None)
