@@ -1,0 +1,118 @@
+name: Package Web2API sources for Google Drive (no secrets)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/web2api-drive-source-bundle.yml
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: main-source
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chatgpt-web2api-relay-bridge-20261113
+          path: relay-source
+          fetch-depth: 1
+      - name: Bundle only public source, configurations and unit-test code
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import hashlib
+          import pathlib
+          import zipfile
+          import subprocess
+          from datetime import datetime, timezone
+
+          out=pathlib.Path("web2api-source-backup")
+          out.mkdir(exist_ok=True)
+          main=pathlib.Path("main-source")
+          relay=pathlib.Path("relay-source")
+          mainsha=subprocess.check_output(["git","-C",str(main),"rev-parse","HEAD"],text=True).strip()
+          relaysha=subprocess.check_output(["git","-C",str(relay),"rev-parse","HEAD"],text=True).strip()
+          zip_path=out / "HITEL_ChatGPT_Web2API_Source_20261113.zip"
+          items=[]
+          exclusions={"__pycache__",".env",".git",".venv","node_modules","downloads",
+                      "artifacts","build","dist","data","profiles","cookies","sessions"}
+          allowed={".py",".yml",".yaml",".html",".css",".js",".json",".md",
+                   ".txt",".sh",".toml",".ini",".cfg",".gitignore"}
+          for path in sorted((main / ".github").rglob("*")):
+              if not path.is_file():continue
+              if path.name.startswith("w2a_") and path.suffix in allowed:
+                  items.append((path,path.relative_to(main),"github-main"))
+              elif path.parent.name=="workflows" and (
+                  "web2api" in path.name.lower() or "chatgpt" in path.name.lower()
+              ) and path.suffix in allowed:
+                  items.append((path,path.relative_to(main),"github-main"))
+          root=relay/"chatgpt-android-relay"
+          for path in sorted(root.rglob("*")):
+              if not path.is_file():continue
+              if path.suffix.lower() not in allowed or path.stat().st_size>2_000_000:continue
+              if any(piece.startswith(".") and piece != ".github" for piece in path.parts):
+                  continue
+              if any(piece.lower() in exclusions for piece in path.parts):continue
+              items.append((path,path.relative_to(relay),"relay-source"))
+
+          guide="""# HITEL ChatGPT Web2API (source-only backup)
+          
+          This archive contains public source code and tests from GitHub, not a
+          deployable browser session. It never contains API tokens, secrets,
+          Chrome cookies, private conversation history or Railway volume data.
+          
+          Repositories: https://github.com/lyonbegin/procureflow
+          Main branch: ${mainsha}
+          Relay branch: feature/chatgpt-web2api-relay-bridge-20261113 (${relaysha})
+          
+          To restore:
+          1. Obtain the archive from your private Google Drive project folder.
+          2. Inspect MANIFEST.json and the directories github-main and relay-source.
+          3. Restore the files to the matching paths in the GitHub repository.
+          4. Run the GitHub CI tests before changing the Railway source.
+          5. Install Python packages with pip from the relay source requirements.txt.
+          6. Configure an authorized Chrome login session separately;
+             the archive intentionally does not contain an authenticated profile.
+          7. Use GitHub Actions and Railway with their existing deployment permissions.
+          
+          IMPORTANT: Downloading source from Google Drive DOES NOT automatically
+          grant Railway or GitHub Actions access to private Drive files. An
+          explicitly configured Drive connection is required for unattended
+          private downloads. Do not add credentials or private files to a
+          public GitHub repository.
+          """.replace("${mainsha}",mainsha).replace("${relaysha}",relaysha)
+          manifest={"project":"HITEL ChatGPT Web2API test","main_commit":mainsha,
+                    "relay_commit":relaysha,"generated_utc":datetime.now(timezone.utc).isoformat(),
+                    "included_files":[],"sensitive_values_included":False}
+          with zipfile.ZipFile(zip_path,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=7) as z:
+              z.writestr("README_INSTALL.md",guide)
+              for path,rel,prefix in items:
+                  name=f"{prefix}/{rel.as_posix()}"
+                  data=path.read_bytes()
+                  if b"-----BEGIN PRIVATE KEY" in data:
+                      raise SystemExit("Refusing to archive a private key")
+                  manifest["included_files"].append({"path":name,"sha256":hashlib.sha256(data).hexdigest()})
+                  z.writestr(name,data)
+              z.writestr("MANIFEST.json",json.dumps(manifest,ensure_ascii=False,indent=2))
+          with zipfile.ZipFile(zip_path) as z:
+              names=set(z.namelist())
+              assert "README_INSTALL.md" in names
+              assert "MANIFEST.json" in names
+              assert len(manifest["included_files"])>10
+              assert all("google_password" not in n.lower() for n in names)
+          print("PASS_WEB2API_DRIVE_SOURCE_ARCHIVE_CREATED")
+          print("SOURCE_FILE_COUNT="+str(len(manifest["included_files"])))
+          print("SOURCE_ZIP_BYTES="+str(zip_path.stat().st_size))
+          PY
+      - name: Upload private handoff ZIP as short-lived GitHub Action artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web2api-drive-source-backup
+          path: web2api-source-backup/HITEL_ChatGPT_Web2API_Source_20261113.zip
+          retention-days: 2
+          if-no-files-found: error
