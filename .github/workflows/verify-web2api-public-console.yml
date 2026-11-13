@@ -1,0 +1,42 @@
+name: Verify deployed Web2API test console without credentials
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/verify-web2api-public-console.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read actual deployed Railway HTML and API without tokens
+        run: |
+          set -euo pipefail
+          BASE="https://chatgpt-relay-web-production.up.railway.app"
+          curl --retry 3 --retry-delay 2 -fsS "$BASE/" -o /tmp/web2api-test-console.html
+          curl --retry 3 --retry-delay 2 -fsS "$BASE/demo/status" -o /tmp/web2api-test-status.json
+          code="$(curl -s -o /tmp/web2api-private-guard.json -w '%{http_code}' "$BASE/api/v1/rooms")"
+          doccode="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/docs")"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          html=Path("/tmp/web2api-test-console.html").read_text(encoding="utf-8")
+          state=json.loads(Path("/tmp/web2api-test-status.json").read_text(encoding="utf-8"))
+          for marker in ('id="admin-token"','id="user-api-key"','type="password"','ChatGPT Android · API Test Console'):
+              assert marker not in html, "FAIL_OLD_CONSOLE_PRESENT"
+          assert "Web2API 연결 시험" in html, "FAIL_NEW_TEST_PAGE_NOT_DEPLOYED"
+          assert isinstance(state.get("workerConnected"),bool), "FAIL_WORKER_STATUS_UNAVAILABLE"
+          assert state.get("server")=="online", "FAIL_RELAY_STATUS_UNAVAILABLE"
+          print("PASS_RAILWAY_PUBLIC_WEB2API_NO_LOGIN_PAGE")
+          print("PASS_RAILWAY_WORKER_STATUS_API")
+          PY
+          if [ "$code" != 404 ] || [ "$doccode" != 404 ]; then
+            echo FAIL_PREVIOUS_PRIVATE_APIS_STILL_PUBLIC
+            exit 1
+          fi
+          echo PASS_PRIVATE_LEGACY_RELAY_ENDPOINTS_BLOCKED
