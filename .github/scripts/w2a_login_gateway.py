@@ -9,6 +9,8 @@ import hmac
 import http.server
 import os
 import secrets
+import subprocess
+import sys
 import urllib.parse
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -72,8 +74,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not self.valid_code(parts.query):
                 self.reply(403, b"Invalid or expired session link.")
                 return
+            # Do not declare success merely because the user clicked Finish.
+            # Prove authenticated session in the SAME live Chrome using CDP.
+            try:
+                check = subprocess.run(
+                    [sys.executable, ".github/scripts/w2a_verify_session.py"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=85, check=False,
+                )
+            except subprocess.TimeoutExpired:
+                self.reply(503, b"ChatGPT login check timed out. Please retry.")
+                return
+            if check.returncode != 0:
+                self.reply(409, b"ChatGPT login is NOT verified. Return to the Chrome screen, finish Google sign-in, and click Save again.")
+                return
             READY_TO_SAVE.touch(mode=0o600)
-            self.reply(200, "Save requested. You may now close this tab.".encode(),
+            self.reply(200, b"PASS: ChatGPT login verified. Encrypted session save requested.",
                        headers=[("Content-Type", "text/plain; charset=utf-8")])
             return
         self.reply(404)
