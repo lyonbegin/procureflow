@@ -37,7 +37,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
           ROOT="$RUNNER_TEMP/w2a-check"
           mkdir -p "$ROOT" "$ROOT/download"
-          gh run download 43351635721 --repo "$GITHUB_REPOSITORY" \
+          gh run download 43353952660 --repo "$GITHUB_REPOSITORY" \
             --name chatgpt-web2api-encrypted-profile --dir "$ROOT/download" >/dev/null
           test -s "$ROOT/download/secure-profile.bin"
           echo PASS_ENCRYPTED_PROFILE_ARTIFACT_PRESENT
