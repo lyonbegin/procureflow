@@ -7,6 +7,7 @@ on:
       - .github/workflows/chatgpt-web2api-bridge-tests.yml
       - .github/scripts/w2a_relay_worker.py
       - .github/scripts/test_w2a_relay_worker.py
+      - .github/workflows/chatgpt-web2api-bridge-tests.yml
 
 permissions:
   contents: read
@@ -76,6 +77,22 @@ jobs:
           cd bridge-source/chatgpt-android-relay/web
           python -m unittest discover -s tests -p 'test_public_smoke.py' -v
           echo PASS_NO_TOKEN_PUBLIC_UI_AND_PRIVATE_DATA_GUARDS
+      - name: Verify browser button and scheduled worker wiring
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          web=Path("bridge-source/chatgpt-android-relay/web/static/index.html").read_text(encoding="utf-8")
+          server=Path("bridge-source/chatgpt-android-relay/web/app.py").read_text(encoding="utf-8")
+          workflow=Path(".github/workflows/chatgpt-web2api-relay-worker.yml").read_text(encoding="utf-8")
+          assert '<button id="run" class="primary" type="button">' in web
+          assert 'activeRequest||!d.workerConnected' not in web
+          assert 'GitHub Chrome worker is not connected' not in server
+          assert 'cron: "*/5 * * * *"' in workflow
+          assert 'check-queued-test' in workflow
+          assert "needs.check-queued-test.outputs.start" in workflow
+          print("PASS_ONE_CLICK_OFFLINE_QUEUE_AND_SCHEDULED_CHROME_TRIGGER")
+          PY
       - name: Verify original server API regression
         run: |
           set -euo pipefail
