@@ -23,7 +23,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: 0d86a6e1ad504b220883fd394abe1bb201029c9f2cf11a43557d169931721f46
+      W2A_ACCESS_SHA256: 50d7c8cf00a3b7053652831cc2df0a189f2029473838d00c78c4b25ea9eb7e7c
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,11 +37,11 @@ jobs:
       - name: Install free remote-browser dependencies
         run: |
           set -euo pipefail
-          python3 -m pip install -q cryptography
+          python3 -m pip install -q cryptography playwright==1.56.0
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             xvfb xauth x11vnc novnc websockify nginx
-          python3 -m py_compile .github/scripts/w2a_login_gateway.py .github/scripts/w2a_profile_crypto.py
+          python3 -m py_compile .github/scripts/w2a_login_gateway.py .github/scripts/w2a_profile_crypto.py .github/scripts/w2a_verify_session.py
           test -f /usr/share/novnc/vnc.html
           test -n "$FREEMOA_GOOGLE_PASSWORD"
           echo PASS_EXISTING_SECRET_NO_ADDITIONAL_W2A_PASSWORD
@@ -188,6 +188,10 @@ jobs:
             fi
             sleep 5
           done
+          if [ ! -f "$RUNNER_TEMP/w2a-save-requested" ]; then
+            echo FAIL_LOGIN_NOT_VERIFIED_NO_SESSION_SAVE
+            exit 2
+          fi
           kill "$CHROME_PID" 2>/dev/null || true
           sleep 4
           python3 .github/scripts/w2a_profile_crypto.py save \
