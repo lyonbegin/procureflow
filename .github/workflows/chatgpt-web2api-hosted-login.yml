@@ -19,11 +19,11 @@ jobs:
   chrome-session:
     name: Protected one-time Chrome session on GitHub Actions
     runs-on: ubuntu-24.04
-    timeout-minutes: 27
+    timeout-minutes: 52
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: 9ce83cde9c185b716d8b51071c321ac1805aa6016baf871394f65670ccea29c6
+      W2A_ACCESS_SHA256: 0d86a6e1ad504b220883fd394abe1bb201029c9f2cf11a43557d169931721f46
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -181,7 +181,7 @@ jobs:
 
           # No background work is promised by ChatGPT; the external Actions
           # job waits only while this explicitly started test is active.
-          for i in $(seq 1 210); do
+          for i in $(seq 1 540); do
             if [ -f "$RUNNER_TEMP/w2a-save-requested" ]; then
               echo USER_REQUESTED_CHROME_SESSION_SAVE
               break
