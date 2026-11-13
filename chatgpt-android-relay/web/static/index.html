@@ -44,21 +44,21 @@ a{color:#1c61bb;text-decoration:none}a:hover{text-decoration:underline}
 <main>
 <div class="grid">
   <section class="card"><h2>Railway 웹서버</h2><div class="value"><span id="server-dot" class="dot"></span><span id="server">확인 중</span></div><div class="note">서비스 상태를 자동 확인합니다.</div></section>
-  <section class="card"><h2>GitHub Chrome 작업자</h2><div class="value"><span id="worker-dot" class="dot"></span><span id="worker">확인 중</span></div><div class="note">실행 중인 GitHub Actions 작업자와 연결되는 경우에만 실제 질문 전송이 가능합니다.</div></section>
+  <section class="card"><h2>GitHub Chrome 작업자</h2><div class="value"><span id="worker-dot" class="dot"></span><span id="worker">확인 중</span></div><div class="note">작업자가 꺼져 있어도 시험 요청을 접수합니다. GitHub Actions가 요청을 확인하여 Chrome을 실행합니다.</div></section>
   <section class="card"><h2>ChatGPT 왕복 시험</h2><div class="value"><span id="test-dot" class="dot"></span><span id="test">시험 전</span></div><div class="note" id="last-run">최근 시험 기록이 없습니다.</div></section>
 </div>
 <section class="card block">
 <h2>실제 질문·답변 자동 검증</h2>
-<p class="steps">버튼을 누르면 정해진 짧은 시험 질문을 한 번 전송하고, ChatGPT가 정해진 응답을 반환했는지 확인합니다. 계정 정보, 기존 채팅방, 과거 파일은 공개하지 않습니다. 시험은 10분에 1회로 제한됩니다.</p>
+<p class="steps">버튼을 누르면 정해진 시험 질문을 즉시 접수합니다. GitHub Chrome이 꺼져 있으면 자동 실행 주기에 맞춰 작업자를 시작하여 질문·답변을 확인합니다. 계정 정보, 기존 채팅방, 과거 파일은 공개하지 않습니다. 시험은 10분에 1회로 제한됩니다.</p>
 <div class="row">
-  <button id="run" class="primary" type="button" disabled>연결 시험 시작</button>
+  <button id="run" class="primary" type="button">연결 시험 시작</button>
   <button id="refresh" class="secondary" type="button">상태 새로고침</button>
 </div>
 <div id="result" class="alert" role="status" aria-live="polite">서버와 작업자 연결 상태를 확인하고 있습니다.</div>
 <div class="sep"></div>
 <div class="note">이 페이지에는 별도의 인증 입력란이 없습니다. 기존 개인 대화 및 파일을 읽거나 수정하는 기능도 제공하지 않습니다.</div>
 </section>
-<footer>시험 전용 화면 · 작업자가 연결되지 않은 경우 실제 ChatGPT 통신을 수행하지 않습니다. 기존 데이터는 공개하지 않습니다.</footer>
+<footer>시험 전용 화면 · GitHub Actions 정기 확인은 지연될 수 있습니다. 작업자가 연결되기 전에는 요청만 대기하며 실제 ChatGPT 전송은 하지 않습니다.</footer>
 </main>
 <script>
 "use strict";
@@ -84,7 +84,7 @@ async function refresh(){
     if(d.lastTestAt){
       text("last-run","최근 시험: "+new Date(d.lastTestAt).toLocaleString("ko-KR"));
     }
-    $("run").disabled=activeRequest||!d.workerConnected||
+    $("run").disabled=activeRequest||
       d.testState==="queued"||d.testState==="running";
     if(!activeRequest){
       if(d.testState==="completed"){
@@ -93,10 +93,13 @@ async function refresh(){
              d.testVerified?"good":"bad");
       }else if(d.testState==="failed"){
         info("실제 질문·답변 검증에 실패했습니다. 실행 기록을 확인해야 합니다.","bad");
-      }else if(d.testState==="running"||d.testState==="queued"){
-        info("ChatGPT와 통신하고 있습니다. 완료 여부를 자동으로 갱신합니다.");
+      }else if(d.testState==="queued"){
+        info(d.workerConnected?"요청 접수 완료. GitHub Chrome으로 전송을 준비하고 있습니다.":
+          "요청 접수 완료. GitHub Actions가 다음 실행 주기에 작업자를 시작하면 자동 전송합니다.");
+      }else if(d.testState==="running"){
+        info("GitHub Chrome으로 ChatGPT 질문을 전송하고 있습니다.");
       }else if(!d.workerConnected){
-        info("Railway 서버는 정상입니다. GitHub Chrome 작업자가 현재 연결되어 있지 않아 질문 전송은 실행하지 않습니다.");
+        info("Railway 서버가 정상입니다. '연결 시험 시작'을 누르시면 요청을 접수하고 GitHub Actions가 작업자를 자동 실행합니다.");
       }else{
         info("연결 준비 완료. 시험 버튼을 눌러 실제 질문·답변을 확인하십시오.","good");
       }
@@ -115,11 +118,12 @@ $("run").onclick=async()=>{
   const d=await r.json();
   if(!r.ok)throw new Error(
     r.status===429?"시험 간격 제한 중입니다. 마지막 시험 10분 후 다시 진행할 수 있습니다.":
-    r.status===409?"GitHub Chrome이 연결되지 않았거나 다른 작업이 진행 중입니다.":
+    r.status===409?"다른 시험이 진행 중입니다.":
     "서버 오류 "+r.status
   );
   if(!d.started)throw new Error("작업 생성이 확인되지 않았습니다.");
-  info("시험이 접수되었습니다. 실제 응답을 자동으로 확인합니다.");
+  info(d.workerConnected?"시험 접수 완료. ChatGPT 답변을 확인하고 있습니다.":
+    "시험 접수 완료. GitHub Chrome이 자동으로 시작될 때까지 요청이 대기합니다.");
  }catch(e){info(e.message,"bad")}
  finally{activeRequest=false;await refresh()}
 };
