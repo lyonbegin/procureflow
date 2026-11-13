@@ -30,6 +30,10 @@ jobs:
           for marker in ('id="admin-token"','id="user-api-key"','type="password"','ChatGPT Android · API Test Console'):
               assert marker not in html, "FAIL_OLD_CONSOLE_PRESENT"
           assert "Web2API 연결 시험" in html, "FAIL_NEW_TEST_PAGE_NOT_DEPLOYED"
+          assert '<button id="run" class="primary" type="button">' in html, "FAIL_START_BUTTON_DISABLED"
+          assert 'activeRequest||!d.workerConnected' not in html, "FAIL_WORKER_OFFLINE_STILL_BLOCKS_TEST"
+          assert '"/demo/start"' in html, "FAIL_ONE_CLICK_START_ENDPOINT_UNWIRED"
+          print("PASS_START_BUTTON_CLICKABLE_WITH_GITHUB_CHROME_OFFLINE")
           assert isinstance(state.get("workerConnected"),bool), "FAIL_WORKER_STATUS_UNAVAILABLE"
           assert state.get("server")=="online", "FAIL_RELAY_STATUS_UNAVAILABLE"
           print("PASS_RAILWAY_PUBLIC_WEB2API_NO_LOGIN_PAGE")
