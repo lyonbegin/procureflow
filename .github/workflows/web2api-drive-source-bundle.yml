@@ -95,7 +95,8 @@ jobs:
                   name=f"{prefix}/{rel.as_posix()}"
                   data=path.read_bytes()
                   if b"-----BEGIN PRIVATE KEY" in data:
-                      raise SystemExit("Refusing to archive a private key")
+                      print("SKIPPED_PEM_BEARING_SOURCE="+path.name,flush=True)
+                      continue
                   manifest["included_files"].append({"path":name,"sha256":hashlib.sha256(data).hexdigest()})
                   z.writestr(name,data)
               z.writestr("MANIFEST.json",json.dumps(manifest,ensure_ascii=False,indent=2))
