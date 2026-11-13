@@ -52,7 +52,7 @@ def verify_worker_identity(raw_token: str) -> bool:
             "runner_environment": "github-hosted",
         }
         return (all(payload.get(k) == v for k, v in must_equal.items())
-                and payload.get("event_name") in ("push", "workflow_dispatch"))
+                and payload.get("event_name") in ("push", "workflow_dispatch", "schedule"))
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
     except Exception:
