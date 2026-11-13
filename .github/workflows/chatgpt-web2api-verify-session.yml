@@ -1,0 +1,116 @@
+name: ChatGPT - verify saved Google login and original Web2API
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/chatgpt-web2api-verify-session.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    name: Restore encrypted Chrome and test ChatGPT-Web2API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Prepare local-only browser and encrypted profile
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography playwright==1.56.0
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT" "$ROOT/download"
+          gh run download 43351635721 --repo "$GITHUB_REPOSITORY" \
+            --name chatgpt-web2api-encrypted-profile --dir "$ROOT/download" >/dev/null
+          test -s "$ROOT/download/secure-profile.bin"
+          echo PASS_ENCRYPTED_PROFILE_ARTIFACT_PRESENT
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/secure-profile.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_CHROME_PROFILE_RESTORED
+      - name: Start Chrome using restored profile
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          export DISPLAY=:99
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_RESTORED_CHROME_CDP_LIVE
+              break
+            fi
+            if [ "$i" -eq 50 ]; then
+              echo FAIL_RESTORED_CHROME_START
+              tail -n 12 "$ROOT/chrome.log" || true
+              exit 1
+            fi
+            sleep 2
+          done
+      - name: Prove login in real Chrome without revealing credentials
+        run: |
+          python3 .github/scripts/w2a_verify_session.py
+      - name: Install and run previously selected ORIGINAL ChatGPT-Web2API source
+        env:
+          DISPLAY: :99
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 -m pip install -q "$ROOT/original"
+          echo PASS_ORIGINAL_WEB2API_PINNED_SOURCE_INSTALLED
+          chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+            >"$ROOT/web2api.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 4 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo PASS_WEB2API_LOCAL_HEALTH
+              break
+            fi
+            if [ "$i" -eq 45 ]; then
+              echo FAIL_WEB2API_LOCAL_HEALTH
+              grep -Ei 'error|traceback|exception|authentication' "$ROOT/web2api.log" | tail -n 8 | sed -E 's/(token|cookie|password)=[^ ]+/\\1=[redacted]/Ig' || true
+              exit 1
+            fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json
+          url="http://127.0.0.1:18080/v1/models"
+          try:
+              with urllib.request.urlopen(url,timeout=20) as response:
+                  payload=json.load(response)
+                  models=payload.get("data",[]) if isinstance(payload,dict) else []
+                  print("WEB2API_MODELS_HTTP_STATUS="+str(response.status))
+                  print("WEB2API_MODELS_COUNT="+str(len(models)))
+                  if response.status==200 and isinstance(models,list) and len(models)>0:
+                      print("PASS_WEB2API_READONLY_MODELS")
+                  else: raise SystemExit("FAIL_WEB2API_MODELS_EMPTY")
+          except Exception as ex:
+              print("FAIL_WEB2API_MODELS_"+type(ex).__name__)
+              raise
+          PY
