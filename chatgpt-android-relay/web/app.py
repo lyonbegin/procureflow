@@ -25,20 +25,22 @@ MAX_MESSAGE_SIZE = 100_000
 ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
 ROOM_SCOPED_ONLY = {"chat.send", "chat.new"}
 consoles: set[WebSocket] = set()
-device: WebSocket | None = None
+device: WebSocket | None = None  # existing native Android, unchanged
+web2api_device: WebSocket | None = None  # separate GitHub Chrome runner
 pending: dict[str, dict[str, Any]] = {}
 recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
 active_job_id: str | None = None
+active_job_transport: str | None = None
 job_dispatch_lock = asyncio.Lock()
 recovery_checked = False
 
 async def dispatch_next():
-    global active_job_id, recovery_checked
-    if device is None or active_job_id:
+    global active_job_id, active_job_transport, recovery_checked
+    if active_job_id or (device is None and web2api_device is None):
         return
     async with job_dispatch_lock:
-        if device is None or active_job_id:
+        if active_job_id or (device is None and web2api_device is None):
             return
         if not recovery_checked:
             recovered = api_v1.fail_orphaned_running_jobs()
@@ -51,26 +53,45 @@ async def dispatch_next():
         job = api_v1.claim_next_job()
         if job is None:
             return
+
+        # Native attachments and original Android controls remain routed to
+        # Android when it is connected. Text-only chat prefers GitHub Chrome.
+        prefer_web = (web2api_device is not None and
+                      job["action"] == "chat.send" and
+                      not job.get("attachment_ids"))
+        if prefer_web:
+            receiver, transport = web2api_device, "web2api"
+        elif device is not None:
+            receiver, transport = device, "android"
+        else:
+            # Browser worker will explicitly fail unsupported/file actions;
+            # never pretend that it attached an original binary file.
+            receiver, transport = web2api_device, "web2api"
         active_job_id = job["id"]
+        active_job_transport = transport
         try:
-            await transmit(device, event("job", job=job))
+            await transmit(receiver, event("job", job=job))
             await broadcast(event("job.dispatched", job_id=job["id"], room_id=job["room_id"],
-                                  action=job["action"], user_id=job["user_id"]))
-            print(f"[relay-v1] dispatched job={job['id'][:12]} room={job['room_id'][:12]}", flush=True)
+                                  action=job["action"], user_id=job["user_id"], worker=transport))
+            print(f"[relay-v1] dispatched job={job['id'][:12]} room={job['room_id'][:12]} via={transport}", flush=True)
             asyncio.create_task(job_timeout(job["id"]))
-        except Exception as exc:
-            api_v1.release_running_job(job["id"], "Device transport: " + str(exc))
+        except Exception:
+            api_v1.release_running_job(job["id"], "Worker transport interrupted; not auto-retried")
             active_job_id = None
+            active_job_transport = None
+
 
 async def job_timeout(job_id: str):
-    global active_job_id
+    global active_job_id, active_job_transport
     await asyncio.sleep(150)
     if active_job_id == job_id:
         api_v1.update_job(job_id, status="failed", stage="timed_out",
-                          error="No verified Android completion after 150 seconds")
+                          error="No verified worker completion after 150 seconds")
         active_job_id = None
+        active_job_transport = None
         await broadcast(event("job.error", job_id=job_id, reason="Timeout"))
         await dispatch_next()
+
 
 api_v1.on_new_job = dispatch_next
 
