@@ -45,6 +45,12 @@ jobs:
           set -euo pipefail
           export DISPLAY=:99
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$RUNNER_TEMP/w2a-xvfb.log" 2>&1 &
+          sleep 3
+          if [ ! -S /tmp/.X11-unix/X99 ]; then
+            echo FAIL_XVFB_START
+            tail -n 20 "$RUNNER_TEMP/w2a-xvfb.log" || true
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/w2a-profile"
           "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
             --no-first-run --no-default-browser-check \
@@ -58,6 +64,8 @@ jobs:
             fi
             if [ "$i" -eq 40 ]; then
               echo FAIL_GITHUB_CHROME_CDP_STARTUP
+              tail -n 35 "$RUNNER_TEMP/w2a-chrome.log" || true
+              tail -n 15 "$RUNNER_TEMP/w2a-xvfb.log" || true
               exit 1
             fi
             sleep 2
