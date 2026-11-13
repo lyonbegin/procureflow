@@ -1,589 +1,130 @@
 <!doctype html>
 <html lang="ko">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ChatGPT Android Relay · API Test Console</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>ChatGPT Web2API | 연결 시험</title>
 <style>
-:root{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#202733;background:#f5f7fa;font-size:14px}
-*{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid #cbd5e1;background:#fff;color:#243449;border-radius:8px;padding:9px 12px}button.primary{background:#15243b;color:white;border-color:#15243b}button.danger{color:#a72727;border-color:#edc2c2}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{border:1px solid #d0d8e2;border-radius:7px;padding:9px 10px;min-width:0;max-width:100%;background:white;color:#1d293b}textarea{min-height:106px;resize:vertical;width:100%;line-height:1.5}.app{max-width:1600px;margin:auto}.mast{background:#182739;color:white;padding:20px 28px;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}.mast h1{font-size:20px;margin:0 0 3px}.mast p{margin:0;font-size:12px;color:#c5d1dc}.mast a{color:#c9e8ff}.stats{display:flex;gap:8px;align-items:center}.chip{border:1px solid #4a5d72;border-radius:20px;padding:6px 12px;font-size:12px}.chip.ok{background:#145d45;border-color:#145d45}.chip.fail{background:#8c3535;border-color:#8c3535}.layout{display:grid;grid-template-columns:minmax(310px,420px) minmax(410px,1fr);gap:18px;padding:20px}.panel{border:1px solid #dfe4eb;background:white;border-radius:12px;box-shadow:0 2px 7px #1a355009;overflow:hidden}.panel>h2{font-size:14px;margin:0;border-bottom:1px solid #e8edf3;padding:14px 16px;background:#fafbfc;display:flex;justify-content:space-between}.panel>.inner{padding:15px 16px}.stack{display:grid;gap:12px}.small{font-size:12px;color:#687789}.eyebrow{font-size:11px;color:#63728a;text-transform:uppercase;font-weight:700;letter-spacing:.07em;margin-bottom:4px}.section{font-size:16px;font-weight:700;margin:0 0 12px}.step{border-bottom:1px solid #e6eaf0;padding:0 0 17px;margin-bottom:17px}.step:last-child{border:0;margin:0;padding:0}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.row>*{flex-shrink:0}.fields{display:grid;gap:8px}.fields>label{font-weight:600;font-size:12px}.fields>input,.fields>select{width:100%}.half{display:grid;grid-template-columns:1fr 1fr;gap:8px}.wide{width:100%}.hint{font-size:11px;line-height:1.5;color:#6a7889}.warning{background:#fff7eb;border:1px solid #f0d9a5;border-radius:9px;padding:10px;color:#74510a;font-size:12px}.joblist,.roomlist,.filelist{max-height:230px;overflow-y:auto;border:1px solid #e0e6ed;border-radius:8px}.entry{border-bottom:1px solid #edf0f4;padding:10px 12px;font-size:12px}.entry:last-child{border:0}.entry:hover{background:#f8fafc}.entry.selected{background:#e8f2ff}.entry strong{font-size:12px}.entry code{font-size:10px;color:#688096}.entry-btn{display:block;text-align:left;width:100%;border:0;background:transparent;padding:0}.entry-btn:hover{color:#1b5c9a}.filecheck{width:16px;height:16px;vertical-align:middle}.endpoint{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;font-size:12px}.method{display:inline-block;font:700 10px ui-monospace,monospace;color:#145d83;background:#e5f4fb;padding:3px 6px;border-radius:4px}.method.post{color:#74500e;background:#fff1d6}.method.del{color:#9e2020;background:#ffecec}.method.patch{color:#7445a4;background:#f2ebfc}.console{background:#121a28;color:#d8e5f5;border-radius:10px;padding:16px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;max-height:340px;min-height:160px}.log{max-height:260px;min-height:125px;color:#b4d1ef}.right{display:grid;gap:18px;align-content:start}.response{display:grid;grid-template-columns:1fr 1fr;gap:12px}.response .console{min-height:245px}.name{font-size:12px;font-weight:600;margin-bottom:7px}.messages{display:grid;gap:8px;max-height:330px;overflow:auto}.message{border:1px solid #e1e7ee;padding:10px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.message .small{font-size:10px;margin-bottom:5px}.message.assistant{background:#f4f9ff}.message.user{background:#fafafa}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.tabs button{font-size:12px}.tabs button.active{background:#22354d;color:white;border-color:#22354d}.footer{padding:0 22px 25px;font-size:12px;color:#667689}code{font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
-.drive-feedback{border:1px solid #ccd5e0;border-radius:8px;background:#f6f8fc;color:#27415d;padding:12px 13px;font-size:13px;line-height:1.65;white-space:pre-line}
-.drive-feedback.error{border-color:#e2a8a5;background:#fff3f0;color:#9a3026}
-.drive-feedback.warning{border-color:#e9d19a;background:#fff9ec;color:#805214}
-.drive-feedback.success{border-color:#a2d7bb;background:#eefaf2;color:#1b663e}
-.drive-setup{border:1px dashed #d6b16e;background:#fffaf2;border-radius:8px;padding:12px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
-.drive-setup code{display:block;margin-top:4px;padding:7px;background:#fff;border:1px solid #e0d6c5;border-radius:5px;word-break:break-all}
-.drive-setup a{color:#15559a;text-decoration:underline}
-.drive-working{opacity:.6}
-@media(max-width:1040px){.layout{grid-template-columns:1fr}.response{grid-template-columns:1fr}}@media(max-width:620px){.layout{padding:10px;gap:10px}.mast{padding:16px}.half{grid-template-columns:1fr}.panel>.inner{padding:12px}}
-#auth-notice{border:1px solid #d4a767;background:#fff7e8;color:#77430e;padding:14px 16px;border-radius:9px;margin:18px 20px 0;line-height:1.65}
-#auth-notice[hidden]{display:none}
-#auth-notice button{margin-left:8px}
-#api-auth-status{font-weight:600;border-radius:6px;padding:9px 10px;background:#fff6df}
-#api-auth-status.good{color:#216543;background:#edf8f1}
-#api-auth-status.bad{color:#a12d2d;background:#fff0ed}
-.auth-guide{font-size:12px;line-height:1.65;color:#586a80}
-</style></head>
+:root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color:#172334;background:#f5f7fa}
+*{box-sizing:border-box}body{margin:0}button{font:inherit;cursor:pointer}
+header{background:#11243b;color:#fff;padding:30px max(24px,calc((100vw - 1080px)/2))}
+header h1{margin:0 0 8px;font-size:25px;letter-spacing:-.6px}
+header p{margin:0;color:#d2deeb;font-size:14px;line-height:1.6}
+main{max-width:1080px;margin:25px auto;padding:0 22px 60px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:#fff;border:1px solid #e1e7ee;border-radius:15px;padding:23px;box-shadow:0 3px 15px #20314a09}
+.card h2{margin:0 0 12px;font-size:14px;color:#5b6d80;font-weight:650}
+.value{font-size:19px;font-weight:750;letter-spacing:-.4px;overflow-wrap:anywhere}
+.note{color:#627389;font-size:12px;line-height:1.7;margin-top:10px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#a1aeba;margin-right:8px}
+.dot.good{background:#198754}.dot.wait{background:#e49a24}.dot.bad{background:#b6474b}
+.block{margin-top:16px}.block h2{font-size:19px;color:#172334}
+button.primary{border:0;background:#175ee1;color:#fff;font-weight:700;border-radius:10px;padding:14px 20px;min-height:48px}
+button.primary:disabled{background:#a6b9da;cursor:default}
+button.secondary{border:1px solid #c7d1e0;border-radius:9px;background:white;color:#21364e;padding:10px 15px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.alert{margin-top:18px;padding:14px 16px;background:#f3f7fd;border:1px solid #d6e4f8;border-radius:9px;color:#35516c;font-size:14px;line-height:1.65;white-space:pre-wrap}
+.alert.good{background:#eef8f1;border-color:#b8e4c7;color:#195c35}
+.alert.bad{background:#fff4f1;border-color:#efcbc4;color:#963c36}
+.steps{font-size:14px;line-height:1.9;color:#536579}
+.sep{height:1px;background:#e7ebf0;margin:18px 0}
+footer{color:#728096;font-size:12px;margin-top:22px;line-height:1.6}
+a{color:#1c61bb;text-decoration:none}a:hover{text-decoration:underline}
+@media(max-width:720px){header{padding:24px 20px}main{padding:0 13px}.grid{grid-template-columns:1fr}.card{padding:18px}}
+</style>
+</head>
 <body>
-<div class="app">
-<header class="mast"><div><h1>ChatGPT Android · API Test Console</h1><p>엔드포인트 테스트 / 사용자 분리 / 채팅방 CRUD / 파일 입출력 / Android 작업 큐</p></div>
-<div class="stats"><span class="chip" id="server-status">Server 확인 전</span><span class="chip" id="device-status">Android 확인 전</span><a href="/docs" target="_blank" rel="noopener">OpenAPI 문서</a></div></header>
-<div id="auth-notice" role="alert">웹 API 인증이 필요합니다. 아래 <strong>관리 콘솔 토큰</strong> 또는 <strong>사용자 API Key</strong>를 입력한 다음 <strong>인증 확인</strong>을 눌러 주십시오. 공개 웹 화면에는 비밀키가 포함되지 않습니다. <button id="auth-jump">인증 입력창으로 이동</button></div>
-<div class="layout">
-<div class="stack">
-<section class="panel"><h2>01. 인증 및 사용자 <span class="small">API Client</span></h2><div class="inner">
-<div class="step"><div class="fields">
-<label for="admin-token">관리 콘솔 토큰 (기본값 적용)</label><input id="admin-token" type="password" autocomplete="off" value="bhf2NwBy3CKdtt5NmW_ozd6648YW815VZzrDCEnn" placeholder="테스트 기본 토큰">
-<div id="api-auth-status" role="status" aria-live="polite">인증되지 않았습니다. 기존 관리자 토큰이나 사용자 API Key를 입력해 주십시오.</div>
-<label for="user-api-key">사용자 API Key (선택: 사용자 권한 테스트)</label><input id="user-api-key" type="password" autocomplete="off" placeholder="사용자별 발급키를 입력하시면 관리 토큰 대신 사용합니다">
-<div class="row"><button class="primary" id="verify-auth">인증 확인 · API 연결</button><button id="forget-auth">입력된 인증키 지우기</button></div>
-<div class="auth-guide">이 테스트 페이지에는 요청하신 기존 기본값이 미리 입력됩니다. 별도 입력 없이 API 테스트를 시작하실 수 있습니다.</div>
-<div class="row"><button id="check-health">서버 상태 확인</button><button id="connect-events">WebSocket 이벤트 연결</button></div></div></div>
-<div class="step"><div class="fields"><label for="user-id">현재 시험 사용자 ID</label><input id="user-id" value="tester-a"><div class="half"><button id="create-user">사용자 발급 / 등록</button><button id="list-users">사용자 조회</button></div>
-<div class="hint">관리 토큰은 테스트 관리 기능에 사용합니다. 사용자 API Key가 있으면 해당 사용자 자신의 채팅방에만 접근합니다.</div></div></div>
-<div class="warning">시험용 API 콘솔입니다. 파일 업로드 시 사용자별 API Key를 권장합니다. 관리자 토큰은 웹 소스에 포함하지 않고 이 브라우저에만 저장합니다. 운영 환경에는 별도 로그인 및 권한 관리가 필요합니다.</div>
-</div></section>
-
-<section class="panel"><h2>02. 채팅방 엔드포인트 <span class="small">Rooms</span></h2><div class="inner">
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms</code></div>
-<div class="fields"><label for="room-title">웹 채팅방 이름</label><input id="room-title" placeholder="예: 조달2">
-<label for="chatgpt-url">공식 ChatGPT 대화 고유 URL (우선 적용)</label>
-<input id="chatgpt-url" type="url" placeholder="https://chatgpt.com/c/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-<label for="chatgpt-title">실제 ChatGPT 앱의 대화 제목 (URL이 없을 때 검색용)</label>
-<input id="chatgpt-title" placeholder="예: 조달 제안서 작성">
-<div class="row"><button id="save-room-target">선택 방의 ChatGPT URL·제목 저장</button></div>
-<div class="hint">주소창의 <code>https://chatgpt.com/c/...</code> 개인 대화 URL을 등록하십시오. 공유 스냅샷인 <code>/share/...</code>는 해당 채팅방에 메시지를 보낼 수 없어 사용할 수 없습니다. URL을 설정하면 다음 메시지부터 Android가 딥링크로 해당 대화를 엽니다.</div>
-<div class="row"><button class="primary" id="create-room">채팅방 생성</button><button id="list-rooms">목록 새로고침</button></div>
-<label>현재 선택된 채팅방</label><input id="room-id" readonly placeholder="채팅방을 생성하거나 아래에서 선택하십시오">
-<div class="row" style="margin-top:8px"><button class="primary" id="open-room">선택한 기존 채팅방을 Android에서 열기</button></div>
-<div class="row" style="margin-top:8px"><button id="bind-room">현재 Android 대화 연결 (고유 연결 메시지 1회 전송)</button></div>
-<div class="hint">기존 방을 찾지 못하면 휴대폰의 공식 ChatGPT에서 해당 대화를 직접 한 번 열고 위 연결 버튼을 누르십시오. 해당 대화에 고유 연결 메시지 1개를 전송하여 이후부터 자동 검색할 수 있도록 등록합니다. 다른 채팅방이 열려 있으면 연결하지 마십시오.</div>
-<div class="hint" id="room-open-status" role="status" aria-live="polite">방을 선택하면 연결된 ChatGPT 고유 URL을 Android로 전달하고 해당 대화를 엽니다. URL이 없으면 실제 제목·과거 메시지로 검색합니다.</div>
+<header>
+<h1>ChatGPT Web2API 연결 시험</h1>
+<p>GitHub Actions의 Chrome을 사용하여 실제 ChatGPT에 연결하는 시험 화면입니다.<br>
+기존 Android 관리 화면과 별개이며, 입력하실 인증 정보가 없습니다.</p>
+</header>
+<main>
+<div class="grid">
+  <section class="card"><h2>Railway 웹서버</h2><div class="value"><span id="server-dot" class="dot"></span><span id="server">확인 중</span></div><div class="note">서비스 상태를 자동 확인합니다.</div></section>
+  <section class="card"><h2>GitHub Chrome 작업자</h2><div class="value"><span id="worker-dot" class="dot"></span><span id="worker">확인 중</span></div><div class="note">실행 중인 GitHub Actions 작업자와 연결되는 경우에만 실제 질문 전송이 가능합니다.</div></section>
+  <section class="card"><h2>ChatGPT 왕복 시험</h2><div class="value"><span id="test-dot" class="dot"></span><span id="test">시험 전</span></div><div class="note" id="last-run">최근 시험 기록이 없습니다.</div></section>
 </div>
-<div class="roomlist" id="room-list" style="margin-top:12px"><div class="entry small">채팅방 목록이 여기에 표시됩니다.</div></div>
-<div class="row" style="margin-top:12px"><button id="rename-room">선택한 방 이름 변경</button><button class="danger" id="delete-room">채팅방 삭제 요청</button></div>
-<div class="hint">삭제는 Android의 실제 삭제가 확인되어야 완료됩니다. 삭제 실패 시 상태를 유지합니다.</div>
-</div></section>
-
-<section class="panel"><h2>03. 파일 + 질문 <span class="small">Railway → Android</span></h2><div class="inner">
-<div class="fields">
-  <label for="file-pick">전송할 파일 (사진·PDF·Word·Excel 등, 파일당 최대 15MB)</label>
-  <input id="file-pick" type="file" multiple accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpeg,.jpg,.webp,.gif">
-  <div class="small" id="local-file-preview" aria-live="polite">파일을 선택하지 않으셨습니다.</div>
-  <div class="row"><button id="upload-file">파일만 Railway에 저장</button><button id="list-files">저장된 파일 목록</button></div>
+<section class="card block">
+<h2>실제 질문·답변 자동 검증</h2>
+<p class="steps">버튼을 누르면 정해진 짧은 시험 질문을 한 번 전송하고, ChatGPT가 정해진 응답을 반환했는지 확인합니다. 계정 정보, 기존 채팅방, 과거 파일은 공개하지 않습니다. 시험은 10분에 1회로 제한됩니다.</p>
+<div class="row">
+  <button id="run" class="primary" type="button" disabled>연결 시험 시작</button>
+  <button id="refresh" class="secondary" type="button">상태 새로고침</button>
 </div>
-<div class="filelist" id="file-list" style="margin-top:10px"><div class="entry small">기존에 업로드한 파일을 다시 사용하시려면 체크박스로 선택하십시오.</div></div>
-<div class="fields" style="margin-top:14px">
-  <label for="message-text">ChatGPT에 보낼 질문</label>
-  <textarea id="message-text" placeholder="예: 첨부한 사진에 무엇이 있는지 분석해 주십시오."></textarea>
-  <button class="primary wide" id="send-job">질문 + 선택 파일 Android로 전송</button>
-  <div class="hint">웹에서 Railway로 파일을 올리고 Android 릴레이 앱이 HTTPS로 다운로드합니다. 이어서 공식 ChatGPT의 첨부 메뉴에서 파일을 선택해 미리보기가 확인되면 질문을 보냅니다. Google Drive는 사용하지 않습니다.</div>
-</div></div></section>
-
-<section class="panel"><h2>04. 작업·기록 조회 <span class="small">Jobs + Messages</span></h2><div class="inner">
-<div class="row"><button id="list-jobs">작업 큐 조회</button><button id="list-messages">현재 채팅방 메시지 조회</button><button id="refresh-all">전체 새로고침</button></div>
-<div class="joblist" id="job-list" style="margin-top:10px"><div class="entry small">작업 내역 없음</div></div>
-<label class="name" style="display:block;margin-top:12px">선택 작업 ID</label><input id="job-id" class="wide" readonly placeholder="작업을 선택하십시오">
-<div class="row" style="margin-top:8px"><button id="get-job">작업 상태 조회</button></div>
-</div></section>
-</div>
-
-<div class="right">
-<section class="panel"><h2>API 엔드포인트 목록 <span class="small">HTTP / v1</span></h2><div class="inner">
-<div class="tabs" id="endpoint-tabs">
-<button class="active" data-method="GET" data-path="/api/v1/rooms">Rooms</button>
-<button data-method="POST" data-path="/api/v1/rooms">Create Room</button>
-<button data-method="POST" data-path="/api/v1/rooms/{room_id}/messages">Send Message</button>
-<button data-method="POST" data-path="/api/v1/rooms/{room_id}/turns">Text + Files</button>
-<button data-method="POST" data-path="/api/v1/files">Upload File</button>
-<button data-method="GET" data-path="/api/v1/jobs">Jobs</button>
-<button data-method="GET" data-path="/api/v1/rooms/{room_id}/messages">History</button>
-</div>
-<p class="small">각 작업 버튼에서 실제 HTTP 요청이 실행되며 URL, 요청 본문, HTTP 상태 및 응답 JSON이 아래에 기록됩니다.</p>
-<div id="endpoint-help" class="endpoint"><span class="method">GET</span><code>/api/v1/rooms</code></div>
-</div></section>
-<section class="panel"><h2>요청 / 응답 검사 <span class="small">HTTP Inspector</span></h2><div class="inner response">
-<div><div class="name">Request</div><pre id="request-preview" class="console">요청 대기 중</pre></div>
-<div><div class="name" id="response-title">Response</div><pre id="response-preview" class="console">응답 대기 중</pre></div>
-</div></section>
-<section class="panel"><h2>Android 실행 단계 / WebSocket 로그 <span class="small">Events</span></h2><div class="inner">
-<div class="row"><button id="clear-log">로그 지우기</button><span class="small" id="socket-state">WebSocket 연결 전</span></div>
-<pre id="event-log" class="console log" style="margin-top:10px">API 명령과 Android 응답이 여기에 기록됩니다.</pre>
-</div></section>
-<section class="panel"><h2>채팅방별 저장 기록 <span class="small">Database</span></h2><div class="inner">
-<div id="message-list" class="messages"><p class="small">채팅방을 선택하고 메시지 조회를 실행하십시오.</p></div>
-</div></section>
-<section class="panel"><h2>파일 결과 / 다운로드 <span class="small">File artifacts</span></h2><div class="inner">
-<p class="small">이미지·파일은 Railway에 인증된 사용자별로 보관하고 Android가 HTTPS로 받습니다. 이후 공식 ChatGPT에서 실제 첨부 여부를 검증합니다.</p>
-<div class="endpoint"><span class="method post">POST</span><code>/api/v1/rooms/{room_id}/turns</code></div>
-<div class="endpoint"><span class="method">GET</span><code>/api/v1/device/jobs/{job_id}/files/{file_id}</code></div>
-<a href="/docs" target="_blank" rel="noopener">Swagger/OpenAPI에서 API 스키마 확인</a>
-</div></section>
-</div>
-</div>
-<div class="footer">ChatGPT Android Relay — Railway 직접 파일 전송 + Android 접근성 첨부 확인</div>
-</div>
+<div id="result" class="alert" role="status" aria-live="polite">서버와 작업자 연결 상태를 확인하고 있습니다.</div>
+<div class="sep"></div>
+<div class="note">이 페이지에는 별도의 인증 입력란이 없습니다. 기존 개인 대화 및 파일을 읽거나 수정하는 기능도 제공하지 않습니다.</div>
+</section>
+<footer>시험 전용 화면 · 작업자가 연결되지 않은 경우 실제 ChatGPT 통신을 수행하지 않습니다. 기존 데이터는 공개하지 않습니다.</footer>
+</main>
 <script>
-'use strict';
+"use strict";
 const $=id=>document.getElementById(id);
-const text=(id)=>$(id).value.trim();
-const logbox=$('event-log');
-// Persist credentials only on the current browser device, not in the public HTML.
-// The operator explicitly requested the previous test console default.
-// Keep explicit custom browser values, but restore the historical default
-// on fresh browsers so test buttons work without manual credential entry.
-$('admin-token').value=localStorage.getItem('relay_admin_token')||$('admin-token').defaultValue;
-$('user-api-key').value=localStorage.getItem('relay_user_api_key')||'';
-// The test default is administrator-scoped. A stale user API key should not
-// unintentionally override it when reopening the test console.
-if ($('admin-token').value && !$('user-api-key').value)
-  localStorage.setItem('relay_admin_token',$('admin-token').value);
-$('user-id').value=localStorage.getItem('relay_user_id')||'tester-a';
-for(const id of ['admin-token','user-api-key','user-id']) {
-  $(id).addEventListener('input',()=>{
-    localStorage.setItem(id==='admin-token'?'relay_admin_token':
-                         id==='user-api-key'?'relay_user_api_key':'relay_user_id',$(id).value.trim());
-    if(id!=='user-id')renderAuthStatus(null);
-  });
+let activeRequest=false;
+const STAGES={not_started:"시험 전",queued:"작업 대기",running:"전송 중",completed:"작업 완료",failed:"실패"};
+function text(id,value){$(id).textContent=value;}
+function indicator(id,kind){$(id).className="dot "+(kind||"");}
+function info(message,kind){
+ const target=$("result");target.textContent=message;target.className="alert "+(kind||"");
 }
-const authBanner=$('auth-notice');
-let authenticatedRole=null;
-function renderAuthStatus(info){
-  authenticatedRole=info?.authenticated?info.role:null;
-  const valid=!!authenticatedRole;
-  const status=$('api-auth-status');
-  status.className=valid?'good':'bad';
-  status.textContent=valid
-    ? '인증 완료 · '+(info.role==='admin'?'관리자':'사용자')+
-      (info.user_id?' ('+info.user_id+')':'')+' · 채팅방과 파일 API 사용 가능'
-    : (text('admin-token')||text('user-api-key')
-        ?'인증키가 입력되어 있습니다. 「인증 확인 · API 연결」을 눌러 검증해 주십시오.'
-        :'인증키가 없습니다. API 요청 전 관리자 토큰 또는 사용자 API Key를 입력해 주십시오.');
-  authBanner.hidden=valid;
-}
-renderAuthStatus(null);
-$('auth-jump').onclick=()=>{$('admin-token').focus();$('admin-token').scrollIntoView({block:'center',behavior:'smooth'});};
-$('forget-auth').onclick=async()=>{
-  try{await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin'});}
-  catch(error){log('세션 로그아웃 요청 실패: '+error.message);}
-  socketWanted=false;clearSocketTimers();
-  if(ws){const old=ws;ws=null;old.close();}
-  $('admin-token').value='';$('user-api-key').value='';
-  localStorage.removeItem('relay_admin_token');localStorage.removeItem('relay_user_api_key');
-  renderAuthStatus(null);
-};
-async function verifyAuthentication(){
-  const hasKey=!!(text('admin-token')||text('user-api-key'));
-  const button=$('verify-auth');
-  button.disabled=true;
-  $('api-auth-status').textContent='기본 인증 상태를 확인하고 있습니다…';
+async function refresh(){
   try{
-    let response=await fetch(hasKey?'/api/v1/auth/session':'/api/v1/auth/check',
-      {method:hasKey?'POST':'GET',headers:credentials(),cache:'no-store',credentials:'same-origin'});
-    // If a stale user key was saved alongside a valid administrator key,
-    // select the administrator instead of looping forever on HTTP 403.
-    if(!response.ok&&hasKey&&text('user-api-key')&&text('admin-token')){
-      response=await fetch('/api/v1/auth/session',{
-        method:'POST',headers:{'X-Console-Token':text('admin-token')},
-        cache:'no-store',credentials:'same-origin'});
-      if(response.ok){
-        $('user-api-key').value='';
-        localStorage.removeItem('relay_user_api_key');
+    const r=await fetch("/demo/status",{cache:"no-store",credentials:"omit"});
+    if(!r.ok)throw new Error("서버 응답 오류 "+r.status);
+    const d=await r.json();
+    text("server","정상");indicator("server-dot","good");
+    text("worker",d.workerConnected?"연결됨":"연결 대기");
+    indicator("worker-dot",d.workerConnected?"good":"wait");
+    text("test",STAGES[d.testState]||"상태 확인");
+    indicator("test-dot",d.testState==="completed"&&d.testVerified?"good":
+                      d.testState==="failed"?"bad":"wait");
+    if(d.lastTestAt){
+      text("last-run","최근 시험: "+new Date(d.lastTestAt).toLocaleString("ko-KR"));
+    }
+    $("run").disabled=activeRequest||!d.workerConnected||
+      d.testState==="queued"||d.testState==="running";
+    if(!activeRequest){
+      if(d.testState==="completed"){
+        info(d.testVerified?"성공: 실제 ChatGPT 답변을 확인했습니다.":
+                           "완료되었으나 답변 검증값이 일치하지 않습니다.",
+             d.testVerified?"good":"bad");
+      }else if(d.testState==="failed"){
+        info("실제 질문·답변 검증에 실패했습니다. 실행 기록을 확인해야 합니다.","bad");
+      }else if(d.testState==="running"||d.testState==="queued"){
+        info("ChatGPT와 통신하고 있습니다. 완료 여부를 자동으로 갱신합니다.");
+      }else if(!d.workerConnected){
+        info("Railway 서버는 정상입니다. GitHub Chrome 작업자가 현재 연결되어 있지 않아 질문 전송은 실행하지 않습니다.");
+      }else{
+        info("연결 준비 완료. 시험 버튼을 눌러 실제 질문·답변을 확인하십시오.","good");
       }
     }
-    const info=await response.json();
-    if(!response.ok||info.authenticated!==true){
-      renderAuthStatus(null);
-      $('api-auth-status').textContent=hasKey
-        ?'인증 실패('+response.status+'): 저장된 관리자 토큰이나 사용자 API Key를 확인해 주십시오.'
-        :'저장된 기본 인증 정보가 없습니다. 관리자 토큰 또는 API Key를 처음 한 번 입력해 주십시오.';
-      return false;
-    }
-    if(info.role==='user'&&info.user_id){
-      $('user-id').value=info.user_id;
-      localStorage.setItem('relay_user_id',info.user_id);
-    }
-    renderAuthStatus(info);
-    log(hasKey?'입력된 인증키 확인 완료 · 브라우저 기본 인증 유지':'이전 브라우저 인증 상태 자동 복원 완료');
-    return true;
-  }catch(error){
-    renderAuthStatus(null);
-    $('api-auth-status').textContent='인증 확인 중 연결 오류: '+error.message;
-    return false;
-  }finally{button.disabled=false;}
-}
-$('verify-auth').onclick=()=>verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
-const fileChecks=new Map();
-let ws=null;
-let socketReady=false;
-function log(message){const stamp=new Date().toLocaleTimeString('ko-KR');logbox.textContent=(stamp+'  '+message+'\n'+(logbox.textContent==='API 명령과 Android 응답이 여기에 기록됩니다.'?'':logbox.textContent)).slice(0,24000);}
-function viewRequest(method,path,body){$('request-preview').textContent=method+' '+path+'\n'+(body===undefined?'':JSON.stringify(body,null,2));}
-function viewResponse(status,value){$('response-title').textContent='Response · HTTP '+status;$('response-preview').textContent=typeof value==='string'?value:JSON.stringify(value,null,2);}
-function credentials(adminOnly=false){
-  const key=adminOnly?'':text('user-api-key');
-  return key?{'X-API-Key':key}:{'X-Console-Token':text('admin-token')};
-}
-function userId(){return text('user-id');}
-function selectedRoom(){const id=text('room-id');if(!id)throw Error('채팅방을 먼저 생성하거나 선택해 주십시오.');return id;}
-function queryUser(){return '?user_id='+encodeURIComponent(userId());}
-async function call(method,path,body,opt={}){
-  // Never send empty credentials, which previously produced repeated HTTP 401.
-  const headers=credentials(!!opt.adminOnly);
-  const value=headers['X-API-Key']||headers['X-Console-Token'];
-  if(!value&&!authenticatedRole){
-    renderAuthStatus(null);
-    $('admin-token').focus();
-    throw Error('API 인증이 필요합니다. 01. 인증 및 사용자에서 관리자 토큰 또는 사용자 API Key를 입력하고 「인증 확인」을 눌러 주십시오.');
+  }catch(e){
+    text("server","연결 실패");indicator("server-dot","bad");
+    text("worker","알 수 없음");indicator("worker-dot","wait");
+    $("run").disabled=true;info("서버 상태를 확인하지 못했습니다: "+e.message,"bad");
   }
-  let args={method,headers};
-  if(body!==undefined){if(body instanceof FormData){args.body=body;}else{headers['Content-Type']='application/json';args.body=JSON.stringify(body);}}
-  const pathShow=path;viewRequest(method,pathShow,body instanceof FormData?Object.fromEntries([...body.entries()].map(([k,v])=>[k,v instanceof File?v.name:v])):body);
-  try{const response=await fetch(path,args);const ct=response.headers.get('content-type')||'';
-    const result=ct.includes('json')?await response.json():await response.text();
-    viewResponse(response.status,result);log('HTTP '+response.status+' '+method+' '+path);
-    if(!response.ok){
-      if(response.status===401||response.status===403){
-        renderAuthStatus(null);
-        $('api-auth-status').textContent='API 인증 실패 (HTTP '+response.status+'). 01. 인증 및 사용자에서 토큰을 검증해 주십시오.';
-      }
-      throw Error('HTTP '+response.status+': '+JSON.stringify(result));
-    }
-    return result;
-  }catch(error){log('API 요청 오류: '+error.message);if(!('status'in error))viewResponse('ERROR',error.message);throw error;}
 }
-function guard(fn){return async()=>{try{await fn();}catch(error){log('오류: '+error.message);}};}
-function selectedUser(obj={}){const key=text('user-api-key');return key?obj:Object.assign({user_id:userId()},obj);}
-let androidOnline=false;
-let web2apiOnline=false;
-function updateWorkerStatus(){
-  const state=web2apiOnline&&androidOnline?'Chrome·Android 온라인':
-    web2apiOnline?'GitHub Chrome 온라인':
-    androidOnline?'Android 온라인':'작업자 오프라인';
-  $('device-status').textContent=state;
-  $('device-status').classList.toggle('ok',web2apiOnline||androidOnline);
-}
-async function checkHealth(){
-  const r=await fetch('/health');const j=await r.json();
-  $('server-status').textContent=r.ok?'서버 온라인':'서버 오류';
-  $('server-status').classList.toggle('ok',r.ok);
-  androidOnline=!!j.deviceOnline;web2apiOnline=!!j.web2apiOnline;
-  updateWorkerStatus();
-  viewResponse(r.status,j);log('Health: '+JSON.stringify(j));
-}
-$('check-health').onclick=guard(checkHealth);
-
-let socketWanted=false;
-let wsRetryTimer=null;
-let wsPingTimer=null;
-let wsRetryCount=0;
-let lastPongAt=0;
-function clearSocketTimers(){
-  if(wsRetryTimer!==null){clearTimeout(wsRetryTimer);wsRetryTimer=null;}
-  if(wsPingTimer!==null){clearInterval(wsPingTimer);wsPingTimer=null;}
-}
-function planSocketReconnect(){
-  if(!socketWanted||wsRetryTimer!==null)return;
-  if(!text('admin-token')){
-    $('socket-state').textContent='관리자 토큰을 확인한 후 이벤트에 연결해 주십시오.';
-    socketWanted=false;return;
-  }
-  const wait=Math.min(20000,1000*Math.pow(2,Math.min(wsRetryCount,5)));
-  wsRetryCount+=1;
-  $('socket-state').textContent='연결 종료 · '+Math.ceil(wait/1000)+'초 후 자동 재연결';
-  wsRetryTimer=setTimeout(()=>{wsRetryTimer=null;openEventSocket();},wait);
-}
-function openEventSocket(){
-  if(!socketWanted)return;
-  const token=text('admin-token');
-  if(!token){socketWanted=false;$('socket-state').textContent='관리자 토큰 필요';return;}
-  const old=ws;
-  const client=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
-  ws=client;socketReady=false;
-  if(old && old!==client)old.close();
-  $('socket-state').textContent='연결 시도';
-  client.onopen=()=>{
-    if(ws!==client)return;
-    lastPongAt=Date.now();
-    client.send(JSON.stringify({role:'console',token}));
-  };
-  client.onmessage=e=>{
-    if(ws!==client)return;
-    let p;
-    try{p=JSON.parse(e.data);}catch(error){log('WebSocket 메시지 해석 실패');return;}
-    if(p.type==='pong'){lastPongAt=Date.now();return;}
-    log('WS '+JSON.stringify(p).slice(0,350));
-    if(p.type==='auth.error'){
-      socketWanted=false;socketReady=false;
-      $('socket-state').textContent='이벤트 인증 실패 · 관리자 토큰 확인 필요';
-      clearSocketTimers();client.close();return;
-    }
-    if(p.type==='auth.ok'){
-      socketReady=true;wsRetryCount=0;lastPongAt=Date.now();
-      $('socket-state').textContent='웹 이벤트 인증 완료';
-      androidOnline=!!p.deviceOnline;web2apiOnline=!!p.web2apiOnline;
-      updateWorkerStatus();
-      if(wsPingTimer!==null)clearInterval(wsPingTimer);
-      wsPingTimer=setInterval(()=>{
-        if(ws!==client||client.readyState!==WebSocket.OPEN)return;
-        if(Date.now()-lastPongAt>65000){
-          log('WebSocket heartbeat 응답 지연 · 연결 재시도');
-          client.close();return;
-        }
-        client.send(JSON.stringify({type:'ping'}));
-      },20000);
-    }
-    if(p.type==='device.status'){
-      androidOnline=!!p.online;updateWorkerStatus();
-    }
-    if(p.type==='web2api.status'){
-      web2apiOnline=!!p.online;updateWorkerStatus();
-    }
-    if(p.type==='job.result'||p.type==='job.error'){
-      refreshJobs().catch(()=>{});
-      refreshMessages().catch(()=>{});
-      refreshFiles().catch(()=>{});
-    }
-  };
-  client.onerror=()=>{
-    if(ws===client)$('socket-state').textContent='WebSocket 통신 오류';
-  };
-  client.onclose=()=>{
-    if(ws!==client)return;
-    ws=null;socketReady=false;clearSocketTimers();
-    $('socket-state').textContent='연결 종료';
-    planSocketReconnect();
-  };
-}
-$('connect-events').onclick=()=>{
-  socketWanted=true;wsRetryCount=0;clearSocketTimers();openEventSocket();
+$("refresh").onclick=refresh;
+$("run").onclick=async()=>{
+ activeRequest=true;$("run").disabled=true;info("시험 실행을 요청하고 있습니다.");
+ try{
+  const r=await fetch("/demo/start",{method:"POST",cache:"no-store",credentials:"omit"});
+  const d=await r.json();
+  if(!r.ok)throw new Error(
+    r.status===429?"시험 간격 제한 중입니다. 마지막 시험 10분 후 다시 진행할 수 있습니다.":
+    r.status===409?"GitHub Chrome이 연결되지 않았거나 다른 작업이 진행 중입니다.":
+    "서버 오류 "+r.status
+  );
+  if(!d.started)throw new Error("작업 생성이 확인되지 않았습니다.");
+  info("시험이 접수되었습니다. 실제 응답을 자동으로 확인합니다.");
+ }catch(e){info(e.message,"bad")}
+ finally{activeRequest=false;await refresh()}
 };
-window.addEventListener('online',()=>{
-  if(socketWanted&&!ws){clearSocketTimers();openEventSocket();}
-});
-
-$('create-user').onclick=guard(async()=>{
-  if(!text('admin-token'))throw Error('사용자 발급은 관리자 전용입니다. CONSOLE_TOKEN이 필요합니다.');
-  const uid=userId(),name=uid;
-  const r=await call('POST','/api/v1/users',{user_id:uid,name},{adminOnly:true});
-  log('사용자 API Key 발급 완료 · 응답 JSON에서 한 번 확인할 수 있습니다. 외부 공유 금지.');
-});
-$('list-users').onclick=guard(async()=>{
-  if(!text('admin-token'))throw Error('사용자 전체 조회는 관리자 전용입니다. CONSOLE_TOKEN이 필요합니다.');
-  await call('GET','/api/v1/users',undefined,{adminOnly:true});
-});
-let roomOpenJobId=null;
-function roomOpenStatus(message){$('room-open-status').textContent=message;log(message);}
-async function waitRoomOpen(jobId,roomId,attempt=0){
-  if(roomOpenJobId!==jobId)return;
-  const j=await call('GET','/api/v1/jobs/'+jobId+queryUser());
-  if(roomOpenJobId!==jobId)return;
-  if(j.status==='completed'){
-    roomOpenStatus(j.action==='room.bind'
-      ? '현재 Android 대화방 등록 완료 · 이후부터 이 방의 연결 코드로 검색할 수 있습니다.'
-      : 'Android 기존 대화방 이동 및 이전 메시지 검증 완료 · '+roomId);
-    await refreshJobs();return;
-  }
-  if(j.status==='failed'){
-    roomOpenStatus((j.error||'').includes('LEGACY_BIND_REQUIRED')
-      ? '기존 방에 검색할 과거 메시지가 부족합니다. 휴대폰 ChatGPT에서 해당 대화를 직접 열고 「현재 Android 대화 연결」을 한 번 눌러 주십시오.'
-      : 'Android 대화방 이동 실패: '+(j.error||j.stage||'알 수 없는 오류')+
-        ' · 다른 방으로 질문을 보내지 않았습니다.');
-    await refreshJobs();return;
-  }
-  $('room-open-status').textContent='Android 채팅방 탐색 중 · '+(j.stage||j.status);
-  if(attempt<90)setTimeout(()=>waitRoomOpen(jobId,roomId,attempt+1).catch(
-    e=>roomOpenStatus('Android 이동 상태 조회 실패: '+e.message)),1500);
-}
-async function openSelectedRoom(){
-  const id=selectedRoom();
-  const result=await call('GET','/api/v1/rooms/'+id+queryUser());
-  if(result.android_state!=='active'&&!result.chatgpt_url&&!text('chatgpt-url')){
-    roomOpenStatus('아직 Android에 생성되지 않은 방입니다. URL 없이 처음 질문을 보내시면 신규 채팅방을 생성합니다.');
-    return;
-  }
-  await saveRoomTarget(id);
-  roomOpenStatus('Android 채팅방 URL로 이동 요청: '+result.title);
-  const job=await call('POST','/api/v1/rooms/'+id+'/open'+queryUser(),undefined);
-  roomOpenJobId=job.id;
-  $('job-id').value=job.id;
-  $('room-open-status').textContent='Android에서 ChatGPT 고유 URL로 이동 또는 제목 검색 중…';
-  await refreshJobs();
-  waitRoomOpen(job.id,id).catch(e=>roomOpenStatus('이동 작업 조회 실패: '+e.message));
-}
-$('open-room').onclick=guard(openSelectedRoom);
-async function bindSelectedRoom(){
-  const roomId=selectedRoom();
-  const title=text('room-title');
-  if(!confirm('휴대폰의 공식 ChatGPT에서 정말 '+title+
-    '에 해당하는 기존 대화를 현재 열어 두셨습니까?\n\n연결 확인용 메시지 한 개가 그 대화에 실제 전송됩니다.'))return;
-  const job=await call('POST','/api/v1/rooms/'+roomId+'/bind'+queryUser(),undefined);
-  roomOpenJobId=job.id;
-  $('job-id').value=job.id;
-  $('room-open-status').textContent='Android에서 현재 열려 있는 대화에 고유 연결 메시지 전송 중…';
-  waitRoomOpen(job.id,roomId).catch(e=>roomOpenStatus('대화 연결 상태 확인 실패: '+e.message));
-  await refreshJobs();
-}
-$('bind-room').onclick=guard(bindSelectedRoom);
-
-function expectedTargetForm(){
-  return {chatgpt_url:text('chatgpt-url')||null,
-          chatgpt_title:text('chatgpt-title')||null};
-}
-function showTargetForm(room){
-  $('chatgpt-url').value=room.chatgpt_url||'';
-  $('chatgpt-title').value=room.chatgpt_title||'';
-}
-async function saveRoomTarget(id){
-  if(!id)throw Error('채팅방을 선택하십시오.');
-  const patch=selectedUser(expectedTargetForm());
-  const room=await call('PATCH','/api/v1/rooms/'+id,patch);
-  showTargetForm(room);
-  return room;
-}
-$('save-room-target').onclick=guard(async()=>{
-  const room=await saveRoomTarget(selectedRoom());
-  roomOpenStatus('ChatGPT 대화 주소·제목 저장 완료: '+(room.chatgpt_url||room.chatgpt_title||'설정 없음'));
-  await refreshRooms();
-});
-async function refreshRooms(){
- const r=await call('GET','/api/v1/rooms'+queryUser());
- const root=$('room-list');root.replaceChildren();
- for(const item of r.rooms){
-   const row=document.createElement('div');
-   row.className='entry'+(item.id===text('room-id')?' selected':'');
-   const b=document.createElement('button');b.className='entry-btn';
-   b.textContent=item.title+'  ['+(item.chatgpt_url?'고유 URL 연결':item.chatgpt_title?'제목 검색':'연결 주소 없음')+' / Android '+item.android_state+']';
-   b.onclick=()=>{
-     $('room-id').value=item.id;$('room-title').value=item.title;
-     showTargetForm(item);
-     if(roomOpenJobId)roomOpenJobId=null;
-     refreshRooms().catch(e=>log(e.message));
-     refreshMessages().catch(e=>log(e.message));
-     refreshFiles().catch(e=>log(e.message));
-     if(item.android_state==='active'||item.chatgpt_url){
-       openSelectedRoom().catch(e=>roomOpenStatus('Android 이동 요청 오류: '+e.message));
-     }else{
-       roomOpenStatus('새 ChatGPT 대화방: 첫 질문을 전송하면 Android에서 생성됩니다.');
-     }
-   };
-   row.append(b);
-   const c=document.createElement('code');c.textContent=item.id;
-   row.append(c);root.append(row);
- }
- if(!r.rooms.length)root.textContent='채팅방 없음';
-}
-$('create-room').onclick=guard(async()=>{
-  const title=text('room-title');if(!title)throw Error('채팅방 이름을 입력해 주십시오.');
-  const r=await call('POST','/api/v1/rooms',selectedUser({title,...expectedTargetForm()}));
-  $('room-id').value=r.id;
-  showTargetForm(r);
-  await refreshRooms();
-  log('Railway 채팅방 생성 · 연결된 ChatGPT URL: '+(r.chatgpt_url||'미설정'));
-});
-$('list-rooms').onclick=guard(refreshRooms);
-$('rename-room').onclick=guard(async()=>{
-  const id=selectedRoom(),title=text('room-title');
-  if(!title)throw Error('새 채팅방 이름을 입력하십시오.');
-  await call('PATCH','/api/v1/rooms/'+id,selectedUser({title,...expectedTargetForm()}));
-  await refreshRooms();
-});
-$('delete-room').onclick=guard(async()=>{const id=selectedRoom();if(!confirm('이 채팅방의 Android 삭제 작업을 요청하시겠습니까? 실제 삭제 확인 전에는 완료로 표시되지 않습니다.'))return;await call('DELETE','/api/v1/rooms/'+id+queryUser());await refreshRooms();await refreshJobs();});
-function checkedFileIds(){return [...fileChecks.entries()].filter(x=>x[1]).map(x=>x[0]);}
-async function refreshFiles(){
- const id=selectedRoom();
- const result=await call('GET','/api/v1/files'+queryUser()+'&room_id='+encodeURIComponent(id));
- const root=$('file-list');
- root.replaceChildren();
- const ids=new Set(result.files.map(f=>f.id));
- for(const k of fileChecks.keys())if(!ids.has(k))fileChecks.delete(k);
- for(const file of result.files){
-   const row=document.createElement('div');row.className='entry';
-   const label=document.createElement('label');
-   const chk=document.createElement('input');chk.type='checkbox';
-   chk.className='filecheck';chk.disabled=file.kind!=='input';
-   chk.checked=file.kind==='input'&&!!fileChecks.get(file.id);
-   chk.onchange=()=>fileChecks.set(file.id,chk.checked);
-   label.append(chk,'  '+file.name+' · '+Math.round(file.size/1024)+' KB');
-   row.append(label);
-   const meta=document.createElement('div');meta.className='small';
-   meta.textContent=file.kind==='input'?'Railway 저장 완료 · Android로 전송 가능':
-       file.kind==='drive'?'이전 Google Drive 링크 · 직접 전송에서는 제외':'결과 파일';
-   row.append(meta);
-   if(file.kind==='input'||file.kind==='output'){
-     const btn=document.createElement('button');btn.textContent='다운로드';
-     btn.onclick=guard(async()=>await downloadFile(file));row.append(btn);
-   }
-   root.append(row);
- }
- if(!result.files.length)root.textContent='저장된 파일이 없습니다.';
-}
-async function downloadFile(file){
- const path='/api/v1/files/'+file.id+'/download'+queryUser();
- const response=await fetch(path,{headers:credentials()});
- if(!response.ok)throw Error('다운로드 실패 HTTP '+response.status);
- const obj=URL.createObjectURL(await response.blob());
- const a=document.createElement('a');a.href=obj;a.download=file.name;
- document.body.append(a);a.click();a.remove();
- setTimeout(()=>URL.revokeObjectURL(obj),12000);
-}
-$('file-pick').onchange=()=>{
- const selected=[...$('file-pick').files];
- $('local-file-preview').textContent=selected.length
-   ? selected.map(f=>f.name+' ('+Math.round(f.size/1024)+'KB)').join(' · ')
-   : '파일을 선택하지 않으셨습니다.';
-};
-$('upload-file').onclick=guard(async()=>{
- const id=selectedRoom(),picked=[...$('file-pick').files];
- if(!picked.length)throw Error('업로드할 파일을 선택하십시오.');
- if(picked.length>10)throw Error('최대 10개 파일까지 가능합니다.');
- for(const file of picked){
-   const form=new FormData();
-   form.append('user_id',userId());form.append('room_id',id);
-   form.append('file',file,file.name);
-   const result=await call('POST','/api/v1/files',form);
-   fileChecks.set(result.id,true);
- }
- $('file-pick').value='';
- $('file-pick').onchange();
- await refreshFiles();
- log('Railway에 파일 '+picked.length+'개 저장 완료 · 질문을 전송하십시오.');
-});
-$('list-files').onclick=guard(refreshFiles);
-$('send-job').onclick=guard(async()=>{
- const id=selectedRoom(),message=text('message-text');
- // Every job receives the selected room's exact persisted ChatGPT URL/title,
- // never a title guessed from the currently open Android screen.
- await saveRoomTarget(id);
- const local=[...$('file-pick').files],stored=checkedFileIds();
- if(!message)throw Error('질문을 입력해 주십시오.');
- if(local.length>10||stored.length>10)throw Error('최대 10개 파일까지 전송할 수 있습니다.');
- if(local.length&&stored.length)throw Error('이번에 선택한 파일과 이전 저장 파일을 동시에 선택하지 마십시오.');
- let result;
- if(local.length){
-   const form=new FormData();
-   form.append('user_id',userId());form.append('text',message);
-   for(const file of local)form.append('files',file,file.name);
-   result=await call('POST','/api/v1/rooms/'+id+'/turns',form);
-   $('file-pick').value='';$('file-pick').onchange();
-   for(const item of result.files||[])fileChecks.set(item.id,false);
- }else{
-   result=await call('POST','/api/v1/rooms/'+id+'/messages',
-     selectedUser({text:message,attachment_ids:stored}));
-   for(const fid of stored)fileChecks.set(fid,false);
- }
- $('job-id').value=result.id;
- log('Android 작업 등록 · '+result.id+' · 파일 '+(local.length||stored.length)+'개');
- await refreshJobs();await refreshFiles();await refreshMessages();
-});
-async function refreshJobs(){const r=await call('GET','/api/v1/jobs'+queryUser());const list=$('job-list');list.replaceChildren();for(const job of r.jobs){const div=document.createElement('div');div.className='entry';const b=document.createElement('button');b.className='entry-btn';b.textContent=job.action+' · '+job.status+' · '+job.stage;b.onclick=()=>{$('job-id').value=job.id;viewResponse(200,job);};div.append(b);const c=document.createElement('code');c.textContent=job.id+'  /  '+job.room_id;div.append(c);if(job.error){const x=document.createElement('div');x.className='small';x.textContent=job.error;div.append(x);}list.append(div);}if(!r.jobs.length)list.textContent='작업 내역 없음';}
-$('list-jobs').onclick=guard(refreshJobs);
-$('get-job').onclick=guard(async()=>{if(!text('job-id'))throw Error('작업을 먼저 선택하십시오.');await call('GET','/api/v1/jobs/'+text('job-id')+queryUser());});
-async function refreshMessages(){const id=selectedRoom();const r=await call('GET','/api/v1/rooms/'+id+'/messages'+queryUser());const root=$('message-list');root.replaceChildren();for(const m of r.messages){const item=document.createElement('div');item.className='message '+m.role;const role=document.createElement('div');role.className='small';role.textContent=m.role+' · '+new Date(m.created_at).toLocaleString('ko-KR')+' · '+(m.job_id||'');const content=document.createElement('div');content.textContent=m.text||'[첨부파일 전용 메시지]';item.append(role,content);root.append(item);}if(!r.messages.length)root.textContent='아직 메시지가 없습니다.';}
-$('list-messages').onclick=guard(refreshMessages);
-$('refresh-all').onclick=guard(async()=>{await checkHealth();await refreshRooms();await refreshJobs();if(text('room-id')){await refreshFiles();await refreshMessages();}});
-$('clear-log').onclick=()=>logbox.textContent='';
-document.querySelectorAll('#endpoint-tabs button').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('#endpoint-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const method=btn.dataset.method, path=btn.dataset.path;$('endpoint-help').replaceChildren();const m=document.createElement('span');m.className='method '+(method==='POST'?'post':'');m.textContent=method;const c=document.createElement('code');c.textContent=path;$('endpoint-help').append(m,c);});
-checkHealth().catch(e=>log('Health failed: '+e.message));
-// Default to the previously verified session (HttpOnly cookie), then stored
-// browser credentials; no copy of the administrator token is published.
-verifyAuthentication().then(ok=>{if(ok)refreshRooms().catch(e=>log(e.message));});
-</script></body></html>
+refresh();
+setInterval(refresh,4500);
+</script>
+</body>
+</html>
