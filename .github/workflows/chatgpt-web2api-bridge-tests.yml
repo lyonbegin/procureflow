@@ -1,0 +1,33 @@
+name: Verify free GitHub ChatGPT relay worker authentication (isolated)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/chatgpt-web2api-bridge-tests.yml
+permissions:
+  contents: read
+jobs:
+  trust-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/chatgpt-web2api-relay-bridge-20261113
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing relay dependencies and run signed JWT regressions
+        run: |
+          set -euo pipefail
+          cd chatgpt-android-relay/web
+          python -m pip install -q -r requirements.txt
+          python -m unittest discover -s tests -p 'test_gh_oidc.py' -v
+          python -m py_compile app.py gh_oidc.py
+          echo PASS_RELAY_GITHUB_OIDC_AUTHENTICATION_TESTED_ISOLATED
+      - name: Check original relay API tests without touching Railway
+        run: |
+          set -euo pipefail
+          cd chatgpt-android-relay/web
+          python tests/test_api_v1.py
+          echo PASS_RELAY_ROOM_API_REGRESSIONS
