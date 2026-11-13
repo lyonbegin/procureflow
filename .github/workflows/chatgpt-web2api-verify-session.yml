@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/chatgpt-web2api-verify-session.yml
       - .github/scripts/w2a_verify_session.py
+      - .github/scripts/w2a_verify_chat_completion.py
 
 permissions:
   contents: read
@@ -115,3 +116,8 @@ jobs:
               print("FAIL_WEB2API_MODELS_"+type(ex).__name__)
               raise
           PY
+      - name: Test one real question and response via original ChatGPT-Web2API
+        env:
+          DISPLAY: :99
+        run: |
+          python3 .github/scripts/w2a_verify_chat_completion.py
