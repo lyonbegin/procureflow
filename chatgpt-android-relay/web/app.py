@@ -6,13 +6,19 @@ import time
 from collections import deque
 from pathlib import Path
 from typing import Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 import api_v1
 import drive_v1
 from gh_oidc import verify_worker_identity
 
 ROOT = Path(__file__).resolve().parent
+PUBLIC_SMOKE_ONLY = os.environ.get("PUBLIC_SMOKE_ONLY", "") == "1"
+DEMO_UID = "usr_public_web2api_probe_20261113"
+DEMO_ROOM = "room_public_web2api_probe_20261113"
+DEMO_QUESTION = "연결 확인 시험입니다. 정확히 HITEL_W2A_OK_20261113만 답변하십시오."
+DEMO_MARKER = "HITEL_W2A_OK_20261113"
+DEMO_COOLDOWN_MS = 10 * 60 * 1000
 app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
 app.include_router(api_v1.router)
 app.include_router(drive_v1.router)
@@ -43,14 +49,14 @@ async def dispatch_next():
         if active_job_id or (device is None and web2api_device is None):
             return
         if not recovery_checked:
-            recovered = api_v1.fail_orphaned_running_jobs()
+            recovered = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_orphaned_running_jobs()
             recovery_checked = True
             if recovered:
                 print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
-        failed_missing = api_v1.fail_queued_jobs_with_unavailable_files()
+        failed_missing = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_queued_jobs_with_unavailable_files()
         if failed_missing:
             print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
-        job = api_v1.claim_next_job()
+        job = api_v1.claim_next_job(only_user_id=DEMO_UID if PUBLIC_SMOKE_ONLY else None)
         if job is None:
             return
 
@@ -121,6 +127,12 @@ async def broadcast(packet: dict[str, Any]):
         except Exception:
             consoles.discard(ws)
 
+@app.middleware("http")
+async def block_legacy_private_apis_in_public_test(request: Request, call_next):
+    if PUBLIC_SMOKE_ONLY and request.url.path.startswith(("/api/v1", "/download/", "/docs", "/openapi.json", "/redoc")):
+        return JSONResponse({"detail": "Previous private console disabled for public test"}, status_code=404)
+    return await call_next(request)
+
 @app.get("/")
 async def home():
     return FileResponse(ROOT / "static" / "index.html")
@@ -140,6 +152,70 @@ async def health():
             "consoleCount": len(consoles),
             "lastCommand": {"stage": last_command.get("stage", "idle")}}
 
+@app.get("/demo/status")
+async def demo_status():
+    if not PUBLIC_SMOKE_ONLY:
+        raise HTTPException(404)
+    with api_v1.connection() as db:
+        job = db.execute(
+            "SELECT id,status,stage,result_text,created_at FROM jobs "
+            "WHERE user_id=? AND room_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
+            (DEMO_UID, DEMO_ROOM),
+        ).fetchone()
+    state = job["status"] if job else "not_started"
+    is_verified = bool(job and state == "completed"
+                       and DEMO_MARKER in (job["result_text"] or ""))
+    return {
+        "server": "online",
+        "workerConnected": web2api_device is not None,
+        "testState": state,
+        "testVerified": is_verified,
+        "lastTestAt": job["created_at"] if job else None,
+    }
+
+
+@app.post("/demo/start")
+async def demo_start(request: Request):
+    if not PUBLIC_SMOKE_ONLY:
+        raise HTTPException(404)
+    # Browser test: no user-supplied text or file, no old private records.
+    origin = request.headers.get("origin")
+    host = request.headers.get("host", "").split(":")[0]
+    if origin and origin != ("https://" + host) and origin != ("http://" + host):
+        raise HTTPException(403, "Cross-site test requests denied")
+    if web2api_device is None:
+        raise HTTPException(409, "GitHub Chrome worker is not connected")
+    if active_job_id:
+        raise HTTPException(409, "Another test is already running")
+    now = api_v1.clock()
+    with api_v1.connection() as db:
+        last = db.execute(
+            "SELECT created_at FROM jobs WHERE user_id=? AND room_id=? "
+            "ORDER BY created_at DESC LIMIT 1", (DEMO_UID, DEMO_ROOM),
+        ).fetchone()
+        if last and now - last["created_at"] < DEMO_COOLDOWN_MS:
+            raise HTTPException(429, "Public test cooling down")
+        db.execute(
+            "INSERT OR IGNORE INTO users(id,name,api_key_hash,created_at) "
+            "VALUES(?,?,?,?)",
+            (DEMO_UID, "Isolated public connection test",
+             "disabled-public-smoke-user-no-login", now),
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO rooms(id,user_id,title,android_state,created_at,updated_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (DEMO_ROOM, DEMO_UID, "Web2API connection test", "uncreated", now, now),
+        )
+        job_id = api_v1.store_job(db, DEMO_UID, DEMO_ROOM, "chat.send", DEMO_QUESTION, [])
+        db.execute(
+            "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+            ("msg_" + api_v1.new_id(), DEMO_UID, DEMO_ROOM, job_id,
+             "user", DEMO_QUESTION, now),
+        )
+    await dispatch_next()
+    return {"started": True, "testState": "queued"}
+
+
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
     global device, web2api_device, active_job_id, active_job_transport
@@ -153,6 +229,9 @@ async def socket(ws: WebSocket):
             return
         auth = json.loads(initial)
         role = str(auth.get("role", ""))
+        if PUBLIC_SMOKE_ONLY and role != "web2api":
+            await ws.close(code=1008)
+            return
         token = str(auth.get("token", ""))
         expected = DEVICE_TOKEN if role == "device" else CONSOLE_TOKEN if role == "console" else ""
         valid_legacy = token_equals(token, expected)
