@@ -51,25 +51,25 @@ jobs:
           python .github/scripts/test_w2a_relay_worker.py
           python -m py_compile .github/scripts/w2a_relay_worker.py
           echo PASS_WEB2API_WORKER_PROTOCOL_GUARDS
-      - name: Validate preserved management UI and socket reconnect script
+      - name: Validate new single-page Web2API smoke UI JavaScript
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import re
           from pathlib import Path
-          file=Path("bridge-source/chatgpt-android-relay/web/static/index.html")
-          source=file.read_text(encoding="utf-8")
-          scripts=re.findall(r"<script[^>]*>([\\s\\S]*?)</script>",source)
-          assert len(scripts)==1,"original inline UI script count changed"
-          assert "function openEventSocket()" in scripts[0]
-          assert "function updateWorkerStatus()" in scripts[0]
-          assert "web2api.status" in scripts[0]
-          assert "planSocketReconnect" in scripts[0]
+          html=Path("bridge-source/chatgpt-android-relay/web/static/index.html").read_text(encoding="utf-8")
+          scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,re.DOTALL)
+          assert len(scripts)==1, "test UI must have one script"
+          assert "Web2API 연결 시험" in html
+          assert 'id="admin-token"' not in html
+          assert 'id="user-api-key"' not in html
+          assert 'type="password"' not in html
+          assert '"/demo/start"' in scripts[0]
           Path("/tmp/relay-bridge-ui.js").write_text(scripts[0],encoding="utf-8")
-          print("PASS_ORIGINAL_RELAY_UI_STRUCTURE_PRESERVED")
+          print("PASS_PUBLIC_NO_LOGIN_WEB2API_UI_STRUCTURE")
           PY
           node --check /tmp/relay-bridge-ui.js
-          echo PASS_WEB2API_WORKER_UI_SYNTAX
+          echo PASS_PUBLIC_WEB2API_UI_JAVASCRIPT
       - name: Verify public token-free test UI and private API isolation
         run: |
           set -euo pipefail
