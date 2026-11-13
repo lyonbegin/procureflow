@@ -40,7 +40,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" != schedule ]; then
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
             echo "start=true" >> "$GITHUB_OUTPUT"
             echo PASS_INTERACTIVE_ACTIONS_RUN
             exit 0
@@ -72,7 +72,7 @@ jobs:
           fi
   verify-github-identity:
     needs: check-queued-test
-    if: github.event_name != 'schedule' || needs.check-queued-test.outputs.start == 'true'
+    if: needs.check-queued-test.outputs.start == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
@@ -102,7 +102,7 @@ jobs:
           PY
 
   live-chrome-worker:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && needs.check-queued-test.outputs.start == 'true')
+    if: needs.check-queued-test.outputs.start == 'true'
     needs: [verify-github-identity, check-queued-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 27
@@ -110,7 +110,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
       RELAY_WS_URL: wss://chatgpt-relay-web-production.up.railway.app/ws
-      W2A_WORKER_SECONDS: ${{ inputs.work_minutes == '5' && '300' || inputs.work_minutes == '20' && '1200' || '600' }}
+      W2A_WORKER_SECONDS: ${{ inputs.work_minutes == '5' && '300' || inputs.work_minutes == '20' && '1200' || '1200' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
