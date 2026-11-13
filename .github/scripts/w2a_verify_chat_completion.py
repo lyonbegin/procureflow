@@ -28,6 +28,27 @@ try:
         status = response.status
 except urllib.error.HTTPError as e:
     print("WEB2API_CHAT_HTTP_STATUS=" + str(e.code), flush=True)
+    try:
+        error=json.loads(e.read(8192))
+        entry=error.get("error", {})
+        if isinstance(entry, dict):
+            for key in ("code","type"):
+                value=str(entry.get(key,""))
+                if value and len(value)<=64 and all(ch.isascii() and (ch.isalnum() or ch in "_-") for ch in value):
+                    print("WEB2API_CHAT_ERROR_"+key.upper()+"="+value, flush=True)
+            msg=str(entry.get("message", "")).lower()
+            classes={
+                "timeout":("timeout","timed out"),
+                "generation_stuck":("generation stuck","generation_stuck","stalled"),
+                "composer":("composer","input box"),
+                "auth":("auth","login","session expired"),
+                "cdp":("cdp","websocket","browser"),
+                "rate_limit":("rate limit","too many requests"),
+            }
+            matches=[name for name,terms in classes.items() if any(term in msg for term in terms)]
+            print("WEB2API_CHAT_SAFE_ERROR_CLASSES="+",".join(matches or ["unknown"]),flush=True)
+    except Exception:
+        print("WEB2API_CHAT_ERROR_UNREADABLE",flush=True)
     print("FAIL_WEB2API_CHAT_HTTP", flush=True)
     sys.exit(1)
 except Exception as e:
