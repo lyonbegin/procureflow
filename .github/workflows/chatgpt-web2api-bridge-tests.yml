@@ -51,6 +51,25 @@ jobs:
           python .github/scripts/test_w2a_relay_worker.py
           python -m py_compile .github/scripts/w2a_relay_worker.py
           echo PASS_WEB2API_WORKER_PROTOCOL_GUARDS
+      - name: Validate preserved management UI and socket reconnect script
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          file=Path("bridge-source/chatgpt-android-relay/web/static/index.html")
+          source=file.read_text(encoding="utf-8")
+          scripts=re.findall(r"<script[^>]*>([\\s\\S]*?)</script>",source)
+          assert len(scripts)==1,"original inline UI script count changed"
+          assert "function openEventSocket()" in scripts[0]
+          assert "function updateWorkerStatus()" in scripts[0]
+          assert "web2api.status" in scripts[0]
+          assert "planSocketReconnect" in scripts[0]
+          Path("/tmp/relay-bridge-ui.js").write_text(scripts[0],encoding="utf-8")
+          print("PASS_ORIGINAL_RELAY_UI_STRUCTURE_PRESERVED")
+          PY
+          node --check /tmp/relay-bridge-ui.js
+          echo PASS_WEB2API_WORKER_UI_SYNTAX
       - name: Verify original server API regression
         run: |
           set -euo pipefail
