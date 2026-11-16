@@ -136,3 +136,5 @@ jobs:
 # Validate guest-file total quota and hard deletion while preserving private rooms.
 
 # Re-run all real browser-room API contract tests after enabling isolated free-text questions.
+
+# Rerun after correcting NUL-byte validation fixture for external free-text input.
