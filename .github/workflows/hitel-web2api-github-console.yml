@@ -22,6 +22,7 @@ permissions:
 jobs:
   check-server:
     if: github.event_name != 'workflow_dispatch' || inputs.mode == 'server_status'
+    # Validate the live Railway API on every console workflow change.
     name: Railway API 실제 응답 확인
     runs-on: ubuntu-24.04
     timeout-minutes: 5
