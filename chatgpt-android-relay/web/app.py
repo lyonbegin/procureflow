@@ -243,6 +243,7 @@ async def socket(ws: WebSocket):
     await ws.accept()
     role = ""
     actions_worker = False
+    preflight_jobs: set[str] = set()  # per-authenticated-WebSocket only
     try:
         initial = await asyncio.wait_for(ws.receive_text(), timeout=10)
         if len(initial) > 12000:
@@ -379,6 +380,29 @@ async def socket(ws: WebSocket):
                         # mutate the currently active job or its room state.
                         await ws.close(code=1008)
                         break
+                    if role == "web2api" and kind == "job.preflight":
+                        # A separate, server-authorized gate immediately before
+                        # the browser worker submits any account-bound text.
+                        # A queued/deleted/foreign-room job is never approved.
+                        jid = msg.get("job_id")
+                        rid = msg.get("room_id")
+                        aid = msg.get("account_id")
+                        email = msg.get("execution_account_email")
+                        approved = bool(
+                            actions_worker
+                            and isinstance(jid,str)
+                            and jid == active_job_id
+                            and active_job_transport == "web2api"
+                            and api_v1.authorize_web2api_preflight(jid,rid,aid,email)
+                        )
+                        if approved:
+                            preflight_jobs.add(jid)
+                        await transmit(ws,event(
+                            "job.preflight.ok" if approved else "job.preflight.denied",
+                            job_id=jid if isinstance(jid,str) else "",
+                            room_id=rid if isinstance(rid,str) else "",
+                        ))
+                        continue
                     if kind in {"job.received", "job.progress", "job.result", "job.error"}:
                         jid = str(msg.get("job_id", ""))
                         if jid != active_job_id or active_job_transport != ("android" if role == "device" else "web2api"):
@@ -450,6 +474,7 @@ async def socket(ws: WebSocket):
                                               if verified_account else None)
                             email_verified = bool(
                                 actions_worker and role == "web2api"
+                                and jid in preflight_jobs
                                 and msg.get("session_verified") is True
                                 and isinstance(actual_email, str) and actual_email.strip()
                                 and isinstance(expected_email, str) and expected_email.strip()
@@ -508,6 +533,7 @@ async def socket(ws: WebSocket):
                                                   stage=stage, result_text=output,
                                                   reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
+                            preflight_jobs.discard(jid)
                             active_job_id = None
                             active_job_transport = None
                             await dispatch_next()
