@@ -1,0 +1,73 @@
+name: HITEL Web2API - GitHub 실행 및 결과 확인
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "검사할 기능을 선택하십시오"
+        required: true
+        type: choice
+        default: server_status
+        options:
+          - server_status
+          - real_chat
+  push:
+    paths:
+      - .github/workflows/hitel-web2api-github-console.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check-server:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'server_status'
+    name: Railway API 실제 응답 확인
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Test deployed Railway API via real HTTP requests
+        run: |
+          set -euo pipefail
+          BASE=https://chatgpt-relay-web-production.up.railway.app
+          curl --fail --silent --show-error --retry 2 --max-time 15 "$BASE/health" -o /tmp/hitel-web2api-health.json
+          curl --fail --silent --show-error --retry 2 --max-time 15 "$BASE/demo/status" -o /tmp/hitel-web2api-status.json
+          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$BASE/api/v1/rooms")"
+          python3 - "$code" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          health=json.loads(Path("/tmp/hitel-web2api-health.json").read_text(encoding="utf-8"))
+          status=json.loads(Path("/tmp/hitel-web2api-status.json").read_text(encoding="utf-8"))
+          assert health.get("status") == "ok", "FAIL_API_HEALTH"
+          assert status.get("server") == "online", "FAIL_DEMO_API_STATUS"
+          assert isinstance(status.get("workerConnected"),bool), "FAIL_WORKER_FIELD"
+          assert sys.argv[1] == "404", "FAIL_PRIVATE_ROOMS_EXPOSED"
+          print("PASS_RAILWAY_API_HTTP")
+          print("PASS_TEST_CONSOLE_STATUS")
+          print("PASS_PRIVATE_ROOMS_NOT_PUBLIC")
+          print("GITHUB_WORKER_CONNECTED="+str(status["workerConnected"]).lower())
+          print("LAST_TEST_STATE="+str(status.get("testState","unknown")))
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write("## HITEL Web2API - Railway API 검사 결과\n\n")
+              out.write("| 검사항목 | 결과 |\n| --- | --- |\n")
+              out.write("| Railway /health | 성공 (HTTP 200) |\n")
+              out.write("| Railway /demo/status | 성공 (HTTP 200) |\n")
+              out.write("| 개인 데이터 보호 /api/v1/rooms | 차단 (HTTP 404) |\n")
+              out.write("| GitHub Chrome 현재 연결 | "+("연결됨" if status["workerConnected"] else "현재 꺼짐")+" |\n")
+              out.write("| 최근 시험 상태 | "+str(status.get("testState","unknown"))+" |\n\n")
+              out.write("- [Web2API 시험 웹페이지]("+ "https://chatgpt-relay-web-production.up.railway.app/"+ ")\n")
+              out.write("- [원본 브라우저를 실행하는 GitHub Actions]("+ "https://github.com/lyonbegin/procureflow/actions/workflows/chatgpt-web2api-relay-worker.yml"+ ")\n")
+              out.write("- [설치·실행 안내](https://github.com/lyonbegin/procureflow/blob/main/docs/HITEL_WEB2API_GITHUB_OPERATOR.md)\n")
+          PY
+
+  real-chat:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'real_chat'
+    name: ChatGPT 실제 질문과 답변 수신
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/chatgpt-web2api-verify-session.yml
+    secrets: inherit
