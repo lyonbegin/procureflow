@@ -125,10 +125,15 @@ def bootstrap(request: Request, response: Response):
 
 @router.get("/status")
 def status(request: Request):
-    _actor(request)
-    # app globals imported lazily to avoid circular imports.
+    # The identifier below distinguishes this anonymous browser session from
+    # another visitor. It is a non-secret display tag, not a ChatGPT identity.
+    uid = _actor(request)
     from app import web2api_device
     return {"workerConnected":web2api_device is not None,
+            "browserSessionType":"anonymous_cookie",
+            "browserSessionTag":uid[-8:],
+            "chatgptAccountLinked":False,
+            "workerAccountIdentityAvailable":False,
             "mode":"isolated_external_trial","freeTextSendSupported":True,
             "maxFreeTextCharacters":MAX_FREE_TEXT_CHARACTERS,
             "fileToChatGPTSupported":False}
