@@ -128,6 +128,10 @@ jobs:
           cd bridge-source/chatgpt-android-relay/web
           python -m unittest discover -s tests -p 'test_browser_chat.py' -v
           python -m unittest discover -s tests -p 'test_chatgpt_account_safety.py' -v
+          python -m unittest discover -s tests -p 'test_account_request_routing.py' -v
+          python -m unittest discover -s tests -p 'test_login_scenario_matrix.py' -v
+          python -m unittest discover -s tests -p 'test_account_isolation_advanced.py' -v
+          echo PASS_ALL_48_ACCOUNT_ROUTING_AND_ROOM_ISOLATION_CONTRACTS
           echo PASS_CHATGPT_IDENTITY_SEPARATE_FROM_CHROME_SESSION
           python -m py_compile web_chat.py chatgpt_accounts.py app.py api_v1.py
           python - <<'PY'
