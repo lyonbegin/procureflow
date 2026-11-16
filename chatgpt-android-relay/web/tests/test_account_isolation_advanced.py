@@ -244,5 +244,22 @@ class AccountIsolationTests(unittest.TestCase):
         self.assertFalse(api_v1.authorize_web2api_preflight(
             jid,room,"oai_fake","A@example.invalid"))
 
+    def test_15_completion_refuses_cross_account_room_binding(self):
+        aid=self.add_account("A",True)
+        room=self.new_room()
+        jid=self.send(room,aid).json()["jobId"]
+        with api_v1.connection() as c:
+            c.execute("UPDATE jobs SET status='running' WHERE id=?",(jid,))
+            c.execute("UPDATE rooms SET chatgpt_account_id=? WHERE id=?",
+                      ("oai_other",room))
+        accepted=api_v1.complete_web2api_job(
+            jid,room,"Must never be stored",
+            "https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012")
+        self.assertFalse(accepted)
+        with api_v1.connection() as c:
+            saved=c.execute("SELECT count(*) FROM messages WHERE room_id=? "
+                            "AND role='assistant'",(room,)).fetchone()[0]
+        self.assertEqual(saved,0)
+
 if __name__=="__main__":
     unittest.main()
