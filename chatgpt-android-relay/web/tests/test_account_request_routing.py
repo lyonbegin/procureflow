@@ -89,9 +89,13 @@ class AccountRoutingTests(unittest.TestCase):
         mismatch = self.send("oai_other_account")
         self.assertEqual(mismatch.status_code, 409, mismatch.text)
         matching = self.send(active)
-        self.assertEqual(matching.status_code, 409, matching.text)
-        self.assertIn("Web2API", matching.json()["detail"])
-        self.assertEqual(self.count_jobs(), 0)
+        self.assertEqual(matching.status_code, 200, matching.text)
+        self.assertFalse(matching.json()["sentToChatGPT"])
+        self.assertEqual(self.count_jobs(), 1)
+        with api_v1.connection() as db:
+            row=db.execute("SELECT account_id FROM jobs WHERE room_id=?",
+                           (self.room,)).fetchone()
+        self.assertEqual(row["account_id"],active)
 
     @patch("app.verify_worker_identity", return_value=True)
     def test_worker_ack_wrong_account_is_rejected(self, _verify):
