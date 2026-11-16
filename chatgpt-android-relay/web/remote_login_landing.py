@@ -20,7 +20,8 @@ WORKFLOW_URL=(
  "https://github.com/lyonbegin/procureflow/actions/workflows/"
  "hitel-two-account-manual-login.yml"
 )
-API_URL="https://api.github.com/repos/lyonbegin/procureflow/commits/main/status"
+API_ROOT="https://api.github.com/repos/lyonbegin/procureflow"
+RUNS_URL=API_ROOT+"/actions/workflows/hitel-two-account-manual-login.yml/runs?per_page=5"
 _context="hitel-two-manual-chrome-logins"
 _cache_lock=threading.Lock()
 _cache={"until":0.0,"value":{"ready":False,"workflowUrl":WORKFLOW_URL}}
@@ -73,16 +74,29 @@ def remote_login_status():
     try:
         with httpx.Client(timeout=7,headers={"Accept":"application/vnd.github+json",
                     "User-Agent":"HITEL-two-profile-login-screen"}) as client:
-            response=client.get(API_URL)
+            response=client.get(RUNS_URL)
             response.raise_for_status()
-            statuses=response.json().get("statuses",[])
-        for entry in statuses:
-            if entry.get("context")==_context:
-                valid=verified_link(entry)
-                if valid:
-                    payload["ready"]=True
-                    payload["remoteUrl"]=valid
-                break  # latest status is authoritative, including success
+            runs=response.json().get("workflow_runs",[])
+            # The current branch may have advanced AFTER the temporary
+            # authenticated Chrome session started. Query the actual active
+            # workflow's head SHA, not the tip of main.
+            for run in runs[:5]:
+                if run.get("status") != "in_progress":
+                    continue
+                sha=run.get("head_sha")
+                if not isinstance(sha,str) or not re.fullmatch(r"[0-9a-f]{40}",sha):
+                    continue
+                status_response=client.get(API_ROOT+"/commits/"+sha+"/status")
+                status_response.raise_for_status()
+                for entry in status_response.json().get("statuses",[]):
+                    if entry.get("context")==_context:
+                        valid=verified_link(entry)
+                        if valid:
+                            payload["ready"]=True
+                            payload["remoteUrl"]=valid
+                        break
+                if payload["ready"]:
+                    break
     except (httpx.HTTPError,ValueError,TypeError,AttributeError):
         payload["statusUnavailable"]=True
     with _cache_lock:
