@@ -80,6 +80,10 @@ jobs:
           path=Path("bridge-source/chatgpt-android-relay/web/static/chat.html")
           html=path.read_text(encoding="utf-8")
           assert "<title>HITEL Web2API · 채팅 시험실</title>" in html
+          assert 'id="browser-identity"' in html
+          assert "ChatGPT 계정 로그인 아님" in html
+          assert "계정명·이메일은 공개하지 않습니다" in html
+          print("PASS_BROWSER_SESSION_VS_CHATGPT_WORKER_IDENTITY_UI")
           for id_ in ("room-list","new-room","messages","draft","preset","send","file-input","file-list","preview-overlay"):
               assert 'id="'+id_+'"' in html, id_
           assert '/web/api/rooms/' in html
