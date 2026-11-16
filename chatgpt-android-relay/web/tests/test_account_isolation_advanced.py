@@ -261,5 +261,30 @@ class AccountIsolationTests(unittest.TestCase):
                             "AND role='assistant'",(room,)).fetchone()[0]
         self.assertEqual(saved,0)
 
+    def test_16_explicit_account_room_created_and_listed_before_first_send(self):
+        a=self.add_account("A",True)
+        result=self.client.post("/web/api/rooms",
+            headers={"X-Web-Csrf":self.csrf},
+            json={"title":"My account room","account_id":a})
+        self.assertEqual(result.status_code,200,result.text)
+        rid=result.json()["room"]["id"]
+        self.assertEqual(result.json()["room"]["chatgpt_account_id"],a)
+        rooms=self.client.get("/web/api/rooms").json()["rooms"]
+        self.assertEqual(next(r["chatgpt_account_id"] for r in rooms if r["id"]==rid),a)
+
+    def test_17_room_creation_with_different_or_missing_identity_refused(self):
+        a=self.add_account("A",True)
+        b=self.add_account("B",False)
+        for wrong in (b,None,"oai_unknown"):
+            result=self.client.post("/web/api/rooms",
+                headers={"X-Web-Csrf":self.csrf},
+                json={"title":"Forged room","account_id":wrong})
+            self.assertEqual(result.status_code,409,result.text)
+        result=self.client.post("/web/api/rooms",
+            headers={"X-Web-Csrf":self.csrf},
+            json={"title":"Unbound legacy room"})
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertIsNone(result.json()["room"]["chatgpt_account_id"])
+
 if __name__=="__main__":
     unittest.main()
