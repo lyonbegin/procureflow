@@ -556,6 +556,18 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
                 ).fetchone()
                 if not verified or verified["issuer"] != "https://auth.openai.com" or not verified["email"]:
                     raise HTTPException(409, "ChatGPT 계정 이메일이 검증되지 않았습니다.")
+            # A private ChatGPT thread belongs to exactly one execution
+            # identity. Guest and verified accounts are NEVER interchangeable;
+            # selecting another account requires a separate HITEL room.
+            room_account = selected_id or "__guest__"
+            if (room["chatgpt_account_id"] is not None
+                    and room["chatgpt_account_id"] != room_account):
+                raise HTTPException(409,
+                    "이 대화방은 다른 ChatGPT 계정에 연결되어 있습니다. "
+                    "전환한 계정의 새 대화방을 만들어 주십시오.")
+            if room["chatgpt_account_id"] is None:
+                db.execute("UPDATE rooms SET chatgpt_account_id=? "
+                           "WHERE id=? AND user_id=?", (room_account,rid,uid))
             jid = api_v1.store_job(db, uid, rid, "chat.send", text, [], account_id=selected_id)
             db.execute(
                 "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
