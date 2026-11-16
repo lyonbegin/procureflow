@@ -102,6 +102,10 @@ def init_db():
             c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_title TEXT")
         c.execute("""CREATE INDEX IF NOT EXISTS idx_room_chatgpt_url
                      ON rooms(user_id,chatgpt_url)""")
+        # Pin the selected identity at queue time, before later account switches.
+        job_columns={row[1] for row in c.execute("PRAGMA table_info(jobs)")}
+        if "account_id" not in job_columns:
+            c.execute("ALTER TABLE jobs ADD COLUMN account_id TEXT")
 
 init_db()
 
@@ -418,11 +422,11 @@ def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
                       (*values,room_id))
         return dict(c.execute("SELECT * FROM rooms WHERE id=?",(room_id,)).fetchone())
 
-def store_job(c, uid, rid, action, text="", attachment_ids=None):
+def store_job(c, uid, rid, action, text="", attachment_ids=None, account_id=None):
     jid = "job_" + new_id()
     now = clock()
-    c.execute("INSERT INTO jobs(id,user_id,room_id,action,text,attachment_ids,status,stage,created_at,updated_at) VALUES(?,?,?,?,?,?, 'queued','queued',?,?)",
-              (jid,uid,rid,action,text,json.dumps(attachment_ids or []),now,now))
+    c.execute("INSERT INTO jobs(id,user_id,room_id,action,text,attachment_ids,status,stage,created_at,updated_at,account_id) VALUES(?,?,?,?,?,?, 'queued','queued',?,?,?)",
+              (jid,uid,rid,action,text,json.dumps(attachment_ids or []),now,now,account_id))
     return jid
 
 @router.delete("/rooms/{room_id}")
