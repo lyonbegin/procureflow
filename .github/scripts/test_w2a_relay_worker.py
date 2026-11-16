@@ -53,16 +53,41 @@ class WorkerTests(unittest.TestCase):
 
     def test_real_chrome_identity_match_permits_single_send(self):
         job=dict(JOB,account_id="oai_A",account_email="Owner@Example.com")
+        authorized=[]
+        async def preflight(item,email):
+            authorized.append((item["id"],email))
         with patch.object(worker,"actual_chrome_account",return_value="owner@example.com") as gate, \
              patch.object(worker,"verify_same_session",return_value=True) as check, \
              patch.object(worker,"post_chat",return_value=("Account answer",CID)) as sender:
-            result=asyncio.run(worker.process_job(job))
+            result=asyncio.run(worker.process_job(job,account_preflight=preflight))
+        self.assertEqual(authorized,[(job["id"],"owner@example.com")])
         gate.assert_called_once_with("owner@example.com")
         self.assertEqual(check.call_count,2)
         sender.assert_called_once_with("Please answer",None)
         self.assertEqual(result["execution_account_id"],"oai_A")
         self.assertEqual(result["execution_account_email"],"owner@example.com")
         self.assertIs(result["session_verified"],True)
+
+    def test_preflight_missing_refuses_account_send(self):
+        job=dict(JOB,account_id="oai_A",account_email="a@example.com")
+        with patch.object(worker,"actual_chrome_account",return_value="a@example.com"), \
+             patch.object(worker,"verify_same_session",return_value=True), \
+             patch.object(worker,"post_chat") as sender:
+            with self.assertRaisesRegex(ValueError,"ACCOUNT_PREFLIGHT_UNAVAILABLE"):
+                asyncio.run(worker.process_job(job))
+        sender.assert_not_called()
+
+    def test_preflight_denied_refuses_account_send(self):
+        from w2a_account_runtime import AccountGateError
+        async def deny(_job,_email):
+            raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
+        job=dict(JOB,account_id="oai_A",account_email="a@example.com")
+        with patch.object(worker,"actual_chrome_account",return_value="a@example.com"), \
+             patch.object(worker,"verify_same_session",return_value=True), \
+             patch.object(worker,"post_chat") as sender:
+            with self.assertRaisesRegex(ValueError,"ACCOUNT_PREFLIGHT_DENIED"):
+                asyncio.run(worker.process_job(job,account_preflight=deny))
+        sender.assert_not_called()
 
     def test_wrong_chrome_identity_stops_before_post(self):
         from w2a_account_runtime import AccountGateError
