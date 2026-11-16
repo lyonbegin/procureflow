@@ -48,7 +48,7 @@ def main():
             assert page.locator("#user-api-key").count()==0
             print("PASS_REAL_CHATROOM_BROWSER_UI_AND_NO_TOKEN_FIELDS",flush=True)
             expect(page.locator("#browser-identity")).to_contain_text(
-                "임시 방문자 #",timeout=15000)
+                "HITEL 기본 프로필 · #",timeout=15000)
             expect(page.locator("#browser-identity")).to_contain_text(
                 "ChatGPT 계정 로그인 아님")
             expect(page.locator("#account-explainer")).to_contain_text(
@@ -138,7 +138,7 @@ def main():
             assert private_code==404,"CROSS_BROWSER_ROOM_ACCESS_NOT_BLOCKED"
             print("PASS_REAL_BROWSER_PRIVATE_SESSION_ROOM_ISOLATION",flush=True)
             expect(other.locator("#browser-identity")).to_contain_text(
-                "임시 방문자 #",timeout=15000)
+                "HITEL 기본 프로필 · #",timeout=15000)
             other_tag=other.locator("#browser-identity").inner_text()
             assert first_tag != other_tag,"ANONYMOUS_BROWSER_IDENTITY_NOT_ISOLATED"
             print("PASS_DIFFERENT_BROWSER_SESSIONS_DISPLAY_DISTINCT_ANONYMOUS_IDS",flush=True)
