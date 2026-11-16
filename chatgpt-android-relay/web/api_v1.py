@@ -763,9 +763,18 @@ def fail_queued_jobs_with_unavailable_files():
     return failures
 
 
-def claim_next_job(only_user_id: str | None = None):
+def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False):
     with connection() as c:
-        if only_user_id is None:
+        if public_trial_only:
+            # The publicly reachable test process may NEVER claim the
+            # pre-existing private Android rooms, jobs or files.
+            r = c.execute(
+                "SELECT * FROM jobs WHERE status='queued' AND "
+                "(user_id=? OR user_id LIKE 'usr_browser_%') "
+                "ORDER BY created_at,id LIMIT 1",
+                ("usr_public_web2api_probe_20261113",)
+            ).fetchone()
+        elif only_user_id is None:
             r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
         else:
             r = c.execute(
