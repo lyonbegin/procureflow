@@ -19,3 +19,14 @@ FastAPI + isolated Headless Chromium worker + existing pgvector PostgreSQL.
 - D2B deliberately disabled; S2B integration follows after its actual page structure is established.
 - Existing SQLite datasets require a separate one-time import; migration is not automatically asserted.
 - `/health` shows database reachability; `/api/jobs` queues collection for worker.
+
+
+---
+
+## HITEL ChatGPT-Web2API · GitHub 실행
+
+**[GitHub 실행 화면 — 서버 API 확인 / 실제 ChatGPT 메시지 시험](https://github.com/lyonbegin/procureflow/actions/workflows/hitel-web2api-github-console.yml)**
+
+[한국어 실행·설치 안내](docs/HITEL_WEB2API_GITHUB_OPERATOR.md) · [GitHub Chrome 작업자](https://github.com/lyonbegin/procureflow/actions/workflows/chatgpt-web2api-relay-worker.yml) · [Railway 시험 화면](https://chatgpt-relay-web-production.up.railway.app/)
+
+> Web2API의 원본 OpenAI 호환 API는 GitHub Actions 실행기의 localhost에서 임시 실행됩니다. Railway의 현재 공개 URL은 고정 질문용 시험 API이며, 일반 사용자용 OpenAI 호환 API 서버로 공개된 것은 아닙니다. API 비밀키나 Google 로그인 세션을 GitHub 공개 코드에 저장하지 않습니다.
