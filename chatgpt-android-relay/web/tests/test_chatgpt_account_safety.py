@@ -131,8 +131,10 @@ class ChatGPTAccountSafetyTests(unittest.TestCase):
         with api_v1.connection() as db:
             db.execute("UPDATE hitel_verified_chatgpt_accounts SET active=0 WHERE id=?",(first,))
         second=self.insert_verified_fixture(self.a,"subject-B-switch","Switch B")
-        room=self.create_room(self.a,self.ca)
         for active in [first,second]:
+            # A private ChatGPT conversation must never be shared across
+            # execution accounts: each selected account uses its own room.
+            room=self.create_room(self.a,self.ca)
             choice=self.a.post("/web/api/chatgpt/accounts/"+active+"/select",
                 headers={"X-Web-Csrf":self.ca})
             self.assertEqual(choice.status_code,200,choice.text)
