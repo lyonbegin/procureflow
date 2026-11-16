@@ -257,6 +257,11 @@ class LoginScenarioMatrix(unittest.TestCase):
             self.assertEqual(packet["job"]["id"],jid)
             self.assertEqual(packet["job"]["account_id"],selected)
             self.assertEqual(packet["job"]["account_email"],"AccountA@example.invalid")
+            ws.send_json({"type":"job.preflight","job_id":jid,"room_id":self.rid,
+                          "account_id":selected,
+                          "execution_account_email":"accounta@example.invalid"})
+            preflight=ws.receive_json()
+            self.assertEqual(preflight["type"],"job.preflight.ok")
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
@@ -285,6 +290,10 @@ class LoginScenarioMatrix(unittest.TestCase):
                           "oidc_token":"mock-signed-github-runner"})
             self.assertEqual(ws.receive_json()["type"],"auth.ok")
             self.assertEqual(ws.receive_json()["job"]["id"],jid)
+            ws.send_json({"type":"job.preflight","job_id":jid,"room_id":self.rid,
+                          "account_id":selected,
+                          "execution_account_email":"other@example.invalid"})
+            self.assertEqual(ws.receive_json()["type"],"job.preflight.denied")
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
