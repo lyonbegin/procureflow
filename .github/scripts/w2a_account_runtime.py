@@ -70,6 +70,13 @@ def read_browser_email(page) -> Optional[str]:
     return extract_verified_email(page.evaluate(SESSION_JS))
 
 
+def confirmed_signed_out(state: dict) -> bool:
+    # Network faults (status=0) are NEVER treated as proof of sign-out.
+    return bool(isinstance(state, dict) and state.get("status") in (200,401)
+                and state.get("authenticated") is False
+                and extract_verified_email(state) is None)
+
+
 def _real_logout(page) -> None:
     """Click ChatGPT's visible profile-menu logout and verify session ended."""
     # Exact data-testid used by current web; accessibility names are fallback.
@@ -112,12 +119,18 @@ def _real_logout(page) -> None:
             continue
     if not clicked:
         raise AccountGateError("ACCOUNT_LOGOUT_UI_UNAVAILABLE")
+    consecutively_signed_out = 0
     for _ in range(12):
         try:
-            if read_browser_email(page) is None:
-                return
+            snapshot = page.evaluate(SESSION_JS)
+            if confirmed_signed_out(snapshot):
+                consecutively_signed_out += 1
+                if consecutively_signed_out >= 2:
+                    return
+            else:
+                consecutively_signed_out = 0
         except Exception:
-            pass
+            consecutively_signed_out = 0
         time.sleep(1)
     raise AccountGateError("ACCOUNT_LOGOUT_NOT_VERIFIED")
 
