@@ -389,9 +389,22 @@ async def socket(ws: WebSocket):
                             # assistant message or room state can be recorded.
                             with api_v1.connection() as c:
                                 assigned = c.execute(
-                                    "SELECT room_id,action,account_id FROM jobs WHERE id=? AND status='running'",
+                                    "SELECT room_id,action,account_id,user_id FROM jobs WHERE id=? AND status='running'",
                                     (jid,),
                                 ).fetchone()
+                                # Bind the returned browser identity to the
+                                # OpenAI-verified email of the owner of this job.
+                                # Neither account ID nor expected email from the
+                                # worker is authoritative; never trust a UI label.
+                                verified_account = None
+                                if assigned and assigned["account_id"]:
+                                    verified_account = c.execute("""
+                                        SELECT a.email FROM hitel_verified_chatgpt_accounts a
+                                        JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
+                                        WHERE a.id=? AND p.user_id=?
+                                          AND a.issuer='https://auth.openai.com'
+                                          AND a.email IS NOT NULL AND a.email!='' LIMIT 1
+                                    """, (assigned["account_id"], assigned["user_id"])).fetchone()
                             assigned_room = assigned["room_id"] if assigned else None
                             action = assigned["action"] if assigned else None
                             reported_room = msg.get("room_id")
@@ -421,12 +434,22 @@ async def socket(ws: WebSocket):
                             )
                             # Do not mutate a room until verified result and
                             # conversation URL are committed together.
-                            # Signed GitHub runner identity is NOT evidence that
-                            # the Chrome profile belongs to the selected ChatGPT
-                            # account. Even a worker that echoes the correct ID
-                            # must fail until independent session attestation is
-                            # implemented. Never accept an invented account match.
-                            account_not_verified = bool(role == "web2api" and account_bound)
+                            # Only a signed GitHub worker that checked the
+                            # actual ChatGPT HTTPS session may attest to the
+                            # execution email; the server compares this with
+                            # its separately stored, verified OpenAI account.
+                            # The bare account ID alone can never pass.
+                            actual_email = msg.get("execution_account_email")
+                            expected_email = (verified_account["email"]
+                                              if verified_account else None)
+                            email_verified = bool(
+                                actions_worker and role == "web2api"
+                                and msg.get("session_verified") is True
+                                and isinstance(actual_email, str) and actual_email.strip()
+                                and isinstance(expected_email, str) and expected_email.strip()
+                                and actual_email.strip().casefold() == expected_email.strip().casefold()
+                            )
+                            account_not_verified = bool(account_bound and not email_verified)
                             good = (claimed_success and identity_ok and proof_ok
                                     and not account_mismatch and not account_not_verified)
                             mismatch = claimed_success and not identity_ok
@@ -442,7 +465,7 @@ async def socket(ws: WebSocket):
                                       if mismatch else
                                       "Chrome execution account differs from request account"
                                       if account_mismatch else
-                                      "Worker account ID claim is not independent ChatGPT session proof"
+                                      "Worker did not prove matching live ChatGPT session email"
                                       if account_not_verified else
                                       "Worker completion did not provide action-specific verification"
                                       if invalid_proof else

@@ -106,23 +106,32 @@ class LoginScenarioMatrix(unittest.TestCase):
         self.assertEqual(self.send("oai_some_other").status_code,409)
         self.assertEqual(self.queued(),0)
 
-    def test_05_selected_account_same_parameter_never_implies_web_login(self):
+    def test_05_selected_account_same_parameter_queues_not_delivered(self):
         a=self.fixture_account(self.a,"A",active=True)
-        for _ in range(2):
-            response=self.send(a)
-            self.assertEqual(response.status_code,409,response.text)
-            self.assertIn("Web2API",response.json()["detail"])
-        self.assertEqual(self.queued(),0)
+        response=self.send(a)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIs(response.json()["sentToChatGPT"],False)
+        self.assertEqual(self.queued(),1)
+        self.assertEqual(self.send(a).status_code,409)
 
-    def test_06_switch_a_b_a_and_fail_closed_on_each(self):
+    def test_06_switch_a_b_a_and_pin_each_job_at_queue_time(self):
         a=self.fixture_account(self.a,"A",active=True)
         b=self.fixture_account(self.a,"B",active=False)
+        actual=[]
         for aid in (a,b,a):
             self.assertEqual(self.select(aid).status_code,200)
             selected=[p["id"] for p in self.accounts() if p["active"]]
             self.assertEqual(selected,[aid])
-            self.assertEqual(self.send(aid).status_code,409)
-        self.assertEqual(self.queued(),0)
+            r=self.send(aid)
+            self.assertEqual(r.status_code,200,r.text)
+            self.assertIs(r.json()["sentToChatGPT"],False)
+            with api_v1.connection() as db:
+                item=db.execute("SELECT account_id FROM jobs WHERE id=?",
+                                (r.json()["jobId"],)).fetchone()
+                actual.append(item["account_id"])
+                db.execute("UPDATE jobs SET status='failed' WHERE id=?",
+                           (r.json()["jobId"],))
+        self.assertEqual(actual,[a,b,a])
 
     def test_07_unlink_selected_falls_back_only_to_remaining_account(self):
         a=self.fixture_account(self.a,"A",active=True)
@@ -150,7 +159,7 @@ class LoginScenarioMatrix(unittest.TestCase):
         self.assertEqual(self.select(a,client=self.b,csrf=self.csrf_b).status_code,404)
         self.assertEqual(self.b.delete("/web/api/chatgpt/accounts/"+a,
                                      headers={"X-Web-Csrf":self.csrf_b}).status_code,404)
-        self.assertEqual(self.send(a).status_code,409)
+        self.assertEqual(self.send(a).status_code,200)
         self.assertEqual(len(self.accounts()),1)
 
     def test_10_csrf_and_cross_origin_mutations_refused(self):
@@ -227,6 +236,108 @@ class LoginScenarioMatrix(unittest.TestCase):
                 assistant=db.execute("SELECT count(*) FROM messages "
                     "WHERE room_id=? AND role='assistant'",(self.rid,)).fetchone()[0]
             self.assertEqual(assistant,0)
+
+
+    @patch("app.verify_worker_identity",return_value=True)
+    def test_16_signed_worker_proves_matching_email_and_room(self,_):
+        selected=self.fixture_account(self.a,"AccountA",active=True)
+        posted=self.send(selected)
+        self.assertEqual(posted.status_code,200,posted.text)
+        jid=posted.json()["jobId"]
+        with self.a.websocket_connect("/ws") as ws:
+            ws.send_json({"role":"web2api","deviceId":"web2api-main",
+                          "oidc_token":"mock-signed-github-runner"})
+            self.assertEqual(ws.receive_json()["type"],"auth.ok")
+            packet=ws.receive_json()
+            self.assertEqual(packet["job"]["id"],jid)
+            self.assertEqual(packet["job"]["account_id"],selected)
+            self.assertEqual(packet["job"]["account_email"],"AccountA@example.invalid")
+            ws.send_json({
+                "type":"job.result","job_id":jid,"room_id":self.rid,
+                "verified":True,"stage":"assistant_reply_stable",
+                "result_text":"Fixture matched account result",
+                "execution_account_id":selected,
+                "execution_account_email":"accounta@example.invalid",
+                "session_verified":True,
+                "chatgpt_url":"https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012",
+            })
+            for _ in range(80):
+                with api_v1.connection() as db:
+                    status=db.execute("SELECT status FROM jobs WHERE id=?",(jid,)).fetchone()
+                if status["status"]!="running":
+                    break
+                time.sleep(.02)
+            self.assertEqual(status["status"],"completed")
+
+    @patch("app.verify_worker_identity",return_value=True)
+    def test_17_matching_id_wrong_session_email_refused(self,_):
+        selected=self.fixture_account(self.a,"AccountA",active=True)
+        posted=self.send(selected)
+        self.assertEqual(posted.status_code,200)
+        jid=posted.json()["jobId"]
+        with self.a.websocket_connect("/ws") as ws:
+            ws.send_json({"role":"web2api","deviceId":"web2api-main",
+                          "oidc_token":"mock-signed-github-runner"})
+            self.assertEqual(ws.receive_json()["type"],"auth.ok")
+            self.assertEqual(ws.receive_json()["job"]["id"],jid)
+            ws.send_json({
+                "type":"job.result","job_id":jid,"room_id":self.rid,
+                "verified":True,"stage":"assistant_reply_stable",
+                "result_text":"Must not be stored",
+                "execution_account_id":selected,
+                "execution_account_email":"other@example.invalid",
+                "session_verified":True,
+                "chatgpt_url":"https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012",
+            })
+            for _ in range(80):
+                with api_v1.connection() as db:
+                    status=db.execute("SELECT status,stage FROM jobs WHERE id=?",
+                                      (jid,)).fetchone()
+                if status["status"]=="failed":
+                    break
+                time.sleep(.02)
+            self.assertEqual(status["status"],"failed")
+            self.assertEqual(status["stage"],"ACCOUNT_EXECUTION_NOT_VERIFIED")
+
+    @patch("app.verify_worker_identity",return_value=True)
+    def test_18_unlinked_account_cannot_complete_old_worker_job(self,_):
+        selected=self.fixture_account(self.a,"AccountA",active=True)
+        posted=self.send(selected)
+        self.assertEqual(posted.status_code,200)
+        jid=posted.json()["jobId"]
+        with self.a.websocket_connect("/ws") as ws:
+            ws.send_json({"role":"web2api","deviceId":"web2api-main",
+                          "oidc_token":"mock-signed-github-runner"})
+            self.assertEqual(ws.receive_json()["type"],"auth.ok")
+            self.assertEqual(ws.receive_json()["job"]["id"],jid)
+            dropped=self.a.delete("/web/api/chatgpt/accounts/"+selected,
+                                  headers={"X-Web-Csrf":self.csrf_a})
+            self.assertEqual(dropped.status_code,200)
+            ws.send_json({
+                "type":"job.result","job_id":jid,"room_id":self.rid,
+                "verified":True,"stage":"assistant_reply_stable",
+                "result_text":"Must not be stored",
+                "execution_account_id":selected,
+                "execution_account_email":"accounta@example.invalid",
+                "session_verified":True,
+                "chatgpt_url":"https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012",
+            })
+            for _ in range(80):
+                with api_v1.connection() as db:
+                    status=db.execute("SELECT status,stage FROM jobs WHERE id=?",
+                                      (jid,)).fetchone()
+                if status["status"]=="failed":
+                    break
+                time.sleep(.02)
+            self.assertEqual(status["status"],"failed")
+            self.assertEqual(status["stage"],"ACCOUNT_EXECUTION_NOT_VERIFIED")
+
+    def test_19_legacy_preset_cannot_skip_account_metadata(self):
+        self.fixture_account(self.a,"A",active=True)
+        r=self.a.post("/web/api/rooms/"+self.rid+"/test",
+            headers={"X-Web-Csrf":self.csrf_a},json={"preset":"hello"})
+        self.assertEqual(r.status_code,409,r.text)
+        self.assertEqual(self.queued(),0)
 
 if __name__=="__main__":
     unittest.main()

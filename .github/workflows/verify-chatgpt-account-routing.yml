@@ -4,6 +4,7 @@ on:
     branches:
       - fix/chatgpt-request-account-routing-20261116
       - test/chatgpt-login-scenario-matrix-20261116
+      - fix/hitel-live-account-relay-20261116
     paths:
       - 'chatgpt-android-relay/web/**'
       - '.github/workflows/verify-chatgpt-account-routing.yml'

@@ -792,6 +792,17 @@ def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = Fa
         item = c.execute("SELECT * FROM jobs WHERE id=?", (r["id"],)).fetchone()
         room = c.execute("SELECT * FROM rooms WHERE id=?", (r["room_id"],)).fetchone()
         job = public_job(item)
+        # The account email is read from server-side verified OpenAI identity,
+        # never from a browser's claimed request. Scope it to this HITEL owner.
+        # Only the authenticated GitHub worker receives it over TLS WebSocket.
+        if job.get("account_id") is not None:
+            verified = c.execute("""
+                SELECT a.email FROM hitel_verified_chatgpt_accounts a
+                JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
+                WHERE a.id=? AND p.user_id=? AND a.issuer='https://auth.openai.com'
+                  AND a.email IS NOT NULL AND a.email!='' LIMIT 1
+            """, (job["account_id"], job["user_id"])).fetchone()
+            job["account_email"] = verified["email"] if verified else None
         job["room"] = dict(room)
         job["target_chatgpt_url"] = room["chatgpt_url"]
         job["target_conversation_id"] = (
