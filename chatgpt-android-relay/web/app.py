@@ -51,7 +51,7 @@ async def dispatch_next():
         if active_job_id or (device is None and web2api_device is None):
             return
         if not recovery_checked:
-            recovered = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_orphaned_running_jobs()
+            recovered = api_v1.fail_orphaned_running_jobs(public_trial_only=PUBLIC_SMOKE_ONLY)
             recovery_checked = True
             if recovered:
                 print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
