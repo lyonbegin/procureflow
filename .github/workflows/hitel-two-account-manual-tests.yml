@@ -1,0 +1,57 @@
+name: Verify protected HITEL dual ChatGPT manual login screen
+
+on:
+  push:
+    branches:
+      - feature/hitel-two-manual-chrome-accounts-20261117
+    paths:
+      - .github/scripts/w2a_two_login_gateway.py
+      - .github/scripts/test_w2a_two_login_gateway.py
+      - .github/workflows/hitel-two-account-manual-login.yml
+      - .github/workflows/hitel-two-account-manual-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-security-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check code and install limited test requirements
+        run: |
+          set -euo pipefail
+          python -m pip install -q cryptography==44.0.2 playwright==1.56.0 PyYAML
+          python -m py_compile .github/scripts/w2a_two_login_gateway.py
+          python -m py_compile .github/scripts/w2a_profile_crypto.py
+          python -m py_compile .github/scripts/w2a_account_runtime.py
+      - name: Execute seven account identity and access-control regressions
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s .github/scripts -p 'test_w2a_two_login_gateway.py' -v
+      - name: Verify workflow and embedded remote-browser UI JavaScript
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re,yaml
+          workflow=yaml.safe_load(Path(".github/workflows/hitel-two-account-manual-login.yml").read_text())
+          assert workflow["permissions"]["contents"]=="read"
+          assert workflow["permissions"]["statuses"]=="write"
+          src=Path(".github/scripts/w2a_two_login_gateway.py").read_text()
+          assert "SAME_CHATGPT_ACCOUNT_FOR_BOTH_SLOTS" in src
+          assert "read_browser_email(page)" in src
+          assert "account-" in src
+          match=re.search(r'DASH_HTML = """(.*?)"""',src,re.S)
+          assert match is not None
+          script=re.search(r'<script>(.*?)</script>',match.group(1),re.S)
+          assert script is not None
+          Path("/tmp/hitel-dual-login.js").write_text(script.group(1))
+          print("PASS_TWO_ACCOUNT_REMOTE_LOGIN_UI_STRUCTURE")
+          PY
+          node --check /tmp/hitel-dual-login.js
