@@ -60,7 +60,13 @@ async def dispatch_next():
         failed_missing = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_queued_jobs_with_unavailable_files()
         if failed_missing:
             print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
-        job = api_v1.claim_next_job(public_trial_only=PUBLIC_SMOKE_ONLY)
+        # Account-specific prompts may ONLY be claimed by the GitHub Chrome
+        # worker. If offline, leave queued: never fall back to Android which
+        # cannot attest the same ChatGPT identity.
+        job = api_v1.claim_next_job(
+            public_trial_only=PUBLIC_SMOKE_ONLY,
+            allow_account_bound=web2api_device is not None,
+        )
         if job is None:
             return
 
