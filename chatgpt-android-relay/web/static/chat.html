@@ -107,23 +107,23 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
   <main id="chat-area" class="chat-area">
     <div id="messages" class="chat-inner">
       <div class="welcome"><div class="welcome-icon">✦</div><h1>대화방과 파일을 시험해 보십시오</h1>
-        <p>새 대화방을 만들고 파일을 업로드·열어볼 수 있습니다.<br>GitHub Chrome이 연결되면 제공된 시험 질문을 실제 ChatGPT에 전달합니다.</p></div>
+        <p>새 대화방을 만들고 질문을 직접 입력하실 수 있습니다.<br>GitHub Chrome이 연결되면 실제 ChatGPT 답변을 받아 표시합니다.</p></div>
     </div>
   </main>
   <section class="composer-wrap">
     <div id="notice" role="status" aria-live="polite">브라우저용 대화 기록을 준비하고 있습니다.</div>
     <div class="composer-inner">
       <div class="composer">
-        <textarea id="draft" placeholder="시험 질문을 선택하면 여기에 표시됩니다. 자유 질문 전송은 아직 지원하지 않습니다." spellcheck="true"></textarea>
+        <textarea id="draft" maxlength="2000" placeholder="ChatGPT에 보낼 질문을 직접 입력하십시오. (최대 2,000자)" spellcheck="true"></textarea>
         <div class="tool-row">
           <div class="tool-left">
-            <button class="small-button" id="attach-button" disabled>📎 파일 첨부</button>
-            <select id="preset" class="preset-select" aria-label="실제 ChatGPT 시험 질문 선택"><option value="">시험 질문 선택</option></select>
+            <button class="small-button" id="attach-button" disabled>📎 파일 보관</button>
+            <select id="preset" class="preset-select" aria-label="선택 가능한 예시 질문"><option value="">예시 질문 (선택)</option></select>
           </div>
-          <button class="send" id="send" disabled>시험 질문 보내기</button>
+          <button class="send" id="send" disabled>질문 보내기</button>
         </div>
       </div>
-      <div class="help">현재 공개 시험 모드는 안전을 위해 미리 정의된 질문만 전송합니다. 임의의 질문 및 PDF·이미지 직접 전송은 아직 지원되지 않습니다. 별도 토큰·API Key 입력은 없습니다.</div>
+      <div class="help">자유 질문 전송은 브라우저별 시간당 5회, 전체 사이트 일일 30회로 제한됩니다. 파일 업로드·열람은 가능하나 PDF·이미지를 ChatGPT에 직접 첨부하는 기능은 아직 지원되지 않습니다. 별도 토큰 입력은 없습니다.</div>
     </div>
   </section>
 </div>
@@ -193,14 +193,14 @@ async function loadRoomDetail(){
  if(!state.room||d.room.id!==state.room)return;
  safeText($("room-title"),d.room.title);
  ["rename-room","delete-room","toggle-files","attach-button"].forEach(x=>$(x).disabled=false);
- $("send").disabled=!$("preset").value||state.busy;
+ $("send").disabled=!$("draft").value.trim()||state.busy;
  state.files=d.files;
  const m=$("messages");m.replaceChildren();
  m.appendChild(el("div","info-line",
    "브라우저별로 분리된 저장 공간입니다. 파일 저장과 실제 ChatGPT 전송은 별도 기능입니다. "+
    (d.room.chatgpt_url?"이 방은 이전 ChatGPT 대화와 연결되어 있습니다.":"이 방의 첫 답변이 확인되면 ChatGPT 대화 주소를 기록합니다.")));
  if(!d.messages.length)m.appendChild(el("div","welcome",
-   "아직 메시지가 없습니다. 아래의 시험 질문을 선택하시면 실제 ChatGPT 연결을 확인할 수 있습니다."));
+   "아직 메시지가 없습니다. 아래에 질문을 직접 입력하여 실제 ChatGPT 연결을 시험하실 수 있습니다."));
  for(const item of d.messages){
    const row=el("div","message "+item.role);
    row.appendChild(el("div","avatar",item.role==="user"?"나":"AI"));
@@ -209,7 +209,7 @@ async function loadRoomDetail(){
  }
  const existing=d.jobs.filter(x=>x.status==="queued"||x.status==="running"||x.status==="failed").slice(0,5);
  for(const j of existing){
-   const text=j.status==="queued"?"전송 대기: GitHub Chrome 작업자가 연결되면 질문을 전송합니다.":
+   const text=j.status==="queued"?"질문 접수 완료: GitHub Chrome 작업자 연결 후 실제 ChatGPT에 전송됩니다.":
               j.status==="running"?"ChatGPT 응답을 기다리고 있습니다.": "전송 실패: "+(j.error||"확인되지 않은 오류");
    m.appendChild(el("div","job"+(j.status==="failed"?" bad":""),text));
  }
@@ -227,7 +227,7 @@ async function loadRoomDetail(){
  const row=el("div","info-line");row.appendChild(a);m.appendChild(row)}
  $("chat-area").scrollTop=$("chat-area").scrollHeight;
  const inflight=d.jobs.some(x=>x.status==="queued"||x.status==="running");
- $("send").disabled=!$("preset").value||state.busy||inflight;
+ $("send").disabled=!$("draft").value.trim()||state.busy||inflight;
  }catch(e){notice(e.message,"error")}
 }
 async function refreshStatus(){
@@ -285,24 +285,25 @@ $("file-input").onchange=async()=>{
 $("preset").onchange=()=>{
  const p=state.presets[$("preset").value]||"";
  $("draft").value=p;
- $("send").disabled=!state.room||!p||state.busy;
+ $("send").disabled=!state.room||!$("draft").value.trim()||state.busy;
 };
 $("draft").oninput=()=>{
- // Do not allow arbitrary prompts through the shared authenticated account.
- const p=state.presets[$("preset").value]||"";
- $("send").disabled=!state.room||!p||$("draft").value.trim()!==p.trim()||state.busy;
+ $("send").disabled=!state.room||!$("draft").value.trim()||state.busy;
 };
 $("send").onclick=async()=>{
- if(!state.room)return notice("먼저 방을 만들어 주세요.","error");
- const preset=$("preset").value;
- if(!state.presets[preset]||$("draft").value.trim()!==state.presets[preset].trim())
-  return notice("현재는 선택한 시험 질문만 전송할 수 있습니다.","error");
+ if(!state.room)return notice("먼저 방을 만들어 주십시오.","error");
+ const question=$("draft").value.trim();
+ if(!question)return notice("질문을 입력해 주십시오.","error");
+ if(question.length>2000)return notice("질문은 최대 2,000자까지 입력할 수 있습니다.","error");
  state.busy=true;$("send").disabled=true;
  try{
- const d=await req("/web/api/rooms/"+state.room+"/test",
-                  {method:"POST",body:JSON.stringify({preset})});
- notice(d.queued?"질문이 접수되었습니다. 작업자 연결과 답변을 기다립니다.":"전송에 실패했습니다.","success");
- await loadRoomDetail();
+   const d=await req("/web/api/rooms/"+encodeURIComponent(state.room)+"/message",
+                     {method:"POST",body:JSON.stringify({text:question})});
+   $("draft").value="";$("preset").value="";
+   notice(d.workerConnected?
+     "실제 ChatGPT에 질문을 전송하고 있습니다. 답변을 확인해 주십시오.":
+     "질문이 정상 접수되었습니다. GitHub Chrome 작업자가 연결되면 전송됩니다.","success");
+   await loadRoomDetail();
  }catch(e){notice(e.message,"error")}
  finally{state.busy=false}
 };
