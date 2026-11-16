@@ -105,7 +105,7 @@ def post_chat(text: str, cid: str | None) -> tuple[str, str]:
     return parse_web2api_response(data, cid)
 
 
-async def process_job(job: dict[str, Any]) -> dict[str, Any]:
+async def process_job(job: dict[str, Any], account_preflight=None) -> dict[str, Any]:
     """Return a server-protocol result, without leaking text into diagnostic logs."""
     jid = job.get("id")
     room_id = job.get("room_id")
@@ -136,6 +136,12 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         await asyncio.to_thread(actual_chrome_account, expected_email)
         if not await asyncio.to_thread(verify_same_session, expected_email):
             raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+        # A previously dispatched job can have been revoked or deleted while
+        # the user completed Chrome sign-in. Re-check with Railway immediately
+        # before allowing Web2API to submit ANY message text.
+        if account_preflight is None:
+            raise AccountGateError("ACCOUNT_PREFLIGHT_UNAVAILABLE")
+        await account_preflight(job,expected_email)
     answer, cid = await asyncio.to_thread(post_chat, content, target)
     if expected_email is not None:
         if not await asyncio.to_thread(verify_same_session, expected_email):
@@ -213,8 +219,28 @@ async def run(max_seconds: int = 1500) -> None:
                             "room_id": rid, "stage": "web2api_received",
                         }))
                         print("RELAY_WEB2API_JOB_RECEIVED", flush=True)
+                        async def account_preflight(job,expected_email):
+                            await socket.send(json.dumps({
+                                "type":"job.preflight",
+                                "job_id":job["id"],
+                                "room_id":job["room_id"],
+                                "account_id":job["account_id"],
+                                "execution_account_email":expected_email,
+                            }))
+                            for _ in range(4):
+                                response=json.loads(await asyncio.wait_for(
+                                    socket.recv(),timeout=12))
+                                if response.get("type")=="ping":
+                                    await socket.send(json.dumps({"type":"pong"}))
+                                    continue
+                                if response.get("job_id")!=job["id"] or response.get("room_id")!=job["room_id"]:
+                                    raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
+                                if response.get("type")!="job.preflight.ok":
+                                    raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
+                                return
+                            raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
                         try:
-                            result = await process_job(job)
+                            result = await process_job(job,account_preflight=account_preflight)
                         except Exception as exc:
                             # Never repeat an uncertain chat send; signal failure
                             # and leave the server's original job state intact.
@@ -231,6 +257,7 @@ async def run(max_seconds: int = 1500) -> None:
                                 "ACCOUNT_LOGOUT_UI_UNAVAILABLE", "ACCOUNT_LOGOUT_NOT_VERIFIED",
                                 "ACCOUNT_LOGIN_WRONG_IDENTITY", "ACCOUNT_INTERACTIVE_LOGIN_REQUIRED",
                                 "ACCOUNT_CHANGED_DURING_SEND", "CHROME_CONTEXT_MISSING",
+                                "ACCOUNT_PREFLIGHT_UNAVAILABLE","ACCOUNT_PREFLIGHT_DENIED",
                             }:
                                 reason = "WEB2API_SEND_OR_VERIFY_FAILED"
                             await socket.send(json.dumps({
