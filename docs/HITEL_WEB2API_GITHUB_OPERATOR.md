@@ -58,7 +58,18 @@
 
 Drive의 파일은 백업이며, **GitHub Actions의 자동 설치 입력이 아닙니다.** GitHub의 실행기는 GitHub 저장소 코드를 체크아웃하여 실행합니다. Drive에 보관한 파일이 자동으로 서버에 배포된 것으로 판단하지 않습니다.
 
-## 5. 결과 판단 기준
+## 5. 2026-11-16 실제 실행 기록
+
+| 실제 시험 | GitHub Actions 결과 | 확인한 사실 |
+| --- | --- | --- |
+| [Railway 서버 API 실측](https://github.com/lyonbegin/procureflow/actions/runs/43792983527) | **성공** | Railway /health 200, /demo/status 200, 기존 /api/v1/rooms 404 |
+| [ChatGPT 실제 질문·답변 실측](https://github.com/lyonbegin/procureflow/actions/runs/43792504439) | **실패** | Chrome 암호화 로그인 복원·모델 목록 조회 성공, 실제 메시지 입력에서 HTTP 500 (composer 선택자) |
+| [기존 과거 질문·답변 통과 기록](https://github.com/lyonbegin/procureflow/actions/runs/43357968431) | 당시 성공 | 2026-11-13 단발 시험 통과. 현재 버전의 통과를 보증하지 않습니다. |
+
+이 표의 서버 API 성공은 **ChatGPT 실제 문답 성공이 아닙니다.**
+서버가 온라인이어도 임시 Chrome 작업자가 연결되지 않은 시점에는 `workerConnected=false`로 표시됩니다.
+
+## 6. 결과 판단 기준
 
 - `PASS_RAILWAY_API_HTTP`: 실제 Railway 상태 HTTP 요청 성공
 - `PASS_TEST_CONSOLE_STATUS`: 시험 상태 API 정상
