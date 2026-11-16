@@ -1,4 +1,5 @@
 name: ChatGPT - GitHub Chrome Web2API relay worker
+# Live browser-room question is queued; run the signed Chrome worker now.
 
 on:
   workflow_dispatch:
