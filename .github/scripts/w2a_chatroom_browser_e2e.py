@@ -76,6 +76,40 @@ def main():
             expect(page.locator("#room-title")).to_have_text("E2E 브라우저 시험방")
             print("PASS_BROWSER_ROOM_PERSISTS_ACROSS_RELOAD",flush=True)
 
+            # Real browser account-management controls. These are HITEL local
+            # test profiles, not real ChatGPT/Google account authentication.
+            page.locator("#profile-trigger").click()
+            expect(page.locator("#profile-dialog")).to_have_class("overlay open")
+            expect(page.locator("#profile-list")).to_contain_text("기본 프로필")
+            page.locator("#profile-name").fill("E2E 추가 시험")
+            page.locator("#profile-form button[type=submit]").click()
+            expect(page.locator("#profile-dialog")).not_to_have_class("overlay open",timeout=12000)
+            expect(page.locator("#profile-label")).to_contain_text("E2E 추가 시험",timeout=12000)
+            expect(page.locator("#room-list")).not_to_contain_text("E2E 브라우저 시험방")
+            print("PASS_REAL_BROWSER_HITEL_PROFILE_ADD_AND_SWITCH",flush=True)
+
+            page.locator("#new-room").click()
+            page.locator("#room-name").fill("추가 프로필 전용 방")
+            page.locator("#room-form button[type=submit]").click()
+            expect(page.locator("#room-title")).to_have_text("추가 프로필 전용 방",timeout=12000)
+            page.locator("#profile-trigger").click()
+            default_row=page.locator("#profile-list .profile-row").filter(has_text="기본 프로필")
+            default_row.get_by_role("button",name="전환").click()
+            expect(page.locator("#profile-label")).to_contain_text("기본 프로필",timeout=12000)
+            expect(page.locator("#room-list")).to_contain_text("E2E 브라우저 시험방")
+            expect(page.locator("#room-list")).not_to_contain_text("추가 프로필 전용 방")
+            print("PASS_REAL_BROWSER_HITEL_PROFILE_ROOM_ISOLATION_AND_SWITCH_BACK",flush=True)
+
+            page.on("dialog",lambda dialog:dialog.accept())
+            page.locator("#profile-trigger").click()
+            extra_row=page.locator("#profile-list .profile-row").filter(has_text="E2E 추가 시험")
+            extra_row.get_by_role("button",name="삭제").click()
+            expect(page.locator("#profile-list")).not_to_contain_text("E2E 추가 시험",timeout=12000)
+            page.locator("#profile-close").click()
+            page.locator("#room-list .room-btn").filter(has_text="E2E 브라우저 시험방").click()
+            expect(page.locator("#room-title")).to_have_text("E2E 브라우저 시험방")
+            print("PASS_REAL_BROWSER_HITEL_PROFILE_DELETE_RETAINS_DEFAULT",flush=True)
+
             page.locator("#toggle-files").click()
             expect(page.locator("#file-panel")).to_have_class("file-panel open")
             page.locator("#file-input").set_input_files({
