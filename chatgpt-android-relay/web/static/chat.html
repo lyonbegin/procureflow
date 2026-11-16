@@ -30,6 +30,13 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 .identity-line{padding:5px 0;word-break:break-word}
 .identity-line strong{display:block;color:#3d4c61;font-size:11px}
 .identity-note{margin-top:7px;line-height:1.55;color:#758396}
+.profile-trigger{width:100%;display:flex;gap:7px;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe5ee;border-radius:10px;padding:10px 11px;margin-bottom:12px;text-align:left;color:#193453;font-weight:700;font-size:12px}
+.profile-list{display:flex;flex-direction:column;gap:8px;margin:14px 0;max-height:40vh;overflow:auto}
+.profile-row{display:flex;align-items:center;gap:7px;padding:9px;background:#f7f9fc;border:1px solid #e4e9f0;border-radius:10px}
+.profile-name{flex:1;min-width:0;font-size:13px;word-break:break-word}
+.profile-active{font-size:10px;color:#167653}
+.profile-warning{font-size:12px;color:#98612e;line-height:1.7;background:#fffaf1;padding:11px;border-radius:8px;margin:10px 0}
+.profile-error{font-size:12px;color:#a53740;min-height:19px;margin:5px 0}
 .workspace{display:flex;flex-direction:column;min-width:0;min-height:0}
 .topbar{height:67px;border-bottom:1px solid #eaecf0;display:flex;align-items:center;gap:12px;justify-content:space-between;padding:0 29px}
 .topbar-title{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -95,6 +102,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
   <div class="side-section">내 대화방</div>
   <div class="rooms" id="room-list"><div class="empty-small" style="padding:12px">대화방을 불러오고 있습니다.</div></div>
   <div class="side-foot">
+    <button type="button" id="profile-trigger" class="profile-trigger" aria-haspopup="dialog" aria-controls="profile-dialog"><span id="profile-label">👤 기본 프로필</span><span>계정 관리 ▾</span></button>
     <div class="identity-line"><strong>① 현재 HITEL 접속</strong><span id="browser-identity">브라우저 임시 세션 확인 중</span></div>
     <div class="identity-line"><strong>② 실제 ChatGPT 실행 계정</strong><span id="worker-dot" class="status-dot"></span><span id="worker-status">GitHub Chrome 연결 확인 중</span></div>
     <div class="identity-note" id="account-explainer">이 브라우저는 ChatGPT 계정으로 로그인한 상태가 아닙니다. GitHub Chrome의 별도 로그인 세션으로 작업하며 계정명·이메일은 공개하지 않습니다.</div>
@@ -141,6 +149,20 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
     <div class="dialog-actions"><button class="small-button" type="button" id="room-cancel">취소</button><button class="primary" type="submit">저장</button></div></form>
   </div>
 </div>
+<div class="overlay" id="profile-dialog" role="dialog" aria-modal="true" aria-label="HITEL 시험 계정 관리">
+  <div class="dialog">
+    <div class="tool-row"><h2>HITEL 계정 추가 · 전환 · 삭제</h2><button class="small-button" id="profile-close" type="button">닫기</button></div>
+    <p>이 화면은 <strong>HITEL 브라우저 시험 프로필</strong>을 관리합니다. 실제 Google 계정이나 ChatGPT 로그인 계정을 추가·전환·삭제하지 않습니다.</p>
+    <div class="profile-list" id="profile-list" role="list"></div>
+    <form id="profile-form">
+      <label for="profile-name">새 시험 프로필 추가 (최대 5개)</label>
+      <input type="text" id="profile-name" maxlength="40" placeholder="예: 업무용 시험" required>
+      <div class="dialog-actions"><button class="primary" type="submit">＋ 계정 추가</button></div>
+    </form>
+    <div class="profile-error" id="profile-error" role="status"></div>
+    <div class="profile-warning">계정 전환 시 해당 프로필의 방과 파일만 표시됩니다. 삭제하면 해당 시험 프로필의 대화방·파일이 영구 삭제됩니다. 실제 ChatGPT 로그인은 바뀌지 않습니다.</div>
+  </div>
+</div>
 <div class="overlay" id="preview-overlay" role="dialog" aria-modal="true" aria-label="파일 내용">
   <div class="dialog preview"><div class="tool-row"><h2 id="preview-title">파일 보기</h2><button class="small-button" id="close-preview">닫기</button></div>
    <div class="preview-content" id="preview-content"></div></div>
@@ -148,7 +170,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const state={csrf:"",room:null,rooms:[],files:[],presets:{},busy:false,rename:false,previewUrl:null};
+const state={csrf:"",room:null,rooms:[],files:[],presets:{},profiles:[],profile:null,busy:false,rename:false,previewUrl:null};
 const safeText=(el,text)=>{el.textContent=text??"";};
 function notice(text,kind=""){safeText($("notice"),text);$("notice").className=kind}
 async function req(url,options={}){
@@ -169,6 +191,8 @@ async function boot(){
  try{
    const d=await req("/web/api/bootstrap");
    state.csrf=d.csrf;
+   state.profile=d.profile||{id:"default",name:"기본 프로필"};
+   safeText($("profile-label"),"👤 "+state.profile.name);
    for(const item of d.presets){
      state.presets[item.id]=item.label;
      const opt=el("option","",item.id==="connection"?"연결 확인":item.id==="hello"?"인사 시험":"기능 설명");
@@ -243,7 +267,8 @@ async function refreshStatus(){
  // These two identities must never be presented as the same login.
  const tag=(typeof s.browserSessionTag==="string"&&/^[0-9a-f]{8}$/.test(s.browserSessionTag))
    ?s.browserSessionTag:"확인 불가";
- safeText($("browser-identity"),"임시 방문자 #"+tag+" (ChatGPT 계정 로그인 아님)");
+ safeText($("browser-identity"),"HITEL "+(s.profileName||"기본 프로필")+" · #"+tag+" (ChatGPT 계정 로그인 아님)");
+ safeText($("profile-label"),"👤 "+(s.profileName||"기본 프로필"));
  $("worker-dot").className="status-dot"+(s.workerConnected?" on":"");
  safeText($("worker-status"),s.workerConnected?
    "별도 GitHub Chrome 작업자 연결됨 (계정명 비공개)":
@@ -251,6 +276,81 @@ async function refreshStatus(){
  if(state.room)await loadRoomDetail();
  }catch(e){notice(e.message,"error")}
 }
+function profileMessage(message){safeText($("profile-error"),message||"");}
+async function loadProfiles(){
+ const d=await req("/web/api/profiles");
+ state.profiles=d.profiles||[];
+ const active=state.profiles.find(p=>p.active);
+ if(active)state.profile={id:active.id,name:active.name};
+ safeText($("profile-label"),"👤 "+(state.profile?.name||"기본 프로필"));
+ const list=$("profile-list");list.replaceChildren();
+ for(const item of state.profiles){
+   const row=el("div","profile-row");
+   row.setAttribute("role","listitem");
+   row.appendChild(el("span","profile-name",item.name));
+   if(item.active)row.appendChild(el("span","profile-active","현재 사용 중"));
+   else {
+     const change=el("button","small-button","전환");
+     change.type="button";change.onclick=()=>switchProfile(item.id);
+     row.appendChild(change);
+   }
+   if(item.deletable){
+     const remove=el("button","small-button","삭제");
+     remove.type="button";remove.onclick=()=>deleteProfile(item);
+     row.appendChild(remove);
+   }
+   list.appendChild(row);
+ }
+}
+function resetActiveRoom(){
+ state.room=null;state.rooms=[];state.files=[];
+ $("draft").value="";$("preset").value="";
+ safeText($("room-title"),"채팅 시험실");
+ $("messages").replaceChildren(el("div","welcome","대화방을 선택하거나 새로 만들어 주십시오."));
+ $("file-list").replaceChildren();
+ $("file-panel").classList.remove("open");
+ ["rename-room","delete-room","toggle-files","attach-button","send"].forEach(x=>$(x).disabled=true);
+}
+async function switchProfile(id){
+ try{
+   profileMessage("프로필 전환 중입니다.");
+   const r=await req("/web/api/profiles/"+encodeURIComponent(id)+"/activate",{method:"POST"});
+   state.profile=r.profile;
+   resetActiveRoom();
+   await loadProfiles();await loadRooms();await refreshStatus();
+   $("profile-dialog").classList.remove("open");
+   notice("HITEL "+r.profile.name+" 프로필로 전환했습니다. ChatGPT 로그인은 변경되지 않습니다.","success");
+ }catch(e){profileMessage(e.message)}
+}
+async function deleteProfile(item){
+ if(!confirm("시험 프로필 '"+item.name+"'의 대화방·메시지·업로드 파일을 영구 삭제하시겠습니까? 실제 Google·ChatGPT 계정은 삭제되지 않습니다."))return;
+ try{
+   profileMessage("프로필 데이터 삭제 중입니다.");
+   await req("/web/api/profiles/"+encodeURIComponent(item.id),{method:"DELETE"});
+   resetActiveRoom();
+   await loadProfiles();await loadRooms();await refreshStatus();
+   profileMessage("시험 프로필이 삭제되었습니다.");
+   notice("선택한 시험 프로필과 해당 데이터가 삭제되었습니다.","success");
+ }catch(e){profileMessage(e.message)}
+}
+$("profile-trigger").onclick=async()=>{
+ $("profile-dialog").classList.add("open");
+ $("sidebar").classList.remove("open");
+ profileMessage("");
+ try{await loadProfiles()}catch(e){profileMessage(e.message)}
+};
+$("profile-close").onclick=()=>$("profile-dialog").classList.remove("open");
+$("profile-form").onsubmit=async e=>{
+ e.preventDefault();
+ const name=$("profile-name").value.trim();
+ if(!name)return profileMessage("이름을 입력해 주십시오.");
+ try{
+   profileMessage("프로필 추가 중입니다.");
+   const created=await req("/web/api/profiles",{method:"POST",body:JSON.stringify({name})});
+   $("profile-name").value="";
+   await switchProfile(created.profile.id);
+ }catch(e){profileMessage(e.message)}
+};
 function roomModal(rename){
  state.rename=rename;$("room-dialog").classList.add("open");
  safeText($("dialog-title"),rename?"대화방 이름 변경":"새 대화방 만들기");
