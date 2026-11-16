@@ -1,5 +1,22 @@
 # HITEL ChatGPT-Web2API — GitHub 실행 화면
 
+## 가장 간단한 실행 — 사용자 조작 없음
+
+**ChatGPT에게 ‘Web2API 실행해’라고 말씀하시면 됩니다.**
+ChatGPT가 GitHub 저장소의 `docs/HITEL_WEB2API_RUN_NOW.md` 요청 파일을 갱신하며
+커밋 메시지에 `[HITEL_WEB2API_RUN_NOW]`를 포함하면 GitHub Actions가 즉시
+시작됩니다. `Run workflow` 버튼을 사용하실 필요가 없습니다.
+
+2026-11-16 실제 실행: [GitHub 자동실행 #43800000377](https://github.com/lyonbegin/procureflow/actions/runs/43800000377) —
+서버 API 검사 성공, GitHub Chrome에서 Web2API 실제 질문 HTTP 200 및 답변 검증 성공.
+
+이 자동 실행은 **ChatGPT가 GitHub에 요청 커밋을 작성할 권한이 있을 때**
+동작합니다. 공개 Railway 웹페이지의 버튼만으로 Github Actions를
+즉시 시작하는 기능과는 다릅니다. GitHub-hosted Chrome 화면은 별도의
+원격 화면 스트리밍 기능이 없으므로 사용자 브라우저에 그대로 표시되지 않습니다.
+
+---
+
 이 문서는 **GitHub에서 직접 실행 버튼을 누르고 결과를 확인하는 운영 페이지**입니다. 개인 비밀번호나 토큰을 채팅·공개 소스에 입력하지 않습니다.
 
 ## 1. 바로 실행할 수 있는 GitHub Actions
