@@ -7,6 +7,8 @@ on:
       - .github/workflows/chatgpt-web2api-bridge-tests.yml
       - .github/scripts/w2a_relay_worker.py
       - .github/scripts/test_w2a_relay_worker.py
+      - .github/scripts/w2a_account_runtime.py
+      - .github/scripts/test_w2a_account_runtime.py
       - .github/workflows/chatgpt-web2api-bridge-tests.yml
 
 permissions:
@@ -49,8 +51,9 @@ jobs:
       - name: Verify worker protocol without accessing ChatGPT
         run: |
           set -euo pipefail
+          python .github/scripts/test_w2a_account_runtime.py
           python .github/scripts/test_w2a_relay_worker.py
-          python -m py_compile .github/scripts/w2a_relay_worker.py
+          python -m py_compile .github/scripts/w2a_relay_worker.py .github/scripts/w2a_account_runtime.py
           echo PASS_WEB2API_WORKER_PROTOCOL_GUARDS
       - name: Validate new single-page Web2API smoke UI JavaScript
         run: |
