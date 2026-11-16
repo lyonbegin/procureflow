@@ -808,7 +808,7 @@ def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = Fa
             verified = c.execute("""
                 SELECT a.email FROM hitel_verified_chatgpt_accounts a
                 JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
-                WHERE a.id=? AND p.user_id=? AND a.issuer='https://auth.openai.com'
+                WHERE a.id=? AND p.user_id=? AND a.issuer IN ('https://auth.openai.com','https://chatgpt.com/session')
                   AND a.email IS NOT NULL AND a.email!='' LIMIT 1
             """, (job["account_id"], job["user_id"])).fetchone()
             job["account_email"] = verified["email"] if verified else None
@@ -1007,7 +1007,7 @@ def authorize_web2api_preflight(job_id: str, room_id: str,
             WHERE j.id=? AND j.room_id=? AND j.account_id=?
               AND j.status='running' AND j.action='chat.send'
               AND r.status='active' AND r.chatgpt_account_id=j.account_id
-              AND a.issuer='https://auth.openai.com'
+              AND a.issuer IN ('https://auth.openai.com','https://chatgpt.com/session')
               AND a.email IS NOT NULL AND a.email!=''
             LIMIT 1
         """,(job_id,room_id,account_id)).fetchone()
