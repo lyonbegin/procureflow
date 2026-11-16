@@ -203,11 +203,39 @@ def actual_chrome_account(
         )
 
 
-def verify_same_session(expected_email: str) -> bool:
-    """Second independent read of ChatGPT's session just before/after send."""
+def find_verified_cdp_port(expected_email: str) -> int:
+    """Find account A or B by the REAL live session, never an account label.
+
+    Read only: never log out a different authenticated account to satisfy a
+    job. The independent Chrome profiles use 9222 and 9223.
+    """
+    expected = canonical_email(expected_email)
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
-        browser = pw.chromium.connect_over_cdp("http://127.0.0.1:9222")
+        for port in (9222, 9223):
+            try:
+                browser = pw.chromium.connect_over_cdp(
+                    f"http://127.0.0.1:{port}", timeout=10000)
+                if not browser.contexts:
+                    continue
+                for page in browser.contexts[0].pages:
+                    if page.is_closed() or not page.url.startswith(CHATGPT_HOME):
+                        continue
+                    if read_browser_email(page) == expected:
+                        return port
+            except Exception:
+                continue
+    raise AccountGateError("ACCOUNT_INTERACTIVE_LOGIN_REQUIRED")
+
+
+def verify_same_session(expected_email: str, *, cdp_port: int = 9222) -> bool:
+    """Independent read of the selected Chrome profile immediately around send."""
+    if cdp_port not in (9222, 9223):
+        return False
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser = pw.chromium.connect_over_cdp(
+            f"http://127.0.0.1:{cdp_port}")
         if not browser.contexts:
             return False
         for page in browser.contexts[0].pages:
