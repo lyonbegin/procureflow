@@ -1,9 +1,10 @@
 """Isolated browser-room and file trial (no console tokens or API keys).
 
-Visitors receive private, signed, HttpOnly cookie sessions. This anonymous
-public trial deliberately permits only FIXED harmless ChatGPT test prompts;
-it never grants public strangers arbitrary access to the owner's ChatGPT
-account, private rooms, files, or encrypted Chrome credentials.
+Visitors receive private, signed, HttpOnly cookie sessions. The external
+trial accepts short free-text questions under both per-browser and global rate
+caps, with strictly isolated rooms. It does not expose private existing rooms,
+owner credentials or browser session files; native binary attachment to the
+remote ChatGPT account remains unsupported.
 """
 import hashlib
 import hmac
@@ -36,6 +37,9 @@ MAX_ROOMS = 12
 MAX_FILES_PER_ROOM = 20
 MAX_PUBLIC_TESTS_PER_HOUR = 8
 MAX_GLOBAL_TESTS_PER_DAY = 100
+MAX_FREE_TEXT_CHARACTERS = 2000
+MAX_FREE_TEXT_PER_HOUR = 5
+MAX_GLOBAL_FREE_TEXT_PER_DAY = 30
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 MAX_USER_BYTES = 24 * 1024 * 1024
 MAX_TOTAL_PUBLIC_BYTES = 256 * 1024 * 1024
@@ -93,6 +97,9 @@ class RoomInput(BaseModel):
 class PresetInput(BaseModel):
     preset: str = Field(min_length=1,max_length=30)
 
+class MessageInput(BaseModel):
+    text: str = Field(min_length=1,max_length=MAX_FREE_TEXT_CHARACTERS)
+
 @router.get("/bootstrap")
 def bootstrap(request: Request, response: Response):
     if os.environ.get("PUBLIC_SMOKE_ONLY") != "1":
@@ -122,7 +129,8 @@ def status(request: Request):
     # app globals imported lazily to avoid circular imports.
     from app import web2api_device
     return {"workerConnected":web2api_device is not None,
-            "mode":"isolated_demo","freeTextSendSupported":False,
+            "mode":"isolated_external_trial","freeTextSendSupported":True,
+            "maxFreeTextCharacters":MAX_FREE_TEXT_CHARACTERS,
             "fileToChatGPTSupported":False}
 
 @router.get("/rooms")
@@ -277,6 +285,66 @@ async def send_preset(rid:str,body:PresetInput,request:Request):
     from app import dispatch_next
     await dispatch_next()
     return {"jobId":jid,"queued":True,"sentToChatGPT":False}
+
+@router.post("/rooms/{rid}/message")
+async def send_free_text(rid: str, body: MessageInput, request: Request):
+    """Queue a real free-text ChatGPT turn from this browser's own room.
+
+    This is NOT a public ChatGPT account administration API. The anonymous
+    external trial has strict input, frequency and total quota limits. Its
+    browser cookie and CSRF header never permit viewing another visitor's or
+    the owner's existing rooms, credentials or files.
+    """
+    uid = _actor(request, True)
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "질문 내용을 입력해 주십시오.")
+    if len(text) > MAX_FREE_TEXT_CHARACTERS:
+        raise HTTPException(422, "외부 시험은 질문당 최대 2,000자입니다.")
+    if any(ord(ch) < 32 and ch not in "\\n\\r\\t" for ch in text):
+        raise HTTPException(422, "제어 문자는 전송할 수 없습니다.")
+
+    now = api_v1.clock()
+    with _storage_lock:
+        with api_v1.connection() as db:
+            room = _room(db, uid, rid)
+            unfinished = db.execute(
+                "SELECT 1 FROM jobs WHERE user_id=? AND room_id=? "
+                "AND status IN ('queued','running') LIMIT 1", (uid, rid)
+            ).fetchone()
+            if unfinished:
+                raise HTTPException(409, "진행 중인 질문이 있습니다. 답변을 확인해 주십시오.")
+            hourly = db.execute(
+                "SELECT count(*) FROM jobs WHERE user_id=? AND action='chat.send' "
+                "AND created_at>?", (uid, now - 3600 * 1000)
+            ).fetchone()[0]
+            daily = db.execute(
+                "SELECT count(*) FROM jobs WHERE user_id LIKE 'usr_browser_%' "
+                "AND action='chat.send' AND created_at>?",
+                (now - 86400 * 1000,)
+            ).fetchone()[0]
+            if hourly >= MAX_FREE_TEXT_PER_HOUR or daily >= MAX_GLOBAL_FREE_TEXT_PER_DAY:
+                raise HTTPException(429, "외부 시험 전송 횟수 제한입니다. 나중에 다시 시험해 주십시오.")
+            # Never guess the target of an already completed conversation.
+            if not room["chatgpt_url"] and db.execute(
+                "SELECT 1 FROM jobs WHERE user_id=? AND room_id=? "
+                "AND status='completed' LIMIT 1", (uid, rid)
+            ).fetchone():
+                raise HTTPException(409, "기존 ChatGPT 대화 연결을 확인할 수 없습니다. 새 방에서 시험해 주십시오.")
+            jid = api_v1.store_job(db, uid, rid, "chat.send", text, [])
+            db.execute(
+                "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                ("msg_" + api_v1.new_id(), uid, rid, jid, "user", text, now)
+            )
+            db.execute("UPDATE rooms SET updated_at=? WHERE id=? AND user_id=?",
+                       (now, rid, uid))
+    from app import dispatch_next, web2api_device
+    await dispatch_next()
+    return {"jobId": jid, "queued": True,
+            "workerConnected": web2api_device is not None,
+            "sentToChatGPT": web2api_device is not None,
+            "fileToChatGPTSupported": False}
+
 
 @router.get("/queue-status")
 def queue_status(request:Request):
