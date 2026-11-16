@@ -168,7 +168,19 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
     · 인증 전에는 실제 ChatGPT 계정명을 확인하거나 GitHub Chrome 로그인으로 사용할 수 없습니다.
   </p>
   <div id="chatgpt-account-error" class="profile-error" role="status"></div>
-  <p class="oauth-connection-note">ChatGPT 계정의 인증과 실제 메시지 실행 권한은 다릅니다. 신원 인증만 완료된 계정을 기존 GitHub Chrome의 다른 계정 세션으로 실행하지 않습니다. 비밀번호·Google 인증 코드·쿠키를 HITEL에 입력하지 마십시오.</p>
+  <form id="chrome-google-login-form" autocomplete="off">
+    <p class="oauth-connection-note"><strong>GitHub Chrome의 실제 Google 로그인</strong> — 아래 정보는 브라우저에서 일회용 암호키로 암호화되어 GitHub Chrome에 직접 전달됩니다. Railway에는 비밀번호 원문을 저장하지 않습니다. Google 입력은 공식 accounts.google.com 화면에서만 실행되며 추가 인증은 사용자가 직접 승인해야 합니다.</p>
+    <label for="chrome-management-key">HITEL 관리 권한 확인 (Google 비밀번호와 별개)</label>
+    <input id="chrome-management-key" type="password" autocomplete="off" placeholder="기존 HITEL 관리 키" required maxlength="512"/>
+    <label for="chrome-google-email">Google 이메일</label>
+    <input id="chrome-google-email" type="email" autocomplete="username" placeholder="example@gmail.com" required maxlength="254"/>
+    <label for="chrome-google-password">Google 비밀번호</label>
+    <input id="chrome-google-password" type="password" autocomplete="current-password" placeholder="Google 로그인 비밀번호" required maxlength="1024"/>
+    <button class="primary" type="submit" id="chrome-google-submit">GitHub Chrome에서 실제 로그인</button>
+    <button class="small-button" type="button" id="chrome-google-recheck" hidden>Google 추가 인증 완료 확인</button>
+    <div id="chrome-google-result" class="oauth-connection-note" role="status"></div>
+  </form>
+  <p class="oauth-connection-note">HITEL 관리 키는 공유 Chrome 보호용이며, Google 비밀번호와 동일하지 않습니다. 공개 채팅이나 GitHub Actions 입력란에 비밀번호를 붙여 넣지 마십시오. 실제 ChatGPT 세션의 계정 이메일이 확인된 후에만 계정 목록에 등록됩니다.</p>
  </div>
 </div>
 <div class="overlay" id="profile-dialog" role="dialog" aria-modal="true" aria-label="HITEL 시험 계정 관리">
@@ -371,6 +383,110 @@ async function refreshChatGPTAccounts(){
    "ChatGPT 계정으로 로그인 · 계정 추가":"ChatGPT 로그인 설정 대기 중");
  safeText($("chatgpt-account-error"),data.oauthAvailable?"":data.message);
 }
+// Only this browser can encrypt credentials to the ephemeral GitHub Chrome
+// worker. Railway and GitHub Actions logs never receive plaintext credentials.
+function chromeBytesToB64(bytes){
+ let out="";for(let i=0;i<bytes.length;i++)out+=String.fromCharCode(bytes[i]);
+ return btoa(out)
+}
+function chromeB64ToBytes(value){
+ const raw=atob(value);
+ return Uint8Array.from(raw,c=>c.charCodeAt(0))
+}
+async function encryptedGoogleLogin(){
+ const out=$("chrome-google-result"),submit=$("chrome-google-submit");
+ const secret=$("chrome-management-key").value;
+ let email=$("chrome-google-email").value.trim();
+ let password=$("chrome-google-password").value;
+ if(!secret||!email||!password)throw Error("HITEL 관리 키·Google 이메일·비밀번호를 입력해 주십시오.");
+ submit.disabled=true;
+ try{
+   safeText(out,"HITEL 관리 권한과 GitHub Chrome 연결을 확인하고 있습니다.");
+   await req("/web/api/chrome-login/unlock",{method:"POST",
+     body:JSON.stringify({management_secret:secret})});
+   $("chrome-management-key").value="";
+   let challenge=null;
+   for(let attempt=0;attempt<36;attempt++){
+     const info=await req("/web/api/chrome-login/challenge");
+     if(info.ready){challenge=info;break}
+     safeText(out,"GitHub Actions Chrome을 시작하고 있습니다. 관리 권한을 확인한 상태로 연결을 조회합니다.");
+     await new Promise(resolve=>setTimeout(resolve,5000));
+   }
+   if(!challenge)throw Error("GitHub Chrome 작업자 연결이 확인되지 않았습니다. GitHub Actions 실행 상태를 확인해 주십시오.");
+   const serverPublic=await crypto.subtle.importKey("raw",
+     chromeB64ToBytes(challenge.workerPublicKey),
+     {name:"ECDH",namedCurve:"P-256"},false,[]);
+   const generated=await crypto.subtle.generateKey(
+     {name:"ECDH",namedCurve:"P-256"},true,["deriveKey"]);
+   const aes=await crypto.subtle.deriveKey(
+     {name:"ECDH",public:serverPublic},generated.privateKey,
+     {name:"AES-GCM",length:256},false,["encrypt"]);
+   const clientPublic=new Uint8Array(await crypto.subtle.exportKey("raw",generated.publicKey));
+   const nonce=crypto.getRandomValues(new Uint8Array(12));
+   const encoded=new TextEncoder().encode(JSON.stringify({email,password}));
+   // Clear the DOM secret immediately after producing the encrypted payload.
+   $("chrome-google-password").value="";
+   password="";
+   const ciphertext=new Uint8Array(await crypto.subtle.encrypt(
+     {name:"AES-GCM",iv:nonce,additionalData:new TextEncoder().encode(challenge.requestId)},
+     aes,encoded));
+   encoded.fill(0);
+   await req("/web/api/chrome-login/submit",{method:"POST",body:JSON.stringify({
+     request_id:challenge.requestId,
+     client_public_key:chromeBytesToB64(clientPublic),
+     nonce:chromeBytesToB64(nonce),
+     ciphertext:chromeBytesToB64(ciphertext),
+   })});
+   state.chromeLoginRequest=challenge.requestId;
+   safeText(out,"실제 Google 로그인 화면을 Playwright로 조작하고 있습니다.");
+   for(let i=0;i<70;i++){
+     await new Promise(resolve=>setTimeout(resolve,2000));
+     const status=await req("/web/api/chrome-login/status/"+encodeURIComponent(challenge.requestId));
+     if(status.status==="verified"){
+       safeText(out,"실제 ChatGPT 로그인 확인 완료: "+status.verifiedEmail);
+       await refreshChatGPTAccounts();
+       await selectChatGPTAccountRoom(status.accountId);
+       return;
+     }
+     if(status.status==="requires_verification"){
+       safeText(out,"Google에서 추가 인증을 요구합니다. 본인 휴대전화나 인증 수단으로 승인하신 뒤 '추가 인증 완료 확인'을 누르십시오.");
+       $("chrome-google-recheck").hidden=false;
+       return;
+     }
+     if(status.status==="failed"){
+       throw Error("실제 Google/ChatGPT 로그인 실패: "+(status.reason||"확인 실패"));
+     }
+   }
+   throw Error("로그인 검증 시간이 초과되었습니다. 계정이 등록되지 않았습니다.");
+ }finally{
+   $("chrome-management-key").value="";
+   $("chrome-google-password").value="";
+   email="";password="";
+   submit.disabled=false;
+ }
+}
+$("chrome-google-login-form").onsubmit=async e=>{
+ e.preventDefault();
+ try{await encryptedGoogleLogin()}
+ catch(err){safeText($("chrome-google-result"),err.message)}
+};
+$("chrome-google-recheck").onclick=async()=>{
+ const id=state.chromeLoginRequest;
+ if(!id)return;
+ try{
+   await req("/web/api/chrome-login/recheck/"+encodeURIComponent(id),{method:"POST"});
+   const result=await req("/web/api/chrome-login/status/"+encodeURIComponent(id));
+   if(result.status==="verified"){
+     $("chrome-google-recheck").hidden=true;
+     safeText($("chrome-google-result"),"실제 로그인 확인 완료: "+result.verifiedEmail);
+     await refreshChatGPTAccounts();
+     await selectChatGPTAccountRoom(result.accountId);
+   }else{
+     safeText($("chrome-google-result"),"휴대전화의 Google 인증을 완료하신 다음 다시 확인하십시오.");
+   }
+ }catch(err){safeText($("chrome-google-result"),err.message)}
+};
+
 $("chatgpt-accounts-trigger").onclick=async()=>{
  $("chatgpt-accounts-dialog").classList.add("open");
  safeText($("chatgpt-account-error"),"");
