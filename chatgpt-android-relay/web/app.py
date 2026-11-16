@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 import api_v1
 import drive_v1
 import web_chat
+import chatgpt_accounts
 from gh_oidc import verify_worker_identity
 
 ROOT = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", r
 app.include_router(api_v1.router)
 app.include_router(drive_v1.router)
 app.include_router(web_chat.router)
+app.include_router(chatgpt_accounts.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
