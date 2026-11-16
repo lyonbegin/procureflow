@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/hitel-two-manual-chrome-accounts-20261117
+      - main
     paths:
       - .github/scripts/w2a_two_login_gateway.py
       - .github/scripts/test_w2a_two_login_gateway.py
@@ -30,7 +31,7 @@ jobs:
           python -m py_compile .github/scripts/w2a_two_login_gateway.py
           python -m py_compile .github/scripts/w2a_profile_crypto.py
           python -m py_compile .github/scripts/w2a_account_runtime.py
-      - name: Execute seven account identity and access-control regressions
+      - name: Execute ten no-code mobile account identity and access-control regressions
         run: |
           set -euo pipefail
           python -m unittest discover -s .github/scripts -p 'test_w2a_two_login_gateway.py' -v
