@@ -1,0 +1,37 @@
+name: HITEL - verify actual ChatGPT response in browser chatroom
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/hitel-chatroom-real-answer-e2e.yml
+      - .github/scripts/w2a_chatroom_real_turn_e2e.py
+permissions:
+  contents: read
+jobs:
+  live-room-answer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install free Playwright browser client
+        run: python -m pip install -q playwright==1.56.0
+      - name: Click actual room prompt and await validated ChatGPT response
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: python .github/scripts/w2a_chatroom_real_turn_e2e.py
+      - name: Save screenshot of result for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-real-room-answer-e2e
+          path: ${{ runner.temp }}/hitel-chatroom-real-turn/*.png
+          retention-days: 2
+          if-no-files-found: warn
