@@ -118,7 +118,12 @@ class LoginScenarioMatrix(unittest.TestCase):
         a=self.fixture_account(self.a,"A",active=True)
         b=self.fixture_account(self.a,"B",active=False)
         actual=[]
+        new_room=self.a.post("/web/api/rooms",
+            headers={"X-Web-Csrf":self.csrf_a},json={"title":"Account B room"})
+        self.assertEqual(new_room.status_code,200)
+        per_account={a:self.rid,b:new_room.json()["room"]["id"]}
         for aid in (a,b,a):
+            self.rid=per_account[aid]
             self.assertEqual(self.select(aid).status_code,200)
             selected=[p["id"] for p in self.accounts() if p["active"]]
             self.assertEqual(selected,[aid])
@@ -312,7 +317,7 @@ class LoginScenarioMatrix(unittest.TestCase):
             self.assertEqual(ws.receive_json()["job"]["id"],jid)
             dropped=self.a.delete("/web/api/chatgpt/accounts/"+selected,
                                   headers={"X-Web-Csrf":self.csrf_a})
-            self.assertEqual(dropped.status_code,200)
+            self.assertEqual(dropped.status_code,409)
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
@@ -331,6 +336,9 @@ class LoginScenarioMatrix(unittest.TestCase):
                 time.sleep(.02)
             self.assertEqual(status["status"],"failed")
             self.assertEqual(status["stage"],"ACCOUNT_EXECUTION_NOT_VERIFIED")
+            dropped_again=self.a.delete("/web/api/chatgpt/accounts/"+selected,
+                headers={"X-Web-Csrf":self.csrf_a})
+            self.assertEqual(dropped_again.status_code,200)
 
     def test_19_legacy_preset_cannot_skip_account_metadata(self):
         self.fixture_account(self.a,"A",active=True)
