@@ -5,6 +5,7 @@ on:
       - fix/chatgpt-request-account-routing-20261116
       - test/chatgpt-login-scenario-matrix-20261116
       - fix/hitel-live-account-relay-20261116
+      - fix/hitel-account-isolation-preflight-20261116
     paths:
       - 'chatgpt-android-relay/web/**'
       - '.github/workflows/verify-chatgpt-account-routing.yml'
@@ -29,6 +30,8 @@ jobs:
         run: python chatgpt-android-relay/web/tests/test_account_request_routing.py
       - name: Exercise 15 account lifecycle scenarios
         run: python chatgpt-android-relay/web/tests/test_login_scenario_matrix.py
+      - name: Verify cross-account thread separation and Android fallback protections
+        run: python chatgpt-android-relay/web/tests/test_account_isolation_advanced.py
       - name: Existing account-safety regression
         run: python chatgpt-android-relay/web/tests/test_chatgpt_account_safety.py
       - name: Existing Web2API relay regression
