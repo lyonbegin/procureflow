@@ -53,13 +53,18 @@ jobs:
             echo SKIP_NO_VERIFIED_RELAY_STATUS
             exit 0
           fi
-          if python3 - "$STATUS_FILE" <<'PY'
+          QUEUE_FILE="$(mktemp)"
+          curl -fsSL --retry 2 --max-time 15 \
+            https://chatgpt-relay-web-production.up.railway.app/web/api/queue-status \
+            -o "$QUEUE_FILE" || echo '{}' > "$QUEUE_FILE"
+          if python3 - "$STATUS_FILE" "$QUEUE_FILE" <<'PY'
           import json,sys
           try:
               state=json.load(open(sys.argv[1],encoding='utf-8'))
+              queue=json.load(open(sys.argv[2],encoding='utf-8'))
               assert state.get('server')=='online'
-              assert state.get('testState')=='queued'
               assert state.get('workerConnected') is False
+              assert state.get('testState')=='queued' or queue.get('pendingDemoWork') is True
           except Exception:
               sys.exit(1)
           PY
