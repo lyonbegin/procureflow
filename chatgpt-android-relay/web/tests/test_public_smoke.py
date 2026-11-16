@@ -27,9 +27,14 @@ class PublicNoLoginSmoke(unittest.TestCase):
         self.client.__exit__(None,None,None)
 
     def test_old_console_absent_and_uncached(self):
-        r=self.client.get("/")
+        r=self.client.get("/demo")
         self.assertEqual(r.status_code,200)
         self.assertIn("Web2API 연결 시험",r.text)
+        home=self.client.get("/")
+        self.assertEqual(home.status_code,200)
+        self.assertIn("채팅 시험실",home.text)
+        self.assertIn("새 대화방",home.text)
+        self.assertIn("file-input",home.text)
         self.assertNotIn('id="admin-token"',r.text)
         self.assertNotIn('id="user-api-key"',r.text)
         self.assertNotIn('type="password"',r.text)
