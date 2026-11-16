@@ -201,5 +201,48 @@ class AccountIsolationTests(unittest.TestCase):
         self.assertEqual(self.state(ja)["account_id"],a)
 
 
+    def test_11_preflight_requires_live_job_and_correct_identity(self):
+        aid=self.add_account("A",True)
+        room=self.new_room()
+        jid=self.send(room,aid).json()["jobId"]
+        expected="A@example.invalid"
+        self.assertFalse(api_v1.authorize_web2api_preflight(jid,room,aid,expected))
+        with api_v1.connection() as c:
+            c.execute("UPDATE jobs SET status='running' WHERE id=?",(jid,))
+        self.assertTrue(api_v1.authorize_web2api_preflight(jid,room,aid,"a@EXAMPLE.invalid"))
+        self.assertFalse(api_v1.authorize_web2api_preflight(jid,room,"oai_other",expected))
+        self.assertFalse(api_v1.authorize_web2api_preflight(jid,"room_other",aid,expected))
+        self.assertFalse(api_v1.authorize_web2api_preflight(jid,room,aid,"wrong@example.invalid"))
+        with api_v1.connection() as c:
+            c.execute("UPDATE jobs SET status='failed' WHERE id=?",(jid,))
+        self.assertFalse(api_v1.authorize_web2api_preflight(jid,room,aid,expected))
+
+    def test_12_preflight_blocks_room_account_marker_tampering(self):
+        aid=self.add_account("A",True)
+        room=self.new_room()
+        jid=self.send(room,aid).json()["jobId"]
+        with api_v1.connection() as c:
+            c.execute("UPDATE jobs SET status='running' WHERE id=?",(jid,))
+            c.execute("UPDATE rooms SET chatgpt_account_id=? WHERE id=?",
+                      ("oai_other",room))
+        self.assertFalse(api_v1.authorize_web2api_preflight(
+            jid,room,aid,"A@example.invalid"))
+
+    def test_13_preflight_never_authorizes_unlinked_account(self):
+        aid=self.add_account("A",True)
+        room=self.new_room()
+        jid=self.send(room,aid).json()["jobId"]
+        self.assertEqual(self.unlink(aid).status_code,200)
+        self.assertFalse(api_v1.authorize_web2api_preflight(
+            jid,room,aid,"A@example.invalid"))
+
+    def test_14_preflight_never_authorizes_guest_job(self):
+        room=self.new_room()
+        jid=self.send(room,None).json()["jobId"]
+        with api_v1.connection() as c:
+            c.execute("UPDATE jobs SET status='running' WHERE id=?",(jid,))
+        self.assertFalse(api_v1.authorize_web2api_preflight(
+            jid,room,"oai_fake","A@example.invalid"))
+
 if __name__=="__main__":
     unittest.main()
