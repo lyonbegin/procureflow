@@ -6,6 +6,7 @@ on:
       - .github/workflows/hitel-chatgpt-live-login-readonly.yml
       - .github/scripts/w2a_verify_account_identity.py
       - .github/scripts/w2a_account_runtime.py
+      - .github/scripts/w2a_probe_logout_ui.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -75,3 +76,7 @@ jobs:
         env:
           DISPLAY: :99
         run: python .github/scripts/w2a_verify_account_identity.py
+      - name: Locate actual ChatGPT logout menu without ending saved login
+        env:
+          DISPLAY: :99
+        run: python .github/scripts/w2a_probe_logout_ui.py
