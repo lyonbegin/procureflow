@@ -109,10 +109,17 @@ def main():
             page.on("dialog",lambda dialog:dialog.accept())
             page.locator("#delete-room").click()
             expect(page.locator("#room-list")).not_to_contain_text("수정된 브라우저 시험방",timeout=10000)
+            assert not errors,"BROWSER_SCRIPT_ERRORS_BEFORE_EXPECTED_404"
+            before_expected_404=len(errors)
             gone=page.evaluate("""async fid=>{
                 return (await fetch('/web/api/files/'+fid,{cache:'no-store'})).status;
             }""",fid)
             assert gone==404,"DELETED_ROOM_FILE_STILL_ACCESSIBLE"
+            page.wait_for_timeout(200)
+            intentional=errors[before_expected_404:]
+            assert all(c=="RESOURCE_REQUEST" for c in intentional), "UNEXPECTED_SCRIPT_ERROR_AFTER_DELETION_CHECK"
+            del errors[before_expected_404:]
+            print("PASS_EXPECTED_DELETED_FILE_404_NOT_COUNTED_AS_JS_ERROR",flush=True)
             print("PASS_CHROME_ROOM_DELETE_PURGES_OWN_FILE_BYTES",flush=True)
             print("BROWSER_SAFE_ERROR_CATEGORIES="+",".join(sorted(set(errors))) if errors else "BROWSER_SAFE_ERROR_CATEGORIES=none",flush=True)
             assert not errors,"BROWSER_SCRIPT_CONSOLE_ERRORS"
