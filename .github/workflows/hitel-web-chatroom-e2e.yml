@@ -36,3 +36,5 @@ jobs:
           path: ${{ runner.temp }}/hitel-chatroom-browser/*.png
           if-no-files-found: warn
           retention-days: 2
+
+# Recheck real deployed Railway chatroom UI after Docker and /data deployment.
