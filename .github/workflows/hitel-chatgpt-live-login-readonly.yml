@@ -1,0 +1,71 @@
+name: HITEL read-only real ChatGPT Chrome login check
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-chatgpt-live-login-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify-saved-chrome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: \${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: \${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Restore existing encrypted profile into temporary GitHub worker
+        run: |
+          set -euo pipefail
+          test -n "$FREEMOA_GOOGLE_PASSWORD" || { echo FAIL_EXISTING_SECRET_NOT_CONFIGURED; exit 2; }
+          python -m pip install -q cryptography==44.0.2 playwright==1.56.0
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          mkdir -p "$RUNNER_TEMP/w2a-readonly/download"
+          gh run download 43353952660 --repo "$GITHUB_REPOSITORY" \
+            --name chatgpt-web2api-encrypted-profile \
+            --dir "$RUNNER_TEMP/w2a-readonly/download" >/dev/null
+          test -s "$RUNNER_TEMP/w2a-readonly/download/secure-profile.bin"
+          python .github/scripts/w2a_profile_crypto.py restore \
+            "$RUNNER_TEMP/w2a-readonly/download/secure-profile.bin" \
+            "$RUNNER_TEMP/w2a-readonly"
+          test -d "$RUNNER_TEMP/w2a-readonly/chrome-profile"
+      - name: Boot original Chrome with local-only CDP
+        env:
+          CHROME_BINARY: \${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >/dev/null 2>&1 &
+          sleep 3
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$RUNNER_TEMP/w2a-readonly/chrome-profile" \
+            https://chatgpt.com/ >/dev/null 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_CHROME_CDP_STARTED
+              exit 0
+            fi
+            sleep 2
+          done
+          echo FAIL_CHROME_NOT_STARTED
+          exit 1
+      - name: Read-only authentication check against real ChatGPT website
+        env:
+          DISPLAY: :99
+        run: |
+          python .github/scripts/w2a_verify_session.py
+          echo PASS_REAL_CHATGPT_SESSION_AUTH_READONLY
