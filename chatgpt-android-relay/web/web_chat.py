@@ -301,7 +301,7 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
         raise HTTPException(422, "질문 내용을 입력해 주십시오.")
     if len(text) > MAX_FREE_TEXT_CHARACTERS:
         raise HTTPException(422, "외부 시험은 질문당 최대 2,000자입니다.")
-    if any(ord(ch) < 32 and ch not in "\\n\\r\\t" for ch in text):
+    if any(ord(ch) < 32 and ch not in (chr(10), chr(13), chr(9)) for ch in text):
         raise HTTPException(422, "제어 문자는 전송할 수 없습니다.")
 
     now = api_v1.clock()
@@ -342,7 +342,7 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
     await dispatch_next()
     return {"jobId": jid, "queued": True,
             "workerConnected": web2api_device is not None,
-            "sentToChatGPT": web2api_device is not None,
+            "sentToChatGPT": False,
             "fileToChatGPTSupported": False}
 
 
