@@ -12,6 +12,7 @@ import api_v1
 import drive_v1
 import web_chat
 import chatgpt_accounts
+import chrome_remote_login
 from gh_oidc import verify_worker_identity
 
 ROOT = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ app.include_router(api_v1.router)
 app.include_router(drive_v1.router)
 app.include_router(web_chat.router)
 app.include_router(chatgpt_accounts.router)
+app.include_router(chrome_remote_login.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
@@ -301,6 +303,7 @@ async def socket(ws: WebSocket):
                 return
             if web2api_device is not None and web2api_device is not ws:
                 old_worker = web2api_device
+                chrome_remote_login.unregister_worker(old_worker)
                 web2api_device = ws
                 if active_job_id and active_job_transport == "web2api":
                     api_v1.release_running_job(
@@ -380,6 +383,19 @@ async def socket(ws: WebSocket):
                         # mutate the currently active job or its room state.
                         await ws.close(code=1008)
                         break
+                    if role == "web2api" and kind == "auth.worker.key":
+                        if actions_worker:
+                            try:
+                                chrome_remote_login.register_worker(
+                                    ws,msg.get("public_key",""))
+                                await transmit(ws,event("auth.worker.key.ok"))
+                            except Exception:
+                                await transmit(ws,event("auth.worker.key.denied"))
+                        continue
+                    if role == "web2api" and kind == "auth.login.result":
+                        if actions_worker:
+                            chrome_remote_login.receive_result(ws,msg)
+                        continue
                     if role == "web2api" and kind == "job.preflight":
                         # A separate, server-authorized gate immediately before
                         # the browser worker submits any account-bound text.
@@ -432,7 +448,7 @@ async def socket(ws: WebSocket):
                                         SELECT a.email FROM hitel_verified_chatgpt_accounts a
                                         JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
                                         WHERE a.id=? AND p.user_id=?
-                                          AND a.issuer='https://auth.openai.com'
+                                          AND a.issuer IN ('https://auth.openai.com','https://chatgpt.com/session')
                                           AND a.email IS NOT NULL AND a.email!='' LIMIT 1
                                     """, (assigned["account_id"], assigned["user_id"])).fetchone()
                             assigned_room = assigned["room_id"] if assigned else None
@@ -580,6 +596,7 @@ async def socket(ws: WebSocket):
             await broadcast(event("device.status", online=False, deviceId=DEVICE_ID))
             await dispatch_next()
         elif role == "web2api" and web2api_device is ws:
+            chrome_remote_login.unregister_worker(ws)
             web2api_device = None
             if active_job_id and active_job_transport == "web2api":
                 api_v1.release_running_job(
