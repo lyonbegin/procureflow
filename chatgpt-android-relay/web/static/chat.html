@@ -299,6 +299,23 @@ async function refreshStatus(){
  if(state.room)await loadRoomDetail();
  }catch(e){notice(e.message,"error")}
 }
+async function selectChatGPTAccountRoom(accountId){
+ // Never display the previous account's room or carry over its draft.
+ resetActiveRoom();
+ await loadRooms();
+ const expected=accountId||"__guest__";
+ const matching=state.rooms.find(r=>r.chatgpt_account_id===expected);
+ if(matching){
+   await selectRoom(matching.id);
+ }else{
+   // A newly selected ChatGPT account must get its OWN conversation room.
+   // Never repurpose a previous account's existing ChatGPT conversation.
+   const d=await req("/web/api/rooms",{method:"POST",
+     body:JSON.stringify({title:accountId?"ChatGPT 계정 대화":"기본 시험 대화"})});
+   await selectRoom(d.room.id);
+ }
+ notice("선택하신 계정 전용 대화방으로 이동했습니다.","success");
+}
 async function refreshChatGPTAccounts(){
  const data=await req("/web/api/chatgpt/accounts");
  state.chatgpt=data;
@@ -327,6 +344,8 @@ async function refreshChatGPTAccounts(){
          await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id)+"/select",
                    {method:"POST"});
          await refreshChatGPTAccounts();
+         await selectChatGPTAccountRoom(a.id);
+         $("chatgpt-accounts-dialog").classList.remove("open");
        }catch(e){safeText($("chatgpt-account-error"),e.message)}
      };
      row.appendChild(choose);
@@ -338,6 +357,9 @@ async function refreshChatGPTAccounts(){
      try{
        await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id),{method:"DELETE"});
        await refreshChatGPTAccounts();
+       const current=(state.chatgpt.accounts||[]).find(x=>x.active)||null;
+       await selectChatGPTAccountRoom(current?current.id:null);
+       $("chatgpt-accounts-dialog").classList.remove("open");
      }catch(e){safeText($("chatgpt-account-error"),e.message)}
    };
    row.appendChild(unlink);
