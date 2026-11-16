@@ -47,6 +47,27 @@ def main():
             assert page.locator("#admin-token").count()==0
             assert page.locator("#user-api-key").count()==0
             print("PASS_REAL_CHATROOM_BROWSER_UI_AND_NO_TOKEN_FIELDS",flush=True)
+
+            # The consumer ChatGPT account selector must never mirror fake
+            # local HITEL profiles or inherit the runner's shared account.
+            expect(page.locator("#chatgpt-accounts-trigger")).to_have_text(
+                "ChatGPT 로그인",timeout=15000)
+            page.locator("#chatgpt-accounts-trigger").click()
+            expect(page.locator("#chatgpt-accounts-dialog")).to_have_class("overlay open")
+            expect(page.locator("#chatgpt-connection-status")).to_contain_text(
+                "ChatGPT 로그인 안 됨",timeout=15000)
+            account_state=page.evaluate("""async()=>{
+                const r=await fetch('/web/api/chatgpt/accounts',{cache:'no-store'});
+                return await r.json();
+            }""")
+            assert account_state["accounts"]==[],"UNVERIFIED_ACCOUNT_LIST_NOT_EMPTY"
+            assert account_state["oauthAvailable"] is False,"UNEXPECTED_OAUTH_CLIENT_PRESENT"
+            page.locator("#chatgpt-official-login").click()
+            expect(page.locator("#chatgpt-account-error")).to_contain_text(
+                "OAuth",timeout=12000)
+            page.locator("#chatgpt-accounts-close").click()
+            print("PASS_REAL_BROWSER_CHATGPT_AUTH_REQUIRED_AND_NO_FAKE_ACCOUNT",flush=True)
+
             expect(page.locator("#browser-identity")).to_contain_text(
                 "HITEL 기본 프로필 · #",timeout=15000)
             expect(page.locator("#browser-identity")).to_contain_text(
