@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Requ
 from fastapi.responses import FileResponse, JSONResponse
 import api_v1
 import drive_v1
+import web_chat
 from gh_oidc import verify_worker_identity
 
 ROOT = Path(__file__).resolve().parent
@@ -22,6 +23,7 @@ DEMO_COOLDOWN_MS = 10 * 60 * 1000
 app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
 app.include_router(api_v1.router)
 app.include_router(drive_v1.router)
+app.include_router(web_chat.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
@@ -56,7 +58,7 @@ async def dispatch_next():
         failed_missing = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_queued_jobs_with_unavailable_files()
         if failed_missing:
             print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
-        job = api_v1.claim_next_job(only_user_id=DEMO_UID if PUBLIC_SMOKE_ONLY else None)
+        job = api_v1.claim_next_job(public_trial_only=PUBLIC_SMOKE_ONLY)
         if job is None:
             return
 
@@ -135,7 +137,15 @@ async def block_legacy_private_apis_in_public_test(request: Request, call_next):
 
 @app.get("/")
 async def home():
-    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
+    return FileResponse(ROOT / "static" / "chat.html",
+                        headers={"Cache-Control":"no-store, max-age=0",
+                                 "X-Content-Type-Options":"nosniff",
+                                 "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"})
+
+@app.get("/demo")
+async def old_connection_test():
+    return FileResponse(ROOT / "static" / "index.html",
+                        headers={"Cache-Control":"no-store, max-age=0"})
 
 @app.get("/download/ChatGPT-Relay-Control.apk")
 async def download_controller():
