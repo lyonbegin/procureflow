@@ -63,11 +63,12 @@ Drive의 파일은 백업이며, **GitHub Actions의 자동 설치 입력이 아
 | 실제 시험 | GitHub Actions 결과 | 확인한 사실 |
 | --- | --- | --- |
 | [Railway 서버 API 실측](https://github.com/lyonbegin/procureflow/actions/runs/43792983527) | **성공** | Railway /health 200, /demo/status 200, 기존 /api/v1/rooms 404 |
-| [ChatGPT 실제 질문·답변 실측](https://github.com/lyonbegin/procureflow/actions/runs/43792504439) | **실패** | Chrome 암호화 로그인 복원·모델 목록 조회 성공, 실제 메시지 입력에서 HTTP 500 (composer 선택자) |
-| [기존 과거 질문·답변 통과 기록](https://github.com/lyonbegin/procureflow/actions/runs/43357968431) | 당시 성공 | 2026-11-13 단발 시험 통과. 현재 버전의 통과를 보증하지 않습니다. |
+| [ChatGPT 실제 질문·답변 실측](https://github.com/lyonbegin/procureflow/actions/runs/43793249813) | **성공** | Chrome 로그인 복원, 모델 21개 조회, 실제 질문 HTTP 200, 답변 표식 일치 |
+| [수정 전 입력창 장애 원본 로그](https://github.com/lyonbegin/procureflow/actions/runs/43792504439) | 당시 실패 | HTTP 500 입력창 인식 오류. `?model=auto` 이동 주소 수정 후 위 시험에서 통과 |
+| [기존 과거 질문·답변 통과 기록](https://github.com/lyonbegin/procureflow/actions/runs/43357968431) | 당시 성공 | 2026-11-13 단발 시험 통과 |
 
-이 표의 서버 API 성공은 **ChatGPT 실제 문답 성공이 아닙니다.**
-서버가 온라인이어도 임시 Chrome 작업자가 연결되지 않은 시점에는 `workerConnected=false`로 표시됩니다.
+서버 API와 ChatGPT 실제 문답은 **서로 다른 시험**이므로 각각 독립적으로 통과 여부를 기록했습니다. 2026-11-16에는 둘 다 각자의 시험에서 통과했습니다. 다만 GitHub 운영 콘솔의 `real_chat` 선택 흐름까지 별도로 클릭해 검증한 것은 아니므로 해당 선택 흐름 자체는 미검증입니다.
+임시 Chrome 작업자가 연결되지 않은 시점에는 `workerConnected=false`로 표시됩니다.
 
 ## 6. 결과 판단 기준
 
