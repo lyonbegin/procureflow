@@ -318,12 +318,14 @@ class LoginScenarioMatrix(unittest.TestCase):
             dropped=self.a.delete("/web/api/chatgpt/accounts/"+selected,
                                   headers={"X-Web-Csrf":self.csrf_a})
             self.assertEqual(dropped.status_code,409)
+            # A forged/mismatched result is still rejected; then unlink is
+            # permitted once no in-flight request remains.
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
                 "result_text":"Must not be stored",
                 "execution_account_id":selected,
-                "execution_account_email":"accounta@example.invalid",
+                "execution_account_email":"wrong@example.invalid",
                 "session_verified":True,
                 "chatgpt_url":"https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012",
             })
