@@ -44,6 +44,13 @@ class WorkerTests(unittest.TestCase):
                 asyncio.run(worker.process_job(dict(JOB,attachment_ids=["file_abc"])))
         f.assert_not_called()
 
+    def test_account_specific_job_never_sends_on_unverified_chrome(self):
+        for requested in ("oai_A", "oai_B", ""):
+            with patch.object(worker, "post_chat") as send:
+                with self.assertRaisesRegex(ValueError, "ACCOUNT_EXECUTION_NOT_VERIFIED"):
+                    asyncio.run(worker.process_job(dict(JOB, account_id=requested)))
+            send.assert_not_called()
+
     def test_unsupported_actions_fail_closed(self):
         with patch.object(worker,"post_chat") as f:
             for action in ("room.open","room.delete","room.bind","chat.new"):
