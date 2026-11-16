@@ -104,7 +104,8 @@ def list_accounts(request: Request):
 
 @router.get("/login")
 async def start_login(request: Request):
-    owner = _owner(request)
+    raw = web_chat._owner(request)
+    owner = web_chat._owner_hash(raw)
     if not _enabled():
         raise HTTPException(503,
             "HITEL에 승인된 Sign in with ChatGPT OAuth 클라이언트가 설정되지 않았습니다. "
@@ -131,6 +132,11 @@ async def start_login(request: Request):
     result = RedirectResponse(config["authorization_endpoint"]+"?"+query,status_code=302)
     result.set_cookie(FLOW_COOKIE,flow,httponly=True,secure=True,
                       samesite="lax",max_age=600,path="/web/api/chatgpt")
+    # Temporarily use Lax for the existing verified local browser session so
+    # it survives the cross-site OpenAI redirect. Restore Strict on callback.
+    result.set_cookie(web_chat.COOKIE,raw+"."+web_chat._sign(raw),
+                      httponly=True,secure=True,samesite="lax",
+                      max_age=web_chat.COOKIE_MAX_AGE,path="/")
     result.headers["Cache-Control"]="no-store"
     return result
 
@@ -151,9 +157,17 @@ async def complete_login(request: Request, code: str = "", state: str = "", erro
     if (not pending or pending["expires_at"] < int(time.time())
             or not secrets.compare_digest(pending["flow_digest"],_digest(flow))):
         raise HTTPException(403,"ChatGPT 로그인 요청이 만료되었거나 다른 브라우저의 요청입니다.")
+    raw=web_chat._unpack(request.cookies.get(web_chat.COOKIE))
+    if not raw or web_chat._owner_hash(raw) != pending["browser_owner"]:
+        raise HTTPException(403,"인증을 시작했던 동일한 HITEL 브라우저가 아닙니다.")
     owner = pending["browser_owner"]
     if error:
-        return RedirectResponse("/?chatgpt-auth=cancelled",status_code=303)
+        cancelled=RedirectResponse("/?chatgpt-auth=cancelled",status_code=303)
+        cancelled.set_cookie(web_chat.COOKIE,raw+"."+web_chat._sign(raw),
+            httponly=True,secure=True,samesite="strict",
+            max_age=web_chat.COOKIE_MAX_AGE,path="/")
+        cancelled.delete_cookie(FLOW_COOKIE,path="/web/api/chatgpt",secure=True,samesite="lax")
+        return cancelled
     if not code or not _enabled():
         raise HTTPException(403,"승인된 OpenAI 클라이언트 및 인증 코드가 필요합니다.")
     config = await _oidc()
@@ -204,6 +218,9 @@ async def complete_login(request: Request, code: str = "", state: str = "", erro
             )
     result=RedirectResponse("/?chatgpt-auth=verified",status_code=303)
     result.delete_cookie(FLOW_COOKIE,path="/web/api/chatgpt",secure=True,samesite="lax")
+    result.set_cookie(web_chat.COOKIE,raw+"."+web_chat._sign(raw),
+        httponly=True,secure=True,samesite="strict",
+        max_age=web_chat.COOKIE_MAX_AGE,path="/")
     result.headers["Cache-Control"]="no-store"
     return result
 
