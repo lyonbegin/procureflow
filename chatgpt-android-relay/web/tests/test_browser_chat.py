@@ -160,7 +160,7 @@ class BrowserChatTests(unittest.TestCase):
         self.assertEqual(self.a.post(url,json={"text":"hi"}).status_code,403)
         self.assertEqual(self.a.post(url,json={"text":"hi"},
             headers={"X-Web-Csrf":self.ca,"Origin":"https://attacker.example"}).status_code,403)
-        for text_ in ("", "  ", "x"*2001, "abc\\x00def"):
+        for text_ in ("", "  ", "x"*2001, "abc"+chr(0)+"def"):
             r=self.a.post(url,json={"text":text_},
                           headers={"X-Web-Csrf":self.ca})
             self.assertEqual(r.status_code,422,r.text)
