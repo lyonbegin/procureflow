@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _temp=tempfile.TemporaryDirectory(prefix="hitel-chatgpt-identity-test-")
@@ -65,8 +66,8 @@ class ChatGPTAccountSafetyTests(unittest.TestCase):
         return r.json()["room"]["id"]
 
     def test_unconfigured_official_login_never_forges_account(self):
-        with unittest.mock.patch.object(chatgpt_accounts,"CLIENT_ID",""),\
-             unittest.mock.patch.object(chatgpt_accounts,"REDIRECT_URI",""):
+        with patch.object(chatgpt_accounts,"CLIENT_ID",""),\
+             patch.object(chatgpt_accounts,"REDIRECT_URI",""):
             a=self.a.get("/web/api/chatgpt/accounts").json()
             self.assertEqual(a["accounts"],[])
             self.assertFalse(a["oauthAvailable"])
