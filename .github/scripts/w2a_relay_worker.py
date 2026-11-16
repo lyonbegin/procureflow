@@ -204,17 +204,33 @@ async def run(max_seconds: int = 1500) -> None:
                 await socket.send(json.dumps({
                     "type":"auth.worker.key","public_key":login_public,
                 }))
-                ready=json.loads(await asyncio.wait_for(socket.recv(),timeout=12))
-                if ready.get("type")!="auth.worker.key.ok":
+                # A previously queued guest job might arrive immediately
+                # after auth.ok. Preserve it rather than discarding work while
+                # waiting for the encryption-key acknowledgement.
+                buffered=[]
+                for _ in range(8):
+                    ready=json.loads(await asyncio.wait_for(socket.recv(),timeout=12))
+                    if ready.get("type")=="auth.worker.key.ok":
+                        break
+                    if ready.get("type")=="job":
+                        buffered.append(ready)
+                    elif ready.get("type")=="ping":
+                        await socket.send(json.dumps({"type":"pong"}))
+                    else:
+                        raise RuntimeError("CHROME_LOGIN_KEY_NOT_ACCEPTED")
+                else:
                     raise RuntimeError("CHROME_LOGIN_KEY_NOT_ACCEPTED")
                 print("PASS_EPHEMERAL_CHROME_LOGIN_PUBLIC_KEY_REGISTERED",flush=True)
                 authenticated_once = True
                 attempts = 0
                 while time.monotonic() < deadline:
-                    raw = await asyncio.wait_for(
-                        socket.recv(), timeout=max(1, deadline - time.monotonic())
-                    )
-                    item = json.loads(raw)
+                    if buffered:
+                        item=buffered.pop(0)
+                    else:
+                        raw = await asyncio.wait_for(
+                            socket.recv(), timeout=max(1, deadline - time.monotonic())
+                        )
+                        item = json.loads(raw)
                     typ = item.get("type")
                     if typ == "ping":
                         await socket.send(json.dumps({"type": "pong"}))
