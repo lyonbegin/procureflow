@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - fix/chatgpt-request-account-routing-20261116
+      - test/chatgpt-login-scenario-matrix-20261116
     paths:
       - 'chatgpt-android-relay/web/**'
       - '.github/workflows/verify-chatgpt-account-routing.yml'
@@ -25,6 +26,8 @@ jobs:
           python -m py_compile chatgpt-android-relay/web/api_v1.py chatgpt-android-relay/web/web_chat.py chatgpt-android-relay/web/app.py
       - name: Verify account binding and wrong-worker rejection
         run: python chatgpt-android-relay/web/tests/test_account_request_routing.py
+      - name: Exercise 15 account lifecycle scenarios
+        run: python chatgpt-android-relay/web/tests/test_login_scenario_matrix.py
       - name: Existing account-safety regression
         run: python chatgpt-android-relay/web/tests/test_chatgpt_account_safety.py
       - name: Existing Web2API relay regression
