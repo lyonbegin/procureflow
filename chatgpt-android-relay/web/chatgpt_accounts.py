@@ -136,7 +136,9 @@ async def start_login(request: Request):
 
 @router.get("/callback")
 async def complete_login(request: Request, code: str = "", state: str = "", error: str = ""):
-    owner = _owner(request)
+    # Cross-site OpenAI -> HITEL redirects cannot carry the Strict browser
+    # session cookie. Bind callback to the short-lived SameSite=Lax OAuth
+    # transaction cookie and the one-time server-side state instead.
     flow = request.cookies.get(FLOW_COOKIE) or ""
     if not state or not flow or len(state)>256 or len(flow)>256:
         raise HTTPException(403,"ChatGPT 로그인 상태 확인에 실패했습니다.")
