@@ -44,6 +44,22 @@ MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 MAX_USER_BYTES = 24 * 1024 * 1024
 MAX_TOTAL_PUBLIC_BYTES = 256 * 1024 * 1024
 _storage_lock = threading.RLock()
+MAX_LOCAL_PROFILES = 5
+
+# Local test profiles belong only to one signed browser visitor. They are NOT
+# Google or ChatGPT accounts and never grant OAuth or ChatGPT login access.
+with api_v1.connection() as _db:
+    _db.execute("""CREATE TABLE IF NOT EXISTS web_trial_profiles(
+        owner_hash TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        user_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(owner_hash,profile_id)
+    )""")
+    _db.execute("CREATE INDEX IF NOT EXISTS idx_trial_profile_owner ON web_trial_profiles(owner_hash)")
+
 
 def _sign(raw: str) -> str:
     return hmac.new(SESSION_KEY, raw.encode("ascii"), hashlib.sha256).hexdigest()
@@ -64,6 +80,36 @@ def _uid(raw: str):
     digest = hmac.new(SESSION_KEY, ("user:"+raw).encode(),hashlib.sha256).hexdigest()
     return "usr_browser_" + digest[:48]
 
+def _owner_hash(raw: str):
+    return hmac.new(SESSION_KEY, ("owner:" + raw).encode(), hashlib.sha256).hexdigest()
+
+def _profile_uid(raw: str, profile_id: str):
+    if profile_id == "default":
+        return _uid(raw)  # Existing visitors retain all prior rooms and files.
+    digest = hmac.new(
+        SESSION_KEY, ("profile:" + raw + ":" + profile_id).encode(), hashlib.sha256
+    ).hexdigest()
+    return "usr_browser_" + digest[:48]
+
+def _ensure_default_profile(db, raw: str):
+    owner = _owner_hash(raw)
+    row = db.execute("SELECT 1 FROM web_trial_profiles WHERE owner_hash=? LIMIT 1", (owner,)).fetchone()
+    if not row:
+        db.execute(
+            "INSERT INTO web_trial_profiles(owner_hash,profile_id,user_id,name,is_active,created_at) "
+            "VALUES(?,?,?,?,1,?)",
+            (owner, "default", _uid(raw), "기본 프로필", api_v1.clock())
+        )
+    return owner
+
+def _active_profile(db, raw: str):
+    owner = _owner_hash(raw)
+    row = db.execute(
+        "SELECT profile_id,user_id,name FROM web_trial_profiles "
+        "WHERE owner_hash=? AND is_active=1 LIMIT 1", (owner,)
+    ).fetchone()
+    return dict(row) if row else None
+
 def _csrf(raw: str):
     return hmac.new(SESSION_KEY, ("csrf:"+raw).encode(),hashlib.sha256).hexdigest()
 
@@ -73,7 +119,7 @@ def _secure_cookie(request: Request):
     host = request.headers.get("host","")
     return host != "testserver" and not host.startswith(("localhost","127.0.0.1"))
 
-def _actor(request: Request, mutate=False):
+def _owner(request: Request, mutate=False):
     if os.environ.get("PUBLIC_SMOKE_ONLY") != "1":
         raise HTTPException(404)
     raw = _unpack(request.cookies.get(COOKIE))
@@ -86,10 +132,22 @@ def _actor(request: Request, mutate=False):
             raise HTTPException(403,"다른 사이트에서는 변경할 수 없습니다.")
         if not hmac.compare_digest(request.headers.get("x-web-csrf",""),_csrf(raw)):
             raise HTTPException(403,"잘못된 브라우저 요청입니다.")
-    return _uid(raw)
+    return raw
+
+def _actor(request: Request, mutate=False):
+    raw = _owner(request, mutate)
+    with api_v1.connection() as db:
+        profile = _active_profile(db, raw)
+    if not profile:
+        # Old browser cookies remain readable until bootstrap migrates them.
+        return _uid(raw)
+    return profile["user_id"]
 
 def _room(db,uid,rid):
     return api_v1.existing_room(db,rid,uid)
+
+class ProfileInput(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
 
 class RoomInput(BaseModel):
     title: str = Field(min_length=1,max_length=80)
@@ -108,20 +166,25 @@ def bootstrap(request: Request, response: Response):
     created = raw is None
     if created:
         raw=secrets.token_hex(24)
-    uid=_uid(raw)
-    with api_v1.connection() as db:
-        db.execute(
-            "INSERT OR IGNORE INTO users(id,name,api_key_hash,created_at) VALUES(?,?,?,?)",
-            (uid,"Isolated browser trial",hashlib.sha256((uid+":disabled").encode()).hexdigest(),api_v1.clock()),
-        )
+    with _storage_lock:
+        with api_v1.connection() as db:
+            _ensure_default_profile(db, raw)
+            active = _active_profile(db, raw)
+            uid = active["user_id"]
+            db.execute(
+                "INSERT OR IGNORE INTO users(id,name,api_key_hash,created_at) VALUES(?,?,?,?)",
+                (uid,"Isolated browser trial",hashlib.sha256((uid+":disabled").encode()).hexdigest(),api_v1.clock()),
+            )
     if created:
         response.set_cookie(COOKIE,raw+"."+_sign(raw),
                             httponly=True,secure=_secure_cookie(request),
                             samesite="strict",max_age=COOKIE_MAX_AGE,path="/")
     response.headers["Cache-Control"]="no-store"
     return {"csrf":_csrf(raw),"workerConnected":False,
+            "profile":{"id":active["profile_id"],"name":active["name"]},
+            "loginProvider":"anonymous_local_trial",
             "presets":[{"id":k,"label":v} for k,v in PRESETS.items()],
-            "limits":{"rooms":MAX_ROOMS,"fileMB":8}}
+            "limits":{"rooms":MAX_ROOMS,"fileMB":8,"profiles":MAX_LOCAL_PROFILES}}
 
 @router.get("/status")
 def status(request: Request):
@@ -129,7 +192,12 @@ def status(request: Request):
     # another visitor. It is a non-secret display tag, not a ChatGPT identity.
     uid = _actor(request)
     from app import web2api_device
+    raw = _owner(request)
+    with api_v1.connection() as db:
+        active = _active_profile(db, raw)
     return {"workerConnected":web2api_device is not None,
+            "profileName":active["name"] if active else "기본 프로필",
+            "profileId":active["profile_id"] if active else "default",
             "browserSessionType":"anonymous_cookie",
             "browserSessionTag":uid[-8:],
             "chatgptAccountLinked":False,
@@ -137,6 +205,118 @@ def status(request: Request):
             "mode":"isolated_external_trial","freeTextSendSupported":True,
             "maxFreeTextCharacters":MAX_FREE_TEXT_CHARACTERS,
             "fileToChatGPTSupported":False}
+
+@router.get("/profiles")
+def list_profiles(request: Request):
+    raw = _owner(request)
+    with api_v1.connection() as db:
+        rows = db.execute(
+            "SELECT profile_id,name,is_active,created_at FROM web_trial_profiles "
+            "WHERE owner_hash=? ORDER BY created_at,profile_id",
+            (_owner_hash(raw),)
+        ).fetchall()
+    return {"profiles": [
+        {"id":r["profile_id"],"name":r["name"],
+         "active":bool(r["is_active"]),"deletable":r["profile_id"] != "default"}
+        for r in rows
+    ],"provider":"HITEL_local_test_profiles","chatgptAccountLinked":False,
+       "maxProfiles":MAX_LOCAL_PROFILES}
+
+
+@router.post("/profiles")
+def add_profile(body: ProfileInput, request: Request):
+    raw = _owner(request, True)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "프로필 이름을 입력해 주십시오.")
+    owner = _owner_hash(raw)
+    with _storage_lock:
+        with api_v1.connection() as db:
+            _ensure_default_profile(db, raw)
+            n = db.execute(
+                "SELECT count(*) FROM web_trial_profiles WHERE owner_hash=?", (owner,)
+            ).fetchone()[0]
+            if n >= MAX_LOCAL_PROFILES:
+                raise HTTPException(429, "시험 프로필은 최대 5개입니다.")
+            if db.execute("SELECT 1 FROM web_trial_profiles WHERE owner_hash=? AND name=?",
+                          (owner,name)).fetchone():
+                raise HTTPException(409, "같은 이름의 프로필이 있습니다.")
+            profile_id = secrets.token_hex(12)
+            uid = _profile_uid(raw,profile_id)
+            db.execute("INSERT INTO users(id,name,api_key_hash,created_at) VALUES(?,?,?,?)",
+                       (uid,"Isolated browser trial",
+                        hashlib.sha256((uid+":disabled").encode()).hexdigest(),api_v1.clock()))
+            db.execute(
+                "INSERT INTO web_trial_profiles VALUES(?,?,?,?,0,?)",
+                (owner,profile_id,uid,name,api_v1.clock())
+            )
+    return {"profile":{"id":profile_id,"name":name,"active":False},
+            "chatgptAccountLinked":False}
+
+
+@router.post("/profiles/{profile_id}/activate")
+def activate_profile(profile_id: str, request: Request):
+    raw = _owner(request, True)
+    owner = _owner_hash(raw)
+    with _storage_lock:
+        with api_v1.connection() as db:
+            selected = db.execute(
+                "SELECT profile_id,name FROM web_trial_profiles "
+                "WHERE owner_hash=? AND profile_id=?", (owner,profile_id)
+            ).fetchone()
+            if not selected:
+                raise HTTPException(404,"해당 프로필이 없습니다.")
+            db.execute("UPDATE web_trial_profiles SET is_active=0 WHERE owner_hash=?", (owner,))
+            db.execute(
+                "UPDATE web_trial_profiles SET is_active=1 WHERE owner_hash=? AND profile_id=?",
+                (owner,profile_id)
+            )
+    return {"profile":{"id":selected["profile_id"],"name":selected["name"]},
+            "chatgptAccountLinked":False}
+
+
+@router.delete("/profiles/{profile_id}")
+def remove_profile(profile_id: str, request: Request):
+    raw = _owner(request, True)
+    if profile_id == "default":
+        raise HTTPException(409,"기본 프로필은 삭제할 수 없습니다.")
+    owner = _owner_hash(raw)
+    with _storage_lock:
+        with api_v1.connection() as db:
+            selected = db.execute(
+                "SELECT user_id,is_active FROM web_trial_profiles "
+                "WHERE owner_hash=? AND profile_id=?", (owner,profile_id)
+            ).fetchone()
+            if not selected:
+                raise HTTPException(404,"해당 프로필이 없습니다.")
+            uid = selected["user_id"]
+            pending = db.execute(
+                "SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running') LIMIT 1",
+                (uid,)
+            ).fetchone()
+            if pending:
+                raise HTTPException(409,"이 프로필의 전송 작업이 완료된 후 삭제할 수 있습니다.")
+            paths = db.execute(
+                "SELECT relative_path FROM file_objects WHERE user_id=?", (uid,)
+            ).fetchall()
+            # Only data belonging to the chosen profile may be deleted.
+            db.execute("DELETE FROM file_objects WHERE user_id=?", (uid,))
+            db.execute("DELETE FROM messages WHERE user_id=?", (uid,))
+            db.execute("DELETE FROM jobs WHERE user_id=?", (uid,))
+            db.execute("DELETE FROM rooms WHERE user_id=?", (uid,))
+            db.execute("DELETE FROM users WHERE id=?", (uid,))
+            db.execute("DELETE FROM web_trial_profiles WHERE owner_hash=? AND profile_id=?",
+                       (owner,profile_id))
+            if selected["is_active"]:
+                db.execute(
+                    "UPDATE web_trial_profiles SET is_active=1 "
+                    "WHERE owner_hash=? AND profile_id='default'", (owner,)
+                )
+        for item in paths:
+            (api_v1.FILES/item["relative_path"]).unlink(missing_ok=True)
+    return {"deleted":True, "activeProfileId":"default" if selected["is_active"] else None,
+            "chatgptAccountDeleted":False}
+
 
 @router.get("/rooms")
 def list_rooms(request: Request):
