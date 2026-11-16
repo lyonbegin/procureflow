@@ -40,6 +40,7 @@ def main():
             print("PROBE_PROFILE_TESTID="+str(
                 page.locator('[data-testid="profile-button"]').count()))
             return 2
+        page.wait_for_timeout(1200)
         checks=[
             ("menuitem",page.get_by_role("menuitem",name=re.compile(
                 r"Log out|Sign out|로그아웃",re.I))),
@@ -58,6 +59,15 @@ def main():
         print("PASS_REAL_CHATGPT_PROFILE_MENU_OPEN_"+found)
         if not available:
             print("FAIL_LOGOUT_CONTROL_NOT_FOUND_AFTER_PROFILE_OPEN")
+            # Safe structural diagnostics: no private labels, account names,
+            # email addresses, text, HTML, session IDs, or screenshots.
+            print("PROBE_MENUITEM_COUNT="+str(page.get_by_role("menuitem").count()))
+            print("PROBE_MENU_COUNT="+str(page.get_by_role("menu").count()))
+            print("PROBE_DIALOG_COUNT="+str(page.get_by_role("dialog").count()))
+            print("PROBE_SIGNOUT_TEXTCOUNT="+str(page.get_by_text(
+                re.compile(r"Log out|Sign out|로그아웃",re.I)).count()))
+            print("PROBE_SETTINGS_TEXTCOUNT="+str(page.get_by_text(
+                re.compile(r"Settings|설정",re.I)).count()))
             return 2
         print("PASS_REAL_CHATGPT_LOGOUT_CONTROL_LOCATED_NO_CLICK")
         page.keyboard.press("Escape")
