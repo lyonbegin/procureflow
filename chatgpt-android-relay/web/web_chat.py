@@ -157,6 +157,8 @@ class PresetInput(BaseModel):
 
 class MessageInput(BaseModel):
     text: str = Field(min_length=1,max_length=MAX_FREE_TEXT_CHARACTERS)
+    # Sent separately on every message; never a cookie, password, or bearer token.
+    account_id: str | None = Field(default=None, max_length=80)
 
 @router.get("/bootstrap")
 def bootstrap(request: Request, response: Response):
@@ -526,16 +528,22 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
             # session. Refuse to execute the selected identity's prompt under
             # the unrelated shared GitHub worker's ChatGPT login.
             real_identity = db.execute(
-                "SELECT 1 FROM hitel_verified_chatgpt_accounts "
+                "SELECT id FROM hitel_verified_chatgpt_accounts "
                 "WHERE browser_owner=? AND active=1 LIMIT 1",
                 (_owner_hash(_owner(request)),)
             ).fetchone()
+            selected_id = real_identity["id"] if real_identity else None
+            if body.account_id != selected_id:
+                raise HTTPException(409,
+                    "요청 계정이 현재 선택된 ChatGPT 계정과 다릅니다. 계정 상태를 새로 확인한 뒤 전송하십시오.")
             if real_identity:
+                # An OIDC identity alone cannot authorize the GitHub Chrome
+                # worker. Block until a real execution identity verifier exists.
                 raise HTTPException(
                     409, "선택하신 ChatGPT 계정은 신원 인증만 완료되었습니다. "
                          "이 계정의 Web2API 실행 세션은 아직 연결되지 않았습니다."
                 )
-            jid = api_v1.store_job(db, uid, rid, "chat.send", text, [])
+            jid = api_v1.store_job(db, uid, rid, "chat.send", text, [], account_id=selected_id)
             db.execute(
                 "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
                 ("msg_" + api_v1.new_id(), uid, rid, jid, "user", text, now)
