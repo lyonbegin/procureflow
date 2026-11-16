@@ -9,6 +9,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
 BASE="https://chatgpt-relay-web-production.up.railway.app"
+# Live retest after favicon asset fix, November 16, 2026.
 OUT=Path(os.environ.get("RUNNER_TEMP","/tmp"))/"hitel-chatroom-browser"
 OUT.mkdir(parents=True,exist_ok=True)
 
