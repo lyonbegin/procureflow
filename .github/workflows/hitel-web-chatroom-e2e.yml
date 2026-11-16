@@ -1,0 +1,38 @@
+name: HITEL - verify live ChatGPT-style rooms and file UI
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/hitel-web-chatroom-e2e.yml
+      - .github/scripts/w2a_chatroom_browser_e2e.py
+permissions:
+  contents: read
+jobs:
+  actual-browser:
+    name: Chrome real web UI - rooms, file open, browser isolation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install Playwright browser client
+        run: python3 -m pip install -q playwright==1.56.0
+      - name: Open public Railway UI and click real buttons using Chromium
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: python3 .github/scripts/w2a_chatroom_browser_e2e.py
+      - name: Save real browser screenshot on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-browser-chatroom-e2e
+          path: ${{ runner.temp }}/hitel-chatroom-browser/*.png
+          if-no-files-found: warn
+          retention-days: 2
