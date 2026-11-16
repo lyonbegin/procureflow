@@ -25,6 +25,9 @@ from typing import Any
 
 import websockets
 
+from w2a_account_runtime import (AccountGateError, actual_chrome_account,
+                                 canonical_email, verify_same_session)
+
 AUDIENCE = "urn:lyonbegin:procureflow:chatgpt-relay:device"
 RELAY_HOST = "chatgpt-relay-web-production.up.railway.app"
 CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
@@ -112,11 +115,15 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     action = job.get("action")
     if action != "chat.send":
         raise ValueError("UNSUPPORTED_WEB_WORKER_ACTION")
-    # This worker currently restores a single Chrome profile and cannot
-    # attest account identity or switch users. Refuse account-specific prompts
-    # before reaching ChatGPT, rather than rejecting only their responses.
-    if job.get("account_id") is not None:
-        raise ValueError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+    # Registered, server-verified identity and its email are supplied by the
+    # authenticated Railway server over the signed GitHub worker WebSocket.
+    # Never use an account_id string or a stale Chrome profile alone as proof.
+    selected_id = job.get("account_id")
+    expected_email = None
+    if selected_id is not None:
+        if not isinstance(selected_id,str) or not selected_id.startswith("oai_"):
+            raise ValueError("ACCOUNT_ID_INVALID")
+        expected_email = canonical_email(job.get("account_email"))
     if job.get("attachment_ids") or job.get("attachment_details") or job.get("drive_links"):
         # Never silently replace a native binary attachment with a URL or text.
         raise ValueError("WEB2API_BINARY_ATTACHMENT_NOT_VERIFIED")
@@ -124,8 +131,16 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(content, str) or not content.strip() or len(content) > MAX_TEXT:
         raise ValueError("INVALID_CHAT_TEXT")
     target = extract_conversation_id(job)
+    if expected_email is not None:
+        # Inspect real ChatGPT HTTPS session before any message bytes are sent.
+        await asyncio.to_thread(actual_chrome_account, expected_email)
+        if not await asyncio.to_thread(verify_same_session, expected_email):
+            raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
     answer, cid = await asyncio.to_thread(post_chat, content, target)
-    return {
+    if expected_email is not None:
+        if not await asyncio.to_thread(verify_same_session, expected_email):
+            raise AccountGateError("ACCOUNT_CHANGED_DURING_SEND")
+    result = {
         "type": "job.result",
         "job_id": jid, "room_id": room_id,
         "verified": True, "stage": "assistant_reply_stable",
@@ -133,6 +148,11 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         "chatgpt_url": "https://chatgpt.com/c/" + cid,
         "room_state": "active",
     }
+    if expected_email is not None:
+        result["execution_account_id"] = selected_id
+        result["execution_account_email"] = expected_email
+        result["session_verified"] = True
+    return result
 
 
 def ws_destination() -> str:
@@ -207,6 +227,10 @@ async def run(max_seconds: int = 1500) -> None:
                                 "WEB2API_CHOICES_MISSING", "WEB2API_ASSISTANT_REPLY_MISSING",
                                 "WEB2API_CONVERSATION_ID_MISSING", "ROOM_CONVERSATION_ID_MISMATCH",
                                 "MALFORMED_RELAY_JOB", "ACCOUNT_EXECUTION_NOT_VERIFIED",
+                                "ACCOUNT_ID_INVALID", "ACCOUNT_EMAIL_INVALID",
+                                "ACCOUNT_LOGOUT_UI_UNAVAILABLE", "ACCOUNT_LOGOUT_NOT_VERIFIED",
+                                "ACCOUNT_LOGIN_WRONG_IDENTITY", "ACCOUNT_INTERACTIVE_LOGIN_REQUIRED",
+                                "ACCOUNT_CHANGED_DURING_SEND", "CHROME_CONTEXT_MISSING",
                             }:
                                 reason = "WEB2API_SEND_OR_VERIFY_FAILED"
                             await socket.send(json.dumps({
