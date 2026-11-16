@@ -112,6 +112,11 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     action = job.get("action")
     if action != "chat.send":
         raise ValueError("UNSUPPORTED_WEB_WORKER_ACTION")
+    # This worker currently restores a single Chrome profile and cannot
+    # attest account identity or switch users. Refuse account-specific prompts
+    # before reaching ChatGPT, rather than rejecting only their responses.
+    if job.get("account_id") is not None:
+        raise ValueError("ACCOUNT_EXECUTION_NOT_VERIFIED")
     if job.get("attachment_ids") or job.get("attachment_details") or job.get("drive_links"):
         # Never silently replace a native binary attachment with a URL or text.
         raise ValueError("WEB2API_BINARY_ATTACHMENT_NOT_VERIFIED")
@@ -201,7 +206,7 @@ async def run(max_seconds: int = 1500) -> None:
                                 "UNVERIFIED_TARGET_URL", "WEB2API_RESPONSE_INVALID",
                                 "WEB2API_CHOICES_MISSING", "WEB2API_ASSISTANT_REPLY_MISSING",
                                 "WEB2API_CONVERSATION_ID_MISSING", "ROOM_CONVERSATION_ID_MISMATCH",
-                                "MALFORMED_RELAY_JOB",
+                                "MALFORMED_RELAY_JOB", "ACCOUNT_EXECUTION_NOT_VERIFIED",
                             }:
                                 reason = "WEB2API_SEND_OR_VERIFY_FAILED"
                             await socket.send(json.dumps({
