@@ -47,6 +47,16 @@ def main():
             assert page.locator("#admin-token").count()==0
             assert page.locator("#user-api-key").count()==0
             print("PASS_REAL_CHATROOM_BROWSER_UI_AND_NO_TOKEN_FIELDS",flush=True)
+            expect(page.locator("#browser-identity")).to_contain_text(
+                "임시 방문자 #",timeout=15000)
+            expect(page.locator("#browser-identity")).to_contain_text(
+                "ChatGPT 계정 로그인 아님")
+            expect(page.locator("#account-explainer")).to_contain_text(
+                "ChatGPT 계정으로 로그인한 상태가 아닙니다")
+            expect(page.locator("#worker-status")).to_contain_text(
+                "별도 GitHub Chrome",timeout=15000)
+            first_tag=page.locator("#browser-identity").inner_text()
+            print("PASS_REAL_BROWSER_DISTINGUISHES_HITEL_COOKIE_FROM_CHATGPT_LOGIN",flush=True)
 
             page.locator("#new-room").click()
             page.locator("#room-name").fill("E2E 브라우저 시험방")
@@ -93,6 +103,11 @@ def main():
             }""",rid)
             assert private_code==404,"CROSS_BROWSER_ROOM_ACCESS_NOT_BLOCKED"
             print("PASS_REAL_BROWSER_PRIVATE_SESSION_ROOM_ISOLATION",flush=True)
+            expect(other.locator("#browser-identity")).to_contain_text(
+                "임시 방문자 #",timeout=15000)
+            other_tag=other.locator("#browser-identity").inner_text()
+            assert first_tag != other_tag,"ANONYMOUS_BROWSER_IDENTITY_NOT_ISOLATED"
+            print("PASS_DIFFERENT_BROWSER_SESSIONS_DISPLAY_DISTINCT_ANONYMOUS_IDS",flush=True)
             isolated.close()
 
             page.locator("#rename-room").click()
