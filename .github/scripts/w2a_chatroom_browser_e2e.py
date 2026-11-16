@@ -101,6 +101,19 @@ def main():
             expect(page.locator("#room-title")).to_have_text("수정된 브라우저 시험방",timeout=10000)
             print("PASS_BROWSER_ROOM_RENAME",flush=True)
             page.screenshot(path=str(OUT/"chatroom-success.png"),full_page=True)
+            detail=page.evaluate("""async id=>{
+                return await fetch('/web/api/rooms/'+id,{cache:'no-store'}).then(r=>r.json());
+            }""",rid)
+            assert detail["files"] and detail["files"][0]["name"]=="readme-demo.txt"
+            fid=detail["files"][0]["id"]
+            page.on("dialog",lambda dialog:dialog.accept())
+            page.locator("#delete-room").click()
+            expect(page.locator("#room-list")).not_to_contain_text("수정된 브라우저 시험방",timeout=10000)
+            gone=page.evaluate("""async fid=>{
+                return (await fetch('/web/api/files/'+fid,{cache:'no-store'})).status;
+            }""",fid)
+            assert gone==404,"DELETED_ROOM_FILE_STILL_ACCESSIBLE"
+            print("PASS_CHROME_ROOM_DELETE_PURGES_OWN_FILE_BYTES",flush=True)
             print("BROWSER_SAFE_ERROR_CATEGORIES="+",".join(sorted(set(errors))) if errors else "BROWSER_SAFE_ERROR_CATEGORIES=none",flush=True)
             assert not errors,"BROWSER_SCRIPT_CONSOLE_ERRORS"
             print("PASS_BROWSER_NO_JAVASCRIPT_RUNTIME_ERRORS",flush=True)
