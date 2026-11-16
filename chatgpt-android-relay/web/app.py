@@ -140,7 +140,7 @@ async def home():
     return FileResponse(ROOT / "static" / "chat.html",
                         headers={"Cache-Control":"no-store, max-age=0",
                                  "X-Content-Type-Options":"nosniff",
-                                 "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"})
+                                 "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src blob:; object-src 'none'; frame-ancestors 'none'", "Referrer-Policy":"no-referrer"})
 
 @app.get("/demo")
 async def old_connection_test():
