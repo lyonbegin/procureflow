@@ -62,9 +62,13 @@ def main():
             }""")
             assert account_state["accounts"]==[],"UNVERIFIED_ACCOUNT_LIST_NOT_EMPTY"
             assert account_state["oauthAvailable"] is False,"UNEXPECTED_OAUTH_CLIENT_PRESENT"
-            page.locator("#chatgpt-official-login").click()
+            expect(page.locator("#chatgpt-official-login")).to_be_disabled()
+            expect(page.locator("#chatgpt-official-login")).to_have_text(
+                "ChatGPT 로그인 설정 대기 중")
+            expect(page.locator("#chatgpt-app-approval-note")).to_contain_text(
+                "OAuth 클라이언트")
             expect(page.locator("#chatgpt-account-error")).to_contain_text(
-                "OAuth",timeout=12000)
+                "클라이언트",timeout=12000)
             page.locator("#chatgpt-accounts-close").click()
             print("PASS_REAL_BROWSER_CHATGPT_AUTH_REQUIRED_AND_NO_FAKE_ACCOUNT",flush=True)
 
