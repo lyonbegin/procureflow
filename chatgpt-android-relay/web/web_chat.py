@@ -195,7 +195,13 @@ def status(request: Request):
     raw = _owner(request)
     with api_v1.connection() as db:
         active = _active_profile(db, raw)
+    with api_v1.connection() as db:
+        linked = db.execute(
+            "SELECT count(*) FROM hitel_verified_chatgpt_accounts WHERE browser_owner=?",
+            (_owner_hash(raw),)
+        ).fetchone()[0]
     return {"workerConnected":web2api_device is not None,
+            "verifiedChatGPTIdentityCount":linked,
             "profileName":active["name"] if active else "기본 프로필",
             "profileId":active["profile_id"] if active else "default",
             "browserSessionType":"anonymous_cookie",
@@ -516,6 +522,19 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
                 "AND status='completed' LIMIT 1", (uid, rid)
             ).fetchone():
                 raise HTTPException(409, "기존 ChatGPT 대화 연결을 확인할 수 없습니다. 새 방에서 시험해 주십시오.")
+            # A verified OpenAI identity is not automatically a Chrome
+            # session. Refuse to execute the selected identity's prompt under
+            # the unrelated shared GitHub worker's ChatGPT login.
+            real_identity = db.execute(
+                "SELECT 1 FROM hitel_verified_chatgpt_accounts "
+                "WHERE browser_owner=? AND active=1 LIMIT 1",
+                (_owner_hash(_owner(request)),)
+            ).fetchone()
+            if real_identity:
+                raise HTTPException(
+                    409, "선택하신 ChatGPT 계정은 신원 인증만 완료되었습니다. "
+                         "이 계정의 Web2API 실행 세션은 아직 연결되지 않았습니다."
+                )
             jid = api_v1.store_job(db, uid, rid, "chat.send", text, [])
             db.execute(
                 "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
