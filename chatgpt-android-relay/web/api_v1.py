@@ -985,6 +985,35 @@ def bind_verified_browser_conversation(job_id: str, room_id: str, url: str) -> b
 
 
 
+def authorize_web2api_preflight(job_id: str, room_id: str,
+                                 account_id: str, claimed_email: str) -> bool:
+    """Authorize ONE still-running, account-scoped Chrome job just before send.
+
+    The caller must separately prove a GitHub OIDC worker connection and
+    live Chrome identity. A stale, unlinked, wrong-room, wrong-account, or
+    guest job must never be authorized. No account email is logged.
+    """
+    if not all(isinstance(v,str) and v for v in (job_id,room_id,account_id,claimed_email)):
+        return False
+    if len(claimed_email) > 254 or len(account_id) > 80:
+        return False
+    with connection() as c:
+        row = c.execute("""
+            SELECT a.email AS expected_email FROM jobs j
+            JOIN rooms r ON r.id=j.room_id AND r.user_id=j.user_id
+            JOIN web_trial_profiles p ON p.user_id=j.user_id
+            JOIN hitel_verified_chatgpt_accounts a
+              ON a.browser_owner=p.owner_hash AND a.id=j.account_id
+            WHERE j.id=? AND j.room_id=? AND j.account_id=?
+              AND j.status='running' AND j.action='chat.send'
+              AND r.status='active' AND r.chatgpt_account_id=j.account_id
+              AND a.issuer='https://auth.openai.com'
+              AND a.email IS NOT NULL AND a.email!=''
+            LIMIT 1
+        """,(job_id,room_id,account_id)).fetchone()
+    return bool(row and row["expected_email"].strip().casefold() == claimed_email.strip().casefold())
+
+
 def complete_web2api_job(job_id: str, room_id: str, result_text: str,
                          chatgpt_url: str) -> bool:
     """Complete a GitHub Chrome answer and bind its proven conversation atomically.
