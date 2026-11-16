@@ -570,7 +570,8 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
                     "WHERE id=? AND browser_owner=?",
                     (selected_id, _owner_hash(_owner(request))),
                 ).fetchone()
-                if not verified or verified["issuer"] != "https://auth.openai.com" or not verified["email"]:
+                if (not verified or verified["issuer"] not in
+                        ("https://auth.openai.com","https://chatgpt.com/session") or not verified["email"]):
                     raise HTTPException(409, "ChatGPT 계정 이메일이 검증되지 않았습니다.")
             # A private ChatGPT thread belongs to exactly one execution
             # identity. Guest and verified accounts are NEVER interchangeable;
@@ -609,4 +610,5 @@ def queue_status(request:Request):
             "SELECT count(*) FROM jobs WHERE status='queued' AND "
             "(user_id=? OR user_id LIKE 'usr_browser_%')",
             ("usr_public_web2api_probe_20261113",)).fetchone()[0]
-    return {"pendingDemoWork":n>0}
+    import chrome_remote_login
+    return {"pendingDemoWork":n>0 or chrome_remote_login.wants_worker()}
