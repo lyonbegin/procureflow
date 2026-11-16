@@ -82,6 +82,12 @@ jobs:
           assert "<title>HITEL Web2API · 채팅 시험실</title>" in html
           for id_ in ("room-list","new-room","messages","draft","preset","send","file-input","file-list","preview-overlay"):
               assert 'id="'+id_+'"' in html, id_
+          assert '/web/api/rooms/' in html
+          assert '"/message"' in html
+          assert '최대 2,000자' in html
+          assert '자유 질문 전송은 아직 지원하지 않습니다' not in html
+          assert '미리 정의된 질문만 전송합니다' not in html
+          print("PASS_EXTERNAL_FREE_TEXT_UI_WITH_LIMITED_FILE_CLAIMS")
           for field in ('id="admin-token"','id="user-api-key"','type="password"'):
               assert field not in html
           scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,re.DOTALL)
@@ -128,3 +134,5 @@ jobs:
           echo PASS_RELAY_ORIGINAL_API_REGRESSIONS
 
 # Validate guest-file total quota and hard deletion while preserving private rooms.
+
+# Re-run all real browser-room API contract tests after enabling isolated free-text questions.
