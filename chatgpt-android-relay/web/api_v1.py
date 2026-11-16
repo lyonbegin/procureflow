@@ -1033,12 +1033,19 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
 
     with connection() as c:
         row = c.execute("""SELECT j.*,r.chatgpt_url AS saved_chatgpt_url,
-                               r.status AS room_status
+                               r.status AS room_status,
+                               r.chatgpt_account_id AS saved_account_id
                             FROM jobs j JOIN rooms r ON r.id=j.room_id
                             WHERE j.id=? AND j.room_id=? AND j.user_id=r.user_id
                             """, (job_id, room_id)).fetchone()
         if (not row or row["status"] != "running" or
                 row["action"] != "chat.send" or row["room_status"] != "active"):
+            return False
+        expected_account = row["account_id"] or "__guest__"
+        if (row["saved_account_id"] is not None
+                and row["saved_account_id"] != expected_account):
+            # Never persist an assistant response to a room belonging to a
+            # different authenticated ChatGPT account.
             return False
         if row["saved_chatgpt_url"] and row["saved_chatgpt_url"] != normalized:
             return False
@@ -1050,8 +1057,9 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
 
         timestamp=clock()
         c.execute("""UPDATE rooms SET chatgpt_url=?,android_state='active',
+                     chatgpt_account_id=COALESCE(chatgpt_account_id,?),
                      updated_at=? WHERE id=? AND user_id=?""",
-                  (normalized,timestamp,room_id,row["user_id"]))
+                  (normalized,expected_account,timestamp,room_id,row["user_id"]))
         c.execute("""UPDATE jobs SET status='completed',stage='assistant_reply_stable',
                      error=NULL,result_text=?,updated_at=?
                      WHERE id=? AND room_id=? AND status='running'""",
