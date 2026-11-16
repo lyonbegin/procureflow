@@ -101,6 +101,59 @@ class DualLoginTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_08_one_tap_private_url_fragment_no_manual_code(self):
+        self.assertIn("URLSearchParams(location.hash",m.LOGIN_HTML)
+        self.assertIn("history.replaceState",m.LOGIN_HTML)
+        self.assertIn("form.submit()",m.LOGIN_HTML)
+        self.assertIn("Google 공식 로그인 화면 자동 열기",m.DASH_HTML)
+        self.assertIn("async function openGoogle()",m.DASH_HTML)
+        self.assertNotIn('name="password"',m.LOGIN_HTML)
+
+    def test_09_single_use_code_can_exchange_into_http_only_session(self):
+        from http.server import ThreadingHTTPServer
+        import urllib.parse
+        server=ThreadingHTTPServer(("127.0.0.1",0),m.Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True)
+        thread.start()
+        try:
+            c=http.client.HTTPConnection("127.0.0.1",server.server_port,timeout=5)
+            payload=urllib.parse.urlencode({"code":"unit-test-private-code"})
+            c.request("POST","/grant",payload,
+                {"Content-Type":"application/x-www-form-urlencoded"})
+            r=c.getresponse();r.read()
+            self.assertEqual(r.status,303)
+            self.assertEqual(r.getheader("Location"),"/")
+            cookie=r.getheader("Set-Cookie")
+            self.assertIn("HttpOnly",cookie)
+            self.assertIn("Secure",cookie)
+            self.assertIn("SameSite=Strict",cookie)
+            c.close()
+            c=http.client.HTTPConnection("127.0.0.1",server.server_port,timeout=5)
+            c.request("POST","/grant",urllib.parse.urlencode({"code":"bad-code"}),
+                {"Content-Type":"application/x-www-form-urlencoded"})
+            r=c.getresponse();r.read()
+            self.assertEqual(r.status,403)
+            c.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_10_mobile_google_helper_rejects_unapproved_direct_post(self):
+        from http.server import ThreadingHTTPServer
+        server=ThreadingHTTPServer(("127.0.0.1",0),m.Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True)
+        thread.start()
+        try:
+            c=http.client.HTTPConnection("127.0.0.1",server.server_port,timeout=5)
+            c.request("POST","/prepare-google","{}",
+                      {"Content-Type":"application/json"})
+            r=c.getresponse();r.read()
+            self.assertEqual(r.status,403)
+            c.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_07_login_save_requires_real_session_and_good_order(self):
         m._state["active"]="a"
         m._state["a"]="waiting"
