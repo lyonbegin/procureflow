@@ -1,4 +1,5 @@
 name: ChatGPT - verify saved Google login and original Web2API
+# Re-run the real one-turn browser/ChatGPT check after account-isolated relay release.
 
 on:
   workflow_dispatch:
