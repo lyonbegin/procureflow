@@ -1017,7 +1017,7 @@ def set_room_android_state(room_id: str, state: str, android_title: str | None =
         c.execute("UPDATE rooms SET android_state=?,android_title=COALESCE(?,android_title),updated_at=? WHERE id=?",
                   (state, android_title,clock(),room_id))
 
-def fail_orphaned_running_jobs():
+def fail_orphaned_running_jobs(public_trial_only=False):
     """Fail tasks left running by an earlier server process.
 
     Our relay has a single active Android worker per process. After a server
@@ -1026,9 +1026,16 @@ def fail_orphaned_running_jobs():
     This runs once on the first Android connection in each server process.
     """
     with connection() as c:
-        rows = c.execute(
-            "SELECT id,room_id,action FROM jobs WHERE status='running'"
-        ).fetchall()
+        if public_trial_only:
+            rows = c.execute(
+                "SELECT id,room_id,action FROM jobs WHERE status='running' AND "
+                "(user_id=? OR user_id LIKE 'usr_browser_%')",
+                ("usr_public_web2api_probe_20261113",)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id,room_id,action FROM jobs WHERE status='running'"
+            ).fetchall()
         for item in rows:
             c.execute("""UPDATE jobs SET status='failed',stage='server_restarted',
                 error=?,updated_at=? WHERE id=?""",
