@@ -10,6 +10,7 @@ import hmac
 import os
 import secrets
 import time
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
@@ -36,6 +37,9 @@ MAX_FILES_PER_ROOM = 20
 MAX_PUBLIC_TESTS_PER_HOUR = 8
 MAX_GLOBAL_TESTS_PER_DAY = 100
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_USER_BYTES = 24 * 1024 * 1024
+MAX_TOTAL_PUBLIC_BYTES = 256 * 1024 * 1024
+_storage_lock = threading.RLock()
 
 def _sign(raw: str) -> str:
     return hmac.new(SESSION_KEY, raw.encode("ascii"), hashlib.sha256).hexdigest()
@@ -159,14 +163,21 @@ def rename_room(rid:str,body:RoomInput,request:Request):
 @router.delete("/rooms/{rid}")
 def delete_room(rid:str,request:Request):
     uid=_actor(request,True)
-    with api_v1.connection() as db:
-        _room(db,uid,rid)
-        in_flight=db.execute(
-            "SELECT 1 FROM jobs WHERE user_id=? AND room_id=? AND status IN ('queued','running') LIMIT 1",
-            (uid,rid)).fetchone()
-        if in_flight:raise HTTPException(409,"진행 중인 시험이 끝난 뒤 삭제할 수 있습니다.")
-        db.execute("UPDATE rooms SET status='deleted',updated_at=? WHERE user_id=? AND id=?",
-                   (api_v1.clock(),uid,rid))
+    with _storage_lock:
+        with api_v1.connection() as db:
+            _room(db,uid,rid)
+            in_flight=db.execute(
+                "SELECT 1 FROM jobs WHERE user_id=? AND room_id=? AND status IN ('queued','running') LIMIT 1",
+                (uid,rid)).fetchone()
+            if in_flight:raise HTTPException(409,"진행 중인 시험이 끝난 뒤 삭제할 수 있습니다.")
+            paths=db.execute("SELECT relative_path FROM file_objects WHERE user_id=? AND room_id=?",
+                             (uid,rid)).fetchall()
+            db.execute("DELETE FROM file_objects WHERE user_id=? AND room_id=?",(uid,rid))
+            db.execute("DELETE FROM messages WHERE user_id=? AND room_id=?",(uid,rid))
+            db.execute("DELETE FROM jobs WHERE user_id=? AND room_id=?",(uid,rid))
+            db.execute("DELETE FROM rooms WHERE user_id=? AND id=?",(uid,rid))
+        for row in paths:
+            (api_v1.FILES / row["relative_path"]).unlink(missing_ok=True)
     return {"deleted":True}
 
 @router.get("/rooms/{rid}")
@@ -193,22 +204,34 @@ def room_detail(rid:str,request:Request):
 @router.post("/rooms/{rid}/files")
 def attach_file(rid:str,request:Request,file:UploadFile=File(...)):
     uid=_actor(request,True)
-    with api_v1.connection() as db:
-        _room(db,uid,rid)
-        n=db.execute("SELECT count(*) FROM file_objects WHERE user_id=? AND room_id=?",
-                     (uid,rid)).fetchone()[0]
-    if n>=MAX_FILES_PER_ROOM:raise HTTPException(429,"방당 첨부 파일은 최대 20개입니다.")
     length=file.size
     if length is not None and length>MAX_UPLOAD_BYTES:
         raise HTTPException(413,"파일당 8MB 이하만 업로드할 수 있습니다.")
-    # Reuse the audited on-disk streaming writer; it rejects oversized files
-    # and unsupported extensions. Check actual size before returning.
-    out=api_v1._write_upload(file,uid,rid,None,"input")
-    if out["size"]>MAX_UPLOAD_BYTES:
+    requested=length if length is not None else MAX_UPLOAD_BYTES
+    # Single Railway replica: process-local lock also serializes quota checks
+    # against concurrent browser uploads and deletions.
+    with _storage_lock:
         with api_v1.connection() as db:
-            db.execute("DELETE FROM file_objects WHERE id=? AND user_id=?",(out["id"],uid))
-        (api_v1.FILES/(out["id"]+Path(out["name"]).suffix.lower())).unlink(missing_ok=True)
-        raise HTTPException(413,"파일당 8MB 이하만 업로드할 수 있습니다.")
+            _room(db,uid,rid)
+            n=db.execute("SELECT count(*) FROM file_objects WHERE user_id=? AND room_id=?",
+                         (uid,rid)).fetchone()[0]
+            user_bytes=db.execute("SELECT coalesce(sum(size),0) FROM file_objects WHERE user_id=?",
+                                  (uid,)).fetchone()[0]
+            public_bytes=db.execute("SELECT coalesce(sum(size),0) FROM file_objects "
+                                    "WHERE user_id LIKE 'usr_browser_%'").fetchone()[0]
+        if n>=MAX_FILES_PER_ROOM:
+            raise HTTPException(429,"방당 첨부 파일은 최대 20개입니다.")
+        if user_bytes + requested > MAX_USER_BYTES:
+            raise HTTPException(413,"브라우저별 파일 보관 한도는 총 24MB입니다.")
+        if public_bytes + requested > MAX_TOTAL_PUBLIC_BYTES:
+            raise HTTPException(507,"공개 시험 파일 저장 공간 한도에 도달했습니다.")
+        # Reuse the audited streaming writer. Never store unsupported files.
+        out=api_v1._write_upload(file,uid,rid,None,"input")
+        if out["size"]>MAX_UPLOAD_BYTES:
+            with api_v1.connection() as db:
+                db.execute("DELETE FROM file_objects WHERE id=? AND user_id=?",(out["id"],uid))
+            (api_v1.FILES/(out["id"]+Path(out["name"]).suffix.lower())).unlink(missing_ok=True)
+            raise HTTPException(413,"파일당 8MB 이하만 업로드할 수 있습니다.")
     return {"file":{"id":out["id"],"name":out["name"],"size":out["size"],"mime":out["mime"]},
             "sentToChatGPT":False}
 
