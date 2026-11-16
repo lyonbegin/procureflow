@@ -259,7 +259,7 @@ $("room-form").onsubmit=async e=>{
 $("toggle-files").onclick=()=>$("file-panel").classList.toggle("open");
 $("attach-button").onclick=()=>{if(!state.room)return;$("file-panel").classList.add("open");$("file-input").click()};
 $("delete-room").onclick=async()=>{
- if(!state.room||!confirm("이 방을 목록에서 삭제하시겠습니까? 파일은 서버에 보존되지만 목록에서 숨겨집니다."))return;
+ if(!state.room||!confirm("이 대화방과 그 안의 메시지·업로드 파일을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."))return;
  try{await req("/web/api/rooms/"+state.room,{method:"DELETE"});
  state.room=null;safeText($("room-title"),"채팅 시험실");$("messages").replaceChildren();
  $("messages").appendChild(el("div","welcome","대화방을 선택하거나 새로 만들어 주세요."));
