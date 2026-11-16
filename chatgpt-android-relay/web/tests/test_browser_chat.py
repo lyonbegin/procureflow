@@ -218,6 +218,86 @@ class BrowserChatTests(unittest.TestCase):
         self.assertEqual(second["text"],"이어서 두 번째 질문")
         self.assertEqual(saved["chatgpt_url"],"https://chatgpt.com/c/abcdef01-2345-6789-abcd-ef0123456789")
 
+    def test_profile_add_switch_restore_and_delete_own_rooms_files(self):
+        original=self.create(title="기본 프로필의 방")
+        profiles=self.a.get("/web/api/profiles").json()
+        self.assertEqual(len(profiles["profiles"]),1)
+        self.assertEqual(profiles["profiles"][0]["id"],"default")
+        self.assertTrue(profiles["profiles"][0]["active"])
+        self.assertFalse(profiles["chatgptAccountLinked"])
+        new=self.a.post("/web/api/profiles",json={"name":"업무 시험"},
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(new.status_code,200,new.text)
+        pid=new.json()["profile"]["id"]
+        self.assertNotEqual(pid,"default")
+        self.assertEqual(self.b.post("/web/api/profiles/"+pid+"/activate",
+            headers={"X-Web-Csrf":self.cb}).status_code,404)
+        switched=self.a.post("/web/api/profiles/"+pid+"/activate",
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(switched.status_code,200,switched.text)
+        self.assertEqual(switched.json()["profile"]["name"],"업무 시험")
+        self.assertEqual(self.a.get("/web/api/rooms").json()["rooms"],[])
+        self.assertEqual(self.a.get("/web/api/rooms/"+original).status_code,404)
+        self.assertEqual(self.a.get("/web/api/status").json()["profileName"],"업무 시험")
+        second=self.create(title="업무 방")
+        data=self.a.post("/web/api/rooms/"+second+"/files",
+            files={"file":("only-work.txt",b"work-only-test","text/plain")},
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(data.status_code,200,data.text)
+        fid=data.json()["file"]["id"]
+        restored=self.a.post("/web/api/profiles/default/activate",
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(restored.status_code,200,restored.text)
+        self.assertEqual(self.a.get("/web/api/rooms/"+original).status_code,200)
+        self.assertEqual(self.a.get("/web/api/rooms/"+second).status_code,404)
+        self.assertEqual(self.a.get("/web/api/files/"+fid).status_code,404)
+        self.assertEqual(self.b.get("/web/api/profiles").json()["profiles"][0]["name"],
+                         "기본 프로필")
+        work_again=self.a.post("/web/api/profiles/"+pid+"/activate",
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(work_again.status_code,200)
+        self.assertEqual(self.a.get("/web/api/rooms/"+second).status_code,200)
+        self.assertEqual(self.a.get("/web/api/files/"+fid).content,b"work-only-test")
+        deleted=self.a.delete("/web/api/profiles/"+pid,
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(deleted.status_code,200,deleted.text)
+        self.assertFalse(deleted.json()["chatgptAccountDeleted"])
+        self.assertEqual(self.a.get("/web/api/status").json()["profileId"],"default")
+        self.assertEqual(self.a.get("/web/api/rooms/"+second).status_code,404)
+        self.assertEqual(self.a.get("/web/api/files/"+fid).status_code,404)
+        self.assertEqual(self.a.get("/web/api/rooms/"+original).status_code,200)
+        self.assertEqual(self.a.get("/web/api/profiles").json()["profiles"][0]["id"],"default")
+
+    def test_profile_csrf_quota_default_protection_and_running_job(self):
+        from unittest.mock import patch
+        initial=self.a.get("/web/api/profiles").json()
+        self.assertEqual(initial["provider"],"HITEL_local_test_profiles")
+        self.assertEqual(self.a.post("/web/api/profiles",json={"name":"X"}).status_code,403)
+        self.assertEqual(self.a.post("/web/api/profiles",json={"name":"X"},
+            headers={"X-Web-Csrf":self.ca,"Origin":"https://evil.example"}).status_code,403)
+        self.assertEqual(self.a.delete("/web/api/profiles/default",
+            headers={"X-Web-Csrf":self.ca}).status_code,409)
+        self.assertEqual(self.a.post("/web/api/profiles",json={"name":"  "},
+            headers={"X-Web-Csrf":self.ca}).status_code,422)
+        added=self.a.post("/web/api/profiles",json={"name":"삭제 시험"},
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(added.status_code,200)
+        pid=added.json()["profile"]["id"]
+        self.assertEqual(self.a.post("/web/api/profiles",json={"name":"삭제 시험"},
+            headers={"X-Web-Csrf":self.ca}).status_code,409)
+        with patch.object(web_chat,"MAX_LOCAL_PROFILES",2):
+            self.assertEqual(self.a.post("/web/api/profiles",json={"name":"추가 불가"},
+                headers={"X-Web-Csrf":self.ca}).status_code,429)
+        self.assertEqual(self.a.post("/web/api/profiles/"+pid+"/activate").status_code,403)
+        self.assertEqual(self.a.post("/web/api/profiles/"+pid+"/activate",
+            headers={"X-Web-Csrf":self.ca}).status_code,200)
+        room=self.create(title="전송 중인 방")
+        pending=self.a.post("/web/api/rooms/"+room+"/message",
+            json={"text":"삭제 금지 시험"},headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(pending.status_code,200)
+        self.assertEqual(self.a.delete("/web/api/profiles/"+pid,
+            headers={"X-Web-Csrf":self.ca}).status_code,409)
+
     def test_private_database_users_never_appear(self):
         with api_v1.connection() as db:
             uid="usr_private_test_"+api_v1.new_id()
