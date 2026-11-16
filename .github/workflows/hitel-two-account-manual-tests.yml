@@ -33,7 +33,7 @@ jobs:
       - name: Execute seven account identity and access-control regressions
         run: |
           set -euo pipefail
-          python -m unittest .github/scripts/test_w2a_two_login_gateway.py -v
+          python -m unittest discover -s .github/scripts -p 'test_w2a_two_login_gateway.py' -v
       - name: Verify workflow and embedded remote-browser UI JavaScript
         run: |
           set -euo pipefail
