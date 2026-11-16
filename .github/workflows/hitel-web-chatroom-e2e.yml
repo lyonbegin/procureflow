@@ -38,3 +38,5 @@ jobs:
           retention-days: 2
 
 # Recheck real deployed Railway chatroom UI after Docker and /data deployment.
+
+# 2026-11-16: Recheck live deployed OAuth client prerequisite and disabled login control.
