@@ -453,6 +453,15 @@ def download(fid:str,request:Request):
 @router.post("/rooms/{rid}/test")
 async def send_preset(rid:str,body:PresetInput,request:Request):
     uid=_actor(request,True)
+    # Preset buttons cannot omit account_id and reach a different session.
+    with api_v1.connection() as db:
+        selected=db.execute(
+            "SELECT 1 FROM hitel_verified_chatgpt_accounts "
+            "WHERE browser_owner=? AND active=1 LIMIT 1",
+            (_owner_hash(_owner(request)),),
+        ).fetchone()
+    if selected:
+        raise HTTPException(409,"계정이 선택된 경우 계정 ID가 포함된 일반 채팅으로 보내십시오.")
     if body.preset not in PRESETS:raise HTTPException(422,"허용된 시험 질문이 아닙니다.")
     now=api_v1.clock()
     with api_v1.connection() as db:
@@ -537,12 +546,16 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
                 raise HTTPException(409,
                     "요청 계정이 현재 선택된 ChatGPT 계정과 다릅니다. 계정 상태를 새로 확인한 뒤 전송하십시오.")
             if real_identity:
-                # An OIDC identity alone cannot authorize the GitHub Chrome
-                # worker. Block until a real execution identity verifier exists.
-                raise HTTPException(
-                    409, "선택하신 ChatGPT 계정은 신원 인증만 완료되었습니다. "
-                         "이 계정의 Web2API 실행 세션은 아직 연결되지 않았습니다."
-                )
+                # A verified OIDC email is only a TARGET. No unverified browser
+                # profile may receive this request: the signed worker reads the
+                # actual ChatGPT session and compares it before posting text.
+                verified = db.execute(
+                    "SELECT email,issuer FROM hitel_verified_chatgpt_accounts "
+                    "WHERE id=? AND browser_owner=?",
+                    (selected_id, _owner_hash(_owner(request))),
+                ).fetchone()
+                if not verified or verified["issuer"] != "https://auth.openai.com" or not verified["email"]:
+                    raise HTTPException(409, "ChatGPT 계정 이메일이 검증되지 않았습니다.")
             jid = api_v1.store_job(db, uid, rid, "chat.send", text, [], account_id=selected_id)
             db.execute(
                 "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
