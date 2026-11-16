@@ -119,6 +119,12 @@ jobs:
           cd bridge-source/chatgpt-android-relay/web
           python -m unittest discover -s tests -p 'test_browser_chat.py' -v
           python -m py_compile web_chat.py chatgpt_accounts.py app.py api_v1.py
+          python - <<'PY'
+          from pathlib import Path
+          docker=Path("Dockerfile").read_text(encoding="utf-8")
+          assert "chatgpt_accounts.py" in docker, "Docker image missing official login module"
+          print("PASS_RAILWAY_DOCKER_INCLUDES_OFFICIAL_CHATGPT_ACCOUNT_MODULE")
+          PY
           echo PASS_WEB_CHAT_ROOM_FILE_CSRF_AND_JOB_ISOLATION
       - name: Verify public token-free test UI and private API isolation
         run: |
