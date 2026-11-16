@@ -1,0 +1,38 @@
+name: HITEL - real external free-text question and ChatGPT reply
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/hitel-free-text-e2e.yml
+      - .github/scripts/w2a_free_text_browser_e2e.py
+permissions:
+  contents: read
+jobs:
+  real-external-typed-chat:
+    name: Chromium typed prompt to real ChatGPT reply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install Playwright browser client
+        run: python3 -m pip install -q playwright==1.56.0
+      - name: Real Chrome page button click, network POST and answer verification
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: python3 .github/scripts/w2a_free_text_browser_e2e.py
+      - name: Upload browser screenshot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-free-text-browser-e2e
+          path: ${{ runner.temp }}/hitel-free-text-e2e/*.png
+          retention-days: 2
+          if-no-files-found: warn
