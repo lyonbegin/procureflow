@@ -27,6 +27,9 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 .side-foot{padding:15px;border-top:1px solid #e5e7ea;font-size:11px;color:#66758a;line-height:1.6}
 .status-dot{display:inline-block;width:8px;height:8px;background:#e0a34c;border-radius:50%;margin-right:6px}
 .status-dot.on{background:#199c6c}
+.identity-line{padding:5px 0;word-break:break-word}
+.identity-line strong{display:block;color:#3d4c61;font-size:11px}
+.identity-note{margin-top:7px;line-height:1.55;color:#758396}
 .workspace{display:flex;flex-direction:column;min-width:0;min-height:0}
 .topbar{height:67px;border-bottom:1px solid #eaecf0;display:flex;align-items:center;gap:12px;justify-content:space-between;padding:0 29px}
 .topbar-title{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -91,7 +94,11 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
   <div class="side-pad"><button class="primary" id="new-room" style="width:100%">＋ 새 대화방 만들기</button></div>
   <div class="side-section">내 대화방</div>
   <div class="rooms" id="room-list"><div class="empty-small" style="padding:12px">대화방을 불러오고 있습니다.</div></div>
-  <div class="side-foot"><div><span id="worker-dot" class="status-dot"></span><span id="worker-status">GitHub Chrome 연결 확인 중</span></div><div>현재 방문자의 방과 첨부 파일만 표시됩니다.</div></div>
+  <div class="side-foot">
+    <div class="identity-line"><strong>① 현재 HITEL 접속</strong><span id="browser-identity">브라우저 임시 세션 확인 중</span></div>
+    <div class="identity-line"><strong>② 실제 ChatGPT 실행 계정</strong><span id="worker-dot" class="status-dot"></span><span id="worker-status">GitHub Chrome 연결 확인 중</span></div>
+    <div class="identity-note" id="account-explainer">이 브라우저는 ChatGPT 계정으로 로그인한 상태가 아닙니다. GitHub Chrome의 별도 로그인 세션으로 작업하며 계정명·이메일은 공개하지 않습니다.</div>
+  </div>
 </aside>
 <div class="workspace">
   <header class="topbar">
@@ -233,8 +240,14 @@ async function loadRoomDetail(){
 async function refreshStatus(){
  try{
  const s=await req("/web/api/status");
+ // These two identities must never be presented as the same login.
+ const tag=(typeof s.browserSessionTag==="string"&&/^[0-9a-f]{8}$/.test(s.browserSessionTag))
+   ?s.browserSessionTag:"확인 불가";
+ safeText($("browser-identity"),"임시 방문자 #"+tag+" (ChatGPT 계정 로그인 아님)");
  $("worker-dot").className="status-dot"+(s.workerConnected?" on":"");
- safeText($("worker-status"),s.workerConnected?"GitHub Chrome 연결됨":"GitHub Chrome 현재 연결 대기");
+ safeText($("worker-status"),s.workerConnected?
+   "별도 GitHub Chrome 작업자 연결됨 (계정명 비공개)":
+   "별도 GitHub Chrome 현재 연결 없음 (계정명 비공개)");
  if(state.room)await loadRoomDetail();
  }catch(e){notice(e.message,"error")}
 }
