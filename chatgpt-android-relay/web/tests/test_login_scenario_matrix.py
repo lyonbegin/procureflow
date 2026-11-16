@@ -106,23 +106,32 @@ class LoginScenarioMatrix(unittest.TestCase):
         self.assertEqual(self.send("oai_some_other").status_code,409)
         self.assertEqual(self.queued(),0)
 
-    def test_05_selected_account_same_parameter_never_implies_web_login(self):
+    def test_05_selected_account_same_parameter_queues_not_delivered(self):
         a=self.fixture_account(self.a,"A",active=True)
-        for _ in range(2):
-            response=self.send(a)
-            self.assertEqual(response.status_code,409,response.text)
-            self.assertIn("Web2API",response.json()["detail"])
-        self.assertEqual(self.queued(),0)
+        response=self.send(a)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIs(response.json()["sentToChatGPT"],False)
+        self.assertEqual(self.queued(),1)
+        self.assertEqual(self.send(a).status_code,409)
 
-    def test_06_switch_a_b_a_and_fail_closed_on_each(self):
+    def test_06_switch_a_b_a_and_pin_each_job_at_queue_time(self):
         a=self.fixture_account(self.a,"A",active=True)
         b=self.fixture_account(self.a,"B",active=False)
+        actual=[]
         for aid in (a,b,a):
             self.assertEqual(self.select(aid).status_code,200)
             selected=[p["id"] for p in self.accounts() if p["active"]]
             self.assertEqual(selected,[aid])
-            self.assertEqual(self.send(aid).status_code,409)
-        self.assertEqual(self.queued(),0)
+            r=self.send(aid)
+            self.assertEqual(r.status_code,200,r.text)
+            self.assertIs(r.json()["sentToChatGPT"],False)
+            with api_v1.connection() as db:
+                item=db.execute("SELECT account_id FROM jobs WHERE id=?",
+                                (r.json()["jobId"],)).fetchone()
+                actual.append(item["account_id"])
+                db.execute("UPDATE jobs SET status='failed' WHERE id=?",
+                           (r.json()["jobId"],))
+        self.assertEqual(actual,[a,b,a])
 
     def test_07_unlink_selected_falls_back_only_to_remaining_account(self):
         a=self.fixture_account(self.a,"A",active=True)
@@ -150,7 +159,7 @@ class LoginScenarioMatrix(unittest.TestCase):
         self.assertEqual(self.select(a,client=self.b,csrf=self.csrf_b).status_code,404)
         self.assertEqual(self.b.delete("/web/api/chatgpt/accounts/"+a,
                                      headers={"X-Web-Csrf":self.csrf_b}).status_code,404)
-        self.assertEqual(self.send(a).status_code,409)
+        self.assertEqual(self.send(a).status_code,200)
         self.assertEqual(len(self.accounts()),1)
 
     def test_10_csrf_and_cross_origin_mutations_refused(self):
