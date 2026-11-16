@@ -119,6 +119,47 @@ def verify_browser_email() -> str | None:
     return None
 
 
+def prepare_google_login() -> dict:
+    """Mobile convenience: navigate/click real ChatGPT Google sign-in UI only.
+
+    Does not collect a password or touch a Google input field. Reuses active
+    CDP browser, and stops if the user already has an authenticated session.
+    """
+    import re
+    from playwright.sync_api import sync_playwright
+    with _lock:
+        slot=_state.get("active")
+        if slot not in ("a","b") or _state[slot] != "waiting":
+            return {"ok":False,"error":"ACCOUNT_SLOT_NOT_READY"}
+        try:
+            with sync_playwright() as pw:
+                browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222")
+                if not browser.contexts:
+                    return {"ok":False,"error":"CHROME_NOT_READY"}
+                context=browser.contexts[0]
+                pages=[p for p in context.pages if not p.is_closed()
+                       and p.url.startswith("https://chatgpt.com/")]
+                page=pages[0] if pages else context.new_page()
+                if pages:
+                    if read_browser_email(page):
+                        return {"ok":True,"status":"already_authenticated"}
+                page.goto("https://chatgpt.com/auth/login",
+                          wait_until="domcontentloaded",timeout=30000)
+                for label in (r"Continue with Google|Google로 계속|Google 계정으로 계속",
+                              r"^Log in$|^로그인$"):
+                    for kind in ("button","link"):
+                        item=page.get_by_role(kind,name=re.compile(label,re.I))
+                        try:
+                            if item.count() and item.first.is_visible():
+                                item.first.click(timeout=5000)
+                                return {"ok":True,"status":"provider_clicked" if "Google" in label else "login_opened"}
+                        except Exception:
+                            pass
+                return {"ok":True,"status":"login_opened"}
+        except Exception:
+            return {"ok":False,"error":"GOOGLE_LOGIN_PAGE_UNAVAILABLE"}
+
+
 def finish(slot: str) -> dict:
     """Persist only a proved session. Different slots MUST differ in email."""
     if slot not in ("a", "b"):
@@ -216,6 +257,7 @@ border-radius:12px;margin-top:12px}footer{font-size:12px;color:#55697d;padding:1
 <button id="savea" onclick="save('a')">A 로그인 확인·저장</button></section>
 <section class="step"><h2>② 계정 B</h2><p id="sb">A 완료 후 진행</p>
 <button id="saveb" onclick="save('b')" disabled>B 로그인 확인·저장</button></section></div>
+<p><button id="google-start" onclick="openGoogle()">Google 공식 로그인 화면 자동 열기</button></p>
 <p id="result" role="status">원격 브라우저를 연결하고 있습니다.</p>
 <a class="open" href="/vnc.html?autoconnect=true&resize=remote" target="_blank"
 rel="noopener noreferrer">원격 Chrome 전체 화면</a>
@@ -240,6 +282,19 @@ try{
  if(d.complete)document.getElementById('result').textContent=
  '두 계정의 실제 로그인을 확인했습니다. 암호화된 Chrome 프로필을 GitHub에 보관합니다.';
 }catch(e){document.getElementById('result').textContent=e.message}
+}
+async function openGoogle(){
+ if(busy)return;
+ const status=document.getElementById('result');
+ status.textContent='원격 Chrome에서 공식 Google 로그인을 준비하고 있습니다.';
+ try{
+  const r=await fetch('/prepare-google',{method:'POST',credentials:'same-origin'});
+  const d=await r.json();
+  if(!r.ok||!d.ok)throw Error(d.error||'공식 로그인 화면을 열지 못했습니다');
+  status.textContent=d.status==='already_authenticated'?
+    '현재 원격 Chrome에 ChatGPT 로그인이 확인됩니다. 해당 계정 저장 버튼을 누르십시오.':
+    '원격 Chrome에서 Google/ChatGPT 로그인 화면을 확인하시고 직접 로그인해 주십시오.';
+ }catch(e){status.textContent=e.message}
 }
 async function save(slot){
  busy=true;document.getElementById('savea').disabled=true;
@@ -351,8 +406,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ("Location","/"),
             ))
             return
-        if path!="/finish" or not self._cookie_ok() or not self._origin_ok():
+        if path not in ("/finish","/prepare-google") or not self._cookie_ok() or not self._origin_ok():
             self._json(403,{"ok":False,"error":"UNAUTHORIZED"})
+            return
+        if path == "/prepare-google":
+            result=prepare_google_login()
+            self._json(200 if result["ok"] else 409,result)
             return
         try:
             slot=json.loads(raw).get("slot")
