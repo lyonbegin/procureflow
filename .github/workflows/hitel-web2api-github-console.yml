@@ -14,6 +14,7 @@ on:
   push:
     paths:
       - .github/workflows/hitel-web2api-github-console.yml
+      - docs/HITEL_WEB2API_RUN_NOW.md
 
 permissions:
   contents: read
@@ -65,7 +66,10 @@ jobs:
           PY
 
   real-chat:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'real_chat'
+    # Assistant-initiated commit to the dedicated request file executes both jobs.
+    # No manual 'Run workflow' click required. The commit marker is deliberately
+    # distinct from ordinary documentation or workflow edits.
+    if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'real_chat') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[HITEL_WEB2API_RUN_NOW]'))
     name: ChatGPT 실제 질문과 답변 수신
     permissions:
       contents: read
