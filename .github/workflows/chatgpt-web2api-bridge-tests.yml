@@ -92,6 +92,12 @@ jobs:
           assert 'HITEL 브라우저 시험 프로필' in html
           assert 'data-oai-siwc-button' not in html or '/web/api/chatgpt/login' in html
           print("PASS_REAL_CHATGPT_OIDC_ACCOUNT_PICKER_NO_FAKE_LINKS")
+          assert 'id="chatgpt-accounts-trigger"' in html
+          assert 'id="chatgpt-official-login"' in html
+          assert 'id="chatgpt-app-approval-note"' in html
+          assert 'https://developers.openai.com/siwc/request-client-id' in html
+          assert 'GitHub Chrome 실행 미연결' in html
+          print("PASS_REAL_CHATGPT_ACCOUNT_LOGIN_STATE_NOT_CONFUSED_WITH_BROWSER_WORKER")
           assert '/web/api/profiles' in html
           assert '계정 추가' in html
           assert '전환' in html
