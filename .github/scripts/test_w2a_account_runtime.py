@@ -4,7 +4,7 @@ import unittest
 
 from w2a_account_runtime import (
     AccountGateError, canonical_email, ensure_requested_account,
-    extract_verified_email,
+    extract_verified_email, confirmed_signed_out,
 )
 
 
@@ -89,6 +89,15 @@ class ChromeLoginCases(unittest.TestCase):
             self.assertIsNone(extract_verified_email(x))
         self.assertEqual(extract_verified_email({"status":200,"authenticated":True,
              "email":"A@Example.com"}),"a@example.com")
+
+    def test_network_failure_never_counts_as_chatgpt_logout(self):
+        for state in ({}, {"status":0,"authenticated":False,"email":None},
+                      {"status":500,"authenticated":False,"email":None},
+                      {"status":200,"authenticated":True,"email":"a@example.com"}):
+            self.assertFalse(confirmed_signed_out(state))
+        for state in ({"status":200,"authenticated":False,"email":None},
+                      {"status":401,"authenticated":False,"email":None}):
+            self.assertTrue(confirmed_signed_out(state))
 
     def test_reject_malformed_email_and_unknown_identity(self):
         for x in ("",None,"no-email","a@bad space.example","x"*255):
