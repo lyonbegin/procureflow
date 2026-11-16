@@ -94,6 +94,8 @@ def _real_logout(page) -> None:
     if not opened:
         raise AccountGateError("ACCOUNT_LOGOUT_UI_UNAVAILABLE")
 
+    # ChatGPT animates its profile menu; wait for the contents to mount.
+    page.wait_for_timeout(1200)
     actions = [
         page.get_by_role("menuitem", name=re.compile(r"Log out|Sign out|로그아웃", re.I)),
         page.get_by_role("button", name=re.compile(r"^Log out$|^Sign out$|^로그아웃$", re.I)),
