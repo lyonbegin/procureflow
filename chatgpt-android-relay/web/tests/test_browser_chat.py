@@ -133,6 +133,70 @@ class BrowserChatTests(unittest.TestCase):
                            headers={"X-Web-Csrf":self.ca})
         self.assertEqual(repeat.status_code,409)
 
+    def test_free_text_typed_question_accepted_and_isolated(self):
+        room=self.create(title="Free text external test")
+        prompt="외부 웹페이지에서 직접 입력한 질문입니다. 간단히 인사해 주세요."
+        r=self.a.post("/web/api/rooms/"+room+"/message",
+                      json={"text":prompt},headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(r.status_code,200,r.text)
+        self.assertTrue(r.json()["queued"])
+        self.assertFalse(r.json()["sentToChatGPT"])
+        with api_v1.connection() as db:
+            job=db.execute("SELECT * FROM jobs WHERE id=?",(r.json()["jobId"],)).fetchone()
+        self.assertEqual(job["text"],prompt)
+        self.assertEqual(job["status"],"queued")
+        self.assertEqual(job["room_id"],room)
+        info=self.a.get("/web/api/rooms/"+room).json()
+        self.assertEqual(info["messages"][0]["text"],prompt)
+        self.assertEqual(self.b.get("/web/api/rooms/"+room).status_code,404)
+        self.assertEqual(self.b.post("/web/api/rooms/"+room+"/message",
+            json={"text":"다른 방에 질문"},headers={"X-Web-Csrf":self.cb}).status_code,404)
+        self.assertTrue(self.a.get("/web/api/status").json()["freeTextSendSupported"])
+        self.assertFalse(self.a.get("/web/api/status").json()["fileToChatGPTSupported"])
+
+    def test_free_text_input_validation_and_csrf(self):
+        room=self.create()
+        url="/web/api/rooms/"+room+"/message"
+        self.assertEqual(self.a.post(url,json={"text":"hi"}).status_code,403)
+        self.assertEqual(self.a.post(url,json={"text":"hi"},
+            headers={"X-Web-Csrf":self.ca,"Origin":"https://attacker.example"}).status_code,403)
+        for text_ in ("", "  ", "x"*2001, "abc\\x00def"):
+            r=self.a.post(url,json={"text":text_},
+                          headers={"X-Web-Csrf":self.ca})
+            self.assertEqual(r.status_code,422,r.text)
+
+    def test_free_text_global_and_browser_rate_limits(self):
+        from unittest.mock import patch
+        room=self.create()
+        with patch.object(web_chat,"MAX_FREE_TEXT_PER_HOUR",1):
+            first=self.a.post("/web/api/rooms/"+room+"/message",
+                json={"text":"첫 질문"},headers={"X-Web-Csrf":self.ca})
+            self.assertEqual(first.status_code,200,first.text)
+            room2=self.create(title="두 번째 방")
+            second=self.a.post("/web/api/rooms/"+room2+"/message",
+                json={"text":"두 번째 질문"},headers={"X-Web-Csrf":self.ca})
+            self.assertEqual(second.status_code,429,second.text)
+
+    def test_free_text_can_continue_verified_room_without_changing_target(self):
+        room=self.create()
+        first=self.a.post("/web/api/rooms/"+room+"/message",
+            json={"text":"첫 질문"},headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(first.status_code,200,first.text)
+        with api_v1.connection() as db:
+            db.execute("UPDATE rooms SET chatgpt_url=? WHERE id=?",
+                       ("https://chatgpt.com/c/abcdef01-2345-6789-abcd-ef0123456789",room))
+            db.execute("UPDATE jobs SET status='completed',stage='assistant_reply_stable' WHERE id=?",
+                       (first.json()["jobId"],))
+        follow=self.a.post("/web/api/rooms/"+room+"/message",
+            json={"text":"이어서 두 번째 질문"},headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(follow.status_code,200,follow.text)
+        with api_v1.connection() as db:
+            second=db.execute("SELECT * FROM jobs WHERE id=?",
+                              (follow.json()["jobId"],)).fetchone()
+            saved=db.execute("SELECT chatgpt_url FROM rooms WHERE id=?",(room,)).fetchone()
+        self.assertEqual(second["text"],"이어서 두 번째 질문")
+        self.assertEqual(saved["chatgpt_url"],"https://chatgpt.com/c/abcdef01-2345-6789-abcd-ef0123456789")
+
     def test_private_database_users_never_appear(self):
         with api_v1.connection() as db:
             uid="usr_private_test_"+api_v1.new_id()
