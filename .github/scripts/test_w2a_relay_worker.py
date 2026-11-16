@@ -89,6 +89,60 @@ class WorkerTests(unittest.TestCase):
                 asyncio.run(worker.process_job(job,account_preflight=deny))
         sender.assert_not_called()
 
+    def test_dual_saved_account_b_routes_only_to_second_web2api(self):
+        from w2a_account_runtime import AccountGateError
+        job=dict(JOB,account_id="oai_B",account_email="beta@example.invalid")
+        verified=[]
+        async def preflight(item,email):
+            verified.append((item["id"],email))
+        with patch.dict(os.environ,{"W2A_DUAL_PROFILES":"1"}), \
+             patch.object(worker,"find_verified_cdp_port",return_value=9223) as find, \
+             patch.object(worker,"verify_same_session",return_value=True) as identity, \
+             patch.object(worker,"actual_chrome_account") as never_logout, \
+             patch.object(worker,"post_chat") as never_send_a, \
+             patch.object(worker,"post_chat_uri",return_value=("B answer",CID)) as send_b:
+            result=asyncio.run(worker.process_job(job,account_preflight=preflight))
+        find.assert_called_once_with("beta@example.invalid")
+        self.assertEqual(identity.call_count,2)
+        never_logout.assert_not_called()
+        never_send_a.assert_not_called()
+        send_b.assert_called_once_with("Please answer",None,worker.CHAT_API_B)
+        self.assertEqual(verified,[(job["id"],"beta@example.invalid")])
+        self.assertEqual(result["result_text"],"B answer")
+
+    def test_dual_saved_account_a_never_logs_out_to_switch(self):
+        job=dict(JOB,account_id="oai_A",account_email="alpha@example.invalid")
+        async def preflight(item,email):
+            self.assertEqual(email,"alpha@example.invalid")
+        with patch.dict(os.environ,{"W2A_DUAL_PROFILES":"1"}), \
+             patch.object(worker,"find_verified_cdp_port",return_value=9222), \
+             patch.object(worker,"verify_same_session",return_value=True), \
+             patch.object(worker,"actual_chrome_account") as never_logout, \
+             patch.object(worker,"post_chat_uri") as never_send_b, \
+             patch.object(worker,"post_chat",return_value=("A answer",CID)) as send_a:
+            result=asyncio.run(worker.process_job(job,account_preflight=preflight))
+        never_logout.assert_not_called()
+        never_send_b.assert_not_called()
+        send_a.assert_called_once_with("Please answer",None)
+        self.assertEqual(result["result_text"],"A answer")
+
+    def test_dual_account_not_found_never_sends(self):
+        from w2a_account_runtime import AccountGateError
+        job=dict(JOB,account_id="oai_B",account_email="beta@example.invalid")
+        with patch.dict(os.environ,{"W2A_DUAL_PROFILES":"1"}), \
+             patch.object(worker,"find_verified_cdp_port",
+                 side_effect=AccountGateError("ACCOUNT_INTERACTIVE_LOGIN_REQUIRED")), \
+             patch.object(worker,"post_chat") as send_a, \
+             patch.object(worker,"post_chat_uri") as send_b:
+            with self.assertRaisesRegex(AccountGateError,"ACCOUNT_INTERACTIVE_LOGIN_REQUIRED"):
+                asyncio.run(worker.process_job(job))
+        send_a.assert_not_called()
+        send_b.assert_not_called()
+
+    def test_second_chat_api_never_accepts_injected_remote_endpoint(self):
+        with self.assertRaisesRegex(ValueError,"REFUSE_UNTRUSTED_CHAT_API"):
+            worker.post_chat_uri("test",None,"https://attacker.example/collect")
+
     def test_wrong_chrome_identity_stops_before_post(self):
         from w2a_account_runtime import AccountGateError
         job=dict(JOB,account_id="oai_B",account_email="b@example.com")
