@@ -389,7 +389,7 @@ async def socket(ws: WebSocket):
                             # assistant message or room state can be recorded.
                             with api_v1.connection() as c:
                                 assigned = c.execute(
-                                    "SELECT room_id,action FROM jobs WHERE id=? AND status='running'",
+                                    "SELECT room_id,action,account_id FROM jobs WHERE id=? AND status='running'",
                                     (jid,),
                                 ).fetchone()
                             assigned_room = assigned["room_id"] if assigned else None
@@ -398,6 +398,14 @@ async def socket(ws: WebSocket):
                             identity_ok = bool(
                                 assigned_room and isinstance(reported_room, str)
                                 and reported_room == assigned_room
+                            )
+                            # An account-bound job must never be accepted under
+                            # a different Chrome login, even if a worker reports
+                            # a valid room and response. No credentials are sent.
+                            account_bound = bool(assigned and assigned["account_id"])
+                            account_mismatch = bool(
+                                role == "web2api" and account_bound and
+                                msg.get("execution_account_id") != assigned["account_id"]
                             )
                             claimed_success = kind == "job.result" and msg.get("verified") is True
                             reported_stage = str(msg.get("stage", ""))[:100]
@@ -413,16 +421,19 @@ async def socket(ws: WebSocket):
                             )
                             # Do not mutate a room until verified result and
                             # conversation URL are committed together.
-                            good = claimed_success and identity_ok and proof_ok
+                            good = claimed_success and identity_ok and proof_ok and not account_mismatch
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
                             wrong_browser_chat = False
                             stage = ("ROOM_ID_MISMATCH" if mismatch else
+                                     "ACCOUNT_ID_MISMATCH" if account_mismatch else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
                                      "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
                                      reported_stage or ("completed" if good else "failed"))
                             reason = ("Worker completion room_id did not match the assigned job room"
                                       if mismatch else
+                                      "Chrome execution account differs from request account"
+                                      if account_mismatch else
                                       "Worker completion did not provide action-specific verification"
                                       if invalid_proof else
                                       "Web2API conversation did not match its assigned room"
