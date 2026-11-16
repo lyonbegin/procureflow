@@ -496,8 +496,13 @@ $("send").onclick=async()=>{
  if(question.length>2000)return notice("질문은 최대 2,000자까지 입력할 수 있습니다.","error");
  state.busy=true;$("send").disabled=true;
  try{
+   // Resolve the active account for EVERY turn. The server rechecks this
+   // value atomically at enqueue time, preventing stale-tab misrouting.
+   await refreshChatGPTAccounts();
+   const activeAccount=(state.chatgpt.accounts||[]).find(a=>a.active)||null;
+   const accountId=activeAccount?activeAccount.id:null;
    const d=await req("/web/api/rooms/"+encodeURIComponent(state.room)+"/message",
-                     {method:"POST",body:JSON.stringify({text:question})});
+                     {method:"POST",body:JSON.stringify({text:question,account_id:accountId})});
    $("draft").value="";$("preset").value="";
    notice(d.workerConnected?
      "실제 ChatGPT에 질문을 전송하고 있습니다. 답변을 확인해 주십시오.":
