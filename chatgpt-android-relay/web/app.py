@@ -421,12 +421,20 @@ async def socket(ws: WebSocket):
                             )
                             # Do not mutate a room until verified result and
                             # conversation URL are committed together.
-                            good = claimed_success and identity_ok and proof_ok and not account_mismatch
+                            # Signed GitHub runner identity is NOT evidence that
+                            # the Chrome profile belongs to the selected ChatGPT
+                            # account. Even a worker that echoes the correct ID
+                            # must fail until independent session attestation is
+                            # implemented. Never accept an invented account match.
+                            account_not_verified = bool(role == "web2api" and account_bound)
+                            good = (claimed_success and identity_ok and proof_ok
+                                    and not account_mismatch and not account_not_verified)
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
                             wrong_browser_chat = False
                             stage = ("ROOM_ID_MISMATCH" if mismatch else
                                      "ACCOUNT_ID_MISMATCH" if account_mismatch else
+                                     "ACCOUNT_EXECUTION_NOT_VERIFIED" if account_not_verified else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
                                      "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
                                      reported_stage or ("completed" if good else "failed"))
@@ -434,6 +442,8 @@ async def socket(ws: WebSocket):
                                       if mismatch else
                                       "Chrome execution account differs from request account"
                                       if account_mismatch else
+                                      "Worker account ID claim is not independent ChatGPT session proof"
+                                      if account_not_verified else
                                       "Worker completion did not provide action-specific verification"
                                       if invalid_proof else
                                       "Web2API conversation did not match its assigned room"
