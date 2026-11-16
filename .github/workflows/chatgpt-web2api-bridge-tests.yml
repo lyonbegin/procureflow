@@ -126,3 +126,5 @@ jobs:
           cd bridge-source/chatgpt-android-relay/web
           python tests/test_api_v1.py
           echo PASS_RELAY_ORIGINAL_API_REGRESSIONS
+
+# Validate guest-file total quota and hard deletion while preserving private rooms.
