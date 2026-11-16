@@ -161,7 +161,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
   <p>Google로 가입하신 계정도 <strong>공식 OpenAI 인증</strong>을 완료해야 이 목록에 표시됩니다. 기존 ChatGPT 앱의 계정 목록이 HITEL에 자동 복사되지는 않습니다.</p>
   <div id="chatgpt-connection-status" class="oauth-connection-note" role="status">인증 상태를 확인하고 있습니다.</div>
   <div id="chatgpt-account-list" class="profile-list"></div>
-  <button id="chatgpt-official-login" type="button" class="primary" disabled>ChatGPT 계정으로 로그인 · 계정 추가</button>
+  <button id="chatgpt-official-login" type="button" class="primary" disabled>공식 OpenAI 인증 미설정 · 계정 연결 불가</button>
   <p class="oauth-connection-note" id="chatgpt-app-approval-note">
     HITEL의 공식 로그인은 OpenAI에서 발급하는 웹사이트용 OAuth 클라이언트가 필요합니다.
     <a href="https://developers.openai.com/siwc/request-client-id" target="_blank" rel="noopener noreferrer">공식 클라이언트 등록 안내</a>
@@ -323,9 +323,9 @@ async function refreshChatGPTAccounts(){
  const accounts=data.accounts||[];
  const active=accounts.find(a=>a.active)||accounts[0];
  safeText($("chatgpt-accounts-trigger"),active?
-   "ChatGPT 신원: "+(active.email||active.name)+" (실행 미연결)":"ChatGPT 로그인 안 됨");
+   "공식 신원 확인: "+(active.email||active.name)+" (실제 Chrome 로그인 별도)":"ChatGPT 로그인 안 됨");
  safeText($("chatgpt-connection-status"),accounts.length?
-   "공식 OpenAI 신원 인증된 계정 "+accounts.length+"개. 현재 Web2API 실행 계정과는 아직 연결되지 않았습니다.":
+   "OpenAI 신원 인증 기록 "+accounts.length+"개. 이것만으로 Google 로그인 또는 Chrome 계정 전환이 완료되지 않습니다.":
    "ChatGPT 로그인 안 됨 — 이 HITEL 브라우저에 인증된 ChatGPT 계정이 없습니다.");
  const list=$("chatgpt-account-list");list.replaceChildren();
  for(const a of accounts){
@@ -335,10 +335,10 @@ async function refreshChatGPTAccounts(){
    details.appendChild(el("span","",a.email||"OpenAI가 확인한 신원 (이메일 비공개)"));
    row.appendChild(details);
    row.appendChild(el("span","profile-active",
-      a.canRunWeb2APIAsThisAccount?"실행 인증 완료":"GitHub Chrome 실행 미연결"));
-   if(a.active)row.appendChild(el("span","profile-active","신원 선택됨"));
+      a.canRunWeb2APIAsThisAccount?"Chrome 실행 계정 검증 완료":"Chrome 실제 로그인 확인 필요"));
+   if(a.active)row.appendChild(el("span","profile-active","대상 선택됨 · 로그인 아님"));
    else{
-     const choose=el("button","small-button","선택");
+     const choose=el("button","small-button","대상 선택 (로그인 아님)");
      choose.type="button";
      choose.onclick=async()=>{
        try{
@@ -368,7 +368,7 @@ async function refreshChatGPTAccounts(){
  }
  $("chatgpt-official-login").disabled=!data.oauthAvailable;
  safeText($("chatgpt-official-login"),data.oauthAvailable?
-   "ChatGPT 계정으로 로그인 · 계정 추가":"ChatGPT 로그인 설정 대기 중");
+   "OpenAI 공식 인증으로 연결":"공식 로그인 미설정 · 계정 추가 불가");
  safeText($("chatgpt-account-error"),data.oauthAvailable?"":data.message);
 }
 $("chatgpt-accounts-trigger").onclick=async()=>{
