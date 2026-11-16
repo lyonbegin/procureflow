@@ -298,6 +298,98 @@ class BrowserChatTests(unittest.TestCase):
         self.assertEqual(self.a.delete("/web/api/profiles/"+pid,
             headers={"X-Web-Csrf":self.ca}).status_code,409)
 
+    def test_real_chatgpt_account_list_starts_signed_out_not_local_profile(self):
+        import chatgpt_accounts
+        a=self.a.get("/web/api/chatgpt/accounts")
+        self.assertEqual(a.status_code,200,a.text)
+        self.assertEqual(a.json()["accounts"],[])
+        self.assertFalse(a.json()["connected"])
+        self.assertFalse(a.json()["oauthAvailable"])
+        self.assertFalse(a.json()["executionAccountBound"])
+        self.assertTrue(a.json()["officialLoginRequired"])
+        self.assertEqual(self.a.get("/web/api/chatgpt/login").status_code,503)
+        self.assertEqual(self.a.get("/web/api/chatgpt/callback").status_code,403)
+        self.assertEqual(self.b.get("/web/api/chatgpt/accounts").json()["accounts"],[])
+
+    def test_actual_chatgpt_identity_records_never_fake_or_cross_browser(self):
+        import chatgpt_accounts
+        self.a.get("/web/api/bootstrap")
+        # Client cookie is sent by the actual browser client in the next API request;
+        # use the cookie to derive the same app owner.
+        cookie=self.a.cookies.get(web_chat.COOKIE)
+        raw=web_chat._unpack(cookie)
+        owner=web_chat._owner_hash(raw)
+        with api_v1.connection() as db:
+            db.execute(
+                "INSERT INTO hitel_verified_chatgpt_accounts "
+                "(id,browser_owner,issuer,client_id,subject,email,display_name,active,verified_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                ("oai_verified_e2e",owner,chatgpt_accounts.ISSUER,
+                 "oaiapp_test","real-sub-from-validated-token","verified@example.org",
+                 "검증된 ChatGPT 계정",0,api_v1.clock())
+            )
+        listed=self.a.get("/web/api/chatgpt/accounts")
+        self.assertEqual(listed.status_code,200)
+        self.assertEqual(len(listed.json()["accounts"]),1)
+        self.assertTrue(listed.json()["accounts"][0]["identityVerified"])
+        self.assertFalse(listed.json()["accounts"][0]["canRunWeb2APIAsThisAccount"])
+        self.assertEqual(self.b.get("/web/api/chatgpt/accounts").json()["accounts"],[])
+        self.assertEqual(self.b.post("/web/api/chatgpt/accounts/oai_verified_e2e/select",
+            headers={"X-Web-Csrf":self.cb}).status_code,404)
+        self.assertEqual(self.a.post("/web/api/chatgpt/accounts/oai_verified_e2e/select").status_code,403)
+        selected=self.a.post("/web/api/chatgpt/accounts/oai_verified_e2e/select",
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(selected.status_code,200,selected.text)
+        self.assertFalse(selected.json()["canRunWeb2APIAsThisAccount"])
+        room=self.create(title="실제 ChatGPT 신원 격리")
+        refused=self.a.post("/web/api/rooms/"+room+"/message",
+            json={"text":"공유 계정으로 보내지 마세요"},headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(refused.status_code,409,refused.text)
+        with api_v1.connection() as db:
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM jobs WHERE room_id=?",(room,)
+            ).fetchone()[0],0)
+        self.assertEqual(self.a.delete("/web/api/chatgpt/accounts/oai_verified_e2e").status_code,403)
+        removed=self.a.delete("/web/api/chatgpt/accounts/oai_verified_e2e",
+            headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(removed.status_code,200)
+        self.assertFalse(removed.json()["chatgptAccountDeleted"])
+        self.assertEqual(self.a.get("/web/api/chatgpt/accounts").json()["accounts"],[])
+        self.assertEqual(self.a.get("/web/api/rooms/"+room).status_code,200)
+
+    def test_chatgpt_oauth_uses_state_pkce_and_one_time_flow_cookie(self):
+        from unittest.mock import patch, AsyncMock
+        from urllib.parse import urlsplit,parse_qs
+        import chatgpt_accounts
+        dummy={"issuer":chatgpt_accounts.ISSUER,
+               "authorization_endpoint":"https://auth.openai.com/api/accounts/authorize",
+               "token_endpoint":"https://auth.openai.com/api/accounts/oauth/token",
+               "jwks_uri":"https://auth.openai.com/.well-known/jwks.json"}
+        with patch.object(chatgpt_accounts,"CLIENT_ID","oaiapp_test_client"), \
+             patch.object(chatgpt_accounts,"REDIRECT_URI",chatgpt_accounts.PROD_CALLBACK), \
+             patch.object(chatgpt_accounts,"_oidc",new_callable=AsyncMock,return_value=dummy):
+            result=self.a.get("/web/api/chatgpt/login",follow_redirects=False)
+            self.assertEqual(result.status_code,302,result.text)
+            u=urlsplit(result.headers["location"])
+            self.assertEqual(u.hostname,"auth.openai.com")
+            q=parse_qs(u.query)
+            self.assertEqual(q["scope"],["openid profile email"])
+            self.assertEqual(q["code_challenge_method"],["S256"])
+            self.assertEqual(q["redirect_uri"],[chatgpt_accounts.PROD_CALLBACK])
+            self.assertEqual(q["response_type"],["code"])
+            self.assertTrue(q["state"][0])
+            self.assertTrue(q["nonce"][0])
+            self.assertTrue(self.a.cookies.get(chatgpt_accounts.FLOW_COOKIE))
+            # A cancelled provider authorization never marks any account linked.
+            cancelled=self.a.get("/web/api/chatgpt/callback",
+                params={"state":q["state"][0],"error":"access_denied"},
+                follow_redirects=False)
+            self.assertEqual(cancelled.status_code,303,cancelled.text)
+            self.assertFalse(self.a.get("/web/api/chatgpt/accounts").json()["connected"])
+            self.assertEqual(self.a.get("/web/api/chatgpt/callback",
+                params={"state":q["state"][0],"error":"access_denied"},
+                follow_redirects=False).status_code,403)
+
     def test_private_database_users_never_appear(self):
         with api_v1.connection() as db:
             uid="usr_private_test_"+api_v1.new_id()
