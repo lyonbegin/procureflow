@@ -6,6 +6,7 @@ on:
       - test/chatgpt-login-scenario-matrix-20261116
       - fix/hitel-live-account-relay-20261116
       - fix/hitel-account-isolation-preflight-20261116
+      - feature/hitel-two-login-landing-20261117
     paths:
       - 'chatgpt-android-relay/web/**'
       - '.github/workflows/verify-chatgpt-account-routing.yml'
@@ -41,6 +42,19 @@ jobs:
           print("PASS_ACCOUNT_SPECIFIC_ROOM_BROWSER_STRUCTURE")
           PY
           node --check /tmp/hitel-account-switch.js
+      - name: Verify protected real Google/ChatGPT login landing
+        run: |
+          python chatgpt-android-relay/web/tests/test_remote_login_landing.py
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path("chatgpt-android-relay/web/static/remote_login.html").read_text()
+          js=re.search(r"<script>(.*?)</script>",text,re.S)
+          assert js
+          Path("/tmp/hitel-two-landing.js").write_text(js.group(1))
+          print("PASS_REMOTE_LOGIN_LANDING_SAFE_URL_HANDLING")
+          PY
+          node --check /tmp/hitel-two-landing.js
       - name: Verify account binding and wrong-worker rejection
         run: python chatgpt-android-relay/web/tests/test_account_request_routing.py
       - name: Exercise 15 account lifecycle scenarios
