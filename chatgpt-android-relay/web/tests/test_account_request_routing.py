@@ -34,6 +34,11 @@ class AccountRoutingTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.room = response.json()["room"]["id"]
+        # Previous test cases may leave an anonymous queued fixture;
+        # keep the shared in-process worker from claiming the wrong test job.
+        with api_v1.connection() as db:
+            db.execute("UPDATE jobs SET status='failed', stage='test_reset' "
+                       "WHERE status IN ('queued','running')")
         app.web2api_device = None
         app.active_job_id = None
         app.active_job_transport = None
