@@ -311,7 +311,8 @@ async function selectChatGPTAccountRoom(accountId){
    // A newly selected ChatGPT account must get its OWN conversation room.
    // Never repurpose a previous account's existing ChatGPT conversation.
    const d=await req("/web/api/rooms",{method:"POST",
-     body:JSON.stringify({title:accountId?"ChatGPT 계정 대화":"기본 시험 대화"})});
+     body:JSON.stringify({title:accountId?"ChatGPT 계정 대화":"기본 시험 대화",
+                           account_id:accountId})});
    await selectRoom(d.room.id);
  }
  notice("선택하신 계정 전용 대화방으로 이동했습니다.","success");
