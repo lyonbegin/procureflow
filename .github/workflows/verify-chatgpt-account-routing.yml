@@ -6,6 +6,7 @@ on:
       - test/chatgpt-login-scenario-matrix-20261116
       - fix/hitel-live-account-relay-20261116
       - fix/hitel-account-isolation-preflight-20261116
+      - fix/hitel-identity-login-truthful-ui-20261116
     paths:
       - 'chatgpt-android-relay/web/**'
       - '.github/workflows/verify-chatgpt-account-routing.yml'
@@ -41,6 +42,22 @@ jobs:
           print("PASS_ACCOUNT_SPECIFIC_ROOM_BROWSER_STRUCTURE")
           PY
           node --check /tmp/hitel-account-switch.js
+      - name: Assert account UI cannot pretend selection is login
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path("chatgpt-android-relay/web/static/chat.html").read_text(encoding="utf-8")
+          assert "공식 로그인 미설정 · 계정 추가 불가" in h
+          assert "대상 선택 (로그인 아님)" in h
+          assert "대상 선택됨 · 로그인 아님" in h
+          assert "실제 Chrome 로그인 별도" in h
+          assert 'disabled=!data.oauthAvailable' in h
+          account=Path("chatgpt-android-relay/web/chatgpt_accounts.py").read_text(encoding="utf-8")
+          assert 'raise HTTPException(503' in account
+          assert 'response.json().get("id_token")' in account
+          assert 'jwt.decode(token,' in account
+          print("PASS_NO_EMAIL_ONLY_OR_FAKE_CHATGPT_ACCOUNT_LOGIN")
+          PY
       - name: Verify account binding and wrong-worker rejection
         run: python chatgpt-android-relay/web/tests/test_account_request_routing.py
       - name: Exercise 15 account lifecycle scenarios
