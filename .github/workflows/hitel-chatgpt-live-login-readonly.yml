@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - .github/workflows/hitel-chatgpt-live-login-readonly.yml
+      - .github/scripts/w2a_verify_account_identity.py
+      - .github/scripts/w2a_account_runtime.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -69,3 +71,7 @@ jobs:
         run: |
           python .github/scripts/w2a_verify_session.py
           echo PASS_REAL_CHATGPT_SESSION_AUTH_READONLY
+      - name: Verify selected Chrome identity is real without changing session
+        env:
+          DISPLAY: :99
+        run: python .github/scripts/w2a_verify_account_identity.py
