@@ -26,11 +26,13 @@ from typing import Any
 import websockets
 
 from w2a_account_runtime import (AccountGateError, actual_chrome_account,
-                                 canonical_email, verify_same_session)
+                                 canonical_email, verify_same_session,
+                                 find_verified_cdp_port)
 
 AUDIENCE = "urn:lyonbegin:procureflow:chatgpt-relay:device"
 RELAY_HOST = "chatgpt-relay-web-production.up.railway.app"
 CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
+CHAT_API_B = "http://127.0.0.1:18081/v1/chat/completions"
 CONVERSATION_ID = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MAX_TEXT = 24000
 
@@ -85,7 +87,9 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
     return answer, cid
 
 
-def post_chat(text: str, cid: str | None) -> tuple[str, str]:
+def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
+    if api_url not in (CHAT_API,CHAT_API_B):
+        raise ValueError("REFUSE_UNTRUSTED_CHAT_API")
     body: dict[str, Any] = {
         "model": "auto",
         "stream": False,
@@ -95,7 +99,7 @@ def post_chat(text: str, cid: str | None) -> tuple[str, str]:
         body["conversation_id"] = cid
     raw = json.dumps(body).encode("utf-8")
     request = urllib.request.Request(
-        CHAT_API, data=raw, method="POST",
+        api_url, data=raw, method="POST",
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=138) as response:
@@ -103,6 +107,10 @@ def post_chat(text: str, cid: str | None) -> tuple[str, str]:
             raise RuntimeError("WEB2API_HTTP_NOT_200")
         data = json.load(response)
     return parse_web2api_response(data, cid)
+
+
+def post_chat(text: str, cid: str | None) -> tuple[str,str]:
+    return post_chat_uri(text,cid,CHAT_API)
 
 
 async def process_job(job: dict[str, Any], account_preflight=None) -> dict[str, Any]:
@@ -131,20 +139,38 @@ async def process_job(job: dict[str, Any], account_preflight=None) -> dict[str, 
     if not isinstance(content, str) or not content.strip() or len(content) > MAX_TEXT:
         raise ValueError("INVALID_CHAT_TEXT")
     target = extract_conversation_id(job)
+    route_port = 9222
     if expected_email is not None:
-        # Inspect real ChatGPT HTTPS session before any message bytes are sent.
-        await asyncio.to_thread(actual_chrome_account, expected_email)
-        if not await asyncio.to_thread(verify_same_session, expected_email):
-            raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+        if os.environ.get("W2A_DUAL_PROFILES") == "1":
+            # Never sign out A in an attempt to send B. Choose only a Chrome
+            # profile that ALREADY has the correct live ChatGPT identity.
+            route_port = await asyncio.to_thread(find_verified_cdp_port, expected_email)
+            if not await asyncio.to_thread(
+                    verify_same_session, expected_email, cdp_port=route_port):
+                raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+        else:
+            # Legacy single authenticated Chrome installation remains supported.
+            await asyncio.to_thread(actual_chrome_account, expected_email)
+            if not await asyncio.to_thread(verify_same_session, expected_email):
+                raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
         # A previously dispatched job can have been revoked or deleted while
         # the user completed Chrome sign-in. Re-check with Railway immediately
         # before allowing Web2API to submit ANY message text.
         if account_preflight is None:
             raise AccountGateError("ACCOUNT_PREFLIGHT_UNAVAILABLE")
         await account_preflight(job,expected_email)
-    answer, cid = await asyncio.to_thread(post_chat, content, target)
+    if route_port == 9223:
+        answer, cid = await asyncio.to_thread(
+            post_chat_uri, content, target, CHAT_API_B)
+    else:
+        answer, cid = await asyncio.to_thread(post_chat, content, target)
     if expected_email is not None:
-        if not await asyncio.to_thread(verify_same_session, expected_email):
+        if route_port == 9223:
+            still_same=await asyncio.to_thread(
+                verify_same_session,expected_email,cdp_port=route_port)
+        else:
+            still_same=await asyncio.to_thread(verify_same_session,expected_email)
+        if not still_same:
             raise AccountGateError("ACCOUNT_CHANGED_DURING_SEND")
     result = {
         "type": "job.result",
