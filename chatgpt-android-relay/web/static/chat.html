@@ -37,6 +37,12 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 .profile-active{font-size:10px;color:#167653}
 .profile-warning{font-size:12px;color:#98612e;line-height:1.7;background:#fffaf1;padding:11px;border-radius:8px;margin:10px 0}
 .profile-error{font-size:12px;color:#a53740;min-height:19px;margin:5px 0}
+.chatgpt-account-status{display:flex;gap:8px;align-items:center;color:#324b67;font-size:12px}
+.verified-chatgpt-account{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid #dfe7f0;border-radius:12px;margin:9px 0}
+.verified-chatgpt-account .details{flex:1;min-width:0;word-break:break-word;font-size:12px}
+.verified-chatgpt-account .details strong{display:block;font-size:13px}
+.oauth-connection-note{font-size:12px;line-height:1.7;padding:12px;background:#f7f9fc;border-radius:9px;color:#465d78}
+.oauth-not-ready{font-size:12px;line-height:1.7;color:#a05427;padding:10px;background:#fffaf1;border-radius:9px}
 .workspace{display:flex;flex-direction:column;min-width:0;min-height:0}
 .topbar{height:67px;border-bottom:1px solid #eaecf0;display:flex;align-items:center;gap:12px;justify-content:space-between;padding:0 29px}
 .topbar-title{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -102,7 +108,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
   <div class="side-section">내 대화방</div>
   <div class="rooms" id="room-list"><div class="empty-small" style="padding:12px">대화방을 불러오고 있습니다.</div></div>
   <div class="side-foot">
-    <button type="button" id="profile-trigger" class="profile-trigger" aria-haspopup="dialog" aria-controls="profile-dialog"><span id="profile-label">👤 기본 프로필</span><span>계정 관리 ▾</span></button>
+    <button type="button" id="profile-trigger" class="profile-trigger" aria-haspopup="dialog" aria-controls="profile-dialog"><span id="profile-label">👤 기본 프로필</span><span>시험 프로필 ▾</span></button>
     <div class="identity-line"><strong>① 현재 HITEL 접속</strong><span id="browser-identity">브라우저 임시 세션 확인 중</span></div>
     <div class="identity-line"><strong>② 실제 ChatGPT 실행 계정</strong><span id="worker-dot" class="status-dot"></span><span id="worker-status">GitHub Chrome 연결 확인 중</span></div>
     <div class="identity-note" id="account-explainer">이 브라우저는 ChatGPT 계정으로 로그인한 상태가 아닙니다. GitHub Chrome의 별도 로그인 세션으로 작업하며 계정명·이메일은 공개하지 않습니다.</div>
@@ -111,7 +117,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 <div class="workspace">
   <header class="topbar">
     <div class="actions"><button class="small-button mobile-menu" id="menu-button" aria-label="메뉴 열기">☰</button><div class="topbar-title" id="room-title">채팅 시험실</div></div>
-    <div class="actions"><button class="small-button" id="rename-room" disabled>이름 변경</button><button class="small-button" id="toggle-files" disabled>📁 파일</button><button class="small-button" id="delete-room" disabled>삭제</button></div>
+    <div class="actions"><button class="small-button" id="chatgpt-accounts-trigger" type="button">ChatGPT 로그인</button><button class="small-button" id="rename-room" disabled>이름 변경</button><button class="small-button" id="toggle-files" disabled>📁 파일</button><button class="small-button" id="delete-room" disabled>삭제</button></div>
   </header>
   <section id="file-panel" class="file-panel">
     <h2>이 대화방의 파일</h2>
@@ -149,6 +155,17 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
     <div class="dialog-actions"><button class="small-button" type="button" id="room-cancel">취소</button><button class="primary" type="submit">저장</button></div></form>
   </div>
 </div>
+<div class="overlay" id="chatgpt-accounts-dialog" role="dialog" aria-modal="true" aria-label="ChatGPT 로그인 계정">
+ <div class="dialog">
+  <div class="tool-row"><h2>실제 ChatGPT 계정 연결</h2><button class="small-button" id="chatgpt-accounts-close" type="button">닫기</button></div>
+  <p>Google로 가입하신 계정도 <strong>공식 OpenAI 인증</strong>을 완료해야 이 목록에 표시됩니다. 기존 ChatGPT 앱의 계정 목록이 HITEL에 자동 복사되지는 않습니다.</p>
+  <div id="chatgpt-connection-status" class="oauth-connection-note" role="status">인증 상태를 확인하고 있습니다.</div>
+  <div id="chatgpt-account-list" class="profile-list"></div>
+  <button id="chatgpt-official-login" type="button" class="primary">ChatGPT 계정으로 로그인 · 계정 추가</button>
+  <div id="chatgpt-account-error" class="profile-error" role="status"></div>
+  <p class="oauth-connection-note">ChatGPT 계정의 인증과 실제 메시지 실행 권한은 다릅니다. 신원 인증만 완료된 계정을 기존 GitHub Chrome의 다른 계정 세션으로 실행하지 않습니다. 비밀번호·Google 인증 코드·쿠키를 HITEL에 입력하지 마십시오.</p>
+ </div>
+</div>
 <div class="overlay" id="profile-dialog" role="dialog" aria-modal="true" aria-label="HITEL 시험 계정 관리">
   <div class="dialog">
     <div class="tool-row"><h2>HITEL 계정 추가 · 전환 · 삭제</h2><button class="small-button" id="profile-close" type="button">닫기</button></div>
@@ -170,7 +187,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const state={csrf:"",room:null,rooms:[],files:[],presets:{},profiles:[],profile:null,busy:false,rename:false,previewUrl:null};
+const state={csrf:"",room:null,rooms:[],files:[],presets:{},profiles:[],profile:null,chatgpt:{accounts:[],oauthAvailable:false},busy:false,rename:false,previewUrl:null};
 const safeText=(el,text)=>{el.textContent=text??"";};
 function notice(text,kind=""){safeText($("notice"),text);$("notice").className=kind}
 async function req(url,options={}){
@@ -200,6 +217,7 @@ async function boot(){
    }
    await loadRooms();
    await refreshStatus();
+   await refreshChatGPTAccounts();
    notice("실제 채팅방을 생성하거나 파일을 추가하실 수 있습니다.");
  }catch(e){notice(e.message,"error")}
 }
@@ -276,6 +294,64 @@ async function refreshStatus(){
  if(state.room)await loadRoomDetail();
  }catch(e){notice(e.message,"error")}
 }
+async function refreshChatGPTAccounts(){
+ const data=await req("/web/api/chatgpt/accounts");
+ state.chatgpt=data;
+ const accounts=data.accounts||[];
+ const active=accounts.find(a=>a.active)||accounts[0];
+ safeText($("chatgpt-accounts-trigger"),active?
+   "ChatGPT: "+(active.email||active.name):"ChatGPT 로그인");
+ safeText($("chatgpt-connection-status"),accounts.length?
+   "공식 OpenAI 신원 인증된 계정 "+accounts.length+"개. 현재 Web2API 실행 계정과는 아직 연결되지 않았습니다.":
+   "ChatGPT 로그인 안 됨 — 이 HITEL 브라우저에 인증된 ChatGPT 계정이 없습니다.");
+ const list=$("chatgpt-account-list");list.replaceChildren();
+ for(const a of accounts){
+   const row=el("div","verified-chatgpt-account");
+   const details=el("div","details");
+   details.appendChild(el("strong","",a.name||"ChatGPT 계정"));
+   details.appendChild(el("span","",a.email||"OpenAI가 확인한 신원 (이메일 비공개)"));
+   row.appendChild(details);
+   if(a.active)row.appendChild(el("span","profile-active","선택됨"));
+   else{
+     const choose=el("button","small-button","선택");
+     choose.type="button";
+     choose.onclick=async()=>{
+       try{
+         await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id)+"/select",
+                   {method:"POST"});
+         await refreshChatGPTAccounts();
+       }catch(e){safeText($("chatgpt-account-error"),e.message)}
+     };
+     row.appendChild(choose);
+   }
+   const unlink=el("button","small-button","연결 해제");
+   unlink.type="button";
+   unlink.onclick=async()=>{
+     if(!confirm("HITEL에서 이 ChatGPT 인증 연결만 해제하시겠습니까? 실제 ChatGPT 계정은 삭제되지 않습니다."))return;
+     try{
+       await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id),{method:"DELETE"});
+       await refreshChatGPTAccounts();
+     }catch(e){safeText($("chatgpt-account-error"),e.message)}
+   };
+   row.appendChild(unlink);
+   list.appendChild(row);
+ }
+ safeText($("chatgpt-account-error"),data.oauthAvailable?"":data.message);
+}
+$("chatgpt-accounts-trigger").onclick=async()=>{
+ $("chatgpt-accounts-dialog").classList.add("open");
+ safeText($("chatgpt-account-error"),"");
+ try{await refreshChatGPTAccounts()}catch(e){safeText($("chatgpt-account-error"),e.message)}
+};
+$("chatgpt-accounts-close").onclick=()=>$("chatgpt-accounts-dialog").classList.remove("open");
+$("chatgpt-official-login").onclick=()=>{
+ if(!state.chatgpt.oauthAvailable){
+   safeText($("chatgpt-account-error"),
+     "현재 HITEL 서버는 공식 OpenAI OAuth 클라이언트 승인이 설정되지 않아 인증을 시작할 수 없습니다. ChatGPT의 비밀번호나 쿠키를 입력하지 마십시오.");
+   return;
+ }
+ window.location.assign("/web/api/chatgpt/login");
+};
 function profileMessage(message){safeText($("profile-error"),message||"");}
 async function loadProfiles(){
  const d=await req("/web/api/profiles");
