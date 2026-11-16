@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      GH_TOKEN: \${{ github.token }}
-      FREEMOA_GOOGLE_PASSWORD: \${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,7 +43,7 @@ jobs:
           test -d "$RUNNER_TEMP/w2a-readonly/chrome-profile"
       - name: Boot original Chrome with local-only CDP
         env:
-          CHROME_BINARY: \${{ steps.chrome.outputs.chrome-path }}
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           set -euo pipefail
           export DISPLAY=:99
