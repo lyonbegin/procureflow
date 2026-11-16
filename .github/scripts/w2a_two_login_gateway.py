@@ -288,7 +288,7 @@ async function openGoogle(){
  const status=document.getElementById('result');
  status.textContent='원격 Chrome에서 공식 Google 로그인을 준비하고 있습니다.';
  try{
-  const r=await fetch('/prepare-google',{method:'POST',credentials:'same-origin'});
+  const r=await fetch('/prepare-google',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();
   if(!r.ok||!d.ok)throw Error(d.error||'공식 로그인 화면을 열지 못했습니다');
   status.textContent=d.status==='already_authenticated'?
