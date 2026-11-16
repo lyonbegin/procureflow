@@ -100,6 +100,12 @@ def init_db():
             c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_url TEXT")
         if "chatgpt_title" not in columns:
             c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_title TEXT")
+        # ChatGPT conversations and messages must never be mixed across
+        # distinct OpenAI accounts, even within a single HITEL browser room.
+        if "chatgpt_account_id" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_account_id TEXT")
+        c.execute("""UPDATE rooms SET chatgpt_account_id='__guest__'
+            WHERE chatgpt_account_id IS NULL AND chatgpt_url IS NOT NULL""")
         c.execute("""CREATE INDEX IF NOT EXISTS idx_room_chatgpt_url
                      ON rooms(user_id,chatgpt_url)""")
         # Pin the selected identity at queue time, before later account switches.
@@ -767,23 +773,26 @@ def fail_queued_jobs_with_unavailable_files():
     return failures
 
 
-def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False):
+def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
+                   allow_account_bound: bool = True):
     with connection() as c:
+        account_filter = "" if allow_account_bound else " AND account_id IS NULL"
         if public_trial_only:
             # The publicly reachable test process may NEVER claim the
             # pre-existing private Android rooms, jobs or files.
             r = c.execute(
                 "SELECT * FROM jobs WHERE status='queued' AND "
                 "(user_id=? OR user_id LIKE 'usr_browser_%') "
-                "ORDER BY created_at,id LIMIT 1",
+                + account_filter + " ORDER BY created_at,id LIMIT 1",
                 ("usr_public_web2api_probe_20261113",)
             ).fetchone()
         elif only_user_id is None:
-            r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
+            r = c.execute("SELECT * FROM jobs WHERE status='queued'"
+                          + account_filter + " ORDER BY created_at,id LIMIT 1").fetchone()
         else:
             r = c.execute(
                 "SELECT * FROM jobs WHERE status='queued' AND user_id=? "
-                "ORDER BY created_at,id LIMIT 1", (only_user_id,)
+                + account_filter + " ORDER BY created_at,id LIMIT 1", (only_user_id,)
             ).fetchone()
         if not r:
             return None
