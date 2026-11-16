@@ -22,8 +22,22 @@ def main():
         page=ctx.new_page()
         errors=[]
         page.on("pageerror",lambda err:errors.append("PAGE_SCRIPT_EXCEPTION"))
-        page.on("console",lambda msg:errors.append("CONSOLE_ERROR")
-                if msg.type=="error" else None)
+        def on_console(msg):
+            if msg.type!="error":
+                return
+            txt=msg.text.lower()
+            if "favicon" in txt:
+                category="FAVICON"
+            elif "content security policy" in txt or "csp" in txt:
+                category="CONTENT_SECURITY_POLICY"
+            elif "failed to load resource" in txt:
+                category="RESOURCE_REQUEST"
+            elif "not found" in txt:
+                category="MISSING_RESOURCE"
+            else:
+                category="OTHER_CONSOLE_ERROR"
+            errors.append(category)
+        page.on("console",on_console)
         try:
             page.goto(BASE+"?chat-room-e2e=1",wait_until="domcontentloaded",timeout=60000)
             expect(page.locator("#new-room")).to_be_visible(timeout=15000)
@@ -86,6 +100,7 @@ def main():
             expect(page.locator("#room-title")).to_have_text("수정된 브라우저 시험방",timeout=10000)
             print("PASS_BROWSER_ROOM_RENAME",flush=True)
             page.screenshot(path=str(OUT/"chatroom-success.png"),full_page=True)
+            print("BROWSER_SAFE_ERROR_CATEGORIES="+",".join(sorted(set(errors))) if errors else "BROWSER_SAFE_ERROR_CATEGORIES=none",flush=True)
             assert not errors,"BROWSER_SCRIPT_CONSOLE_ERRORS"
             print("PASS_BROWSER_NO_JAVASCRIPT_RUNTIME_ERRORS",flush=True)
         except Exception as exc:
