@@ -331,7 +331,7 @@ def list_rooms(request: Request):
     uid=_actor(request)
     with api_v1.connection() as db:
         rows=db.execute(
-            "SELECT id,title,created_at,updated_at FROM rooms "
+            "SELECT id,title,created_at,updated_at,chatgpt_account_id FROM rooms "
             "WHERE user_id=? AND status!='deleted' ORDER BY updated_at DESC LIMIT 100",
             (uid,)).fetchall()
     return {"rooms":[dict(x) for x in rows]}
