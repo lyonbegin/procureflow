@@ -2,6 +2,7 @@ name: ChatGPT - verify saved Google login and original Web2API
 
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     paths:
       - .github/workflows/chatgpt-web2api-verify-session.yml
