@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: hitel-two-manual-chatgpt-login
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   chrome-session:
@@ -25,7 +25,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: 50d7c8cf00a3b7053652831cc2df0a189f2029473838d00c78c4b25ea9eb7e7c
+      W2A_ACCESS_SHA256: fdb824968a2be7b44739297a38fed313b429dc0d0d9f814ced7221e169a9c722
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -92,6 +92,11 @@ jobs:
               }
               location = / { auth_request /_auth; proxy_pass http://127.0.0.1:8899; }
               location = /status { auth_request /_auth; proxy_pass http://127.0.0.1:8899; }
+              location = /prepare-google {
+                auth_request /_auth;
+                proxy_pass http://127.0.0.1:8899;
+                proxy_read_timeout 60s;
+              }
               location = /finish {
                 auth_request /_auth;
                 proxy_pass http://127.0.0.1:8899;
