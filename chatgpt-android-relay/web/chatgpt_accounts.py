@@ -148,8 +148,7 @@ async def complete_login(request: Request, code: str = "", state: str = "", erro
         ).fetchone()
         # Atomically consume one-time transaction even if downstream exchange fails.
         db.execute("DELETE FROM hitel_chatgpt_oauth_flows WHERE state_digest=?",(_digest(state),))
-    if (not pending or pending["browser_owner"] != owner
-            or pending["expires_at"] < int(time.time())
+    if (not pending or pending["expires_at"] < int(time.time())
             or not secrets.compare_digest(pending["flow_digest"],_digest(flow))):
         raise HTTPException(403,"ChatGPT 로그인 요청이 만료되었거나 다른 브라우저의 요청입니다.")
     if error:
