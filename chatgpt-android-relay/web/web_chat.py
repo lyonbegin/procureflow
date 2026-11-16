@@ -151,6 +151,9 @@ class ProfileInput(BaseModel):
 
 class RoomInput(BaseModel):
     title: str = Field(min_length=1,max_length=80)
+    # Explicitly provided account_id binds a fresh room before the first send.
+    # Omitting the field keeps legacy room creation unchanged.
+    account_id: str | None = Field(default=None,max_length=80)
 
 class PresetInput(BaseModel):
     preset: str = Field(min_length=1,max_length=30)
@@ -345,10 +348,23 @@ def create_room(body:RoomInput,request:Request):
     with api_v1.connection() as db:
         count=db.execute("SELECT count(*) FROM rooms WHERE user_id=? AND status!='deleted'",(uid,)).fetchone()[0]
         if count>=MAX_ROOMS:raise HTTPException(429,"시험용 대화방은 최대 12개입니다.")
+        room_account=None
+        if "account_id" in body.model_fields_set:
+            verified=db.execute(
+                "SELECT id FROM hitel_verified_chatgpt_accounts "
+                "WHERE browser_owner=? AND active=1 LIMIT 1",
+                (_owner_hash(_owner(request)),),
+            ).fetchone()
+            selected=verified["id"] if verified else None
+            if body.account_id != selected:
+                raise HTTPException(409,"대화방 생성 요청 계정이 현재 선택 계정과 다릅니다.")
+            room_account=selected or "__guest__"
         rid="room_"+api_v1.new_id()
-        db.execute("INSERT INTO rooms(id,user_id,title,android_state,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                   (rid,uid,title,"uncreated",now,now))
-    return {"room":{"id":rid,"title":title,"created_at":now,"updated_at":now}}
+        db.execute("INSERT INTO rooms(id,user_id,title,android_state,created_at,updated_at,chatgpt_account_id) "
+                   "VALUES(?,?,?,?,?,?,?)",
+                   (rid,uid,title,"uncreated",now,now,room_account))
+    return {"room":{"id":rid,"title":title,"created_at":now,"updated_at":now,
+                    "chatgpt_account_id":room_account}}
 
 @router.patch("/rooms/{rid}")
 def rename_room(rid:str,body:RoomInput,request:Request):
