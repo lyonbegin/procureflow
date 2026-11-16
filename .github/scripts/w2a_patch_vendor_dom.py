@@ -44,4 +44,16 @@ for filename, assistant_count, user_count in targets:
     source.write_text(updated, encoding="utf-8")
     print("PASS_VENDOR_DOM_SELECTOR_PATCH_" + filename, flush=True)
 
+# 2026-11-16 live Chrome diag: chatgpt.com/ has an interactive composer,
+# but navigating the newly-created tab to ?model=auto leaves it unsendable.
+# Preserve the upstream navigator; change only the fresh-chat target URL.
+driver = root / "src" / "chatgpt_web2api" / "cdp_driver.py"
+code = driver.read_text(encoding="utf-8")
+legacy = 'url = "https://chatgpt.com/?model=auto"'
+replacement = 'url = "https://chatgpt.com/"'
+if code.count(legacy) != 1:
+    raise SystemExit("REFUSE_PATCH_VENDOR_HOME_URL_MISMATCH")
+driver.write_text(code.replace(legacy, replacement), encoding="utf-8")
+print("PASS_VENDOR_NEW_CHAT_NAVIGATION_HOME_ROUTE_PATCH", flush=True)
+
 print("PASS_PINNED_VENDOR_ORIGINAL_FUNCTIONS_PRESERVED", flush=True)
