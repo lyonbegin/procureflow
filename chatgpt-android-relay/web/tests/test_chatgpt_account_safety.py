@@ -86,12 +86,16 @@ class ChatGPTAccountSafetyTests(unittest.TestCase):
         self.assertEqual(public["accounts"][0]["id"],account)
         self.assertFalse(public["accounts"][0]["canRunWeb2APIAsThisAccount"])
         attempted=self.a.post("/web/api/rooms/"+room+"/message",
-            json={"text":"Do not send this under the default Chrome account"},
+            json={"text":"Do not send this under the default Chrome account",
+                  "account_id":account},
             headers={"X-Web-Csrf":self.ca})
-        self.assertEqual(attempted.status_code,409,attempted.text)
+        self.assertEqual(attempted.status_code,200,attempted.text)
+        self.assertFalse(attempted.json()["sentToChatGPT"])
         with api_v1.connection() as db:
-            n=db.execute("SELECT count(*) FROM jobs WHERE room_id=?",(room,)).fetchone()[0]
-        self.assertEqual(n,0,"ACCOUNT_MISMATCH_MUST_NOT_QUEUE_JOB")
+            row=db.execute("SELECT account_id,status FROM jobs WHERE room_id=?",
+                           (room,)).fetchone()
+        self.assertEqual(row["account_id"],account)
+        self.assertEqual(row["status"],"queued")
 
     def test_cross_browser_selection_and_unlink_are_blocked(self):
         account=self.insert_verified_fixture(self.a,"account-only-owner-A","Owner A")
@@ -134,9 +138,17 @@ class ChatGPTAccountSafetyTests(unittest.TestCase):
             self.assertEqual(choice.status_code,200,choice.text)
             self.assertFalse(choice.json()["canRunWeb2APIAsThisAccount"])
             r=self.a.post("/web/api/rooms/"+room+"/message",
-                json={"text":"No wrong-account ChatGPT browser submission"},
+                json={"text":"No wrong-account ChatGPT browser submission",
+                      "account_id":active},
                 headers={"X-Web-Csrf":self.ca})
-            self.assertEqual(r.status_code,409,r.text)
+            self.assertEqual(r.status_code,200,r.text)
+            self.assertFalse(r.json()["sentToChatGPT"])
+            with api_v1.connection() as db:
+                item=db.execute("SELECT account_id FROM jobs WHERE id=?",
+                                (r.json()["jobId"],)).fetchone()
+                self.assertEqual(item["account_id"],active)
+                db.execute("UPDATE jobs SET status='failed' WHERE id=?",
+                           (r.json()["jobId"],))
 
 
 if __name__=="__main__":
