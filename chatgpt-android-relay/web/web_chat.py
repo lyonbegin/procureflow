@@ -151,6 +151,9 @@ class ProfileInput(BaseModel):
 
 class RoomInput(BaseModel):
     title: str = Field(min_length=1,max_length=80)
+    # Explicitly provided account_id binds a fresh room before the first send.
+    # Omitting the field keeps legacy room creation unchanged.
+    account_id: str | None = Field(default=None,max_length=80)
 
 class PresetInput(BaseModel):
     preset: str = Field(min_length=1,max_length=30)
@@ -331,7 +334,7 @@ def list_rooms(request: Request):
     uid=_actor(request)
     with api_v1.connection() as db:
         rows=db.execute(
-            "SELECT id,title,created_at,updated_at FROM rooms "
+            "SELECT id,title,created_at,updated_at,chatgpt_account_id FROM rooms "
             "WHERE user_id=? AND status!='deleted' ORDER BY updated_at DESC LIMIT 100",
             (uid,)).fetchall()
     return {"rooms":[dict(x) for x in rows]}
@@ -345,10 +348,23 @@ def create_room(body:RoomInput,request:Request):
     with api_v1.connection() as db:
         count=db.execute("SELECT count(*) FROM rooms WHERE user_id=? AND status!='deleted'",(uid,)).fetchone()[0]
         if count>=MAX_ROOMS:raise HTTPException(429,"시험용 대화방은 최대 12개입니다.")
+        room_account=None
+        if "account_id" in body.model_fields_set:
+            verified=db.execute(
+                "SELECT id FROM hitel_verified_chatgpt_accounts "
+                "WHERE browser_owner=? AND active=1 LIMIT 1",
+                (_owner_hash(_owner(request)),),
+            ).fetchone()
+            selected=verified["id"] if verified else None
+            if body.account_id != selected:
+                raise HTTPException(409,"대화방 생성 요청 계정이 현재 선택 계정과 다릅니다.")
+            room_account=selected or "__guest__"
         rid="room_"+api_v1.new_id()
-        db.execute("INSERT INTO rooms(id,user_id,title,android_state,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                   (rid,uid,title,"uncreated",now,now))
-    return {"room":{"id":rid,"title":title,"created_at":now,"updated_at":now}}
+        db.execute("INSERT INTO rooms(id,user_id,title,android_state,created_at,updated_at,chatgpt_account_id) "
+                   "VALUES(?,?,?,?,?,?,?)",
+                   (rid,uid,title,"uncreated",now,now,room_account))
+    return {"room":{"id":rid,"title":title,"created_at":now,"updated_at":now,
+                    "chatgpt_account_id":room_account}}
 
 @router.patch("/rooms/{rid}")
 def rename_room(rid:str,body:RoomInput,request:Request):
@@ -556,6 +572,18 @@ async def send_free_text(rid: str, body: MessageInput, request: Request):
                 ).fetchone()
                 if not verified or verified["issuer"] != "https://auth.openai.com" or not verified["email"]:
                     raise HTTPException(409, "ChatGPT 계정 이메일이 검증되지 않았습니다.")
+            # A private ChatGPT thread belongs to exactly one execution
+            # identity. Guest and verified accounts are NEVER interchangeable;
+            # selecting another account requires a separate HITEL room.
+            room_account = selected_id or "__guest__"
+            if (room["chatgpt_account_id"] is not None
+                    and room["chatgpt_account_id"] != room_account):
+                raise HTTPException(409,
+                    "이 대화방은 다른 ChatGPT 계정에 연결되어 있습니다. "
+                    "전환한 계정의 새 대화방을 만들어 주십시오.")
+            if room["chatgpt_account_id"] is None:
+                db.execute("UPDATE rooms SET chatgpt_account_id=? "
+                           "WHERE id=? AND user_id=?", (room_account,rid,uid))
             jid = api_v1.store_job(db, uid, rid, "chat.send", text, [], account_id=selected_id)
             db.execute(
                 "INSERT INTO messages VALUES(?,?,?,?,?,?,?)",

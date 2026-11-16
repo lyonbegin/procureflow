@@ -244,6 +244,24 @@ def unlink_account(account_id: str, request: Request):
     owner=_owner(request,True)
     with web_chat._storage_lock:
         with api_v1.connection() as db:
+            linked=db.execute("SELECT 1 FROM hitel_verified_chatgpt_accounts "
+                              "WHERE id=? AND browser_owner=?", (account_id,owner)).fetchone()
+            if not linked:
+                raise HTTPException(404,"인증된 ChatGPT 계정이 없습니다.")
+            # A running prompt might already have reached ChatGPT. Deletion
+            # must not falsely imply it was cancelled. Refuse until finalized.
+            running=db.execute("SELECT 1 FROM jobs WHERE account_id=? "
+                               "AND status='running' LIMIT 1",(account_id,)).fetchone()
+            if running:
+                raise HTTPException(409,
+                    "이 계정으로 전송 중인 질문이 있습니다. 결과를 확인한 뒤 계정을 연결 해제하십시오.")
+            # Queued, unsent prompts can be cancelled atomically with unlink.
+            cancelled=db.execute(
+                "UPDATE jobs SET status='failed',stage='ACCOUNT_UNLINKED',"
+                "error='ChatGPT account connection removed before dispatch',updated_at=? "
+                "WHERE account_id=? AND status='queued'",
+                (api_v1.clock(),account_id),
+            ).rowcount
             n=db.execute("DELETE FROM hitel_verified_chatgpt_accounts "
                          "WHERE id=? AND browser_owner=?", (account_id,owner)).rowcount
             if n<1:raise HTTPException(404,"인증된 ChatGPT 계정이 없습니다.")
@@ -253,4 +271,5 @@ def unlink_account(account_id: str, request: Request):
                 db.execute("UPDATE hitel_verified_chatgpt_accounts SET active=1 "
                            "WHERE id=(SELECT id FROM hitel_verified_chatgpt_accounts "
                            "WHERE browser_owner=? ORDER BY verified_at DESC LIMIT 1)",(owner,))
-    return {"disconnected":True,"chatgptAccountDeleted":False}
+    return {"disconnected":True,"chatgptAccountDeleted":False,
+            "cancelledQueuedJobs":cancelled}

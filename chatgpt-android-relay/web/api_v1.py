@@ -100,6 +100,12 @@ def init_db():
             c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_url TEXT")
         if "chatgpt_title" not in columns:
             c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_title TEXT")
+        # ChatGPT conversations and messages must never be mixed across
+        # distinct OpenAI accounts, even within a single HITEL browser room.
+        if "chatgpt_account_id" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_account_id TEXT")
+        c.execute("""UPDATE rooms SET chatgpt_account_id='__guest__'
+            WHERE chatgpt_account_id IS NULL AND chatgpt_url IS NOT NULL""")
         c.execute("""CREATE INDEX IF NOT EXISTS idx_room_chatgpt_url
                      ON rooms(user_id,chatgpt_url)""")
         # Pin the selected identity at queue time, before later account switches.
@@ -767,23 +773,26 @@ def fail_queued_jobs_with_unavailable_files():
     return failures
 
 
-def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False):
+def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
+                   allow_account_bound: bool = True):
     with connection() as c:
+        account_filter = "" if allow_account_bound else " AND account_id IS NULL"
         if public_trial_only:
             # The publicly reachable test process may NEVER claim the
             # pre-existing private Android rooms, jobs or files.
             r = c.execute(
                 "SELECT * FROM jobs WHERE status='queued' AND "
                 "(user_id=? OR user_id LIKE 'usr_browser_%') "
-                "ORDER BY created_at,id LIMIT 1",
+                + account_filter + " ORDER BY created_at,id LIMIT 1",
                 ("usr_public_web2api_probe_20261113",)
             ).fetchone()
         elif only_user_id is None:
-            r = c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,id LIMIT 1").fetchone()
+            r = c.execute("SELECT * FROM jobs WHERE status='queued'"
+                          + account_filter + " ORDER BY created_at,id LIMIT 1").fetchone()
         else:
             r = c.execute(
                 "SELECT * FROM jobs WHERE status='queued' AND user_id=? "
-                "ORDER BY created_at,id LIMIT 1", (only_user_id,)
+                + account_filter + " ORDER BY created_at,id LIMIT 1", (only_user_id,)
             ).fetchone()
         if not r:
             return None
@@ -976,6 +985,35 @@ def bind_verified_browser_conversation(job_id: str, room_id: str, url: str) -> b
 
 
 
+def authorize_web2api_preflight(job_id: str, room_id: str,
+                                 account_id: str, claimed_email: str) -> bool:
+    """Authorize ONE still-running, account-scoped Chrome job just before send.
+
+    The caller must separately prove a GitHub OIDC worker connection and
+    live Chrome identity. A stale, unlinked, wrong-room, wrong-account, or
+    guest job must never be authorized. No account email is logged.
+    """
+    if not all(isinstance(v,str) and v for v in (job_id,room_id,account_id,claimed_email)):
+        return False
+    if len(claimed_email) > 254 or len(account_id) > 80:
+        return False
+    with connection() as c:
+        row = c.execute("""
+            SELECT a.email AS expected_email FROM jobs j
+            JOIN rooms r ON r.id=j.room_id AND r.user_id=j.user_id
+            JOIN web_trial_profiles p ON p.user_id=j.user_id
+            JOIN hitel_verified_chatgpt_accounts a
+              ON a.browser_owner=p.owner_hash AND a.id=j.account_id
+            WHERE j.id=? AND j.room_id=? AND j.account_id=?
+              AND j.status='running' AND j.action='chat.send'
+              AND r.status='active' AND r.chatgpt_account_id=j.account_id
+              AND a.issuer='https://auth.openai.com'
+              AND a.email IS NOT NULL AND a.email!=''
+            LIMIT 1
+        """,(job_id,room_id,account_id)).fetchone()
+    return bool(row and row["expected_email"].strip().casefold() == claimed_email.strip().casefold())
+
+
 def complete_web2api_job(job_id: str, room_id: str, result_text: str,
                          chatgpt_url: str) -> bool:
     """Complete a GitHub Chrome answer and bind its proven conversation atomically.
@@ -995,12 +1033,19 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
 
     with connection() as c:
         row = c.execute("""SELECT j.*,r.chatgpt_url AS saved_chatgpt_url,
-                               r.status AS room_status
+                               r.status AS room_status,
+                               r.chatgpt_account_id AS saved_account_id
                             FROM jobs j JOIN rooms r ON r.id=j.room_id
                             WHERE j.id=? AND j.room_id=? AND j.user_id=r.user_id
                             """, (job_id, room_id)).fetchone()
         if (not row or row["status"] != "running" or
                 row["action"] != "chat.send" or row["room_status"] != "active"):
+            return False
+        expected_account = row["account_id"] or "__guest__"
+        if (row["saved_account_id"] is not None
+                and row["saved_account_id"] != expected_account):
+            # Never persist an assistant response to a room belonging to a
+            # different authenticated ChatGPT account.
             return False
         if row["saved_chatgpt_url"] and row["saved_chatgpt_url"] != normalized:
             return False
@@ -1012,8 +1057,9 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
 
         timestamp=clock()
         c.execute("""UPDATE rooms SET chatgpt_url=?,android_state='active',
+                     chatgpt_account_id=COALESCE(chatgpt_account_id,?),
                      updated_at=? WHERE id=? AND user_id=?""",
-                  (normalized,timestamp,room_id,row["user_id"]))
+                  (normalized,expected_account,timestamp,room_id,row["user_id"]))
         c.execute("""UPDATE jobs SET status='completed',stage='assistant_reply_stable',
                      error=NULL,result_text=?,updated_at=?
                      WHERE id=? AND room_id=? AND status='running'""",

@@ -118,7 +118,12 @@ class LoginScenarioMatrix(unittest.TestCase):
         a=self.fixture_account(self.a,"A",active=True)
         b=self.fixture_account(self.a,"B",active=False)
         actual=[]
+        new_room=self.a.post("/web/api/rooms",
+            headers={"X-Web-Csrf":self.csrf_a},json={"title":"Account B room"})
+        self.assertEqual(new_room.status_code,200)
+        per_account={a:self.rid,b:new_room.json()["room"]["id"]}
         for aid in (a,b,a):
+            self.rid=per_account[aid]
             self.assertEqual(self.select(aid).status_code,200)
             selected=[p["id"] for p in self.accounts() if p["active"]]
             self.assertEqual(selected,[aid])
@@ -252,6 +257,11 @@ class LoginScenarioMatrix(unittest.TestCase):
             self.assertEqual(packet["job"]["id"],jid)
             self.assertEqual(packet["job"]["account_id"],selected)
             self.assertEqual(packet["job"]["account_email"],"AccountA@example.invalid")
+            ws.send_json({"type":"job.preflight","job_id":jid,"room_id":self.rid,
+                          "account_id":selected,
+                          "execution_account_email":"accounta@example.invalid"})
+            preflight=ws.receive_json()
+            self.assertEqual(preflight["type"],"job.preflight.ok")
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
@@ -280,6 +290,10 @@ class LoginScenarioMatrix(unittest.TestCase):
                           "oidc_token":"mock-signed-github-runner"})
             self.assertEqual(ws.receive_json()["type"],"auth.ok")
             self.assertEqual(ws.receive_json()["job"]["id"],jid)
+            ws.send_json({"type":"job.preflight","job_id":jid,"room_id":self.rid,
+                          "account_id":selected,
+                          "execution_account_email":"other@example.invalid"})
+            self.assertEqual(ws.receive_json()["type"],"job.preflight.denied")
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
@@ -312,13 +326,15 @@ class LoginScenarioMatrix(unittest.TestCase):
             self.assertEqual(ws.receive_json()["job"]["id"],jid)
             dropped=self.a.delete("/web/api/chatgpt/accounts/"+selected,
                                   headers={"X-Web-Csrf":self.csrf_a})
-            self.assertEqual(dropped.status_code,200)
+            self.assertEqual(dropped.status_code,409)
+            # A forged/mismatched result is still rejected; then unlink is
+            # permitted once no in-flight request remains.
             ws.send_json({
                 "type":"job.result","job_id":jid,"room_id":self.rid,
                 "verified":True,"stage":"assistant_reply_stable",
                 "result_text":"Must not be stored",
                 "execution_account_id":selected,
-                "execution_account_email":"accounta@example.invalid",
+                "execution_account_email":"wrong@example.invalid",
                 "session_verified":True,
                 "chatgpt_url":"https://chatgpt.com/c/a1234567-1234-4123-8123-123456789012",
             })
@@ -331,6 +347,9 @@ class LoginScenarioMatrix(unittest.TestCase):
                 time.sleep(.02)
             self.assertEqual(status["status"],"failed")
             self.assertEqual(status["stage"],"ACCOUNT_EXECUTION_NOT_VERIFIED")
+            dropped_again=self.a.delete("/web/api/chatgpt/accounts/"+selected,
+                headers={"X-Web-Csrf":self.csrf_a})
+            self.assertEqual(dropped_again.status_code,200)
 
     def test_19_legacy_preset_cannot_skip_account_metadata(self):
         self.fixture_account(self.a,"A",active=True)
