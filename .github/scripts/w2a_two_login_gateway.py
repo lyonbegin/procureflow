@@ -165,12 +165,34 @@ font-size:17px;padding:14px;border:1px solid #c2cfdf;border-radius:9px}
 button{margin-top:18px;background:#1d466e;border:0;color:white;border-radius:9px;
 padding:14px 20px;font-size:16px;width:100%}p{line-height:1.7;color:#54657a}</style>
 </head><body><main><h1>HITEL · 계정 A/B 원격 Chrome</h1>
-<p>먼저 기존 원격 Chrome 접속 코드를 입력해 주십시오.
-Google 비밀번호는 여기서 입력하지 않습니다. 다음 화면의 실제 Google
-로그인 페이지에서 직접 입력하십니다.</p>
-<form method="post" action="/grant"><label>원격 Chrome 접속 코드</label>
+<p id="auto-status">보안 연결을 확인하고 있습니다. 전용 접속 링크를 여셨다면
+접속 코드를 입력하실 필요가 없습니다.</p>
+<form id="grant-form" method="post" action="/grant"><label>예비 접속 코드 (직접 입력은 필요하지 않습니다)</label>
 <input name="code" type="password" autocomplete="off" required maxlength="200"/>
-<button type="submit">보호된 원격 화면 열기</button></form></main></body></html>"""
+<button type="submit">보호된 원격 화면 열기</button></form>
+<p>Google 이메일·비밀번호·추가 인증은 이어지는 실제 Chrome의
+공식 Google·ChatGPT 로그인 페이지에서 직접 처리합니다.</p>
+<script>
+(function(){
+  // Link fragment stays local to the user's browser: never sent in the GET
+  // request, CDN edge logs, or referrer. Browser performs one HTTPS POST to
+  // local access-control gateway, receiving an HttpOnly session cookie.
+  const p=new URLSearchParams(location.hash.startsWith('#')?
+    location.hash.slice(1):'');
+  const access=p.get('access');
+  if(!access || !/^[A-Za-z0-9_-]{40,120}$/.test(access)){
+    document.getElementById('auto-status').textContent=
+      '이 주소는 보호된 연결을 요청합니다. 새로 발급된 원클릭 링크를 사용해 주십시오.';
+    return;
+  }
+  history.replaceState(null,'','/grant');
+  const form=document.getElementById('grant-form');
+  form.querySelector('[name=code]').value=access;
+  document.getElementById('auto-status').textContent=
+    '자동으로 인증하고 원격 Chrome을 열고 있습니다.';
+  form.submit();
+})();
+</script></main></body></html>"""
 
 DASH_HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
