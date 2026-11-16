@@ -53,6 +53,27 @@ class BrowserChatTests(unittest.TestCase):
         self.assertEqual(self.b.get("/web/api/rooms/"+room).status_code,404)
         self.assertEqual(self.b.delete("/web/api/rooms/"+room,headers={"X-Web-Csrf":self.cb}).status_code,404)
 
+    def test_browser_identity_distinct_from_server_chatgpt_account(self):
+        a=self.a.get("/web/api/status")
+        b=self.b.get("/web/api/status")
+        self.assertEqual(a.status_code,200)
+        self.assertEqual(b.status_code,200)
+        aa=a.json();bb=b.json()
+        self.assertEqual(aa["browserSessionType"],"anonymous_cookie")
+        self.assertNotEqual(aa["browserSessionTag"],bb["browserSessionTag"])
+        self.assertRegex(aa["browserSessionTag"],r"^[0-9a-f]{8}$")
+        self.assertFalse(aa["chatgptAccountLinked"])
+        self.assertFalse(aa["workerAccountIdentityAvailable"])
+        for data in (aa,bb):
+            self.assertNotIn("email",str(data).lower())
+            self.assertNotIn("token",str(data).lower())
+            self.assertNotIn("password",str(data).lower())
+        html=self.a.get("/").text
+        self.assertIn('id="browser-identity"',html)
+        self.assertIn('id="worker-status"',html)
+        self.assertIn("ChatGPT 계정 로그인 아님",html)
+        self.assertIn("계정명·이메일은 공개하지 않습니다",html)
+
     def test_room_create_rename_and_delete(self):
         room=self.create(title="초기")
         r=self.a.patch("/web/api/rooms/"+room,json={"title":"수정됨"},
