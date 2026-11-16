@@ -27,6 +27,9 @@ import websockets
 
 from w2a_account_runtime import (AccountGateError, actual_chrome_account,
                                  canonical_email, verify_same_session)
+from w2a_google_signin import (new_runner_key, decrypt_login_envelope,
+                               perform_google_login, recheck_google_session,
+                               RemoteGoogleLoginError)
 
 AUDIENCE = "urn:lyonbegin:procureflow:chatgpt-relay:device"
 RELAY_HOST = "chatgpt-relay-web-production.up.railway.app"
@@ -193,6 +196,18 @@ async def run(max_seconds: int = 1500) -> None:
                 if first.get("type") != "auth.ok":
                     raise RuntimeError("RELAY_OIDC_AUTH_REJECTED")
                 print("PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED", flush=True)
+                # Fresh key on each authenticated GitHub Actions Chrome socket.
+                # Only its private half can decrypt login credentials; Railway
+                # receives ciphertext without seeing the original password.
+                login_private,login_public=new_runner_key()
+                waiting_google_verification={}
+                await socket.send(json.dumps({
+                    "type":"auth.worker.key","public_key":login_public,
+                }))
+                ready=json.loads(await asyncio.wait_for(socket.recv(),timeout=12))
+                if ready.get("type")!="auth.worker.key.ok":
+                    raise RuntimeError("CHROME_LOGIN_KEY_NOT_ACCEPTED")
+                print("PASS_EPHEMERAL_CHROME_LOGIN_PUBLIC_KEY_REGISTERED",flush=True)
                 authenticated_once = True
                 attempts = 0
                 while time.monotonic() < deadline:
@@ -203,6 +218,66 @@ async def run(max_seconds: int = 1500) -> None:
                     typ = item.get("type")
                     if typ == "ping":
                         await socket.send(json.dumps({"type": "pong"}))
+                    elif typ == "auth.login.request":
+                        rid=item.get("request_id")
+                        if not isinstance(rid,str) or not 16<=len(rid)<=80:
+                            continue
+                        await socket.send(json.dumps({
+                            "type":"auth.login.result","request_id":rid,
+                            "status":"running",
+                        }))
+                        email=None
+                        password=None
+                        try:
+                            email,password=decrypt_login_envelope(login_private,item)
+                            # Playwright fills email/password ONLY on the
+                            # official accounts.google.com domain. Never
+                            # print either credential or any page content.
+                            verified=await asyncio.to_thread(
+                                perform_google_login,email,password)
+                            await socket.send(json.dumps({
+                                "type":"auth.login.result","request_id":rid,
+                                "status":"verified","verified_email":verified,
+                            }))
+                            print("PASS_REAL_GOOGLE_CHATGPT_LOGIN_VERIFIED",flush=True)
+                        except RemoteGoogleLoginError as exc:
+                            code=str(exc)
+                            if code=="GOOGLE_ADDITIONAL_VERIFICATION_REQUIRED" and email:
+                                waiting_google_verification[rid]=email
+                                state="requires_verification"
+                            else:
+                                state="failed"
+                            await socket.send(json.dumps({
+                                "type":"auth.login.result","request_id":rid,
+                                "status":state,"reason":code,
+                            }))
+                            print("CHROME_LOGIN_STATUS_"+state.upper(),flush=True)
+                        except Exception:
+                            await socket.send(json.dumps({
+                                "type":"auth.login.result","request_id":rid,
+                                "status":"failed","reason":"CHROME_LOGIN_UNEXPECTED",
+                            }))
+                            print("FAIL_CHROME_LOGIN_UNVERIFIED",flush=True)
+                        finally:
+                            del password
+                    elif typ == "auth.login.recheck":
+                        rid=item.get("request_id")
+                        expected=waiting_google_verification.get(rid)
+                        if not expected:
+                            continue
+                        checked=await asyncio.to_thread(recheck_google_session,expected)
+                        if checked:
+                            waiting_google_verification.pop(rid,None)
+                            await socket.send(json.dumps({
+                                "type":"auth.login.result","request_id":rid,
+                                "status":"verified","verified_email":checked,
+                            }))
+                        else:
+                            await socket.send(json.dumps({
+                                "type":"auth.login.result","request_id":rid,
+                                "status":"requires_verification",
+                                "reason":"GOOGLE_ADDITIONAL_VERIFICATION_REQUIRED",
+                            }))
                     elif typ == "job":
                         job = item.get("job")
                         if not isinstance(job, dict):
