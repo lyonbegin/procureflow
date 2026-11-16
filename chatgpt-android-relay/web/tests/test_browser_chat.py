@@ -89,6 +89,13 @@ class BrowserChatTests(unittest.TestCase):
         self.assertEqual(down.content,payload)
         self.assertEqual(self.b.get("/web/api/files/"+fid).status_code,404)
         self.assertEqual(self.a.get("/api/v1/files/"+fid+"/download").status_code,404)
+        deleted=self.a.delete("/web/api/rooms/"+room,headers={"X-Web-Csrf":self.ca})
+        self.assertEqual(deleted.status_code,200)
+        self.assertEqual(self.a.get("/web/api/files/"+fid).status_code,404)
+        with api_v1.connection() as db:
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM file_objects WHERE id=?",(fid,)
+            ).fetchone()[0],0)
 
     def test_reject_bad_file_extension(self):
         room=self.create()
@@ -96,6 +103,19 @@ class BrowserChatTests(unittest.TestCase):
                       files={"file":("code.html",b"<script>alert(1)</script>","text/html")},
                       headers={"X-Web-Csrf":self.ca})
         self.assertEqual(r.status_code,415)
+
+    def test_public_file_quota_is_enforced_before_writing(self):
+        from unittest.mock import patch
+        room=self.create()
+        with patch.object(web_chat,"MAX_USER_BYTES",3):
+            r=self.a.post("/web/api/rooms/"+room+"/files",
+                files={"file":("large.txt",b"hello world","text/plain")},
+                headers={"X-Web-Csrf":self.ca})
+            self.assertEqual(r.status_code,413)
+        with api_v1.connection() as db:
+            self.assertEqual(db.execute(
+                "SELECT count(*) FROM file_objects WHERE room_id=?",(room,)
+            ).fetchone()[0],0)
 
     def test_fixed_prompt_queued_and_arbitrary_denied(self):
         room=self.create()
