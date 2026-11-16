@@ -71,6 +71,33 @@ jobs:
           PY
           node --check /tmp/relay-bridge-ui.js
           echo PASS_PUBLIC_WEB2API_UI_JAVASCRIPT
+      - name: Validate new ChatGPT-style rooms and file UI JavaScript
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path("bridge-source/chatgpt-android-relay/web/static/chat.html")
+          html=path.read_text(encoding="utf-8")
+          assert "<title>HITEL Web2API · 채팅 시험실</title>" in html
+          for id_ in ("room-list","new-room","messages","draft","preset","send","file-input","file-list","preview-overlay"):
+              assert 'id="'+id_+'"' in html, id_
+          for field in ('id="admin-token"','id="user-api-key"','type="password"'):
+              assert field not in html
+          scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,re.DOTALL)
+          assert len(scripts)==1
+          Path("/tmp/hitel-chat-ui.js").write_text(scripts[0],encoding="utf-8")
+          print("PASS_WEB_CHAT_ROOM_FILES_NO_TOKEN_UI_STRUCTURE")
+          PY
+          node --check /tmp/hitel-chat-ui.js
+          echo PASS_WEB_CHAT_BROWSER_JAVASCRIPT_SYNTAX
+      - name: Real isolated-room file and CSRF HTTP API tests
+        run: |
+          set -euo pipefail
+          cd bridge-source/chatgpt-android-relay/web
+          python -m unittest discover -s tests -p 'test_browser_chat.py' -v
+          python -m py_compile web_chat.py app.py api_v1.py
+          echo PASS_WEB_CHAT_ROOM_FILE_CSRF_AND_JOB_ISOLATION
       - name: Verify public token-free test UI and private API isolation
         run: |
           set -euo pipefail
