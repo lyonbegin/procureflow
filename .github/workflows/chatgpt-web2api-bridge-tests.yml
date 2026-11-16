@@ -118,6 +118,8 @@ jobs:
           set -euo pipefail
           cd bridge-source/chatgpt-android-relay/web
           python -m unittest discover -s tests -p 'test_browser_chat.py' -v
+          python -m unittest discover -s tests -p 'test_chatgpt_account_safety.py' -v
+          echo PASS_CHATGPT_IDENTITY_SEPARATE_FROM_CHROME_SESSION
           python -m py_compile web_chat.py chatgpt_accounts.py app.py api_v1.py
           python - <<'PY'
           from pathlib import Path
