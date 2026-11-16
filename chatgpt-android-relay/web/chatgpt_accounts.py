@@ -151,6 +151,7 @@ async def complete_login(request: Request, code: str = "", state: str = "", erro
     if (not pending or pending["expires_at"] < int(time.time())
             or not secrets.compare_digest(pending["flow_digest"],_digest(flow))):
         raise HTTPException(403,"ChatGPT 로그인 요청이 만료되었거나 다른 브라우저의 요청입니다.")
+    owner = pending["browser_owner"]
     if error:
         return RedirectResponse("/?chatgpt-auth=cancelled",status_code=303)
     if not code or not _enabled():
