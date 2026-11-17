@@ -59,11 +59,14 @@ jobs:
           chmod 700 "$ROOT"
           export W2A_MULTI_ROOT="$ROOT"
           # Import only previously AES-GCM encrypted per-account profiles.
-          PREVIOUS="$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-two-account-manual-login.yml/runs?status=success&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)"
-          if [ -n "$PREVIOUS" ]; then
+          # Search the latest SUCCESSFUL runs for actual encrypted profiles.
+          # A successful session with zero logins has NO profile artifact; do
+          # not accidentally discard older saved accounts when that occurs.
+          for PREVIOUS in $(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-two-account-manual-login.yml/runs?status=success&per_page=20" \
+            --jq '.workflow_runs[].id' 2>/dev/null || true); do
             mkdir -p "$ROOT/prior"
+            rm -f "$ROOT/prior/"*.bin
             if gh run download "$PREVIOUS" --repo "$GITHUB_REPOSITORY" \
                --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/prior" \
                >/dev/null 2>&1 && test -s "$ROOT/prior/registry.bin"; then
@@ -71,8 +74,9 @@ jobs:
               find "$ROOT/prior" -maxdepth 1 -type f -name 'account-*.bin' \
                 -exec cp '{}' "$ROOT/" \;
               echo PASS_PRIOR_ENCRYPTED_PROFILES_RESTORED
+              break
             fi
-          fi
+          done
           export DISPLAY=:99
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
           sleep 3
