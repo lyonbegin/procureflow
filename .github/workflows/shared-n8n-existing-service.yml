@@ -1,0 +1,122 @@
+name: Existing shared n8n main + worker image (no standalone server)
+on:
+  pull_request:
+    paths:
+      - 'n8n/Dockerfile'
+      - 'n8n/custom-nodes/**'
+      - 'n8n/operational_manifest.json'
+      - 'n8n/operational/**'
+      - 'n8n/workflows/**'
+      - '.github/workflows/shared-n8n-existing-service.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-existing-n8n-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  existing-service-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify existing n8n image is built from pinned shared editor, not a second server
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const d=fs.readFileSync('n8n/Dockerfile','utf8');
+          assert.match(d,/N8N_SOURCE_REF=n8n@2\.44\.6/);
+          assert.match(d,/N8N_SOURCE_SHA=b58d9e89d60e9a3485bb511c5091d8be0d9511e4/);
+          assert.match(d,/SHARED_N8N_STUDIO_COMMIT=999062f1676bdffafa852a36e6c986ef5ce7589f/);
+          assert.match(d,/apply-pan-patch\.mjs/);
+          assert.match(d,/CMD \["n8n", "start"\]/);
+          assert.match(d,/ENTRYPOINT \["tini", "--"\]/);
+          assert.match(d,/COPY --chown=node:node n8n\/operational \/home\/node\/procureflow-operational-workflows/);
+          assert.match(d,/COPY --chown=node:node n8n\/workflows \/home\/node\/procureflow-demo-workflows/);
+          assert.match(d,/N8N_CUSTOM_EXTENSIONS=\/home\/node\/procureflow-custom-nodes/);
+          for(const forbidden of [
+            /FROM\s+n8nio\/n8n:/, /bootstrap-shared-studio\.sh/,
+            /procureflow-n8n-bootstrap/, /DB_TYPE[= ]sqlite/,
+            /N8N_ENCRYPTION_KEY=/,/n8n import:workflow/,/preview-operator/,
+            /CREATE OWNER/i, /N8N_USER_MANAGEMENT_DISABLED=true/
+          ])assert(!forbidden.test(d),'unsafe image behavior: '+forbidden);
+          const manifest=require('./n8n/operational_manifest.json');
+          assert.equal(manifest.engine,'n8n_only');
+          assert.equal(manifest.flows.length,15);
+          assert.equal(manifest.blocks.length,43);
+          console.log('EXISTING_N8N_IMAGE_CONTRACT_PASS: patched official 2.44.6; reuses main/worker, no fresh DB or auth');
+          NODE
+      - name: Pin existing Railway service paths for comparison (no Railway writes)
+        run: |
+          echo 'Existing n8n main: repo=lyonbegin/procureflow, Dockerfile=n8n/Dockerfile, PostgreSQL+Redis+owner reused'
+          echo 'Existing n8n worker: same n8n/Dockerfile, Railway startCommand=n8n worker --concurrency=3'
+          echo 'Existing gateway: n8n/editor-proxy/Dockerfile, no additional Basic Auth'
+          echo 'This job does NOT deploy, start another n8n service, import workflows or touch PostgreSQL'
+  official-shared-runtime-build:
+    needs: existing-service-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      # Production Railway Dockerfile remains byte-for-byte unchanged.
+      # The upstream @vscode/ripgrep postinstall queries GitHub Releases and
+      # anonymous requests intermittently fail HTTP 403. Inject a read-only
+      # GitHub Actions token ONLY through a BuildKit secret in this disposable
+      # CI Dockerfile. Never use ARG/ENV for the token or change Railway.
+      - name: Prepare ephemeral CI Dockerfile with token-free final image
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const original = fs.readFileSync('n8n/Dockerfile', 'utf8');
+          const needle = 'RUN pnpm install --frozen-lockfile --trust-lockfile \\';
+          assert.equal(original.split(needle).length, 2, 'expected exactly one upstream pnpm install layer');
+          const injection = [
+            'RUN --mount=type=secret,id=github_token \\',
+            '    set -eu; \\',
+            '    if [ -s /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \\',
+            '    pnpm install --frozen-lockfile --trust-lockfile \\',
+          ].join('\n');
+          const ciDockerfile = original.replace(needle, injection);
+          assert.equal(ciDockerfile.replace(injection, needle), original, 'only BuildKit secret mount may differ');
+          assert(!ciDockerfile.includes('ARG GITHUB_TOKEN') && !ciDockerfile.includes('ENV GITHUB_TOKEN'));
+          fs.writeFileSync('/tmp/procureflow-existing-n8n-ci.Dockerfile', ciDockerfile);
+          console.log('EXISTING_N8N_CI_SECRET_ONLY_PATCH_PASS',
+            crypto.createHash('sha256').update(original).digest('hex'));
+          NODE
+      - name: Build identical pinned n8n source/runtime with CI-only GitHub API secret
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN -f /tmp/procureflow-existing-n8n-ci.Dockerfile -t pf-existing-n8n:pr . 2>&1 | tee existing-n8n-build.log
+          grep -F 'PAN_PATCH_PATCHED:' existing-n8n-build.log
+          ! docker image inspect pf-existing-n8n:pr --format '{{json .Config.Env}}' | grep -F 'GITHUB_TOKEN'
+      - name: Verify n8n version and compiled business extension without creating a server
+        run: |
+          docker run --rm --entrypoint n8n pf-existing-n8n:pr --version | tee n8n-version.txt
+          grep -Fx '2.44.6' n8n-version.txt
+          docker run --rm --entrypoint node pf-existing-n8n:pr -e '
+            const assert=require("node:assert/strict");
+            const fs=require("node:fs");
+            const {ProcureFlowBusinessOperation}=require("/home/node/procureflow-custom-nodes/ProcureFlowBusinessOperation.node.js");
+            const node=new ProcureFlowBusinessOperation();
+            assert.equal(node.description.name,"procureFlowBusinessOperation");
+            assert.equal(node.description.properties.find(x=>x.name==="operationId").options.length,43);
+            assert(fs.existsSync("/home/node/procureflow-operational-workflows"));
+            assert(fs.existsSync("/home/node/procureflow-demo-workflows"));
+            console.log("EXISTING_N8N_MAIN_WORKER_IMAGE_PASS: native extension 43 choices, no owner bootstrap");
+          '
+          docker image inspect pf-existing-n8n:pr --format '{{json .Config.Cmd}} {{json .Config.Entrypoint}} {{.Config.User}}' | tee runtime-config.txt
+          grep -F '["n8n","start"]' runtime-config.txt
+          grep -F 'node' runtime-config.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: existing-main-worker-shared-n8n-build
+          path: |
+            existing-n8n-build.log
+            n8n-version.txt
+            runtime-config.txt

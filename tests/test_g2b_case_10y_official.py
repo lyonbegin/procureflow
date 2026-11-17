@@ -11,3 +11,13 @@ def test_pagination_envelope():
                                                          {"bidNtceNo":"20240913450"}]}}}
     result,total=_parse(body)
     assert len(result)==2 and total==2
+
+def test_non_ascii_detail_suffix_never_certifies_official_category():
+    """Unicode decimal digits match \\d but are not official ASCII codes."""
+    for suffix in ("０１", "٠١", "۰۱"):
+        assert _category_from({"dtilPrdctClsfcNo": "81111599" + suffix}) is None
+        assert _category_from({
+            "prdctClsfcNo": "81111599",
+            "dtilPrdctClsfcNo": "81111599" + suffix,
+        }) is None
+    assert _category_from({"dtilPrdctClsfcNo": "8111159901"}) is True

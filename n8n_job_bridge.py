@@ -370,3 +370,11 @@ def api_flow_progress(flow_id:str,bid_no:str=Query(CASE_BID)):
     observation=inspect_flow(flow_id,bid_no)
     jobs=_recent_jobs(bid_no)
     return progress_snapshot(flow_id,bid_no,observation,jobs)
+
+
+@router.get("/history/month-progress",
+            summary="Read-only 121-month official category discovery cursor; NOT 10-digit opening coverage")
+def historical_month_progress(bid_no: str = Query(CASE_BID)):
+    _selected_case(bid_no)
+    from g2b_case_10y_official import official_month_progress
+    return official_month_progress()

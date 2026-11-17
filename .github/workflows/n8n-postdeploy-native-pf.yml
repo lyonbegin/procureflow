@@ -4,6 +4,9 @@ on:
     paths:
       - ".github/workflows/n8n-postdeploy-native-pf.yml"
       - "n8n/operational/**"
+      - "n8n/Dockerfile"
+      - "n8n/custom-nodes/**"
+      - "n8n/operational_manifest.json"
       - "n8n_job_bridge.py"
   workflow_dispatch:
 permissions:
@@ -27,8 +30,36 @@ jobs:
           assert d['bid_submitted'] is False
           print('LIVE_PF05_PLAN_READ_ONLY_VERIFIED',d['status'])
           PY
-      - name: Build actual production n8n image containing ProcureFlow custom node
-        run: docker build -f n8n/Dockerfile -t procureflow-n8n-integration:qa .
+      # The pinned upstream n8n build installs @vscode/ripgrep. Its postinstall
+      # calls GitHub releases and anonymous runners can get HTTP 403, making
+      # a correct n8n source build fail before any PF workflow is executed.
+      # Reuse the already-proven BuildKit CI-only secret pattern from
+      # n8n-single-engine-tests.yml. Do not change the production Dockerfile,
+      # pass a token as ARG/ENV, or bake it into the image.
+      - name: Prepare disposable CI-only Dockerfile with read-only token mount
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          original=Path('n8n/Dockerfile').read_text()
+          needle='RUN pnpm install --frozen-lockfile --trust-lockfile ' + chr(92) + '\n'
+          assert original.count(needle)==1, 'Pinned production Dockerfile install step changed'
+          replacement=(
+              'RUN --mount=type=secret,id=github_token ' + chr(92) + '\n'
+              + '    export GITHUB_TOKEN="$(cat /run/secrets/github_token)" && ' + chr(92) + '\n'
+              + '    pnpm install --frozen-lockfile --trust-lockfile ' + chr(92) + '\n'
+          )
+          Path('/tmp/ProcureFlow.PF15.Dockerfile.ci').write_text(
+              original.replace(needle,replacement))
+          print('PF15_CI_ONLY_SECRET_MOUNT_PREPARED')
+          PY
+      - name: Build actual n8n image with CI-only token (no production credentials)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
+            -f /tmp/ProcureFlow.PF15.Dockerfile.ci \
+            -t procureflow-n8n-integration:qa .
       - name: Execute all FIFTEEN native PF workflows through actual n8n 2.44.6
         run: |
           docker run --rm --entrypoint /bin/sh \

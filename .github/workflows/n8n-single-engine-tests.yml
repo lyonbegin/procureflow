@@ -97,11 +97,36 @@ jobs:
 
   custom-node-image-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Build dedicated n8n image with native workflows
-        run: docker build -f n8n/Dockerfile -t procureflow-native-n8n:test .
+      # The original production Dockerfile stays BYTE-FOR-BYTE unchanged.
+      # @vscode/ripgrep@1.17.1 postinstall queries GitHub's releases API;
+      # anonymous CI runners can receive 403. Use a disposable BuildKit-only
+      # copy with a read-only ephemeral Actions token, never an ARG or ENV
+      # persisted in the image, and never touch Railway credentials.
+      - name: Prepare ephemeral CI-only Dockerfile with secret mount
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          original=Path('n8n/Dockerfile').read_text()
+          needle='RUN pnpm install --frozen-lockfile --trust-lockfile ' + chr(92) + '\n'
+          assert original.count(needle)==1, 'Pinned production Dockerfile build step changed'
+          secret_run=(
+              'RUN --mount=type=secret,id=github_token ' + chr(92) + '\n'
+              + '    export GITHUB_TOKEN="$(cat /run/secrets/github_token)" && ' + chr(92) + '\n'
+              + '    pnpm install --frozen-lockfile --trust-lockfile ' + chr(92) + '\n'
+          )
+          Path('/tmp/ProcureFlow.Dockerfile.ci').write_text(original.replace(needle,secret_run))
+          print('ISOLATED_CI_DOCKERFILE_SECRET_MOUNT_PREPARED')
+          PY
+      - name: Build dedicated n8n image with native workflows (isolated, secret never baked)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker build --progress=plain --secret id=github_token,env=GITHUB_TOKEN \
+            -f /tmp/ProcureFlow.Dockerfile.ci -t procureflow-native-n8n:test .
       - name: Verify 25 native n8n workflow JSONs bundled
         run: |
           docker run --rm --entrypoint /bin/sh procureflow-native-n8n:test \
