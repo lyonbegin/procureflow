@@ -26,7 +26,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: d557a422507dfbc1dd5196d79ce5b2162eb5d6af1262f9beb81d1ab04787fa0e
+      W2A_ACCESS_SHA256: 1a742255abbd801a3a2c4e52131dfe95a1425b5bf59fd4e27f1a0ee4414d2732
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
