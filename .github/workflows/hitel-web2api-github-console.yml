@@ -1,78 +1,85 @@
-name: HITEL Web2API - GitHub 실행 및 결과 확인
+name: HITEL Web2API - saved GitHub Chrome accounts
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "검사할 기능을 선택하십시오"
+        description: "Choose a saved account check or one real ChatGPT turn"
         required: true
         type: choice
-        default: server_status
+        default: saved_account_status
         options:
-          - server_status
+          - saved_account_status
           - real_chat
-  push:
-    paths:
-      - .github/workflows/hitel-web2api-github-console.yml
-      - docs/HITEL_WEB2API_RUN_NOW.md
+      account_slot:
+        description: "Saved account number (1, 2, 3...). Defaults to 1."
+        required: true
+        type: string
+        default: "1"
 
+# NO Railway endpoint, repository push trigger, recurring run or token exposure.
 permissions:
   contents: read
   actions: read
 
 jobs:
-  check-server:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'server_status'
-    # Validate the live Railway API on every console workflow change.
-    name: Railway API 실제 응답 확인
+  saved-account-status:
+    if: inputs.mode == 'saved_account_status'
+    name: Check AES-GCM saved ChatGPT browser account files
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HITEL_ACCOUNT_SLOT: ${{ inputs.account_slot }}
     steps:
-      - name: Test deployed Railway API via real HTTP requests
+      - name: Verify latest stored multi-account artifact without decrypting credentials
         run: |
           set -euo pipefail
-          BASE=https://chatgpt-relay-web-production.up.railway.app
-          curl --fail --silent --show-error --retry 2 --max-time 15 "$BASE/health" -o /tmp/hitel-web2api-health.json
-          curl --fail --silent --show-error --retry 2 --max-time 15 "$BASE/demo/status" -o /tmp/hitel-web2api-status.json
-          code="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{http_code}' "$BASE/api/v1/rooms")"
-          python3 - "$code" <<'PY'
-          import json
-          import os
-          import sys
-          from pathlib import Path
-
-          health=json.loads(Path("/tmp/hitel-web2api-health.json").read_text(encoding="utf-8"))
-          status=json.loads(Path("/tmp/hitel-web2api-status.json").read_text(encoding="utf-8"))
-          assert health.get("status") == "ok", "FAIL_API_HEALTH"
-          assert status.get("server") == "online", "FAIL_DEMO_API_STATUS"
-          assert isinstance(status.get("workerConnected"),bool), "FAIL_WORKER_FIELD"
-          assert sys.argv[1] == "404", "FAIL_PRIVATE_ROOMS_EXPOSED"
-          print("PASS_RAILWAY_API_HTTP")
-          print("PASS_TEST_CONSOLE_STATUS")
-          print("PASS_PRIVATE_ROOMS_NOT_PUBLIC")
-          print("GITHUB_WORKER_CONNECTED="+str(status["workerConnected"]).lower())
-          print("LAST_TEST_STATE="+str(status.get("testState","unknown")))
-          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
-              out.write("## HITEL Web2API - Railway API 검사 결과\n\n")
-              out.write("| 검사항목 | 결과 |\n| --- | --- |\n")
-              out.write("| Railway /health | 성공 (HTTP 200) |\n")
-              out.write("| Railway /demo/status | 성공 (HTTP 200) |\n")
-              out.write("| 개인 데이터 보호 /api/v1/rooms | 차단 (HTTP 404) |\n")
-              out.write("| GitHub Chrome 현재 연결 | "+("연결됨" if status["workerConnected"] else "현재 꺼짐")+" |\n")
-              out.write("| 최근 시험 상태 | "+str(status.get("testState","unknown"))+" |\n\n")
-              out.write("- [Web2API 시험 웹페이지]("+ "https://chatgpt-relay-web-production.up.railway.app/"+ ")\n")
-              out.write("- [원본 브라우저를 실행하는 GitHub Actions]("+ "https://github.com/lyonbegin/procureflow/actions/workflows/chatgpt-web2api-relay-worker.yml"+ ")\n")
-              out.write("- [설치·실행 안내](https://github.com/lyonbegin/procureflow/blob/main/docs/HITEL_WEB2API_GITHUB_OPERATOR.md)\n")
-          PY
+          SLOT="$HITEL_ACCOUNT_SLOT"
+          if ! [[ "$SLOT" =~ ^[1-9][0-9]{0,2}$ ]] || ((10#$SLOT > 100)); then
+            echo FAIL_ACCOUNT_SLOT_INVALID
+            exit 1
+          fi
+          ARTIFACT_RUN="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')"
+          test -n "$ARTIFACT_RUN" || {
+            echo FAIL_NO_VERIFIED_ACCOUNT_ARTIFACT
+            exit 1
+          }
+          ROOT="$RUNNER_TEMP/hitel-saved-accounts"
+          mkdir -p "$ROOT"
+          gh run download "$ARTIFACT_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT" >/dev/null
+          test -s "$ROOT/registry.bin" || {
+            echo FAIL_ENCRYPTED_ACCOUNT_REGISTRY_MISSING
+            exit 1
+          }
+          printf -v FILE 'account-%04d.bin' "$SLOT"
+          test -s "$ROOT/$FILE" || {
+            echo FAIL_SELECTED_CHATGPT_ACCOUNT_NOT_REGISTERED
+            exit 1
+          }
+          COUNT="$(find "$ROOT" -maxdepth 1 -type f -name 'account-*.bin' | wc -l)"
+          echo PASS_MULTI_CHATGPT_ENCRYPTED_PROFILES_PRESENT
+          echo SAVED_ACCOUNT_COUNT="$COUNT"
+          echo ACCOUNT_SLOT="$SLOT"
+          {
+            echo "## HITEL ChatGPT saved account"
+            echo
+            echo "- Encrypted browser profiles: **$COUNT**"
+            echo "- Selected registered slot: **$SLOT**"
+            echo "- Source: GitHub Actions encrypted artifact (not Railway)"
+            echo "- This is a storage test. Live ChatGPT session verification requires **real_chat**."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   real-chat:
-    # Assistant-initiated commit to the dedicated request file executes both jobs.
-    # No manual 'Run workflow' click required. The commit marker is deliberately
-    # distinct from ordinary documentation or workflow edits.
-    if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'real_chat') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[HITEL_WEB2API_RUN_NOW]'))
-    name: ChatGPT 실제 질문과 답변 수신
+    if: inputs.mode == 'real_chat'
+    name: Restore selected account and receive one REAL ChatGPT answer
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/chatgpt-web2api-verify-session.yml
+    with:
+      account_slot: ${{ inputs.account_slot }}
     secrets: inherit
