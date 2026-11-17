@@ -15,13 +15,7 @@ on:
         type: string
         required: false
         default: "1"
-  push:
-    paths:
-      - .github/workflows/chatgpt-web2api-verify-session.yml
-      - .github/scripts/w2a_verify_session.py
-      - .github/scripts/w2a_verify_chat_completion.py
-      - .github/scripts/w2a_diagnose_live_browser.py
-      - .github/scripts/w2a_patch_vendor_dom.py
+  # No automatic push/scheduled execution: selected users run explicitly.
 
 permissions:
   contents: read
