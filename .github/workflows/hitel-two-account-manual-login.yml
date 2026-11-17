@@ -2,7 +2,12 @@ name: HITEL - two manual Google/ChatGPT logins in remote Chrome
 
 on:
   workflow_dispatch:
-  # Only run when explicitly requested; no automatic remote Chrome sessions.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/remote-login/start-signal.txt
+  # On-demand only: explicitly updating this marker starts one Chrome login.
 
 permissions:
   contents: read
