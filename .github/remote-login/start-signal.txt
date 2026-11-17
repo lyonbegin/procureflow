@@ -2,3 +2,4 @@ HITEL secure temporary Chrome login startup requested by owner, 2026-11-17 11:05
 This file is a safe on-demand trigger; it contains no credentials or session data.
 Start one protected multi-account Chrome login session, 2026-11-17 (GitHub Actions only).
 2026-11-17: start protected multi-account login Chrome after direct-link Pages routing correction.
+2026-11-18: fresh protected GitHub Chrome login start, previous ephemeral run expired; Railway OFF.
