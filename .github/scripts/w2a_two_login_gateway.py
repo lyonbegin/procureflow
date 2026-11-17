@@ -197,122 +197,106 @@ def finish(slot: str) -> dict:
 
 LOGIN_HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HITEL · 원격 Chrome 로그인</title>
-<style>body{font-family:system-ui,sans-serif;background:#f6f8fb;color:#15283f;
-max-width:560px;margin:6vh auto;padding:20px}main{background:white;padding:25px;
-border-radius:18px;box-shadow:0 8px 36px #1a2c4214}h1{font-size:23px}
-label{display:block;margin:18px 0 6px}input{box-sizing:border-box;width:100%;
-font-size:17px;padding:14px;border:1px solid #c2cfdf;border-radius:9px}
-button{margin-top:18px;background:#1d466e;border:0;color:white;border-radius:9px;
-padding:14px 20px;font-size:16px;width:100%}p{line-height:1.7;color:#54657a}</style>
-</head><body><main><h1>HITEL · 계정 A/B 원격 Chrome</h1>
-<p id="auto-status">보안 연결을 확인하고 있습니다. 전용 접속 링크를 여셨다면
-접속 코드를 입력하실 필요가 없습니다.</p>
-<form id="grant-form" method="post" action="/grant"><label>예비 접속 코드 (직접 입력은 필요하지 않습니다)</label>
-<input name="code" type="password" autocomplete="off" required maxlength="200"/>
-<button type="submit">보호된 원격 화면 열기</button></form>
-<p>Google 이메일·비밀번호·추가 인증은 이어지는 실제 Chrome의
-공식 Google·ChatGPT 로그인 페이지에서 직접 처리합니다.</p>
+<meta name="referrer" content="no-referrer"><title>HITEL 원격 Chrome 연결</title>
+<style>body{font:16px system-ui,-apple-system,sans-serif;max-width:540px;
+margin:12vh auto;padding:20px;color:#14314a}h1{font-size:22px}
+p{color:#5c6e7c;line-height:1.6}</style></head>
+<body><h1>원격 Chrome에 연결 중입니다</h1>
+<p id="auto-status">접속 권한을 확인하고 있습니다.</p>
+<form id="grant-form" method="post" action="/grant" hidden>
+<input name="code" type="hidden"></form>
 <script>
 (function(){
-  // Link fragment stays local to the user's browser: never sent in the GET
-  // request, CDN edge logs, or referrer. Browser performs one HTTPS POST to
-  // local access-control gateway, receiving an HttpOnly session cookie.
-  const p=new URLSearchParams(location.hash.startsWith('#')?
-    location.hash.slice(1):'');
-  const access=p.get('access');
-  if(!access || !/^[A-Za-z0-9_-]{40,120}$/.test(access)){
-    document.getElementById('auto-status').textContent=
-      '이 주소는 보호된 연결을 요청합니다. 새로 발급된 원클릭 링크를 사용해 주십시오.';
-    return;
-  }
-  history.replaceState(null,'','/grant');
-  const form=document.getElementById('grant-form');
-  form.querySelector('[name=code]').value=access;
-  document.getElementById('auto-status').textContent=
-    '자동으로 인증하고 원격 Chrome을 열고 있습니다.';
-  form.submit();
+const p=new URLSearchParams(location.hash.replace(/^#/,''));
+const code=p.get('access');
+if(!code || !/^[A-Za-z0-9_-]{40,120}$/.test(code)){
+ document.getElementById('auto-status').textContent =
+ '이전 연결이 만료되었거나 개인용 접속 링크가 아닙니다. GitHub Pages의 새로운 링크로 열어 주십시오.';
+ return;
+}
+history.replaceState(null,'','/grant');
+const form=document.getElementById('grant-form');
+form.querySelector('[name=code]').value=code;
+document.getElementById('auto-status').textContent =
+ '인증 중입니다. Chrome 화면으로 연결합니다.';
+form.submit();
 })();
-</script></main></body></html>"""
+</script></body></html>"""
 
 DASH_HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>HITEL · 계정 두 개 로그인</title>
-<style>*{box-sizing:border-box}body{font-family:system-ui,Arial,sans-serif;margin:0;
-background:#f3f6fb;color:#19324d}header{padding:16px 20px;background:#123450;color:white}
-header h1{font-size:20px;margin:0}main{max-width:1160px;margin:auto;padding:16px}
-.steps{display:grid;grid-template-columns:1fr 1fr;gap:12px}.step{background:white;
-padding:15px;border-radius:12px;border:1px solid #dbe5ef}h2{font-size:16px;margin:0 0 8px}
-p{line-height:1.55}small{color:#526578}button,.open{border:0;background:#185d91;
-padding:12px 16px;border-radius:9px;color:white;cursor:pointer;text-decoration:none;
-font-weight:600}button:disabled{opacity:.5;cursor:not-allowed}#result{padding:11px}
-#screen{height:61vh;min-height:400px;width:100%;background:#1b2431;border:0;
-border-radius:12px;margin-top:12px}footer{font-size:12px;color:#55697d;padding:14px}
-@media(max-width:640px){.steps{grid-template-columns:1fr}#screen{height:56vh;min-height:320px}}</style>
-</head><body><header><h1>HITEL · 실제 ChatGPT 계정 2개 로그인</h1></header>
-<main><p>아래 원격 Chrome에서 <strong>Google/ChatGPT 공식 로그인</strong>을 직접 완료하신 뒤
-해당 계정의 <strong>인증 확인·암호화 저장</strong>을 누르십시오.
-비밀번호·2단계 인증번호를 이 관리 페이지에 입력하실 필요가 없습니다.</p>
-<div class="steps"><section class="step"><h2>① 계정 A</h2><p id="sa">대기 중</p>
-<button id="savea" onclick="save('a')">A 로그인 확인·저장</button></section>
-<section class="step"><h2>② 계정 B</h2><p id="sb">A 완료 후 진행</p>
-<button id="saveb" onclick="save('b')" disabled>B 로그인 확인·저장</button></section></div>
-<p><button id="google-start" onclick="openGoogle()">Google 공식 로그인 화면 자동 열기</button></p>
-<p id="result" role="status">원격 브라우저를 연결하고 있습니다.</p>
-<a class="open" href="/vnc.html?autoconnect=true&resize=remote" target="_blank"
-rel="noopener noreferrer">원격 Chrome 전체 화면</a>
+<meta name="referrer" content="no-referrer">
+<title>HITEL · Chrome 계정 로그인</title>
+<style>*{box-sizing:border-box}
+body{font:16px system-ui,-apple-system,"Noto Sans KR",sans-serif;margin:0;
+background:#f5f7fa;color:#172c40}
+main{max-width:850px;margin:0 auto;padding:12px}
+h1{font-size:20px;margin:0}
+header{background:white;border-bottom:1px solid #dce4eb;padding:15px}
+p{line-height:1.5;margin:8px 0;color:#526478}
+.status{font-weight:650;padding:13px;margin:12px 0;background:white;border-radius:10px}
+button,.btn{display:block;width:100%;text-align:center;border:0;border-radius:11px;
+padding:14px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none}
+button{background:#185b90;color:white}
+button:disabled{background:#b1c0cd;cursor:default}
+.btn{background:#e6f0f9;color:#185b90;margin:10px 0}
+#screen{display:block;width:100%;height:65vh;min-height:330px;border:0;
+border-radius:12px;background:#263745}
+.help{font-size:13px}
+@media(max-width:600px){#screen{height:58vh;min-height:320px}}
+</style></head>
+<body><header><h1>HITEL · ChatGPT 계정 로그인</h1></header>
+<main>
+<div class="status" id="state" role="status">원격 Chrome을 연결하고 있습니다.</div>
+<p>아래 실제 Chrome에서 Google/ChatGPT에 로그인해 주십시오.</p>
 <iframe id="screen" title="GitHub Actions 원격 Chrome"
-src="/vnc.html?autoconnect=true&resize=remote" allow="clipboard-read;clipboard-write"></iframe>
-<footer>두 계정은 서로 다른 Chrome 프로필에 저장됩니다. 실제 계정이 확인되어야 저장되며,
-GitHub Actions가 종료되면 이 원격 화면도 종료됩니다.</footer></main>
+src="/vnc.html?autoconnect=true&resize=remote"></iframe>
+<a class="btn" href="/vnc.html?autoconnect=true&resize=remote"
+target="_blank" rel="noopener noreferrer">Chrome 화면 크게 열기</a>
+<button id="save" onclick="saveCurrent()">로그인 확인 · 저장</button>
+<p id="notice" role="status">로그인하신 뒤 위 버튼을 한 번만 누르십시오.</p>
+<p class="help">계정 A 저장이 끝나면 자동으로 계정 B용 새 Chrome이 열립니다.
+Google 비밀번호나 인증번호는 이 관리 페이지에 입력하지 않습니다.</p>
+</main>
 <script>
-let busy=false;
-async function refresh(){
-try{
- const r=await fetch('/status',{cache:'no-store',credentials:'same-origin'});
- if(!r.ok)throw Error('원격 연결 만료');
- const d=await r.json();
- const labels={waiting:'Chrome에서 로그인해 주십시오',checking:'실제 세션 확인 중',
- saved:'실제 로그인 확인 및 암호화 저장 완료',pending:'이전 계정 저장 후 진행'};
- for(const s of ['a','b']){
-  document.getElementById('s'+s).textContent=
-   (labels[d.slots[s]]||d.slots[s])+(d.masked[s]?' · '+d.masked[s]:'');
-  document.getElementById('save'+s).disabled=busy||d.active!==s||d.slots[s]!=='waiting';
- }
- if(d.complete)document.getElementById('result').textContent=
- '두 계정의 실제 로그인을 확인했습니다. 암호화된 Chrome 프로필을 GitHub에 보관합니다.';
-}catch(e){document.getElementById('result').textContent=e.message}
-}
-async function openGoogle(){
- if(busy)return;
- const status=document.getElementById('result');
- status.textContent='원격 Chrome에서 공식 Google 로그인을 준비하고 있습니다.';
+let busy=false,active=null;
+async function update(){
  try{
-  const r=await fetch('/prepare-google',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});
-  const d=await r.json();
-  if(!r.ok||!d.ok)throw Error(d.error||'공식 로그인 화면을 열지 못했습니다');
-  status.textContent=d.status==='already_authenticated'?
-    '현재 원격 Chrome에 ChatGPT 로그인이 확인됩니다. 해당 계정 저장 버튼을 누르십시오.':
-    '원격 Chrome에서 Google/ChatGPT 로그인 화면을 확인하시고 직접 로그인해 주십시오.';
- }catch(e){status.textContent=e.message}
+  const r=await fetch('/status',{cache:'no-store',credentials:'same-origin'});
+  if(!r.ok)throw Error('원격 브라우저 연결이 만료되었습니다');
+  const d=await r.json();active=d.active;
+  const doneA=d.slots.a==='saved',doneB=d.slots.b==='saved';
+  const btn=document.getElementById('save');
+  btn.disabled=busy||d.complete||!(active==='a'||active==='b');
+  btn.textContent=d.complete?'두 계정 저장 완료':
+    active==='b'?'계정 B 로그인 확인 · 저장':'계정 A 로그인 확인 · 저장';
+  document.getElementById('state').textContent=d.complete?
+    '계정 A·B 두 개 모두 실제 로그인 확인 및 암호화 저장 완료':
+    active==='b'?'계정 A 저장 완료 · 현재 계정 B 로그인':
+    '현재 계정 A 로그인';
+  if(d.complete)document.getElementById('notice').textContent=
+    '두 계정을 암호화 저장했습니다. GitHub Actions에서 작업을 마칩니다.';
+ }catch(e){document.getElementById('notice').textContent=e.message}
 }
-async function save(slot){
- busy=true;document.getElementById('savea').disabled=true;
- document.getElementById('saveb').disabled=true;
- document.getElementById('result').textContent='ChatGPT 실제 로그인 여부를 확인하고 있습니다.';
+async function saveCurrent(){
+ if(busy||!active)return;
+ busy=true;document.getElementById('save').disabled=true;
+ document.getElementById('notice').textContent='실제 ChatGPT 로그인 확인 중…';
  try{
-  const r=await fetch('/finish',{method:'POST',credentials:'same-origin',
-   headers:{'Content-Type':'application/json'},body:JSON.stringify({slot})});
-  const j=await r.json();
-  if(!r.ok||!j.ok)throw Error(j.error||'실제 로그인을 확인하지 못했습니다');
-  document.getElementById('result').textContent=
-   slot==='a'?'A 저장 완료. 이제 B 계정으로 로그인해 주십시오.':'A와 B 모두 확인 완료';
- }catch(e){document.getElementById('result').textContent=e.message}
- finally{busy=false;await refresh()}
+  const r=await fetch('/finish',{method:'POST',
+    credentials:'same-origin',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slot:active})});
+  const result=await r.json();
+  if(!r.ok||!result.ok)throw Error(result.error||'로그인을 확인하지 못했습니다');
+  document.getElementById('notice').textContent=
+    result.next==='b'?'A 저장 완료. 아래 새 Chrome에서 계정 B로 로그인해 주십시오.':
+    'A와 B 두 계정을 모두 저장했습니다.';
+ }catch(e){document.getElementById('notice').textContent=
+   '저장되지 않았습니다: '+e.message}
+ finally{busy=false;await update()}
 }
-setInterval(refresh,3500);refresh();
+setInterval(update,4000);update();
 </script></body></html>"""
-
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -365,8 +349,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path=="/verify":
             self.reply(200 if self._cookie_ok() else 401)
         elif path=="/grant":
-            self.reply(200,LOGIN_HTML.encode(),
-                       (("Content-Type","text/html; charset=utf-8"),))
+            if self._cookie_ok():
+                self.reply(303,headers=(("Location","/"),))
+            else:
+                self.reply(200,LOGIN_HTML.encode(),
+                           (("Content-Type","text/html; charset=utf-8"),))
         elif not self._cookie_ok():
             self.reply(401,b"Protected Chrome login requires access code.")
         elif path=="/":
