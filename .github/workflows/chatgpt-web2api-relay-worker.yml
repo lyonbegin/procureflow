@@ -13,11 +13,8 @@ on:
           - "5"
           - "10"
           - "20"
-  push:
-    paths:
-      - .github/workflows/chatgpt-web2api-relay-worker.yml
-  schedule:
-    - cron: "*/5 * * * *"
+  # Railway relay retired at user's request: no push or periodic dispatch.
+  # Explicit manual testing only. This workflow must not be auto-started.
 
 permissions:
   contents: read
