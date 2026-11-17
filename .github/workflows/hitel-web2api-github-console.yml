@@ -17,20 +17,27 @@ on:
         type: string
         default: "1"
 
-# NO Railway endpoint, repository push trigger, recurring run or token exposure.
+  push:
+    branches:
+      - feature/hitel-web2api-multi-restored-smoke-20261118
+    paths:
+      - .github/workflows/hitel-web2api-github-console.yml
+
+# One-shot branch CI for saved-artifact UI; remove the push trigger after it passes.
+# No Railway endpoints or schedules.
 permissions:
   contents: read
   actions: read
 
 jobs:
   saved-account-status:
-    if: inputs.mode == 'saved_account_status'
+    if: github.event_name == 'push' || inputs.mode == 'saved_account_status'
     name: Check AES-GCM saved ChatGPT browser account files
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      HITEL_ACCOUNT_SLOT: ${{ inputs.account_slot }}
+      HITEL_ACCOUNT_SLOT: ${{ inputs.account_slot || '1' }}
     steps:
       - name: Verify latest stored multi-account artifact without decrypting credentials
         run: |
