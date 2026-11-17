@@ -1,0 +1,218 @@
+name: HITEL - scenario integration tests for saved ChatGPT account
+
+on:
+  push:
+    branches:
+      - test/hitel-web2api-scenario-matrix-20261118
+    paths:
+      - .github/scripts/w2a_scenarios_live.py
+      - .github/workflows/hitel-web2api-scenarios.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    name: Restore encrypted Chrome and test ChatGPT-Web2API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      HITEL_ACCOUNT_SLOT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Restore the user-saved encrypted ChatGPT account profile (not legacy)
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography playwright==1.56.0
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT" "$ROOT/download"
+          # Prefer the latest available AES-GCM encrypted multi-account
+          # artifact. A completed Actions run without any accounts has no
+          # archive and is therefore excluded.
+          ARTIFACT_RUN="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')"
+          test -n "$ARTIFACT_RUN" || { echo FAIL_NO_ENCRYPTED_MULTI_ACCOUNT_ARTIFACT; exit 1; }
+          gh run download "$ARTIFACT_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" \
+            >/dev/null
+          test -s "$ROOT/download/registry.bin" || {
+            echo FAIL_SAVED_MULTI_ACCOUNT_REGISTRY_MISSING
+            exit 1
+          }
+          SLOT="$HITEL_ACCOUNT_SLOT"
+          if ! [[ "$SLOT" =~ ^[1-9][0-9]{0,2}$ ]] || ((10#$SLOT > 100)); then
+            echo FAIL_ACCOUNT_SLOT_INVALID
+            exit 1
+          fi
+          printf -v ACCOUNT_ARCHIVE 'account-%04d.bin' "$SLOT"
+          test -s "$ROOT/download/$ACCOUNT_ARCHIVE" || {
+            echo FAIL_SELECTED_SAVED_ACCOUNT_ARCHIVE_MISSING
+            exit 1
+          }
+          echo PASS_USER_ENCRYPTED_MULTI_PROFILE_ARTIFACT_RETRIEVED
+          echo SELECTED_CHATGPT_ACCOUNT_SLOT="$SLOT"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/$ACCOUNT_ARCHIVE" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_SELECTED_SAVED_ACCOUNT_PROFILE_RESTORED
+      - name: Start Chrome using restored profile
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          export DISPLAY=:99
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_RESTORED_CHROME_CDP_LIVE
+              break
+            fi
+            if [ "$i" -eq 50 ]; then
+              echo FAIL_RESTORED_CHROME_START
+              tail -n 12 "$ROOT/chrome.log" || true
+              exit 1
+            fi
+            sleep 2
+          done
+      - name: Prove restored Chrome session still matches SAVED account
+        run: |
+          python3 .github/scripts/w2a_verify_session.py
+          python3 .github/scripts/w2a_verify_saved_registry.py
+      - name: Install and run previously selected ORIGINAL ChatGPT-Web2API source
+        env:
+          DISPLAY: :99
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 -m py_compile "$ROOT/original/src/chatgpt_web2api/completion_detector.py" "$ROOT/original/src/chatgpt_web2api/cdp_driver.py"
+          python3 -m pip install -q "$ROOT/original"
+          echo PASS_ORIGINAL_WEB2API_PINNED_SOURCE_INSTALLED
+          chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+            >"$ROOT/web2api.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 4 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo PASS_WEB2API_LOCAL_HEALTH
+              break
+            fi
+            if [ "$i" -eq 45 ]; then
+              echo FAIL_WEB2API_LOCAL_HEALTH
+              grep -Ei 'error|traceback|exception|authentication' "$ROOT/web2api.log" | tail -n 8 | sed -E 's/(token|cookie|password)=[^ ]+/\\1=[redacted]/Ig' || true
+              exit 1
+            fi
+            sleep 2
+          done
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json
+          url="http://127.0.0.1:18080/v1/models"
+          try:
+              with urllib.request.urlopen(url,timeout=20) as response:
+                  payload=json.load(response)
+                  models=payload.get("data",[]) if isinstance(payload,dict) else []
+                  print("WEB2API_MODELS_HTTP_STATUS="+str(response.status))
+                  print("WEB2API_MODELS_COUNT="+str(len(models)))
+                  if response.status==200 and isinstance(models,list) and len(models)>0:
+                      print("PASS_WEB2API_READONLY_MODELS")
+                  else: raise SystemExit("FAIL_WEB2API_MODELS_EMPTY")
+          except Exception as ex:
+              print("FAIL_WEB2API_MODELS_"+type(ex).__name__)
+              raise
+          PY
+      - name: Test one real question and response via original ChatGPT-Web2API
+        env:
+          DISPLAY: :99
+        run: |
+          python3 .github/scripts/w2a_verify_chat_completion.py
+      - name: Test isolation, binary attachment rejection and conversation safety
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q websockets==13.1
+          python3 -m unittest discover -s .github/scripts -p test_w2a_relay_worker.py -v
+          echo PASS_RELAY_NEGATIVE_SAFETY_TESTS
+      - name: Execute live ChatGPT use-case matrix
+        env:
+          DISPLAY: :99
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/w2a_scenarios_live.py
+      - name: Publish explicit scenario result matrix
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'w2a-check'/'hitel_scenario_results.json'
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+              f.write("## ChatGPT live use-case scenario matrix\n\n")
+              f.write("One newly registered and restored account. Test chat turns use only synthetic data.\n\n")
+              if not p.exists():
+                  f.write("**BLOCKED:** case matrix not produced; see preceding failed Actions step.\n")
+              else:
+                  data=json.loads(p.read_text(encoding='utf-8'))
+                  f.write("| ID | User scenario | Result | Evidence class |\n")
+                  f.write("|---|---|---|---|\n")
+                  for item in data['results']:
+                      f.write(f"| {item['id']} | {item['name']} | {item['status']} | {item['detail']} |\n")
+                  f.write("\nTotals: "+", ".join(f"{k}={v}" for k,v in data['summary'].items())+"\n\n")
+                  f.write("**PASS** means executed and checked, **UNSUPPORTED** means missing in pinned upstream, **BLOCKED** means not testable in the current UI. A CI success does not override individual FAILs.\n")
+          PY
+      - name: Upload sanitized scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-web2api-scenario-matrix
+          path: ${{ runner.temp }}/w2a-check/hitel_scenario_results.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Collect safe browser and Web2API error categories on failure
+        if: failure()
+        env:
+          DISPLAY: :99
+        run: |
+          python3 .github/scripts/w2a_diagnose_live_browser.py || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          path=Path(os.environ["RUNNER_TEMP"])/"w2a-check"/"web2api.log"
+          if not path.exists():
+              print("DIAG_WEB2API_LOG_ABSENT")
+          else:
+              text=path.read_text(encoding="utf-8",errors="replace").lower()
+              classes={
+                  "generation_stuck":("generationstuckerror","generation stuck","generation_stuck"),
+                  "composer_not_found":("no composer found","composer not present"),
+                  "timeout":("timed out","timeout","time limit"),
+                  "send_readiness":("sendreadinesserror","send readiness","send button"),
+                  "cdp_disconnect":("cdp disconn","websocket closed","socket closed"),
+                  "auth":("not logged in","auth failed","session expired"),
+                  "rate_limit":("rate limit","too many requests"),
+              }
+              for name,terms in classes.items():
+                  print("DIAG_WEB2API_"+name.upper()+"="+str(sum(text.count(t) for t in terms)))
+              print("DIAG_WEB2API_LOG_LINES="+str(len(text.splitlines())))
+          PY
