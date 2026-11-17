@@ -17,21 +17,14 @@ on:
         type: string
         default: "1"
 
-  push:
-    branches:
-      - feature/hitel-web2api-multi-restored-smoke-20261118
-    paths:
-      - .github/workflows/hitel-web2api-github-console.yml
-
-# One-shot branch CI for saved-artifact UI; remove the push trigger after it passes.
-# No Railway endpoints or schedules.
+# GitHub-only on demand; no Railway endpoints, push jobs, or schedules.
 permissions:
   contents: read
   actions: read
 
 jobs:
   saved-account-status:
-    if: github.event_name == 'push' || inputs.mode == 'saved_account_status'
+    if: inputs.mode == 'saved_account_status'
     name: Check AES-GCM saved ChatGPT browser account files
     runs-on: ubuntu-24.04
     timeout-minutes: 5
