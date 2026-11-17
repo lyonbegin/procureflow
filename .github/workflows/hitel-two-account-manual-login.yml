@@ -26,7 +26,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: 1789e3727b1b0f39967a7c79d88ef5cf63d1b987c6d41f6a53253e25cdc7a1b3
+      W2A_ACCESS_SHA256: d557a422507dfbc1dd5196d79ce5b2162eb5d6af1262f9beb81d1ab04787fa0e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +49,7 @@ jobs:
           test -n "$FREEMOA_GOOGLE_PASSWORD"
           echo PASS_EXISTING_SECRET_NO_ADDITIONAL_W2A_PASSWORD
       - name: Launch protected screen for registering multiple real ChatGPT accounts
+        id: interactive
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
@@ -173,7 +174,7 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=pending -f context=hitel-two-manual-chrome-logins \
             -f target_url="$PROTECTED_URL" \
-            -f description='Protected A/B Chrome login screen ready; private access code required' \
+            -f description='Protected noVNC Chrome account registration is ready' \
             >/dev/null
           echo PASS_REMOTE_MULTI_ACCOUNT_LOGIN_LINK_READY
           echo REMOTE_MULTI_ACCOUNT_LOGIN_URL="$PROTECTED_URL"
@@ -184,19 +185,27 @@ jobs:
           done
           # Even if the user does not tap finish, retain verified and encrypted
           # account profiles when the temporary session expires.
-          test -s "$ROOT/registry.bin" || {
-            echo FAIL_NO_REAL_CHATGPT_ACCOUNT_REGISTERED
-            exit 2
-          }
-          COUNT="$(find "$ROOT" -maxdepth 1 -type f -name 'account-*.bin' | wc -l)"
-          test "$COUNT" -ge 1
-          echo PASS_MULTI_ACCOUNT_ENCRYPTED_PROFILES_READY_FOR_UPLOAD
+          if [ ! -s "$ROOT/registry.bin" ]; then
+            echo "has_accounts=false" >> "$GITHUB_OUTPUT"
+            echo "INFO_INTERACTIVE_SESSION_FINISHED_WITHOUT_SAVED_ACCOUNT"
+          else
+            COUNT="$(find "$ROOT" -maxdepth 1 -type f -name 'account-*.bin' | wc -l)"
+            test "$COUNT" -ge 1
+            echo "has_accounts=true" >> "$GITHUB_OUTPUT"
+            echo PASS_MULTI_ACCOUNT_ENCRYPTED_PROFILES_READY_FOR_UPLOAD
+          fi
+          if [ -s "$ROOT/registry.bin" ]; then
+            DESCRIPTION='Registered ChatGPT account profiles encrypted and saved'
+          else
+            DESCRIPTION='Session closed; no ChatGPT account was registered'
+          fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=success -f context=hitel-two-manual-chrome-logins \
             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            -f description='Registered ChatGPT accounts encrypted and saved' \
+            -f description="$DESCRIPTION" \
             >/dev/null
       - name: Upload encrypted ChatGPT account registry and profiles
+        if: steps.interactive.outputs.has_accounts == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: hitel-chatgpt-encrypted-multi-profiles
