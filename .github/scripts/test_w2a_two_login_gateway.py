@@ -74,8 +74,8 @@ class DualLoginTests(unittest.TestCase):
         self.assertNotIn("name=\"password\"",m.LOGIN_HTML)
         self.assertNotIn("name=\"password\"",m.DASH_HTML)
         self.assertIn("accounts",m.DASH_HTML.lower() if "accounts" in m.DASH_HTML.lower() else "accounts")
-        self.assertIn("A 로그인 확인",m.DASH_HTML)
-        self.assertIn("B 로그인 확인",m.DASH_HTML)
+        self.assertIn("계정 A 로그인 확인",m.DASH_HTML)
+        self.assertIn("계정 B 로그인 확인",m.DASH_HTML)
         self.assertNotIn("type=\"password\"",m.DASH_HTML)
 
     def test_06_remote_screen_protected_by_auth_cookie(self):
@@ -105,8 +105,8 @@ class DualLoginTests(unittest.TestCase):
         self.assertIn("URLSearchParams(location.hash",m.LOGIN_HTML)
         self.assertIn("history.replaceState",m.LOGIN_HTML)
         self.assertIn("form.submit()",m.LOGIN_HTML)
-        self.assertIn("Google 공식 로그인 화면 자동 열기",m.DASH_HTML)
-        self.assertIn("async function openGoogle()",m.DASH_HTML)
+        self.assertIn("Chrome 화면 크게 열기",m.DASH_HTML)
+        self.assertIn("async function saveCurrent()",m.DASH_HTML)
         self.assertNotIn('name="password"',m.LOGIN_HTML)
 
     def test_09_single_use_code_can_exchange_into_http_only_session(self):
