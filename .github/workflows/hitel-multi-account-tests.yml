@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/hitel-multi-login-manager-20261117
+      - fix/hitel-login-grant-and-timeout-20261117
     paths:
       - ".github/scripts/w2a_multi_login_gateway.py"
       - ".github/scripts/test_w2a_multi_login_gateway.py"
