@@ -152,7 +152,21 @@ jobs:
           NGINX
           nginx -t -c "$ROOT/nginx.conf"
           nginx -c "$ROOT/nginx.conf" -g 'daemon off;' >"$ROOT/nginx.log" 2>&1 &
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/)" = 401
+          # nginx is backgrounded. Wait for the listener instead of racing
+          # its first startup; a one-shot check previously failed silently.
+          PROTECTED_CODE=""
+          for i in $(seq 1 50); do
+            PROTECTED_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8088/ || true)"
+            if [ "$PROTECTED_CODE" = 401 ]; then break; fi
+            sleep 0.2
+          done
+          if [ "$PROTECTED_CODE" != 401 ]; then
+            echo "FAIL_REMOTE_CHROME_GATEWAY_STATUS_$PROTECTED_CODE"
+            tail -n 40 "$ROOT/nginx.log" || true
+            echo "CHECK_AUTH_GATEWAY_LISTENER"
+            curl -s -D - --max-time 3 http://127.0.0.1:8088/ -o /dev/null || true
+            exit 1
+          fi
           echo PASS_REMOTE_CHROME_PROTECTED
 
           curl -fsSL --retry 3 \
