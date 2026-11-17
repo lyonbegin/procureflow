@@ -3,3 +3,4 @@ This file is a safe on-demand trigger; it contains no credentials or session dat
 Start one protected multi-account Chrome login session, 2026-11-17 (GitHub Actions only).
 2026-11-17: start protected multi-account login Chrome after direct-link Pages routing correction.
 2026-11-18: fresh protected GitHub Chrome login start, previous ephemeral run expired; Railway OFF.
+2026-11-18: retry private login Chrome after nginx auth-gateway startup race fix.
