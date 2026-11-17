@@ -1,4 +1,4 @@
-name: HITEL - two manual Google/ChatGPT logins in remote Chrome
+name: HITEL - register and cache multiple ChatGPT accounts in Chrome
 
 on:
   workflow_dispatch:
@@ -20,13 +20,13 @@ concurrency:
 
 jobs:
   chrome-session:
-    name: Two distinct authenticated Chrome profiles
+    name: Register and encrypt independent ChatGPT browser profiles
     runs-on: ubuntu-24.04
     timeout-minutes: 53
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
-      W2A_ACCESS_SHA256: b76bce69e4d68722fcee7aca1ef4fdf776ae767419b4471c01542a3c8ef9c2ab
+      W2A_ACCESS_SHA256: 1789e3727b1b0f39967a7c79d88ef5cf63d1b987c6d41f6a53253e25cdc7a1b3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,11 +44,11 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             xvfb xauth x11vnc novnc websockify nginx
-          python3 -m py_compile .github/scripts/w2a_two_login_gateway.py .github/scripts/w2a_profile_crypto.py .github/scripts/w2a_account_runtime.py
+          python3 -m py_compile .github/scripts/w2a_multi_login_gateway.py .github/scripts/w2a_profile_crypto.py .github/scripts/w2a_account_runtime.py
           test -f /usr/share/novnc/vnc.html
           test -n "$FREEMOA_GOOGLE_PASSWORD"
           echo PASS_EXISTING_SECRET_NO_ADDITIONAL_W2A_PASSWORD
-      - name: Launch single protected remote screen for two REAL Chrome logins
+      - name: Launch protected screen for registering multiple real ChatGPT accounts
         env:
           CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
@@ -56,18 +56,33 @@ jobs:
           ROOT="$RUNNER_TEMP/hitel-two-accounts"
           mkdir -p "$ROOT"
           chmod 700 "$ROOT"
-          export W2A_DUAL_ROOT="$ROOT"
+          export W2A_MULTI_ROOT="$ROOT"
+          # Import only previously AES-GCM encrypted per-account profiles.
+          PREVIOUS="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-two-account-manual-login.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)"
+          if [ -n "$PREVIOUS" ]; then
+            mkdir -p "$ROOT/prior"
+            if gh run download "$PREVIOUS" --repo "$GITHUB_REPOSITORY" \
+               --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/prior" \
+               >/dev/null 2>&1 && test -s "$ROOT/prior/registry.bin"; then
+              cp "$ROOT/prior/registry.bin" "$ROOT/registry.bin"
+              find "$ROOT/prior" -maxdepth 1 -type f -name 'account-*.bin' \
+                -exec cp '{}' "$ROOT/" \;
+              echo PASS_PRIOR_ENCRYPTED_PROFILES_RESTORED
+            fi
+          fi
           export DISPLAY=:99
           Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
           sleep 3
           test -S /tmp/.X11-unix/X99
-          python3 .github/scripts/w2a_two_login_gateway.py >"$ROOT/gateway.log" 2>&1 &
+          python3 .github/scripts/w2a_multi_login_gateway.py >"$ROOT/gateway.log" 2>&1 &
           for i in $(seq 1 45); do
             if curl -fsS http://127.0.0.1:8899/health >/dev/null 2>&1; then break; fi
             if [ "$i" -eq 45 ]; then echo FAIL_ACCOUNT_GATEWAY_START; exit 1; fi
             sleep 1
           done
-          echo PASS_DUAL_ACCOUNT_LOGIN_GATEWAY_STARTED
+          echo PASS_MULTI_ACCOUNT_LOGIN_GATEWAY_STARTED
 
           x11vnc -display :99 -localhost -rfbport 5900 -forever -shared -nopw -quiet \
             >"$ROOT/x11vnc.log" 2>&1 &
@@ -93,6 +108,21 @@ jobs:
               }
               location = / { auth_request /_auth; proxy_pass http://127.0.0.1:8899; }
               location = /status { auth_request /_auth; proxy_pass http://127.0.0.1:8899; }
+              location = /save {
+                auth_request /_auth;
+                proxy_pass http://127.0.0.1:8899;
+                proxy_read_timeout 120s;
+              }
+              location = /add {
+                auth_request /_auth;
+                proxy_pass http://127.0.0.1:8899;
+                proxy_read_timeout 45s;
+              }
+              location = /done {
+                auth_request /_auth;
+                proxy_pass http://127.0.0.1:8899;
+                proxy_read_timeout 120s;
+              }
               location = /prepare-google {
                 auth_request /_auth;
                 proxy_pass http://127.0.0.1:8899;
@@ -145,36 +175,33 @@ jobs:
             -f target_url="$PROTECTED_URL" \
             -f description='Protected A/B Chrome login screen ready; private access code required' \
             >/dev/null
-          echo PASS_REMOTE_TWO_ACCOUNT_LOGIN_LINK_READY
-          echo REMOTE_TWO_ACCOUNT_LOGIN_URL="$PROTECTED_URL"
+          echo PASS_REMOTE_MULTI_ACCOUNT_LOGIN_LINK_READY
+          echo REMOTE_MULTI_ACCOUNT_LOGIN_URL="$PROTECTED_URL"
 
           for i in $(seq 1 510); do
-            if [ -f "$ROOT/both-verified.flag" ]; then break; fi
+            if [ -f "$ROOT/registration-complete.flag" ]; then break; fi
             sleep 5
           done
-          test -f "$ROOT/both-verified.flag" || {
-            echo FAIL_TWO_REAL_LOGINS_NOT_YET_VERIFIED
+          # Even if the user does not tap finish, retain verified and encrypted
+          # account profiles when the temporary session expires.
+          test -s "$ROOT/registry.bin" || {
+            echo FAIL_NO_REAL_CHATGPT_ACCOUNT_REGISTERED
             exit 2
           }
-          test -s "$ROOT/account-a.bin"
-          test -s "$ROOT/account-b.bin"
-          echo PASS_BOTH_REAL_CHATGPT_SESSIONS_SAVED_SEPARATELY
+          COUNT="$(find "$ROOT" -maxdepth 1 -type f -name 'account-*.bin' | wc -l)"
+          test "$COUNT" -ge 1
+          echo PASS_MULTI_ACCOUNT_ENCRYPTED_PROFILES_READY_FOR_UPLOAD
           gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=success -f context=hitel-two-manual-chrome-logins \
             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            -f description='Both distinct ChatGPT accounts verified and encrypted' \
+            -f description='Registered ChatGPT accounts encrypted and saved' \
             >/dev/null
-      - name: Upload encrypted account A browser profile
+      - name: Upload encrypted ChatGPT account registry and profiles
         uses: actions/upload-artifact@v4
         with:
-          name: hitel-chatgpt-account-a-encrypted
-          path: ${{ runner.temp }}/hitel-two-accounts/account-a.bin
-          if-no-files-found: error
-          retention-days: 90
-      - name: Upload encrypted account B browser profile
-        uses: actions/upload-artifact@v4
-        with:
-          name: hitel-chatgpt-account-b-encrypted
-          path: ${{ runner.temp }}/hitel-two-accounts/account-b.bin
+          name: hitel-chatgpt-encrypted-multi-profiles
+          path: |
+            ${{ runner.temp }}/hitel-two-accounts/registry.bin
+            ${{ runner.temp }}/hitel-two-accounts/account-*.bin
           if-no-files-found: error
           retention-days: 90
