@@ -81,7 +81,7 @@ def _selected_identity(db, owner_hash: str):
     return db.execute("""
         SELECT id FROM hitel_verified_chatgpt_accounts
         WHERE browser_owner=? AND active=1
-          AND issuer='https://auth.openai.com'
+          AND issuer IN ('https://auth.openai.com','urn:hitel:chatgpt:github-actions-verified-browser')
           AND email IS NOT NULL AND email!=''
         LIMIT 1
     """, (owner_hash,)).fetchone()
@@ -122,7 +122,7 @@ def _api_actor(authorization: Annotated[str | None, Header()] = None):
               ON a.browser_owner=p.owner_hash
             WHERE p.owner_hash=? AND p.user_id=? AND p.is_active=1
               AND a.id=? AND a.active=1
-              AND a.issuer='https://auth.openai.com'
+              AND a.issuer IN ('https://auth.openai.com','urn:hitel:chatgpt:github-actions-verified-browser')
               AND a.email IS NOT NULL AND a.email!=''
         """, (k["owner_hash"],k["user_id"],k["account_id"])).fetchone()
         if not row:
