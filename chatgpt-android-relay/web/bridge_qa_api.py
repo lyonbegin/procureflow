@@ -97,3 +97,36 @@ def get_qa_result(job_id: str,verified=Depends(oidc)):
             "end_to_end_pass":bool(answer_matches and url_verified),
             "error_type":(r["error"] or "")[:120] if r["status"]=="failed" else None,
             "scope":"signed QA only; not general integration account-bound chat"}
+
+
+@router.get("/latest")
+def public_latest_bridge_proof():
+    """Sanitized actual bridge result; no user text, email or access token."""
+    with api_v1.connection() as c:
+        row=c.execute(
+            "SELECT q.job_id,q.created_at,j.status,j.stage,j.result_text,"
+            "j.error,r.chatgpt_url,q.marker FROM hitel_bridge_qa_jobs q "
+            "JOIN jobs j ON j.id=q.job_id "
+            "JOIN rooms r ON r.id=j.room_id "
+            "ORDER BY q.created_at DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return {"status":"never_run","end_to_end_pass":False,
+                "scope":"GitHub Actions signed synthetic QA only"}
+    passed=bool(
+        row["status"]=="completed" and
+        isinstance(row["result_text"],str) and
+        row["result_text"].strip()==row["marker"] and
+        isinstance(row["chatgpt_url"],str) and
+        row["chatgpt_url"].startswith("https://chatgpt.com/c/")
+    )
+    return {"status":row["status"],"stage":row["stage"],
+            "reply_matches_expected_marker":bool(
+               row["status"]=="completed" and
+               isinstance(row["result_text"],str) and
+               row["result_text"].strip()==row["marker"]),
+            "conversation_url_verified":bool(
+                isinstance(row["chatgpt_url"],str)
+                and row["chatgpt_url"].startswith("https://chatgpt.com/c/")),
+            "end_to_end_pass":passed,"created_at":row["created_at"],
+            "scope":"Signed one-shot GitHub Chrome QA; not evidence of external API key provisioning"}
