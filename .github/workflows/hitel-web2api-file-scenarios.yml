@@ -79,12 +79,6 @@ jobs:
             sleep 2
           done
           python3 .github/scripts/w2a_verify_saved_registry.py
-      - name: Diagnose file upload completion, user send and assistant DOM safely
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 -m py_compile .github/scripts/w2a_file_diagnostic_v2.py
-          python3 .github/scripts/w2a_file_diagnostic_v2.py
       - name: Exercise real TXT and CSV add/remove/read/download UI
         run: |
           set -euo pipefail
@@ -116,3 +110,20 @@ jobs:
           path: ${{ runner.temp }}/hitel_file_scenario_results.json
           if-no-files-found: warn
           retention-days: 30
+      - name: Make overall CI fail unless all individual file cases PASS
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os,sys
+          p=Path(os.environ['RUNNER_TEMP'])/'hitel_file_scenario_results.json'
+          if not p.is_file():
+              print('FAIL_FILE_SCENARIO_REPORT_MISSING')
+              sys.exit(1)
+          data=json.loads(p.read_text(encoding='utf-8'))
+          failures=[r['id'] for r in data['results'] if r['status']!='PASS']
+          if failures:
+              print('FAIL_INCOMPLETE_FILE_SCENARIOS=' + ','.join(failures))
+              sys.exit(1)
+          print('PASS_ALL_FILE_SCENARIOS')
+          PY
