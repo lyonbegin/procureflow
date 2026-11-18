@@ -1,0 +1,233 @@
+openapi: 3.0.3
+info:
+  title: HITEL external-program ChatGPT relay API
+  version: "1.0.0-beta"
+  description: |
+    Machine-to-machine, account-pinned asynchronous job API. A 202 receipt
+    is not proof that the prompt reached ChatGPT. File upload/download is not
+    yet supported by the remote GitHub Chrome worker. Replace servers[0].url
+    only after a real HTTPS deployment has been verified.
+servers:
+  - url: https://replace-with-verified-api-domain.example
+    description: PLACEHOLDER. Not a live endpoint.
+tags:
+  - name: Integration
+    description: Requests made by a program holding a scoped HITEL API key.
+  - name: Key management
+    description: Same-origin browser enrollment, only after verified account selection.
+paths:
+  /integrations/v1/capabilities:
+    get:
+      tags: [Integration]
+      summary: Get accurate feature availability and worker connectivity
+      operationId: hitelGetCapabilities
+      responses:
+        "200":
+          description: Capability summary (remote file attachment false until implemented)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /integrations/v1/rooms:
+    get:
+      tags: [Integration]
+      summary: List accessible rooms in the key's selected ChatGPT account
+      security: [{bearerAuth: []}]
+      responses:
+        "200":
+          description: Scoped rooms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms: {type: array, items: {type: object, additionalProperties: true}}
+        "401": {description: Missing Bearer key}
+        "403": {description: Invalid or revoked key}
+        "409": {description: Verified account no longer selected}
+    post:
+      tags: [Integration]
+      summary: Create an account-pinned room
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoom"
+      responses:
+        "201":
+          description: Room created, no ChatGPT message sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room_id, account_id, status]
+                properties:
+                  room_id: {type: string}
+                  title: {type: string}
+                  account_id: {type: string}
+                  status: {type: string, example: active}
+        "429": {description: Room limit reached}
+  /integrations/v1/chat:
+    post:
+      tags: [Integration]
+      summary: Enqueue one text question; poll job for actual completion
+      description: |
+        Requests with attachment_ids are explicitly refused (501).
+        Replaying an identical request with the same Idempotency-Key returns
+        the original job_id and never creates a second prompt.
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_.:-]{16,128}$"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "202":
+          description: Accepted/queued, not a final assistant answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedJob"
+        "400": {description: Missing or invalid Idempotency-Key}
+        "401": {description: Missing integration key}
+        "403": {description: Invalid or revoked integration key}
+        "409": {description: Account/room mismatch, pending job, or key conflict}
+        "422": {description: Invalid request}
+        "429": {description: Quota exceeded}
+        "501": {description: Native remote file attachment not supported}
+  /integrations/v1/jobs/{job_id}:
+    get:
+      tags: [Integration]
+      summary: Poll verified result of a previously accepted job
+      security: [{bearerAuth: []}]
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string, pattern: "^job_[a-f0-9]{32}$"}
+      responses:
+        "200":
+          description: Scoped state and result text if completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobState"
+        "404": {description: Job not accessible or not found}
+  /integrations/v1/files:
+    post:
+      tags: [Integration]
+      summary: Explicit unsupported feature marker (501)
+      security: [{bearerAuth: []}]
+      responses:
+        "501": {description: Remote file upload to ChatGPT not implemented}
+  /web/api/integrations/keys:
+    get:
+      tags: [Key management]
+      summary: List names, IDs and revocation status; never return secret values
+      description: Requires current signed browser session.
+      responses:
+        "200": {description: Safe key metadata list}
+    post:
+      tags: [Key management]
+      summary: Issue a single account-bound integration key
+      description: |
+        Requires existing signed browser cookie, same-origin X-Web-Csrf header
+        from /web/api/bootstrap and selected verified OpenAI identity.
+        The secret is returned once, never shown again.
+      parameters:
+        - in: header
+          name: X-Web-Csrf
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 80}
+      responses:
+        "200": {description: Single-use secret reveal; Cache-Control no-store}
+        "403": {description: Browser CSRF/session failure}
+        "409": {description: Verified account not selected}
+        "429": {description: Too many active keys}
+  /web/api/integrations/keys/{key_id}:
+    delete:
+      tags: [Key management]
+      summary: Revoke one issued API key
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema: {type: string}
+        - in: header
+          name: X-Web-Csrf
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Key revoked}
+        "404": {description: Key not found within browser profile}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HITEL-SECRET
+  schemas:
+    CreateRoom:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 160}
+    ChatRequest:
+      type: object
+      required: [room_id, account_id, text]
+      properties:
+        room_id:
+          type: string
+          pattern: "^room_[a-f0-9]{32}$"
+        account_id:
+          type: string
+          pattern: "^oai_[A-Za-z0-9_-]{3,75}$"
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        attachment_ids:
+          type: array
+          maxItems: 10
+          items: {type: string}
+          description: Reserved for a future version; nonempty requests receive 501.
+    AcceptedJob:
+      type: object
+      required: [job_id, accepted, sent_to_chatgpt, replayed, worker_connected, poll]
+      properties:
+        job_id: {type: string, example: job_00000000000000000000000000000000}
+        status: {type: string, enum: [queued, existing]}
+        accepted: {type: boolean, example: true}
+        sent_to_chatgpt: {type: boolean, example: false}
+        replayed: {type: boolean}
+        worker_connected: {type: boolean}
+        poll: {type: string, example: /integrations/v1/jobs/job_00000000000000000000000000000000}
+    JobState:
+      type: object
+      properties:
+        job_id: {type: string}
+        room_id: {type: string}
+        status: {type: string, enum: [queued, running, completed, failed]}
+        stage: {type: string}
+        result_text: {type: string, nullable: true}
+        error: {type: string, nullable: true}
+        created_at: {type: integer, format: int64}
+        updated_at: {type: integer, format: int64}
