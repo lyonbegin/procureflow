@@ -145,16 +145,21 @@ def _dispatch_with_fallback() -> str:
 
 
 def pending_count() -> int:
+    """Count both verified private and explicitly isolated public-link jobs."""
+    public_uid="usr_browser_hitel_public_link"
     with api_v1.connection() as c:
         if os.environ.get("PUBLIC_SMOKE_ONLY","")=="1":
             row=c.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status='queued' AND "
-                "account_id IS NOT NULL AND user_id LIKE 'usr_browser_%'"
+                "((account_id IS NOT NULL AND user_id LIKE 'usr_browser_%') "
+                "OR (user_id=? AND account_id IS NULL))",
+                (public_uid,)
             ).fetchone()
         else:
             row=c.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status='queued' AND "
-                "account_id IS NOT NULL"
+                "(account_id IS NOT NULL OR (user_id=? AND account_id IS NULL))",
+                (public_uid,)
             ).fetchone()
         return int(row[0])
 
