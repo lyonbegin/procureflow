@@ -156,3 +156,5 @@ jobs:
                 "$RUNNER_TEMP/bridge-worker.log" || true
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+# rerun after correcting OIDC pairing workflow-ref pin, 2026-11-19
