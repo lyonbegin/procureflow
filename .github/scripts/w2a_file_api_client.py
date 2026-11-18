@@ -93,7 +93,7 @@ def init():
             token)
         if code!=200 or down!=data or hashlib.sha256(down).hexdigest()!=expected_hash:
             raise RuntimeError("FILE_API_DOWNLOAD_BYTES_MISMATCH_"+role.upper())
-        if headers.get("X-Synthetic-SHA256")!=expected_hash:
+        if {str(k).lower():v for k,v in headers.items()}.get("x-synthetic-sha256")!=expected_hash:
             raise RuntimeError("FILE_API_DOWNLOAD_HASH_HEADER_MISMATCH_"+role.upper())
         saved=INPUTS/manifest["name"]
         saved.write_bytes(down)
