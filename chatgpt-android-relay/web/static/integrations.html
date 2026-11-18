@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light">
 <meta name="description" content="HITEL 외부 프로그램 API 개발자 전달용 최종 설명서: 인증·대화 API·요청 예제·실측 QA·미지원과 운영 의존성">
-<title>HITEL 외부 프로그램 연동 API — 최종 개발자 설명서</title>
+<title>HITEL 외부 프로그램 연동 API — 검증 중 (운영 인계 금지)</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Malgun Gothic","Noto Sans KR",sans-serif;color:#17283b;background:#f6f8fb;font-size:16px}
 *{box-sizing:border-box}body{margin:0;line-height:1.68}header{background:#172e4a;color:white;padding:39px 20px}header>div{max-width:1060px;margin:auto}
@@ -27,7 +27,7 @@ small{font-size:12px;color:#67788b}
 <body>
 <header><div>
 <div class="kicker">HITEL · INTEGRATIONS API v1 · DEVELOPER HANDOFF</div>
-<h1>외부 프로그램 연동 API<br>최종 개발자 설명서</h1>
+<h1>외부 프로그램 연동 API<br>기술 검증 중 · 운영 인계 금지</h1>
 <p>다른 앱·백엔드·자동화 프로그램이 HITEL의 HTTP API를 사용하는 방법과, 실제로 작동하는 범위 및 아직 복구가 필요한 부분을 분리한 전달용 원본입니다.</p>
 <div class="quick">
 <a href="/integrations/openapi.yaml">OpenAPI 3.0.3</a>
@@ -36,7 +36,11 @@ small{font-size:12px;color:#67788b}
 <a href="/integrations/v1/scenarios/files/view">실제 파일 테스트 결과</a>
 </div>
 </div></header>
-<main>
+<main><div role="status" style="padding:18px 20px;border:2px solid #b45309;background:#fff3de;color:#713f12;border-radius:8px;margin-bottom:18px">
+<strong>운영 인계 금지 — 이전 ‘최종본’ 표시는 철회합니다.</strong>
+<p>GitHub Actions #44366554910에서 Railway ↔ GitHub Chrome ↔ ChatGPT 실제 시험 질문·답변은 통과했습니다. 그러나 이 결과는 서명된 1회성 시험이며, 외부 프로그램의 Bearer API 키 발급·일반 텍스트 송수신 및 파일 첨부, 18,109개 문서 대량 처리의 성공 증거가 아닙니다. 해당 기능들의 실제 운영 검증 전에는 다른 개발자에게 완성된 API로 전달하지 마십시오.</p>
+<p><a href="https://github.com/lyonbegin/procureflow/actions/runs/44366554910">일회성 실제 ChatGPT 왕복시험 증거</a> · <a href="/integrations/v1/capabilities">실시간 기능 상태</a></p>
+</div>
 <nav aria-label="문서 목차">
 <a href="#section-2">공식 호출 주소와 현재 운영 상태</a>
 <a href="#section-3">호출 구조</a>
