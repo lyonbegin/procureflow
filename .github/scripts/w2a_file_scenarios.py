@@ -94,7 +94,11 @@ def composer(page):
 def open_new(ctx):
     page=ctx.new_page()
     page.goto("https://chatgpt.com/",wait_until="domcontentloaded",timeout=55000)
-    page.wait_for_timeout(1300)
+    # Avoid racing React hydration on recently opened ChatGPT tabs.
+    for _ in range(50):
+        if composer(page) is not None:
+            break
+        page.wait_for_timeout(400)
     return page
 
 
@@ -125,33 +129,28 @@ def upload(page,path):
 
 
 def remove_attachment(page,name):
-    """Remove only the synthetic pending attachment via its own card."""
-    synthetic=page.get_by_text(name,exact=False)
-    if not synthetic.count():
-        return "SYNTHETIC_ATTACHMENT_NOT_VISIBLE"
-    # The live ChatGPT UI (2026-11-18) places one accessible remove
-    # button in the third ancestor of the filename; it has no stable
-    # data-testid. Never click a chat-delete or sidebar button.
-    card=synthetic.first.locator("xpath=../../..")
-    candidates=[
-        card.get_by_role("button",name=re.compile(
-            r"remove|delete|close|제거|삭제|닫기",re.I)),
-        card.locator('button[aria-label*="remove" i]'),
-        card.locator('button[aria-label*="close" i]'),
-    ]
-    for loc in candidates:
+    """Remove only the synthetic pending file from its local upload chip."""
+    clicked=False
+    for _ in range(35):
+        synthetic=page.get_by_text(name,exact=False)
+        if not synthetic.count():
+            return "REMOVED" if clicked else "SYNTHETIC_ATTACHMENT_NOT_VISIBLE"
         try:
-            for idx in range(min(loc.count(),3)):
-                button=loc.nth(idx)
+            card=synthetic.first.locator("xpath=../../..")
+            remove=card.get_by_role("button",name=re.compile(
+                r"remove|delete|close|제거|삭제|닫기",re.I))
+            if remove.count():
+                button=remove.first
                 if button.is_visible() and button.is_enabled():
-                    button.click(timeout=5000)
-                    for _ in range(15):
-                        if not visible_filename(page,name):
-                            return "REMOVED"
-                        page.wait_for_timeout(200)
+                    if not clicked:
+                        button.click(timeout=5000)
+                        clicked=True
+            if clicked and not visible_filename(page,name):
+                return "REMOVED"
         except Exception:
             pass
-    return "REMOVE_CONTROL_NOT_FOUND"
+        page.wait_for_timeout(400)
+    return "REMOVE_CLICKED_FILE_REMAINED" if clicked else "REMOVE_CONTROL_NOT_FOUND"
 
 def assistant_contains(page,key,strict=False):
     try:
@@ -163,35 +162,55 @@ def assistant_contains(page,key,strict=False):
         return False
 
 
+ASK_LAST_ERROR="NOT_ATTEMPTED"
 def ask(page,text):
-    field=composer(page)
+    """Submit only through the live composer submit button, when enabled."""
+    global ASK_LAST_ERROR
+    ASK_LAST_ERROR="COMPOSER_NOT_READY"
+    field=None
+    for _ in range(50):
+        field=composer(page)
+        if field is not None:
+            break
+        page.wait_for_timeout(400)
     if field is None:return False
-    field.fill(text)
-    # The actual restored Chrome build uses an enabled button[type=submit],
-    # not a stable data-testid=send-button (verified with live DOM probe).
-    options=[
-        page.locator('button[type="submit"]'),
-        page.get_by_role("button",name=re.compile(r"send|submit|보내기|전송",re.I)),
-    ]
-    for loc in options:
-        for i in range(min(loc.count(),5)):
-            try:
-                button=loc.nth(i)
-                if not (button.is_visible() and button.is_enabled()):
-                    continue
-                button.click(timeout=5000)
-                for _ in range(20):
-                    try:
-                        if not field.inner_text(timeout=1000).strip():
-                            return True
-                    except Exception:
-                        if (page.locator('[data-message-author-role="user"]').count()>0
-                            or re.search(r"/c/[a-z0-9-]+",page.url,re.I)):
-                            return True
-                    page.wait_for_timeout(250)
-                return False
-            except Exception:
-                continue
+    try:
+        field.fill(text)
+    except Exception:
+        ASK_LAST_ERROR="COMPOSER_FILL_FAILED"
+        return False
+    ASK_LAST_ERROR="SUBMIT_NOT_READY"
+    # A visible attachment filename is not evidence of finished processing.
+    # Wait until the actual submit control becomes enabled.
+    for _ in range(70):
+        try:
+            choices=[
+                page.locator('button[type="submit"]'),
+                page.get_by_role("button",name=re.compile(
+                    r"send|submit|보내기|전송",re.I))
+            ]
+            for loc in choices:
+                for i in range(min(loc.count(),5)):
+                    button=loc.nth(i)
+                    if not (button.is_visible() and button.is_enabled()):
+                        continue
+                    button.click(timeout=5000)
+                    for _ in range(30):
+                        try:
+                            if not field.inner_text(timeout=1000).strip():
+                                ASK_LAST_ERROR="SENT_CONFIRMED"
+                                return True
+                        except Exception:
+                            if (page.locator('[data-message-author-role="user"]').count()
+                                or re.search(r"/c/[a-z0-9-]+",page.url,re.I)):
+                                ASK_LAST_ERROR="SENT_CONFIRMED"
+                                return True
+                        page.wait_for_timeout(250)
+                    ASK_LAST_ERROR="SUBMIT_CLICKED_NOT_CONFIRMED"
+                    return False
+        except Exception:
+            pass
+        page.wait_for_timeout(450)
     return False
 
 def run():
@@ -220,7 +239,7 @@ def run():
             if code!="VISIBLE":
                 report("S10","Ask about TXT contents","BLOCKED",code)
             elif not ask(page,"Read the attached TXT and reply with ONLY its HITEL_TEST_KEY value."):
-                report("S10","Ask about TXT contents","BLOCKED","CHAT_COMPOSER_MISSING")
+                report("S10","Ask about TXT contents","BLOCKED",ASK_LAST_ERROR)
             else:
                 present=False
                 for _ in range(45):
@@ -239,7 +258,7 @@ def run():
                 report("S15","Upload and query synthetic CSV","BLOCKED",code)
             elif not ask(page,
                          "Read the attached CSV. Add the count values and reply ONLY with the number."):
-                report("S15","Upload and query synthetic CSV","BLOCKED","CHAT_COMPOSER_MISSING")
+                report("S15","Upload and query synthetic CSV","BLOCKED",ASK_LAST_ERROR)
             else:
                 answered=False
                 for _ in range(40):
@@ -258,7 +277,7 @@ def run():
                        "Create a REAL downloadable CSV file, not a markdown code block. "
                        "Name it hitel_scenario_output.csv and include header item,count "
                        "and rows apple,3 and pear,5. Provide the file for download."):
-                report("S11","Download generated CSV file","BLOCKED","CHAT_COMPOSER_MISSING")
+                report("S11","Download generated CSV file","BLOCKED",ASK_LAST_ERROR)
             else:
                 candidate=None
                 for _ in range(38):
