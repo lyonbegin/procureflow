@@ -71,6 +71,10 @@ small{font-size:12px;color:#67788b}
 <p><strong>즉시 사용 가능한 공개 API:</strong> GET /health, GET /integrations/v1/capabilities, GET /integrations/v1/scenarios/files/latest, GET /integrations/v1/scenarios/files/runs/{run_id}; 정적 문서 조회.</p>
 <p><strong>운영 연결이 복구되어야 실제 사용 가능한 API:</strong> 계정 페어링·htli_ 키 발급·방 생성·실제 ChatGPT 질문·답변·시험키 폐기가 한 차례 실측 통과되었습니다. 작업자가 연결된 동안에는 다른 개발자가 이 규격을 연동할 수 있습니다. 장기·대량·파일 기능은 별도 검증이 필요합니다.</p>
 <p><strong>미지원:</strong> 일반 외부 프로그램에서 임의 TXT/CSV/PDF/이미지/바이너리 첨부; ChatGPT가 생성한 파일의 일반 API 다운로드; SSE/스트리밍. 작업을 성공으로 가장하여서는 안 됩니다.</p>
+<h2>2-1. 질문이 들어올 때 작업자 자동 기동</h2>
+<p>HITEL 텍스트 API는 검증된 Bearer 키로 질문을 제출했을 때 Chrome 작업자가 꺼져 있으면 GitHub Actions 실행을 자동 요청하도록 구현했습니다. 장애·연결 끊김을 감지하고 SQLite 잠금으로 중복 기동을 억제하며, GitHub App 인증이 실패한 경우 별도로 구성된 저장소 전용 Actions 토큰으로 재시도합니다. GitHub 작업자 자체도 종료 시 대기 작업이 남았다면 서명 검증을 거쳐 후속 작업자를 실행할 수 있습니다. 이미 보낸 것으로 의심되는 질문은 자동 재전송하지 않습니다.</p>
+<p><strong>현재 실제 가동 조건:</strong> Railway의 GitHub App 변수(HITEL_GITHUB_APP_ID, HITEL_GITHUB_APP_INSTALLATION_ID, HITEL_GITHUB_APP_PRIVATE_KEY) 또는 제한된 HITEL_GITHUB_ACTIONS_TOKEN 중 한 방식이 먼저 등록되어 있어야 합니다. 설정이 없다면 자동 기동을 성공했다고 표시하지 않으며 워커 미연결 시 HTTP 503을 유지합니다. GitHub 예약 실행은 추가하지 않았습니다.</p>
+<p><a href="/integrations/worker">자동 기동 준비·연결 상태 페이지</a> · <a href="/integrations/v1/worker/autostart">자동 기동 상태 JSON</a></p>
 <h2 id="section-3">2. 호출 구조</h2>
 <p>외부 프로그램 → HTTPS /integrations/v1/* → Bearer 키 및 계정·방 검증 → 대기열 접수(HTTP 202) → GitHub Chrome 작업자 → 사용자 ChatGPT 계정 → 작업 결과 API.</p>
 <p>반드시 구분하십시오.</p>
@@ -117,7 +121,7 @@ export HITEL_API_KEY=&quot;htli_실제로_발급된_키&quot;
 export HITEL_ACCOUNT_ID=&quot;oai_실제로_발급된_계정_ID&quot;
 
 curl -sS &quot;$BASE_URL/integrations/v1/capabilities&quot;</code></pre>
-<p>worker_connected=false이면 질문 POST는 503입니다. <a href="/integrations/worker">작업자 켜기 페이지</a>에서 수동으로 시작하십시오.</p>
+<p>worker_connected=false라도 GitHub 실행 인증이 설정된 경우 HTTP 202로 접수하고 작업자를 자동 기동합니다. 인증이 없는 경우 HTTP 503입니다. <a href="/integrations/worker">실제 상태 확인</a></p>
 <h3 id="section-8">B. 대화방 생성</h3>
 <pre><code class="language-bash">curl -sS -X POST &quot;$BASE_URL/integrations/v1/rooms&quot; \
   -H &quot;Authorization: Bearer $HITEL_API_KEY&quot; \
