@@ -1,0 +1,174 @@
+name: HITEL file scenarios through real external HTTPS API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/hitel-file-scenarios-via-api.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: hitel-real-file-api-e2e
+  cancel-in-progress: false
+
+jobs:
+  real-file-api:
+    name: Real HTTPS upload/download to Chrome to API results (5 scenarios)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: \${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: \${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      DISPLAY: :99
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout exact experimental API scenario client
+        uses: actions/checkout@v4
+        with:
+          ref: feature/hitel-integrations-api-20261118
+          path: qa
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Real OIDC-signed multipart POST and SHA256-verified GET over Railway HTTPS
+        run: |
+          set -euo pipefail
+          python3 -m py_compile qa/.github/scripts/w2a_file_api_client.py
+          python3 qa/.github/scripts/w2a_file_api_client.py init
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Restore saved user account 1 without sending private data to API
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT/download"
+          RUN_ID="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
+          test -n "$RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null
+          test -s "$ROOT/download/registry.bin"
+          test -s "$ROOT/download/account-0001.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/account-0001.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_API_FILE_TEST_REGISTERED_PROFILE_RESTORED
+
+      - name: Start real Chrome and prove saved account matches encrypted registry
+        env:
+          CHROME_BINARY: \${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_ACTUAL_CHROME_CDP_READY
+              break
+            fi
+            if [ "$i" -eq 45 ]; then echo FAIL_CHROME_CDP_START; exit 1; fi
+            sleep 2
+          done
+          python3 .github/scripts/w2a_verify_saved_registry.py
+          touch "$RUNNER_TEMP/hitel_file_api_chrome_verified"
+          echo PASS_ACCOUNT_1_LIVE_IDENTITY_VERIFIED
+
+      - name: Exercise API-delivered file in genuine ChatGPT UI
+        run: |
+          set -euo pipefail
+          export HITEL_FILE_SOURCE_DIR="$RUNNER_TEMP/w2a-file-api-inputs"
+          export HITEL_FILE_TEST_KEY
+          HITEL_FILE_TEST_KEY="$(python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          print(json.loads((Path(os.environ["RUNNER_TEMP"])/"hitel_file_api_state.json").read_text())["marker"])
+          PY
+          )"
+          python3 -m py_compile qa/.github/scripts/w2a_file_api_scenarios.py
+          python3 qa/.github/scripts/w2a_file_api_scenarios.py
+
+      - name: POST individual browser results back to real HTTPS API
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -f "$RUNNER_TEMP/hitel_file_api_state.json"; then
+            python3 qa/.github/scripts/w2a_file_api_client.py submit
+          else
+            echo FAIL_API_TEST_NOT_INITIALIZED
+            exit 1
+          fi
+
+      - name: Publish trustworthy summary with proof and failure cases
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          path=Path(os.environ["RUNNER_TEMP"])/"hitel_file_api_results.json"
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("## HITEL real external HTTPS API file test\n\n")
+              if not path.exists():
+                  f.write("**BLOCKED:** no API-confirmed final report.\n")
+              else:
+                  report=json.loads(path.read_text())
+                  f.write("API upload/download SHA-256 verification: "
+                          +str(report["transport"]["sha256_match"])+"\n\n")
+                  f.write("| Scenario | Actual test | Status | Machine proof |\n"
+                          "|---|---|---|---|\n")
+                  for c in report["cases"]:
+                      f.write(f"| {c['id']} | {c['name']} | {c['status']} | {c['detail']} |\n")
+                  f.write("\n[Public real API result]("
+                          "https://hitel-integration-api-production.up.railway.app"
+                          "/integrations/v1/scenarios/files/runs/"
+                          +report["run_id"]+")\n")
+          PY
+
+      - name: Save sanitized API scenario evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-file-scenarios-via-real-api
+          path: \${{ runner.temp }}/hitel_file_api_results.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail CI if any of five cases incomplete
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os,sys
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"hitel_file_api_results.json"
+          if not p.is_file():
+              print("FAIL_NO_VERIFIED_API_RESULT")
+              sys.exit(1)
+          r=json.loads(p.read_text())
+          failures=[x["id"] for x in r["cases"] if x["status"]!="PASS"]
+          if failures or not r["all_pass"]:
+              print("FAIL_INCOMPLETE_API_FILE_CASES="+",".join(failures))
+              sys.exit(1)
+          print("PASS_ALL_FIVE_REAL_API_FILE_SCENARIOS")
+          PY
