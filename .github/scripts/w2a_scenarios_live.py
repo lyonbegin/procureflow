@@ -38,11 +38,13 @@ def record(code: str, name: str, status: str, detail: str) -> None:
     print(f"SCENARIO_{code}_{status}={detail}", flush=True)
 
 
-def post(text: str, conversation: str | None = None, stream=False):
+def post(text: str, conversation: str | None = None, stream=False, new_conversation=False):
     body = {"model":"auto", "stream":stream,
             "messages":[{"role":"user","content":text}]}
     if conversation:
         body["conversation_id"] = conversation
+    if new_conversation:
+        body["new_conversation"] = True
     request = urllib.request.Request(API, data=json.dumps(body).encode(),
                                      headers={"Content-Type":"application/json"},
                                      method="POST")
@@ -52,6 +54,8 @@ def post(text: str, conversation: str | None = None, stream=False):
         if stream:
             pieces=[]
             done=False
+            reasons=[]
+            chunks=0
             # Parse stream incrementally; strict upper bound protects the runner.
             for raw in res:
                 line=raw.decode("utf-8",errors="replace").strip()
@@ -68,10 +72,14 @@ def post(text: str, conversation: str | None = None, stream=False):
                 except ValueError:
                     continue
                 for choice in event.get("choices",[]):
+                    chunks+=1
+                    if choice.get("finish_reason"):
+                        reasons.append(str(choice["finish_reason"]))
                     delta=choice.get("delta",{})
                     if isinstance(delta,dict) and isinstance(delta.get("content"),str):
                         pieces.append(delta["content"])
-            return {"text":"".join(pieces),"done":done}
+            return {"text":"".join(pieces),"done":done,
+                    "chunks":chunks,"reasons":reasons}
         response=json.load(res)
         choices=response.get("choices",[])
         content=choices[0].get("message",{}).get("content") if choices else None
@@ -121,7 +129,7 @@ def live_chat_scenarios():
     first=None
     second=None
     try:
-        first=post("Diagnostic connection test. Reply with exactly HITEL_SCENARIO_"+NONCE+"_OK and nothing else.")
+        first=post("Diagnostic connection test. Reply with exactly HITEL_SCENARIO_"+NONCE+"_OK and nothing else.", new_conversation=True)
         if "HITEL_SCENARIO_"+NONCE+"_OK" in first["text"]:
             record("S02","Fresh English question and response","PASS","HTTP_200_EXACT_MARKER_RECEIVED")
         else:
@@ -129,7 +137,7 @@ def live_chat_scenarios():
     except Exception as e:
         record("S02","Fresh English question and response","FAIL",safe_error(e))
     try:
-        second=post("한국어 연결 시험입니다. 정확히 KOREAN_"+NONCE+"_PASS 만 답변해 주십시오.")
+        second=post("한국어 연결 시험입니다. 정확히 KOREAN_"+NONCE+"_PASS 만 답변해 주십시오.", new_conversation=True)
         if "KOREAN_"+NONCE+"_PASS" in second["text"]:
             record("S03","Fresh Korean question and response","PASS","HTTP_200_KOREAN_MARKER_MATCH")
         else:
@@ -145,7 +153,7 @@ def live_chat_scenarios():
     try:
         key="MEMO_"+NONCE+"_482"
         start=post("Remember this verification code for THIS diagnostic chat only: "+key+
-                   ". Reply with exactly ACK.")
+                   ". Reply with exactly ACK.", new_conversation=True)
         follow=post("Repeat only the verification code that I provided in my previous message. No commentary.",
                     start["conversation_id"])
         ok=(key in follow["text"] and follow["conversation_id"]==start["conversation_id"])
@@ -155,10 +163,13 @@ def live_chat_scenarios():
         record("S04","Two consecutive turns in same chat","FAIL",safe_error(e))
     try:
         marker="STREAM_"+NONCE+"_OK"
-        result=post("Streaming response check: reply exactly "+marker,stream=True)
-        good=marker in result["text"] and result["done"]
-        record("S06","Streaming ChatGPT response","PASS" if good else "FAIL",
-               "SSE_MARKER_AND_END_RECEIVED" if good else "SSE_MARKER_OR_END_MISSING")
+        result=post("Streaming response check: reply exactly "+marker,stream=True,new_conversation=True)
+        good=marker in result["text"] and result["done"] and "stop" in result["reasons"]
+        if good:
+            detail="SSE_MARKER_STOP_AND_DONE_RECEIVED"
+        else:
+            detail="SSE_MARKER_"+str(marker in result["text"])+                   "_DONE_"+str(result["done"])+                   "_STOP_"+str("stop" in result["reasons"])+                   "_CHUNKS_"+str(min(result["chunks"],999))
+        record("S06","Streaming ChatGPT response","PASS" if good else "FAIL",detail)
     except Exception as e:
         record("S06","Streaming ChatGPT response","FAIL",safe_error(e))
 
