@@ -256,6 +256,11 @@ async def submit_chat(data: ChatCreate, request: Request,
         raise HTTPException(409,"Requested ChatGPT account differs from integration key")
     if data.attachment_ids:
         raise HTTPException(501,"Native file attachment to ChatGPT is not supported")
+    from app import web2api_device
+    if web2api_device is None:
+        # Do not strand user jobs behind an offline or expired GitHub runner.
+        # A 202 receipt is never a promise of a future/automatic worker start.
+        raise HTTPException(503,"Chrome worker is offline; no job was enqueued")
     message=data.text.strip()
     if not message or any(ord(x)<32 and x not in "\n\r\t" for x in message):
         raise HTTPException(422,"Non-empty text without control characters required")
