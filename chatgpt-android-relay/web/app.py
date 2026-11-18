@@ -470,7 +470,7 @@ async def socket(ws: WebSocket):
                                         SELECT a.email FROM hitel_verified_chatgpt_accounts a
                                         JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
                                         WHERE a.id=? AND p.user_id=?
-                                          AND a.issuer='https://auth.openai.com'
+                                          AND a.issuer IN ('https://auth.openai.com','urn:hitel:chatgpt:github-actions-verified-browser')
                                           AND a.email IS NOT NULL AND a.email!='' LIMIT 1
                                     """, (assigned["account_id"], assigned["user_id"])).fetchone()
                             assigned_room = assigned["room_id"] if assigned else None
