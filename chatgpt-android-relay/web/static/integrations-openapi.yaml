@@ -5,11 +5,11 @@ info:
   description: |
     Machine-to-machine, account-pinned asynchronous job API. A 202 receipt
     is not proof that the prompt reached ChatGPT. File upload/download is not
-    yet supported by the remote GitHub Chrome worker. Replace servers[0].url
-    only after a real HTTPS deployment has been verified.
+    yet supported by the remote GitHub Chrome worker. The public HTTPS host responds to health and capability GETs, but real
+    account enrollment and GitHub Chrome worker execution are not ready.
 servers:
-  - url: https://replace-with-verified-api-domain.example
-    description: PLACEHOLDER. Not a live endpoint.
+  - url: https://hitel-integration-api-production.up.railway.app
+    description: HTTPS connectivity verified; authenticated ChatGPT send not yet verified.
 tags:
   - name: Integration
     description: Requests made by a program holding a scoped HITEL API key.
