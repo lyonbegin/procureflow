@@ -316,33 +316,68 @@ def file_scenarios():
                         try:
                             # The marker is ONLY in synthetic file contents;
                             # do not print response text to Actions logs.
-                            body=page.locator("body").inner_text(timeout=5000)
-                            if key in body:
+                            # Only the ASSISTANT'S answer proves the file
+                            # was read; a file preview may itself show the key.
+                            nodes=page.locator(
+                                '[data-message-author-role="assistant"],[data-testid="assistant-message"],div[class*="DilResponseRoot-"]')
+                            content=" ".join(nodes.all_inner_texts())
+                            if key in content:
                                 found=True;break
                         except Exception:
                             continue
                     record("S10","Ask question about TXT file","PASS" if found else "FAIL",
                            "SYNTHETIC_FILE_VALUE_ANSWERED" if found else "FILE_CONTENT_ANSWER_UNVERIFIED")
-                    # Download is a separate capability. Simply asking ChatGPT
-                    # for CSV is not proof of a real downloadable artifact.
-                    # Attempt only if an actual download control appears.
-                    download_controls=page.get_by_role("link",name=re.compile(
-                        r"\.csv$|Download|다운로드",re.I))
-                    if download_controls.count()==0:
-                        record("S11","Download assistant generated file","UNSUPPORTED",
-                               "NO_REAL_DOWNLOADABLE_FILE_PRODUCED_BY_THIS_PROMPT")
+                    # A real file-download test must FIRST request that ChatGPT
+                    # produce an actual downloadable attachment, not merely a
+                    # CSV code block in prose.
+                    composer=page.locator("#prompt-textarea")
+                    if composer.count()==0:
+                        composer=page.locator('[contenteditable="true"]')
+                    if composer.count()==0:
+                        record("S11","Download assistant generated file","BLOCKED",
+                               "CHAT_COMPOSER_NOT_AVAILABLE_FOR_DOWNLOAD")
                     else:
                         try:
-                            with page.expect_download(timeout=8000) as event:
-                                download_controls.first.click(timeout=4000)
-                            d=event.value
-                            target=temp/"downloaded_result"
-                            d.save_as(str(target))
-                            downloaded=target.is_file() and target.stat().st_size>0
-                            record("S11","Download assistant generated file",
-                                   "PASS" if downloaded else "FAIL",
-                                   "FILE_DOWNLOADED_NONEMPTY" if downloaded else "EMPTY_DOWNLOAD")
+                            composer.first.fill(
+                                "Create an actual downloadable CSV file named hitel_generated_scenario.csv "
+                                "containing a header item,count and exactly two rows apple,3 and pear,5. "
+                                "Attach the generated CSV as a downloadable file; a markdown code block is insufficient.")
+                            composer.first.press("Enter")
+                            link=None
+                            for _ in range(28):
+                                page.wait_for_timeout(2500)
+                                candidates=[
+                                    page.get_by_role("link",name=re.compile(
+                                        r"hitel_generated_scenario[.]csv|[.]csv$|Download|다운로드",re.I)),
+                                    page.locator('a[download]'),
+                                    page.locator('a[href*=".csv"]'),
+                                ]
+                                for c in candidates:
+                                    try:
+                                        if c.count() and c.first.is_visible():
+                                            link=c.first;break
+                                    except Exception:
+                                        pass
+                                if link is not None:break
+                            if link is None:
+                                record("S11","Download assistant generated file","BLOCKED",
+                                       "GENERATED_CSV_DOWNLOAD_LINK_NOT_AVAILABLE")
+                            else:
+                                try:
+                                    with page.expect_download(timeout=14000) as evt:
+                                        link.click(timeout=5000)
+                                    d=evt.value
+                                    target=temp/"downloaded_result"
+                                    d.save_as(str(target))
+                                    downloaded=target.is_file() and target.stat().st_size>0
+                                    record("S11","Download assistant generated file",
+                                           "PASS" if downloaded else "FAIL",
+                                           "CSV_FILE_DOWNLOADED_NONEMPTY" if downloaded else "EMPTY_GENERATED_CSV_FILE")
+                                except Exception as e:
+                                    record("S11","Download assistant generated file","BLOCKED",safe_error(e))
                         except Exception as e:
+                            record("S11","Download assistant generated file","BLOCKED",safe_error(e))
+                except Exception as e:
                             record("S11","Download assistant generated file","BLOCKED",safe_error(e))
                 except Exception as e:
                     # Assign each remaining scenario a distinct recorded status.
