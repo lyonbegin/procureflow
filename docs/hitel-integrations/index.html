@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="description" content="HITEL 외부 프로그램 API 개발자 전달용 최종 설명서: 인증·대화 API·요청 예제·실측 QA·미지원과 운영 의존성">
+<meta name="description" content="HITEL 외부 프로그램 API 기술 검증 중: 인증·대화 API·요청 예제·실측 QA·미지원과 운영 의존성">
 <title>HITEL 외부 프로그램 연동 API — 검증 중 (운영 인계 금지)</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Malgun Gothic","Noto Sans KR",sans-serif;color:#17283b;background:#f6f8fb;font-size:16px}
@@ -28,8 +28,9 @@ small{font-size:12px;color:#67788b}
 <header><div>
 <div class="kicker">HITEL · INTEGRATIONS API v1 · DEVELOPER HANDOFF</div>
 <h1>외부 프로그램 연동 API<br>기술 검증 중 · 운영 인계 금지</h1>
-<p>다른 앱·백엔드·자동화 프로그램이 HITEL의 HTTP API를 사용하는 방법과, 실제로 작동하는 범위 및 아직 복구가 필요한 부분을 분리한 전달용 원본입니다.</p>
+<p>다른 앱의 연동 구현을 위한 검증 중 명세입니다. 실제 Bearer 채팅은 1회성 검증됐지만 상시 작업자·파일·대량 분류는 미완성입니다.</p>
 <div class="quick">
+<a href="/integrations/connect">계정 연결·키 발급</a>
 <a href="/integrations/openapi.yaml">OpenAPI 3.0.3</a>
 <a href="/integrations/example_client.py">Python 예제</a>
 <a href="/integrations/v1/capabilities">실시간 지원 상태 JSON</a>
@@ -37,25 +38,27 @@ small{font-size:12px;color:#67788b}
 </div>
 </div></header>
 <main><div role="status" style="padding:18px 20px;border:2px solid #b45309;background:#fff3de;color:#713f12;border-radius:8px;margin-bottom:18px">
-<strong>운영 인계 금지 — 이전 ‘최종본’ 표시는 철회합니다.</strong>
-<p>GitHub Actions #44366554910에서 Railway ↔ GitHub Chrome ↔ ChatGPT 실제 시험 질문·답변은 통과했습니다. 그러나 이 결과는 서명된 1회성 시험이며, 외부 프로그램의 Bearer API 키 발급·일반 텍스트 송수신 및 파일 첨부, 18,109개 문서 대량 처리의 성공 증거가 아닙니다. 해당 기능들의 실제 운영 검증 전에는 다른 개발자에게 완성된 API로 전달하지 마십시오.</p>
-<p><a href="https://github.com/lyonbegin/procureflow/actions/runs/44366554910">일회성 실제 ChatGPT 왕복시험 증거</a> · <a href="/integrations/v1/capabilities">실시간 기능 상태</a></p>
+<strong>이전 '최종본' 표시는 철회합니다. 현재는 상시 운영 인계 보류 상태입니다.</strong>
+<p>다만 2026-11-19 GitHub Actions #44369381864에서 실제 계정 연결코드 · htli_ 인증키 발급 · Bearer 질문 · ChatGPT 실제 답변 · 대화방 URL 검증 · 시험키 폐기까지 PASS를 확인했습니다. GitHub Chrome은 일회성이므로 작업자가 꺼지면 HTTP 503입니다. 파일 API·대량 분류는 아직 미지원입니다.</p>
+<p><a href="https://github.com/lyonbegin/procureflow/actions/runs/44369381864">실제 Bearer API 연동시험</a> · <a href="/integrations/connect">본인 계정 연결·키 발급</a> · <a href="/integrations/v1/capabilities">실시간 상태</a></p>
 </div>
 <nav aria-label="문서 목차">
 <a href="#section-2">공식 호출 주소와 현재 운영 상태</a>
 <a href="#section-3">호출 구조</a>
-<a href="#section-4">인증·계정 발급 및 관리</a>
+<a href="#section-4">기존 ChatGPT 1번 계정 연결과 API 키 발급</a>
 <a href="#section-5">공개 API 전체 목록</a>
 <a href="#section-6">외부 프로그램의 실제 호출 예시</a>
 <a href="#section-11">오류 코드, 제한 및 재시도</a>
 <a href="#section-12">파일 첨부 / 생성 파일 다운로드 — 정확한 현재 범위</a>
-<a href="#section-13">운영자가 아직 완료해야 하는 작업 (외부 개발자에게 의존성으로 통보)</a>
+<a href="#section-13">남은 운영 의존성 및 인계 보류 기준</a>
 <a href="#section-14">실제 개발자에게 전달할 파일/주소</a>
 </nav>
 <article>
-<h1 id="section-1">HITEL 외부 프로그램 연동 API — 개발자 전달용 최종 설명서</h1>
-<p>문서 버전: 1.0 · 기준: 2026-11-19 (KST) · 범위: 현재 배포된 구현의 실제 지원 수준</p>
-<blockquote>이 문서는 외부 프로그램 개발자에게 그대로 전달하는 API 계약·호출 절차 문서입니다. <strong>문서 자체는 완결본이지만, 아래에 명시한 미연결 기능까지 구현 완료되었다는 뜻은 아닙니다.</strong> API가 실제 ChatGPT 답변을 제공하려면 계정 검증 및 GitHub Chrome 작업자 연결을 먼저 복구해야 합니다.</blockquote>
+<h1 id="section-1">HITEL Integration API — 기술 검증 중 (상시 운영 인계 금지)</h1>
+<p>문서 버전: 1.2 · 2026-11-19 · GitHub Actions 1회성 실제 인증키 API 검증 통과</p>
+<p><strong>검증 결과:</strong> <a href="https://github.com/lyonbegin/procureflow/actions/runs/44369381864" rel="noopener noreferrer">https://github.com/lyonbegin/procureflow/actions/runs/44369381864</a></p>
+<p>등록된 ChatGPT 1번 계정을 실제 Chrome 세션과 대조하고, 본인 브라우저 연결코드를 서명된 GitHub Actions로 승인하여, 실제 htli_ Bearer 키를 발급하고, 해당 키로 방 생성·ChatGPT 질문·결과·대화방 URL 검증 및 시험키 폐기까지 성공했습니다.</p>
+<p><strong>그러나 상시 운영 API가 아닙니다.</strong> GitHub Chrome 작업자는 수동으로 실행하는 일회성 작업자이며, 연결되어 있지 않으면 새로운 질문은 HTTP 503으로 거부됩니다. 일반 CSV/PDF 첨부, 생성 파일 다운로드, 18,109개 문서 제목의 대량 자동분류는 아직 미완성입니다. 초기의 최종 완성본 표시는 철회한 상태입니다.</p>
 <h2 id="section-2">1. 공식 호출 주소와 현재 운영 상태</h2>
 <ul>
 <li>Base URL: <a href="https://hitel-integration-api-production.up.railway.app" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app</a></li>
@@ -65,9 +68,9 @@ small{font-size:12px;color:#67788b}
 <li>실측 파일 QA 대시보드: <a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/view" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/view</a></li>
 <li>실측 파일 QA JSON: <a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/latest" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/latest</a></li>
 </ul>
-<p><strong>현시점 점검 결과 (2026-11-19):</strong> GET /health는 200 정상; GET /integrations/v1/capabilities의 worker_connected=false, verified_account_enrollment_available=false. 이는 서버 HTTP가 정상이라는 뜻이지, 외부 ChatGPT 메시지 중계가 현재 작동한다는 뜻이 아닙니다. 상태는 수시로 바뀔 수 있으므로 배포 시점마다 capabilities를 재조회하십시오.</p>
+<p><strong>2026-11-19 실측:</strong> HTTP API 정상이며 인증키 기반 질문과 실제 ChatGPT 답변을 GitHub Actions #44369381864에서 검증했습니다. 기존 등록 Chrome 계정의 GitHub Actions 연결 절차는 위 3절을 보십시오. 작업자는 1회성으로 동작하므로 평상시 worker_connected=false일 수 있습니다.</p>
 <p><strong>즉시 사용 가능한 공개 API:</strong> GET /health, GET /integrations/v1/capabilities, GET /integrations/v1/scenarios/files/latest, GET /integrations/v1/scenarios/files/runs/{run_id}; 정적 문서 조회.</p>
-<p><strong>운영 연결이 복구되어야 실제 사용 가능한 API:</strong> 인증키 발급·관리, 본문 대화방 생성, 채팅 제출, 작업 결과 조회. HTTP 라우터 및 자동 계약시험은 존재하지만 일반 사용자의 실서버 E2E 송수신은 아직 확인되지 않았습니다.</p>
+<p><strong>1회 실증 완료:</strong> 실제 htli_ 인증키 발급·방 생성·ChatGPT 송수신·결과 조회·키 폐기. <strong>운영 미완료:</strong> 상시 작업자, 파일, 대량분류.</p>
 <p><strong>미지원:</strong> 일반 외부 프로그램에서 임의 TXT/CSV/PDF/이미지/바이너리 첨부; ChatGPT가 생성한 파일의 일반 API 다운로드; SSE/스트리밍. 작업을 성공으로 가장하여서는 안 됩니다.</p>
 <h2 id="section-3">2. 호출 구조</h2>
 <p>외부 프로그램 → HTTPS /integrations/v1/* → Bearer 키 및 계정·방 검증 → 대기열 접수(HTTP 202) → GitHub Chrome 작업자 → 사용자 ChatGPT 계정 → 작업 결과 API.</p>
@@ -79,38 +82,25 @@ small{font-size:12px;color:#67788b}
 <li>status=failed이면 error를 읽으십시오. queued/running이면 동일 작업 ID로 재조회하며 메시지 재전송은 하지 마십시오.</li>
 <li>worker_connected=false일 때는 운영용 질문을 제출하지 말고 의존성 복구를 기다리거나 장애를 노출하십시오.</li>
 </ol>
-<h2 id="section-4">3. 인증·계정 발급 및 관리</h2>
-<p>외부 프로그램은 ChatGPT/Google 비밀번호, 로그인 쿠키, GitHub 토큰을 요구하거나 저장하지 않습니다. HITEL 별도 Bearer 키인 htli_... 문자열만 사용합니다. 키는 <strong>하나의 브라우저 프로필 및 검증된 ChatGPT account_id에 고정</strong>됩니다. API가 받는 account_id는 매 채팅 요청 JSON 본문의 별도 필드로 보냅니다.</p>
-<p>API 키 최초 발급은 사용자 소유 브라우저에서만 가능합니다. 해당 브라우저가 서버에 발급받은 서명 쿠키를 보유해야 하고, 서버에 활성 프로필 및 OpenAI 인증으로 검증된 ChatGPT 계정이 이미 등록되어 있어야 합니다.</p>
-<p>발급 절차:</p>
+<h2 id="section-4">3. 기존 ChatGPT 1번 계정 연결과 API 키 발급</h2>
+<p>외부 프로그램은 ChatGPT 비밀번호·쿠키·GitHub 토큰이 아니라 별도 발급되는 htli_ Bearer 키와 해당 oai_ 계정 ID만 사용합니다.</p>
+<p><strong>브라우저 소유자 연결 절차</strong></p>
 <ol>
-<li>사용자의 동일 도메인 브라우저에서 GET /web/api/bootstrap을 호출해 세션 쿠키와 csrf를 받습니다.</li>
-<li>그 브라우저에서 검증된 ChatGPT 계정을 선택·등록합니다. 계정 등록 기능 자체가 활성화되어 있어야 합니다.</li>
-<li>동일 브라우저 세션, Origin 및 X-Web-Csrf 헤더로 POST /web/api/integrations/keys에 아래 본문을 보냅니다.</li>
-<li>반환값 api_key는 <strong>한 번만 공개</strong>되므로 비밀 저장소에 즉시 저장하고, 반환값 account_id를 함께 보관합니다.</li>
-<li>브라우저에서는 GET /web/api/integrations/keys로 메타데이터 목록을 조회하고 DELETE /web/api/integrations/keys/{key_id}로 폐기할 수 있습니다.</li>
+<li>같은 브라우저에서 <a href="https://hitel-integration-api-production.up.railway.app/integrations/connect" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app/integrations/connect</a> 를 여십시오.</li>
+<li>&quot;일회성 연결코드 발급&quot;을 누르면 브라우저 소유자와 연결된 15분 유효 코드가 발급됩니다.</li>
+<li>저장소 소유자 권한으로 <a href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml" rel="noopener noreferrer">https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml</a> 에서 Run workflow를 열고 pairing_code 입력란에 위 코드를 넣고 실행하십시오.</li>
+<li>GitHub Actions는 이전에 저장된 Chrome 계정과 실제 ChatGPT 로그인 세션의 이메일을 확인하고, GitHub OIDC 서명으로 일회성 코드를 승인합니다. 이는 공식 OpenAI OAuth가 아닌 <strong>등록된 Chrome 세션에 대한 서명된 검증</strong>입니다.</li>
+<li>위 브라우저에서 &quot;상태 다시 확인&quot; 후 &quot;API 키 발급&quot;을 누르십시오. 반환된 htli_ 비밀키는 한 번만 공개됩니다. 함께 반환되는 oai_ 계정 ID를 보관하십시오.</li>
+<li>일반 프로그램의 모든 JSON 요청은 Authorization: Bearer (발급받은 키)를 사용합니다. 대화 POST에서는 account_id를 별도 JSON 필드로 보내십시오.</li>
+<li>키 목록은 GET /web/api/integrations/keys, 폐기는 DELETE /web/api/integrations/keys/{key_id} (브라우저 세션·CSRF 필요)입니다.</li>
 </ol>
-<pre><code class="language-http">POST /web/api/integrations/keys
-Content-Type: application/json
-X-Web-Csrf: (bootstrap에서 받은 값)
-Cookie: (동일 브라우저의 서버 서명 세션 쿠키)
-
-{&quot;name&quot;:&quot;partner-app&quot;}</code></pre>
-<p>성공 응답 형식 예시 (실서버 발급 성공 사례가 아니라 코드 기반 예시):</p>
-<pre><code class="language-json">{
-  &quot;id&quot;:&quot;ikey_&lt;발급 ID&gt;&quot;,
-  &quot;name&quot;:&quot;partner-app&quot;,
-  &quot;account_id&quot;:&quot;oai_&lt;검증된 계정 ID&gt;&quot;,
-  &quot;api_key&quot;:&quot;htli_&lt;발급된 비밀키&gt;&quot;,
-  &quot;warning&quot;:&quot;Secret is shown once. Store outside source control.&quot;
-}</code></pre>
-<p>현재 verified_account_enrollment_available=false이므로, 이 신규 서버에서 최초 키 발급을 완료할 수 있다고 안내하면 안 됩니다. 운영자가 실제 계정 검증 연동을 완료하고 발급 시험을 통과한 다음 사용하도록 하십시오. 기존 다른 HITEL 서비스에 로그인했다는 사실만으로 본 신규 서버에 같은 계정이 등록된 것은 아닙니다.</p>
+<p><strong>실증:</strong> Actions #44369381864에서 모의 브라우저 소유자 세션을 생성해 위 계정 연결부터 실제 Bearer 채팅 응답까지 모두 통과했습니다. 일반 사용자의 직접 수동 입력과 장기 세션 유지까지 검증된 것은 아닙니다.</p>
 <h2 id="section-5">4. 공개 API 전체 목록</h2>
 <div class="table-scroll"><table><tbody>
 <tr><th>HTTP</th><th>경로</th><th>인증</th><th>반환/의미</th></tr>
 <tr><td>GET</td><td>/health</td><td>없음</td><td>HTTP 서비스 상태. Chrome 연결과는 별개</td></tr>
 <tr><td>GET</td><td>/integrations/v1/capabilities</td><td>없음</td><td>워커 및 기능 지원 여부</td></tr>
-<tr><td>POST</td><td>/web/api/integrations/keys</td><td>브라우저 쿠키·CSRF·검증계정</td><td>키 1회 발급. 현재 계정 등록 경로 미가동</td></tr>
+<tr><td>POST</td><td>/web/api/integrations/keys</td><td>브라우저 쿠키·CSRF·검증계정</td><td>연결코드 승인 후 키 1회 발급, 실제 시험 PASS</td></tr>
 <tr><td>GET</td><td>/web/api/integrations/keys</td><td>브라우저 쿠키</td><td>발급 키 메타데이터</td></tr>
 <tr><td>DELETE</td><td>/web/api/integrations/keys/{key_id}</td><td>브라우저 쿠키·CSRF</td><td>키 폐기</td></tr>
 <tr><td>GET</td><td>/integrations/v1/rooms</td><td>Bearer</td><td>현재 키와 계정의 활성 방 목록 (최대 100)</td></tr>
@@ -130,7 +120,7 @@ export HITEL_API_KEY=&quot;htli_실제로_발급된_키&quot;
 export HITEL_ACCOUNT_ID=&quot;oai_실제로_발급된_계정_ID&quot;
 
 curl -sS &quot;$BASE_URL/integrations/v1/capabilities&quot;</code></pre>
-<p>worker_connected가 false이거나 verified_account_enrollment_available가 false이고 아직 키가 없다면 그대로 진행하지 마십시오.</p>
+<p>worker_connected=false인 경우 Chat POST는 HTTP 503이며 작업을 새로 접수하지 않습니다. 등록 계정 연결은 3절의 GitHub Actions 경로를 사용하십시오.</p>
 <h3 id="section-8">B. 대화방 생성</h3>
 <pre><code class="language-bash">curl -sS -X POST &quot;$BASE_URL/integrations/v1/rooms&quot; \
   -H &quot;Authorization: Bearer $HITEL_API_KEY&quot; \
@@ -195,6 +185,7 @@ curl -sS &quot;$BASE_URL/integrations/v1/capabilities&quot;</code></pre>
 <tr><td>422</td><td>본문·ID 형식 검증 실패</td><td>스키마에 맞게 수정</td></tr>
 <tr><td>429</td><td>과도한 호출 또는 키/방 한도</td><td>전송 중지, 한도 확인</td></tr>
 <tr><td>501</td><td>일반 파일 전송/비어 있지 않은 attachment_ids</td><td>미지원으로 처리</td></tr>
+<tr><td>503</td><td>Chrome 작업자 미연결</td><td>신규 질문 미접수; 작업자 가동 확인</td></tr>
 </tbody></table></div>
 <p>현재 서버 코드에는 프로필당 시간당 최대 5개 채팅 작업, 브라우저 시험 계열 전체 하루 최대 30개 작업, 활성 인증키 최대 5개/프로필의 제한이 있습니다. 방·텍스트 한도를 무시한 무한 재시도를 금지합니다.</p>
 <p>네트워크 타임아웃이 발생했을 때는 동일한 Idempotency-Key와 동일한 본문으로만 재확인하며, 성공적으로 접수된 작업은 GET jobs/{job_id}로 조회하십시오. HTTP 202를 실제 답변으로 보여주지 마십시오. 작업자가 끊긴 상태에서는 제출하지 않는 것을 원칙으로 합니다.</p>
@@ -216,15 +207,17 @@ curl -sS &quot;$BASE_URL/integrations/v1/capabilities&quot;</code></pre>
 <li>GitHub Actions 로그: <a href="https://github.com/lyonbegin/procureflow/actions/runs/44312253301" rel="noopener noreferrer">https://github.com/lyonbegin/procureflow/actions/runs/44312253301</a></li>
 </ul>
 <p>이 실험의 <strong>QA 파일 API</strong>는 소유자 통제 합성 데이터만 받습니다. 다른 앱이 임의 파일을 넣거나 파일을 받을 수 있다는 뜻이 아닙니다. S11 실패는 ChatGPT 답변의 다운로드 버튼 선택 후 브라우저 다운로드 이벤트가 실제로 발생하지 않았다는 것이며, ChatGPT 생성 파일의 전달 방식을 재구현·재검증해야 합니다.</p>
-<h2 id="section-13">8. 운영자가 아직 완료해야 하는 작업 (외부 개발자에게 의존성으로 통보)</h2>
+<h2 id="section-13">8. 남은 운영 의존성 및 인계 보류 기준</h2>
+<p>이미 검증한 것: 일회성 계정 페어링, 실제 API 키 발급, 계정 고정 대화방, 질문 접수, 실제 ChatGPT 답변, 대화 URL, 테스트 키 폐기 (Actions #44369381864).</p>
+<p><strong>아직 미완료:</strong></p>
 <ol>
-<li>신규 Railway API 서비스에서 실제 OpenAI 계정 검증·등록을 복구하고, 선택된 account_id와 활성 브라우저 프로필이 동일 서비스의 데이터베이스에 저장되는지 확인.</li>
-<li>기존 GitHub Chrome 작업자가 <strong>신규 서비스의</strong> 인증된 WebSocket에 실제 연결되도록 수정하고, 현재 등록된 1번 계정의 세션 및 계정 ID 일치 여부를 검증.</li>
-<li>브라우저에서 실제 htli_ 키 1개를 발급하고, 해당 키로 API 대화방 생성 → 질문 202 → worker 처리 → job completed/result_text까지 <strong>실제 E2E 통과 증거</strong> 확보.</li>
-<li>범용 원본파일 첨부 API와 ChatGPT로의 바이트 전달, 다운로드된 결과 파일 저장·회수 API를 별도 구현. 현재 QA 전용 합성파일 엔드포인트를 범용 파일 API로 재사용하거나 권한 우회하지 말 것.</li>
-<li>S11에서 실제 생성 파일을 수신할 수 있는 경로를 확인하고 다운로드 콘텐츠를 검증한 후 자동 시험을 PASS로 바꿀 것. 실패한 로그를 성공으로 기재하지 말 것.</li>
+<li>GitHub Chrome 작업자의 상시 실행 또는 사용자가 명시적으로 실행하는 운영 정책. 작업자가 꺼져 있는 일반 시간에는 worker_connected=false이며 새 질문은 HTTP 503입니다.</li>
+<li>일반 외부 프로그램이 임의 파일을 첨부하는 API. POST /integrations/v1/files는 501입니다.</li>
+<li>ChatGPT 생성 파일을 외부 앱으로 전달하는 다운로드 API. S11은 BLOCKED입니다.</li>
+<li>18,109개 제목의 CSV 대량 입력, 분할·재개·출력 무결성, 호출 제한 조정 및 실제 전체 분류 검증.</li>
+<li>실제 외부 개발자의 브라우저 연결 및 반복 운영 시나리오 검증.</li>
 </ol>
-<p><strong>이 다섯 가지가 완성되기 전에는 외부 개발자에게 '일반 파일 송수신까지 완성된 운영 API'라고 안내하지 마십시오.</strong></p>
+<p><strong>이 항목들이 완료되기 전에는 다른 개발자에게 &quot;상시 사용 가능한 최종 운영 API&quot;라고 전달하지 마십시오.</strong></p>
 <h2 id="section-14">9. 실제 개발자에게 전달할 파일/주소</h2>
 <ul>
 <li>이 문서의 웹 버전: <a href="https://hitel-integration-api-production.up.railway.app/integrations/docs" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app/integrations/docs</a></li>
