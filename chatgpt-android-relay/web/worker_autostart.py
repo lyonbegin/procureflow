@@ -258,3 +258,26 @@ async def monitor_connected(*,check_connected,close_stale,interval:int=15):
         except Exception as exc:
             print("[hitel-worker-autostart] watchdog exception="+type(exc).__name__,flush=True)
         await asyncio.sleep(max(5,interval))
+
+
+def reserve_signed_runner_fallback(*,connected:bool) -> bool:
+    """One GitHub-hosted worker can self-dispatch its successor if work remains.
+
+    The caller must be an OIDC-verified run of the *exact* pinned workflow.
+    Uses the same durable SQLite lease as Railway's direct dispatcher. The
+    next run is created with the job-scoped GITHUB_TOKEN, not a public URL.
+    """
+    if connected or pending_count()==0:
+        return False
+    now=api_v1.clock()
+    with api_v1.connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row=c.execute("SELECT next_attempt_at,lock_until "
+                      "FROM hitel_chrome_autostart WHERE id=1").fetchone()
+        if row["next_attempt_at"]>now or row["lock_until"]>now:
+            return False
+        c.execute("""UPDATE hitel_chrome_autostart
+                     SET status='github_fallback_reserved',
+                         next_attempt_at=?,lock_until=? WHERE id=1""",
+                  (now+DISPATCH_COOLDOWN_MS,now+LEASE_MS))
+    return True
