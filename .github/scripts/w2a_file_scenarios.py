@@ -136,34 +136,45 @@ def upload(page,path):
 
 
 def remove_attachment(page,name):
-    """Click only the exact synthetic upload chip's labelled remove control.
+    """Click a unique remove control scoped to only the synthetic file chip.
 
-    The file chip vanishes within a few seconds on the restored Chrome.
-    Avoid waiting for full body text or the click target may unmount.
+    The chip re-mounts and may disappear quickly. Locate text and its button
+    in one atomic DOM evaluation so a stale Playwright locator cannot click a
+    button belonging to a different element.
     """
+    action = """(filename) => {
+        const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+        let current=null,visited=0;
+        while ((current=walker.nextNode()) && visited++<35000) {
+            if (!current.textContent.includes(filename)) continue;
+            const element=current.parentElement;
+            if (!element) continue;
+            for (let ancestor=element,depth=0;ancestor && depth<=5;ancestor=ancestor.parentElement,depth++) {
+                const buttons=Array.from(ancestor.querySelectorAll('button'));
+                if (buttons.length !== 1) continue;
+                const button=buttons[0];
+                const hint=(button.getAttribute('aria-label')||'')+' '+(button.getAttribute('title')||'');
+                if (!/remove|delete|close|제거|삭제|닫기/i.test(hint)) continue;
+                if (button.disabled || button.getBoundingClientRect().width===0) continue;
+                button.click();
+                return 'CLICKED';
+            }
+        }
+        return 'NO_LOCAL_REMOVE_CONTROL';
+    }"""
     clicked=False
-    for attempt in range(30):
+    for _ in range(35):
         try:
-            chips=page.get_by_text(name,exact=False)
-            if chips.count():
-                card=chips.first.locator("xpath=../../..")
-                buttons=card.locator("button")
-                if buttons.count()==1:
-                    button=buttons.first
-                    aria=(button.get_attribute("aria-label") or "").lower()
-                    title=(button.get_attribute("title") or "").lower()
-                    if (re.search(r"remove|delete|close|제거|삭제|닫기",aria+" "+title)
-                            and button.is_visible() and button.is_enabled()):
-                        button.click(timeout=2500)
-                        clicked=True
-                        print("FILE_REMOVE_LOCAL_CHIP_BUTTON_CLICKED=1",flush=True)
-                        break
+            if page.evaluate(action,name)=="CLICKED":
+                clicked=True
+                print("FILE_REMOVE_ATOMIC_LOCAL_BUTTON_CLICKED=1",flush=True)
+                break
         except Exception:
             pass
         page.wait_for_timeout(100)
     if not clicked:
-        return "REMOVE_CONTROL_NOT_FOUND_BEFORE_CHIP_UNMOUNT"
-    for _ in range(30):
+        return "LOCAL_REMOVE_BUTTON_NOT_FOUND_BEFORE_UNMOUNT"
+    for _ in range(35):
         if not page.get_by_text(name,exact=False).count() and not visible_filename(page,name):
             return "REMOVED"
         page.wait_for_timeout(200)
