@@ -125,58 +125,74 @@ def upload(page,path):
 
 
 def remove_attachment(page,name):
-    # Only click controls associated with the test file chip or explicit
-    # remove/delete labels, never general chat trash or delete-chat controls.
+    """Remove only the synthetic pending attachment via its own card."""
+    synthetic=page.get_by_text(name,exact=False)
+    if not synthetic.count():
+        return "SYNTHETIC_ATTACHMENT_NOT_VISIBLE"
+    # The live ChatGPT UI (2026-11-18) places one accessible remove
+    # button in the third ancestor of the filename; it has no stable
+    # data-testid. Never click a chat-delete or sidebar button.
+    card=synthetic.first.locator("xpath=../../..")
     candidates=[
-        page.locator('[data-testid*="remove-attachment"]'),
-        page.locator('[aria-label*="Remove attachment"]'),
-        page.locator('button[aria-label*="Remove file"]'),
-        page.locator('[title*="Remove attachment"]'),
+        card.get_by_role("button",name=re.compile(
+            r"remove|delete|close|제거|삭제|닫기",re.I)),
+        card.locator('button[aria-label*="remove" i]'),
+        card.locator('button[aria-label*="close" i]'),
     ]
-    for c in candidates:
+    for loc in candidates:
         try:
-            if c.count() and c.first.is_visible():
-                c.first.click(timeout=4000)
-                page.wait_for_timeout(1200)
-                if not visible_filename(page,name):return "REMOVED"
+            for idx in range(min(loc.count(),3)):
+                button=loc.nth(idx)
+                if button.is_visible() and button.is_enabled():
+                    button.click(timeout=5000)
+                    for _ in range(15):
+                        if not visible_filename(page,name):
+                            return "REMOVED"
+                        page.wait_for_timeout(200)
         except Exception:
             pass
-    # Scoped only to the synthetic file chip, not unrelated sidebar buttons.
-    synthetic=page.get_by_text(name,exact=False)
-    if synthetic.count():
-        for levels in (1,2,3):
-            try:
-                parent=synthetic.first.locator("xpath="+"/".join([".."]*levels))
-                buttons=parent.locator("button")
-                for i in range(min(buttons.count(),4)):
-                    button=buttons.nth(i)
-                    hint=((button.get_attribute("aria-label") or "")+" "+
-                          (button.get_attribute("title") or "")).lower()
-                    if re.search(r"remove|close|delete|취소|제거|닫기|삭제",hint):
-                        button.click(timeout=2000)
-                        page.wait_for_timeout(1000)
-                        if not visible_filename(page,name):return "REMOVED"
-            except Exception:
-                pass
     return "REMOVE_CONTROL_NOT_FOUND"
 
-
-def assistant_contains(page,key):
+def assistant_contains(page,key,strict=False):
     try:
         loc=page.locator(
             '[data-message-author-role="assistant"],[data-testid="assistant-message"],div[class*="DilResponseRoot-"]')
-        return any(key in text for text in loc.all_inner_texts())
+        texts=loc.all_inner_texts()
+        return any((value.strip()==key if strict else key in value) for value in texts)
     except Exception:
         return False
 
 
 def ask(page,text):
-    input= composer(page)
-    if input is None:return False
-    input.fill(text)
-    input.press("Enter")
-    return True
-
+    field=composer(page)
+    if field is None:return False
+    field.fill(text)
+    # The actual restored Chrome build uses an enabled button[type=submit],
+    # not a stable data-testid=send-button (verified with live DOM probe).
+    options=[
+        page.locator('button[type="submit"]'),
+        page.get_by_role("button",name=re.compile(r"send|submit|보내기|전송",re.I)),
+    ]
+    for loc in options:
+        for i in range(min(loc.count(),5)):
+            try:
+                button=loc.nth(i)
+                if not (button.is_visible() and button.is_enabled()):
+                    continue
+                button.click(timeout=5000)
+                for _ in range(20):
+                    try:
+                        if not field.inner_text(timeout=1000).strip():
+                            return True
+                    except Exception:
+                        if (page.locator('[data-message-author-role="user"]').count()>0
+                            or re.search(r"/c/[a-z0-9-]+",page.url,re.I)):
+                            return True
+                    page.wait_for_timeout(250)
+                return False
+            except Exception:
+                continue
+    return False
 
 def run():
     txt=ROOT/TXTNAME
@@ -228,7 +244,7 @@ def run():
                 answered=False
                 for _ in range(40):
                     page.wait_for_timeout(2500)
-                    if assistant_contains(page,"8"):
+                    if assistant_contains(page,"8",strict=True):
                         answered=True
                         break
                 report("S15","Upload and query synthetic CSV",
@@ -247,11 +263,15 @@ def run():
                 candidate=None
                 for _ in range(38):
                     page.wait_for_timeout(2500)
+                    # Never click a generic sidebar "Download" app link.
+                    assistant=page.locator(
+                        '[data-message-author-role="assistant"],[data-testid="assistant-message"],div[class*="DilResponseRoot-"]')
+                    within=assistant.last if assistant.count() else page
                     for q in [
-                        page.get_by_role("link",name=re.compile(
-                            r"hitel_scenario_output[.]csv|[.]csv$|Download|다운로드",re.I)),
-                        page.locator('a[download]'),
-                        page.locator('a[href*=".csv"]'),
+                        within.get_by_role("link",name=re.compile(
+                            r"hitel_scenario_output[.]csv|[.]csv$",re.I)),
+                        within.locator('a[download]'),
+                        within.locator('a[href*=".csv"]'),
                     ]:
                         try:
                             if q.count() and q.first.is_visible():
