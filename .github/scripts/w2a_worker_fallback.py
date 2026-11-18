@@ -49,7 +49,7 @@ def main():
     })
     try:
         with urllib.request.urlopen(req,timeout=20) as r:
-            if r.status not in (201,204):
+            if r.status not in (200,201,204):
                 raise RuntimeError("WORKFLOW_DISPATCH_RESPONSE_UNCONFIRMED")
             print("PASS_SIGNED_GITHUB_WORKER_SELF_RESTART_DISPATCHED",flush=True)
     except urllib.error.HTTPError as e:
