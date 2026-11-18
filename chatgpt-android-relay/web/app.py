@@ -13,6 +13,7 @@ import drive_v1
 import web_chat
 import chatgpt_accounts
 import integration_api
+import integration_public
 import file_scenario_api
 import bridge_qa_api
 import integration_pairing
@@ -34,6 +35,7 @@ app.include_router(web_chat.router)
 app.include_router(chatgpt_accounts.router)
 app.include_router(integration_api.browser_router)
 app.include_router(integration_api.router)
+app.include_router(integration_public.router)
 app.include_router(file_scenario_api.router)
 app.include_router(bridge_qa_api.router)
 app.include_router(integration_pairing.browser_router)
@@ -204,6 +206,21 @@ async def home():
                         headers={"Cache-Control":"no-store, max-age=0",
                                  "X-Content-Type-Options":"nosniff",
                                  "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src blob:; object-src 'none'; frame-ancestors 'none'", "Referrer-Policy":"no-referrer"})
+
+@app.get("/integrations/public", include_in_schema=False)
+def public_chat_page():
+    return FileResponse(
+        ROOT / "static" / "integrations-public.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control":"no-store",
+                 "X-Content-Type-Options":"nosniff",
+                 "Referrer-Policy":"no-referrer",
+                 "Content-Security-Policy":
+                    "default-src 'none'; script-src 'unsafe-inline'; "
+                    "style-src 'unsafe-inline'; connect-src 'self'; "
+                    "base-uri 'none'; frame-ancestors 'none'"}
+    )
+
 
 @app.get("/integrations/worker", include_in_schema=False)
 def integration_worker_start_page():
