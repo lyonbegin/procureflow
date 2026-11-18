@@ -172,3 +172,5 @@ jobs:
               sys.exit(1)
           print("PASS_ALL_FIVE_REAL_API_FILE_SCENARIOS")
           PY
+
+# rerun 2026-11-18 header-case-fix: verify API SHA256 header case-insensitively
