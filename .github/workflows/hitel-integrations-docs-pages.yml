@@ -1,12 +1,6 @@
 name: Publish HITEL integration API reference (GitHub Pages)
 
 on:
-  push:
-    branches:
-      - feature/hitel-integrations-api-20261118
-    paths:
-      - "docs/hitel-integrations/**"
-      - ".github/workflows/hitel-integrations-docs-pages.yml"
   workflow_dispatch:
 
 permissions:
