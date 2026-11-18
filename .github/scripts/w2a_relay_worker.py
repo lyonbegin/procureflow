@@ -311,7 +311,7 @@ async def run(max_seconds: int = 1500) -> None:
 if __name__ == "__main__":
     duration = int(os.environ.get("W2A_WORKER_SECONDS", "600"))
     try:
-        asyncio.run(run(max_seconds=max(60, min(1500, duration))))
+        asyncio.run(run(max_seconds=max(60, min(14400, duration))))
     except Exception as exc:
         print("FAIL_RELAY_WORKER_"+type(exc).__name__,flush=True)
         sys.exit(1)
