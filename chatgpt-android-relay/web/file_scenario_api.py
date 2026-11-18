@@ -297,3 +297,108 @@ def submit_results(run_id: str, data: ResultSubmission,
                json.dumps(proof),api_v1.clock(),run_id))
             saved=_get_run(db,run_id)
     return _status(saved)
+
+
+@router.get("/view",include_in_schema=False)
+def public_file_scenario_dashboard():
+    """Human-readable live API evidence, rendered server-side without JS."""
+    from datetime import datetime, timedelta, timezone
+    from html import escape
+    from fastapi.responses import HTMLResponse
+    with api_v1.connection() as db:
+        row=db.execute("SELECT * FROM hitel_file_scenario_runs "
+                       "ORDER BY created_at DESC LIMIT 1").fetchone()
+    if row:
+        data=_status(row)
+        rows="".join(
+          "<tr><td><code>"+escape(c["id"])+"</code></td>"
+          "<td>"+escape(c["name"])+"</td>"
+          "<td><strong class='"+("pass" if c["status"]=="PASS" else "blocked")+"'>"
+          +escape(c["status"])+"</strong></td>"
+          "<td><code>"+escape(c["detail"])+"</code></td></tr>"
+          for c in data["cases"])
+        proof=data["transport"] or {}
+        def status(value):
+            return "PASS" if value is True else "NOT VERIFIED"
+        uploaded=status(proof.get("uploaded_via_api"))
+        downloaded=status(proof.get("downloaded_via_api"))
+        integrity=status(proof.get("sha256_match"))
+        identity=status(proof.get("saved_chatgpt_account_verified"))
+        tz=timezone(timedelta(hours=9))
+        stamp=(datetime.fromtimestamp(row["created_at"]/1000,tz)
+               .strftime("%Y-%m-%d %H:%M:%S KST"))
+        total=len(data["cases"])
+        passed=data["summary"]["PASS"]
+        latest_state=escape(data["status"])
+        action_link=data["github_actions_url"]
+        if action_link:
+            gh="<a href='"+escape(action_link,quote=True)+"' rel='noopener noreferrer'>실제 GitHub Actions 로그</a>"
+        else:
+            gh="GitHub 실행 ID 대기 중"
+        report_href=("/integrations/v1/scenarios/files/runs/"
+                     +escape(data["run_id"],quote=True))
+        summary=f"""
+        <p class="note">실제 GitHub Chrome을 사용한 HTTPS API 파일 왕복 시험 결과입니다.</p>
+        <div class="score"><strong>{passed} / {total}</strong> 시나리오 PASS
+          <span>상태: {latest_state}</span></div>
+        <p>실행: <code>{escape(data["run_id"])}</code> · {stamp}</p>
+        <div class="metrics">
+          <div><b>HTTPS 업로드</b><span>{uploaded}</span></div>
+          <div><b>HTTPS 원본 재다운로드</b><span>{downloaded}</span></div>
+          <div><b>SHA-256 원본 일치</b><span>{integrity}</span></div>
+          <div><b>실제 ChatGPT 계정 일치</b><span>{identity}</span></div>
+        </div>
+        <table><thead><tr><th>ID</th><th>실제 동작</th><th>결과</th><th>근거 코드</th></tr></thead>
+        <tbody>{rows}</tbody></table>
+        <p>{gh} · <a href="{report_href}">API JSON 원본 증거</a></p>
+        """
+    else:
+        summary="<p>아직 실제 GitHub Actions API 파일 시험 결과가 없습니다.</p>"
+    html=f"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HITEL 외부 API 파일 시나리오 실측 결과</title>
+<style>
+:root{{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;
+color:#1b293c;background:#f4f7fa}}
+body{{margin:0}}main{{max-width:1050px;margin:auto;padding:24px 18px 80px}}
+h1{{font-size:clamp(24px,3.6vw,36px);margin-bottom:8px}}
+.note{{color:#596b80}}a{{color:#1562a5}}
+.panel{{background:white;border:1px solid #dce4ec;border-radius:10px;
+padding:20px;margin-top:16px}}
+.score{{border-top:1px solid #e4eaf1;border-bottom:1px solid #e4eaf1;
+margin:18px 0;padding:14px 0;font-size:17px;display:flex;gap:20px;
+flex-wrap:wrap;align-items:center}}
+.score strong{{font-size:28px}}
+.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}}
+.metrics div{{padding:12px;background:#f1f5f9;border-radius:6px}}
+.metrics b,.metrics span{{display:block;font-size:13px}}
+.metrics span{{font-weight:700;margin-top:5px}}
+table{{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}}
+th,td{{border-bottom:1px solid #dfe5ed;text-align:left;padding:12px 9px}}
+th{{background:#eef3f7}}
+.pass{{color:#0b7545}}.blocked{{color:#ad4c18}}
+code{{word-break:break-word;font-size:12px}}
+.warning{{border-left:4px solid #b37a18;background:#fff7e6;padding:14px}}
+@media(max-width:650px){{table{{font-size:12px}}td,th{{padding:9px 5px}}}}
+</style></head><body><main>
+<h1>HITEL API 파일 시나리오 검증</h1>
+<p class="note">다른 프로그램이 HTTPS API에서 조회하는 동일한 최신 시험 결과입니다.</p>
+<div class="panel">{summary}</div>
+<div class="panel warning"><strong>시험 범위 및 미지원</strong>
+<p>여기 표시된 파일은 GitHub Actions가 직접 만든 합성 TXT/CSV이며,
+HTTPS 업로드·재다운로드 후 실제 ChatGPT Chrome 계정에서 검사하였습니다.</p>
+<p>일반 외부 프로그램의 <code>POST /integrations/v1/files</code>는 여전히 501 미지원입니다.
+이 QA 경로의 파일 검증만으로 일반 사용자 파일 전송 API가 완성되었다고 해석하지 않습니다.</p>
+<p>실제 다운로드 파일을 받지 못한 S11은 BLOCKED이고, 전체 CI 역시 통과하지 않습니다.</p></div>
+<p><a href="/integrations/v1/scenarios/files/view">최신 결과 다시 조회</a>
+ · <a href="/integrations/docs">전체 API 사용 설명서</a>
+ · <a href="/integrations/v1/scenarios/files/latest">최신 결과 JSON</a></p>
+</main></body></html>"""
+    return HTMLResponse(html,headers={
+        "Cache-Control":"no-store,max-age=0",
+        "X-Content-Type-Options":"nosniff",
+        "Referrer-Policy":"no-referrer",
+        "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; "
+                                  "base-uri 'none'; frame-ancestors 'none'",
+    })
