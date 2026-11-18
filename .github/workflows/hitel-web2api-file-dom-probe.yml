@@ -1,0 +1,87 @@
+name: HITEL - inspect real ChatGPT attachment and send controls
+
+on:
+  push:
+    branches:
+      - test/hitel-web2api-scenario-matrix-20261118
+    paths:
+      - ".github/scripts/w2a_file_dom_probe_v3.py"
+      - ".github/workflows/hitel-web2api-file-dom-probe.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: hitel-file-dom-probe
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  files:
+    name: Diagnose send/remove DOM without reading user files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      DISPLAY: :99
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Restore user-registered account 1 without Railway
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT/download"
+          RUN_ID="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
+          test -n "$RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null
+          test -s "$ROOT/download/registry.bin"
+          test -s "$ROOT/download/account-0001.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/account-0001.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_SAVED_USER_FILE_TEST_PROFILE_RESTORED
+      - name: Start actual saved account Chrome and verify login identity
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_SAVED_ACCOUNT_CHROME_READY
+              break
+            fi
+            if [ "$i" -eq 45 ]; then echo FAIL_SAVED_ACCOUNT_CHROME_START; exit 1; fi
+            sleep 2
+          done
+          python3 .github/scripts/w2a_verify_saved_registry.py
+      - name: Inspect synthetic attachment card, composer send controls and upload HTTP statuses
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/w2a_file_dom_probe_v3.py
+          python3 .github/scripts/w2a_file_dom_probe_v3.py
