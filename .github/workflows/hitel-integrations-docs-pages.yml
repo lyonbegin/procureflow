@@ -1,0 +1,45 @@
+name: Publish HITEL integration API reference (GitHub Pages)
+
+on:
+  push:
+    branches:
+      - feature/hitel-integrations-api-20261118
+    paths:
+      - "docs/hitel-integrations/**"
+      - ".github/workflows/hitel-integrations-docs-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: hitel-api-docs-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare safe static API reference
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp docs/hitel-integrations/index.html _site/index.html
+          cp docs/hitel-integrations/openapi.yaml _site/openapi.yaml
+          cp docs/hitel-integrations/example_client.py _site/example_client.py
+          test -s _site/index.html
+          test -s _site/openapi.yaml
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy static reference
+        id: publish
+        uses: actions/deploy-pages@v4
