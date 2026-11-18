@@ -48,11 +48,17 @@ def verify_worker_identity(raw_token: str) -> bool:
             "repository_id": REPOSITORY_ID,
             "repository_owner_id": OWNER_ID,
             "ref": REF,
-            "workflow_ref": WORKFLOW_REF,
             "runner_environment": "github-hosted",
         }
-        return (all(payload.get(k) == v for k, v in must_equal.items())
-                and payload.get("event_name") in ("push", "workflow_dispatch", "schedule"))
+        wf=payload.get("workflow_ref")
+        event=payload.get("event_name")
+        bridge_qa=(
+            "lyonbegin/procureflow/.github/workflows/"
+            "hitel-integration-bridge-live-qa.yml@refs/heads/main"
+        )
+        allowed=(wf==WORKFLOW_REF and event in ("push","workflow_dispatch","schedule"))
+        allowed=allowed or (wf==bridge_qa and event in ("push","workflow_dispatch"))
+        return all(payload.get(k)==v for k,v in must_equal.items()) and allowed
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
     except Exception:
