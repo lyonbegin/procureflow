@@ -110,8 +110,15 @@ def visible_filename(page,name):
 
 
 def upload(page,path):
-    field=select_uploader(page)
-    if field is None:return "NO_FILE_INPUT"
+    # A newly opened ChatGPT page hydrates its composer and plus menu
+    # asynchronously; a single missing input is not a failed upload.
+    field=None
+    for _ in range(40):
+        field=select_uploader(page)
+        if field is not None:
+            break
+        page.wait_for_timeout(450)
+    if field is None:return "NO_FILE_INPUT_AFTER_RETRY"
     try:
         field.set_input_files(str(path),timeout=15000)
     except Exception:
