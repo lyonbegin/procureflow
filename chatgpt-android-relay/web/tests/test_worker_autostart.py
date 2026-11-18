@@ -121,6 +121,33 @@ class WorkerStartContract(unittest.TestCase):
                                      "fine_grained_token")
                     dispatch.assert_called_once_with("second-synthetic-option")
 
+    def test_signed_worker_self_restart_reserves_one_successor(self):
+        import bridge_qa_api
+        with patch.dict(os.environ,{"HITEL_GITHUB_ACTIONS_TOKEN":"synthetic-not-live"}):
+            with patch.object(worker_autostart,"_dispatch_with_fallback",
+                              return_value="fine_grained_token"):
+                result=self.chat("signed-fallback-pending-000001")
+                self.assertEqual(result.status_code,202,result.text)
+        # Simulate the end of an already-running 4h Chrome worker.
+        with api_v1.connection() as db:
+            db.execute("""UPDATE hitel_chrome_autostart
+                         SET next_attempt_at=0,lock_until=0 WHERE id=1""")
+        endpoint="/integrations/v1/qa/bridge/worker-fallback"
+        self.assertEqual(self.client.post(endpoint).status_code,401)
+        with patch.object(bridge_qa_api,"verify_bridge_qa_identity",
+                          lambda t:t=="test-only-valid-oidc"):
+            denied=self.client.post(endpoint,headers={
+                "Authorization":"Bearer unsigned-token"})
+            self.assertEqual(denied.status_code,403)
+            accepted=self.client.post(endpoint,headers={
+                "Authorization":"Bearer test-only-valid-oidc"})
+            self.assertEqual(accepted.status_code,200,accepted.text)
+            self.assertTrue(accepted.json()["relaunch_authorized"])
+            replay=self.client.post(endpoint,headers={
+                "Authorization":"Bearer test-only-valid-oidc"})
+            self.assertEqual(replay.status_code,200,replay.text)
+            self.assertFalse(replay.json()["relaunch_authorized"])
+
     def test_worker_connected_clears_errors_without_resubmitting(self):
         worker_autostart.worker_connected()
         state=worker_autostart.read_status(connected=True)
