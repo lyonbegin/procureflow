@@ -16,6 +16,7 @@ import integration_api
 import file_scenario_api
 import bridge_qa_api
 import integration_pairing
+import worker_autostart
 import remote_login_landing
 from gh_oidc import verify_worker_identity
 
@@ -49,6 +50,8 @@ ROOM_SCOPED_ONLY = {"chat.send", "chat.new"}
 consoles: set[WebSocket] = set()
 device: WebSocket | None = None  # existing native Android, unchanged
 web2api_device: WebSocket | None = None  # separate GitHub Chrome runner
+web2api_last_seen_monotonic: float = 0.0
+worker_watch_task: asyncio.Task | None = None
 pending: dict[str, dict[str, Any]] = {}
 recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
@@ -121,7 +124,47 @@ async def job_timeout(job_id: str):
         await dispatch_next()
 
 
-api_v1.on_new_job = dispatch_next
+async def notify_new_job():
+    """Dispatch immediately when online; launch signed worker on real demand."""
+    if web2api_device is not None:
+        await dispatch_next()
+    elif worker_autostart.configured():
+        await worker_autostart.ensure_started(
+            reason="authenticated_queue",connected=False)
+
+
+api_v1.on_new_job = notify_new_job
+
+
+async def _close_unresponsive_chrome():
+    """A valid WebSocket alone is not proof that Chrome is responsive."""
+    if (web2api_device is not None and web2api_last_seen_monotonic>0
+            and time.monotonic()-web2api_last_seen_monotonic>75):
+        print("[relay] authenticated Chrome heartbeat timed out",flush=True)
+        # Finally-block fails a running job, never resends an uncertain prompt.
+        await web2api_device.close(code=1011)
+
+
+@app.on_event("startup")
+async def boot_worker_recovery():
+    global worker_watch_task
+    if worker_watch_task is None:
+        worker_watch_task=asyncio.create_task(worker_autostart.monitor_connected(
+            check_connected=lambda:web2api_device is not None,
+            close_stale=_close_unresponsive_chrome,
+            interval=15))
+
+
+@app.on_event("shutdown")
+async def stop_worker_recovery():
+    global worker_watch_task
+    if worker_watch_task is not None:
+        worker_watch_task.cancel()
+        try:
+            await worker_watch_task
+        except asyncio.CancelledError:
+            pass
+        worker_watch_task=None
 
 
 async def timeout_command(command_id: str):
@@ -309,7 +352,7 @@ async def demo_start(request: Request):
 
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
-    global device, web2api_device, active_job_id, active_job_transport
+    global device, web2api_device, web2api_last_seen_monotonic, active_job_id, active_job_transport
     await ws.accept()
     role = ""
     actions_worker = False
@@ -383,6 +426,8 @@ async def socket(ws: WebSocket):
                 await old_worker.close(code=1001)
             else:
                 web2api_device = ws
+            web2api_last_seen_monotonic=time.monotonic()
+            worker_autostart.worker_connected()
             print("[relay] GitHub Chrome worker authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="web2api"))
             await broadcast(event("web2api.status", online=True, worker="github-chrome"))
@@ -402,6 +447,10 @@ async def socket(ws: WebSocket):
             try:
                 msg = json.loads(raw)
                 kind = msg.get("type")
+                if role == "web2api" and web2api_device is ws:
+                    web2api_last_seen_monotonic=time.monotonic()
+                    if kind == "worker.heartbeat":
+                        continue
                 if kind == "ping":
                     await transmit(ws, event("pong"))
                     continue
@@ -659,5 +708,11 @@ async def socket(ws: WebSocket):
                     reason="GitHub Chrome disconnected; not automatically retried"))
                 active_job_id = None
                 active_job_transport = None
+            web2api_last_seen_monotonic=0.0
+            worker_autostart.worker_disconnected()
             await broadcast(event("web2api.status", online=False, worker="github-chrome"))
+            # The next authenticated request or Railway supervisor may start
+            # another worker, without repeating an unverified ChatGPT send.
+            if worker_autostart.configured() and worker_autostart.pending_count()>0:
+                await worker_autostart.ensure_started(reason="chrome_disconnected",connected=False)
             await dispatch_next()
