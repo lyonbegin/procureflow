@@ -114,7 +114,9 @@ def _dispatch_once(token: str) -> None:
         token,payload={"ref":"main","inputs":{
             "operation":"worker_only","run_minutes":"240","pairing_code":""
         }})
-    if code not in (201,204):
+    # GitHub's 2026-03-10 API docs specify 200 with run metadata;
+    # older workflow_dispatch responses can still be 204 No Content.
+    if code not in (200,201,204):
         raise RuntimeError("GITHUB_DISPATCH_UNCONFIRMED")
 
 
