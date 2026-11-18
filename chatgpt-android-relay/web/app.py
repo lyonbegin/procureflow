@@ -14,6 +14,7 @@ import web_chat
 import chatgpt_accounts
 import integration_api
 import file_scenario_api
+import bridge_qa_api
 import remote_login_landing
 from gh_oidc import verify_worker_identity
 
@@ -32,6 +33,7 @@ app.include_router(chatgpt_accounts.router)
 app.include_router(integration_api.browser_router)
 app.include_router(integration_api.router)
 app.include_router(file_scenario_api.router)
+app.include_router(bridge_qa_api.router)
 app.include_router(remote_login_landing.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
