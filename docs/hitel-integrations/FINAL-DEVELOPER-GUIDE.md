@@ -6,7 +6,7 @@
 
 등록된 ChatGPT 1번 계정을 실제 Chrome 세션과 대조하고, 본인 브라우저 연결코드를 서명된 GitHub Actions로 승인하여, 실제 htli_ Bearer 키를 발급하고, 해당 키로 방 생성·ChatGPT 질문·결과·대화방 URL 검증 및 시험키 폐기까지 성공했습니다.
 
-**그러나 상시 운영 API가 아닙니다.** GitHub Chrome 작업자는 수동으로 실행하는 일회성 작업자이며, 연결되어 있지 않으면 새로운 질문은 HTTP 503으로 거부됩니다. 일반 CSV/PDF 첨부, 생성 파일 다운로드, 18,109개 문서 제목의 대량 자동분류는 아직 미완성입니다. 초기의 최종 완성본 표시는 철회한 상태입니다.
+**그러나 아직 완전한 운영 검증을 마치지 않았습니다.** GitHub 작업자의 요청 기반 자동 실행·장애 복구 코드를 구현했지만, Railway에 GitHub Actions 실행 권한이 설정되지 않으면 미연결 시 HTTP 503입니다. 일반 CSV/PDF 첨부, 생성 파일 다운로드, 18,109개 문서 제목의 대량 자동분류는 아직 미완성입니다. 초기의 최종 완성본 표시는 철회한 상태입니다.
 
 ## 1. 공식 호출 주소와 현재 운영 상태
 
@@ -39,18 +39,25 @@
 4. status=failed이면 error를 읽으십시오. queued/running이면 동일 작업 ID로 재조회하며 메시지 재전송은 하지 마십시오.
 5. worker_connected=false일 때는 운영용 질문을 제출하지 말고 의존성 복구를 기다리거나 장애를 노출하십시오.
 
-## 2-1. 매번 작업자를 켜는 방법
+## 2-1. 요청 시 자동 기동 및 장애 복구
 
-이전에 연결된 1번 계정은 다시 등록하거나 로그인할 필요가 없습니다.
+**실제 구현:** 검증된 HITEL Bearer 키로 POST /integrations/v1/chat 질문이 들어왔을 때 Chrome 작업자가 꺼져 있으면 서버가 해당 계정에 고정된 질문을 대기열에 기록하고 GitHub 공식 workflow_dispatch API로 작업자 시작을 요청합니다. HTTP 202는 접수만 의미하고 실제 ChatGPT 답변은 GET /integrations/v1/jobs/{job_id}에서 completed가 되어야 확인됩니다.
 
-1. **https://hitel-integration-api-production.up.railway.app/integrations/worker** 를 여십시오.
-2. "GitHub Chrome 작업자 실행 화면 열기" 링크를 누르십시오. 저장소 실행 권한이 있는 GitHub 계정이어야 합니다.
-3. GitHub에서 **Run workflow**를 누르십시오. 기본값은 operation=worker_only, run_minutes=240(4시간)입니다. pairing_code는 **비워 둡니다**.
-4. GitHub에서 Run workflow를 최종 확인하여 실제 워크플로를 실행하십시오. 로그인 프로필 검증 후 서버 WebSocket에 붙습니다.
-5. 원래 페이지에서 **worker_connected=true**가 표시되면 다른 프로그램이 API 메시지를 전송할 수 있습니다. 상태가 자동 갱신됩니다.
-6. 연결이 종료되면 같은 페이지에서 다시 실행하십시오. GitHub-hosted runner 한 회의 실행은 상시 서버가 아닙니다.
+Railway 서버의 내부 감시기는 작업 대기 중 연결이 끊기면 자동으로 다음 작업자를 실행합니다. GitHub 실행에 실패하면 지수 재시도 간격을 사용하며 SQLite 잠금으로 중복 워커 실행을 억제합니다. 워커가 응답하지 않으면 15초 간격의 애플리케이션 하트비트와 75초 감지를 사용합니다. ChatGPT에 실제 전송됐는지 불분명한 기존 질문은 절대로 자동 재전송하지 않습니다.
 
-**제약을 숨기지 마십시오:** GitHub 인증 및 CSRF 보호 때문에 단순 GET 링크 클릭만으로 GitHub Action을 실행할 수는 없습니다. 실행 화면에서 별도로 Run workflow를 승인해야 합니다. 승인 없이 자동 실행되는 공개 URL은 만들지 않았습니다. 예약 실행도 추가하지 않았습니다.
+**GitHub 실행 인증 경로와 대체 경로:** 우선 GitHub App 설치 토큰, 실패하면 제한된 저장소 Actions 토큰을 사용합니다. 기존 GitHub 작업자가 종료될 때 아직 미처리 작업이 있으면 OIDC로 서버에 확인하고 GitHub Actions가 자체 GITHUB_TOKEN으로 다음 작업자를 시작할 수 있도록 별도 서명 검증 경로도 구현했습니다. Actions 주기적 예약 실행은 없습니다.
+
+**Railway에 한 번만 설정할 실행 권한(비공개 환경변수):**
+
+- 권장 GitHub App: HITEL_GITHUB_APP_ID / HITEL_GITHUB_APP_INSTALLATION_ID / HITEL_GITHUB_APP_PRIVATE_KEY
+- 대안의 저장소 범위 최소 권한 토큰: HITEL_GITHUB_ACTIONS_TOKEN
+
+저장소 lyonbegin/procureflow에 Actions:write 권한이 있어야 합니다. 위 인증 방법 중 하나도 설정되지 않으면 자동 시작은 활성화되지 않으며, 워커가 꺼진 상태의 질문은 HTTP 503입니다. GitHub 실행 권한이 설정되기 전에는 서버의 자동 기동이 실제로 성공했다고 표시해서는 안 됩니다.
+
+상태 확인 URL: https://hitel-integration-api-production.up.railway.app/integrations/worker
+기계 판독 상태: GET /integrations/v1/worker/autostart
+
+수동 대체 경로가 필요한 경우 위 화면에서 GitHub Actions Run workflow를 열어 operation=worker_only로 시작합니다. 이미 등록된 1번 ChatGPT 계정을 다시 등록할 필요는 없습니다.
 
 ## 3. 기존 ChatGPT 1번 계정 연결과 API 키 발급
 
@@ -101,7 +108,7 @@ export HITEL_ACCOUNT_ID="oai_실제로_발급된_계정_ID"
 curl -sS "$BASE_URL/integrations/v1/capabilities"
 ~~~
 
-worker_connected=false인 경우 Chat POST는 HTTP 503이며 작업을 새로 접수하지 않습니다. 등록 계정 연결은 3절의 GitHub Actions 경로를 사용하십시오.
+worker_connected=false이지만 GitHub 자동 실행 권한이 이미 설정된 경우에는 유효한 질문을 HTTP 202로 접수한 뒤 워커 시작을 요청합니다. 권한이 없으면 HTTP 503입니다. 2-1절을 참조하십시오.
 
 ### B. 대화방 생성
 
@@ -223,7 +230,7 @@ curl -sS "$BASE_URL/integrations/v1/jobs/job_<실제 받은 작업 ID>" \
 
 **아직 미완료:**
 
-1. GitHub Chrome 작업자를 수동 실행하는 링크와 30~240분 선택은 제공했습니다. 24시간 상시 실행은 구현되지 않았으므로 작업자가 꺼져 있는 동안 worker_connected=false이며 새 질문은 HTTP 503입니다.
+1. 작업자 자동 시작·하트비트·재시도 코드 및 수동 실행 링크를 제공합니다. 실제 자동 가동에는 Railway의 GitHub App/Actions 최소 실행 권한이 필요합니다. 작업자는 24시간 상시 서버가 아니라 필요할 때 새로 실행됩니다.
 2. 일반 외부 프로그램이 임의 파일을 첨부하는 API. POST /integrations/v1/files는 501입니다.
 3. ChatGPT 생성 파일을 외부 앱으로 전달하는 다운로드 API. S11은 BLOCKED입니다.
 4. 18,109개 제목의 CSV 대량 입력, 분할·재개·출력 무결성, 호출 제한 조정 및 실제 전체 분류 검증.
