@@ -1,6 +1,6 @@
 name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 
-# Manual operation only. No schedule, no push autostart, no public dispatch.
+# Manual operation only. No schedule or public dispatch. Railway authenticates and dispatches on demand; this worker can self-restart once when signed verified work remains.
 on:
   workflow_dispatch:
     inputs:
@@ -29,7 +29,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   id-token: write
 
 concurrency:
@@ -180,6 +180,13 @@ jobs:
             exit 1
           fi
           echo "PASS_MANUAL_WORKER_SELECTED_SESSION_ENDED"
+
+      - name: GitHub-signed self-restart fallback if verified jobs survive worker shutdown
+        if: ${{ always() && inputs.operation == 'worker_only' }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile qa/.github/scripts/w2a_worker_fallback.py
+          python3 qa/.github/scripts/w2a_worker_fallback.py
 
       - name: Sanitize and summarize actual transport evidence
         if: always()
