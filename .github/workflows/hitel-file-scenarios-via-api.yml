@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      GH_TOKEN: \${{ github.token }}
-      FREEMOA_GOOGLE_PASSWORD: \${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
       DISPLAY: :99
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
 
       - name: Start real Chrome and prove saved account matches encrypted registry
         env:
-          CHROME_BINARY: \${{ steps.chrome.outputs.chrome-path }}
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
         run: |
           set -euo pipefail
           ROOT="$RUNNER_TEMP/w2a-check"
@@ -151,7 +151,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hitel-file-scenarios-via-real-api
-          path: \${{ runner.temp }}/hitel_file_api_results.json
+          path: ${{ runner.temp }}/hitel_file_api_results.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -174,3 +174,5 @@ jobs:
           PY
 
 # rerun 2026-11-18 header-case-fix: verify API SHA256 header case-insensitively
+
+# Retry: fix literal backslashes before GitHub Actions interpolations.
