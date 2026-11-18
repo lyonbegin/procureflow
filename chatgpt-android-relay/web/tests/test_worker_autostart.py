@@ -148,6 +148,14 @@ class WorkerStartContract(unittest.TestCase):
             self.assertEqual(replay.status_code,200,replay.text)
             self.assertFalse(replay.json()["relaunch_authorized"])
 
+    def test_official_2026_workflow_dispatch_http_200_is_success(self):
+        # Current GitHub REST API specification returns 200 with run metadata;
+        # older API responses may return 204 No Content.
+        with patch.object(worker_autostart,"_request",return_value=(200,{"workflow_run_id":123})):
+            self.assertIsNone(worker_autostart._dispatch_once("synthetic-only"))
+        with patch.object(worker_autostart,"_request",return_value=(204,{})):
+            self.assertIsNone(worker_autostart._dispatch_once("synthetic-only"))
+
     def test_worker_connected_clears_errors_without_resubmitting(self):
         worker_autostart.worker_connected()
         state=worker_autostart.read_status(connected=True)
