@@ -129,27 +129,42 @@ def upload(page,path):
 
 
 def remove_attachment(page,name):
-    """Remove only the synthetic pending file from its local upload chip."""
+    """Remove only the test file, never an existing chat or sidebar entry."""
     clicked=False
-    for _ in range(35):
+    was_visible=visible_filename(page,name)
+    for _ in range(45):
         synthetic=page.get_by_text(name,exact=False)
-        if not synthetic.count():
-            return "REMOVED" if clicked else "SYNTHETIC_ATTACHMENT_NOT_VISIBLE"
-        try:
-            card=synthetic.first.locator("xpath=../../..")
-            remove=card.get_by_role("button",name=re.compile(
-                r"remove|delete|close|제거|삭제|닫기",re.I))
-            if remove.count():
-                button=remove.first
-                if button.is_visible() and button.is_enabled():
-                    if not clicked:
-                        button.click(timeout=5000)
-                        clicked=True
-            if clicked and not visible_filename(page,name):
-                return "REMOVED"
-        except Exception:
-            pass
-        page.wait_for_timeout(400)
+        buttons=[]
+        if synthetic.count():
+            try:
+                card=synthetic.first.locator("xpath=../../..")
+                buttons.append(card.get_by_role("button",name=re.compile(
+                    r"remove|delete|close|제거|삭제|닫기",re.I)))
+            except Exception:
+                pass
+        # The React file card can re-mount between the filename becoming
+        # visible and the following click. Allow one unique explicitly
+        # file-removal-labelled control in this synthetic-only new chat.
+        buttons.append(page.get_by_role("button",name=re.compile(
+            r"remove.*(file|upload|attachment)|delete.*file|파일.*(제거|삭제)|(첨부|업로드).*제거",
+            re.I)))
+        for loc in buttons:
+            try:
+                if loc.count()!=1:
+                    continue
+                button=loc.first
+                if button.is_visible() and button.is_enabled() and not clicked:
+                    button.click(timeout=5000)
+                    clicked=True
+                    print("FILE_REMOVE_EXPLICIT_CONTROL_CLICKED=1",flush=True)
+            except Exception:
+                continue
+        if clicked and not visible_filename(page,name):
+            return "REMOVED"
+        page.wait_for_timeout(300)
+    print("FILE_REMOVE_FILENAME_INITIAL="+str(int(was_visible)),flush=True)
+    print("FILE_REMOVE_FILENAME_FINAL="+str(int(visible_filename(page,name))),flush=True)
+    print("FILE_REMOVE_CLICKED="+str(int(clicked)),flush=True)
     return "REMOVE_CLICKED_FILE_REMAINED" if clicked else "REMOVE_CONTROL_NOT_FOUND"
 
 def assistant_contains(page,key,strict=False):
@@ -301,7 +316,17 @@ def run():
                 if candidate is None:
                     report("S11","Download generated CSV file","BLOCKED","NO_DOWNLOADABLE_CSV_LINK")
                 else:
+                    # Report only the scheme and link semantics, never
+                    # signed URLs or ChatGPT response contents.
+                    from urllib.parse import urlsplit
+                    href=candidate.get_attribute("href") or ""
+                    parsed=urlsplit(href)
+                    safe_scheme=parsed.scheme.lower() if re.fullmatch(r"[a-z]{1,12}",parsed.scheme.lower()) else "relative"
+                    print("FILE_DOWNLOAD_CANDIDATE_SCHEME="+safe_scheme,flush=True)
+                    print("FILE_DOWNLOAD_CANDIDATE_HAS_DOWNLOAD_ATTR="+str(int(candidate.get_attribute("download") is not None)),flush=True)
+                    print("FILE_DOWNLOAD_CANDIDATE_CSV_PATH="+str(int(parsed.path.lower().endswith(".csv"))),flush=True)
                     try:
+                        before_pages=len(ctx.pages)
                         with page.expect_download(timeout=12000) as dl:
                             candidate.click(timeout=5000)
                         target=ROOT/"received-file"
@@ -311,6 +336,7 @@ def run():
                                "PASS" if okay else "FAIL",
                                "NONEMPTY_CSV_FILE_RECEIVED" if okay else "DOWNLOADED_FILE_EMPTY")
                     except Exception:
+                        print("FILE_DOWNLOAD_NEW_TAB_OPENED="+str(int(len(ctx.pages)>before_pages)),flush=True)
                         report("S11","Download generated CSV file","BLOCKED","BROWSER_DOWNLOAD_NOT_STARTED")
         finally:page.close()
 
