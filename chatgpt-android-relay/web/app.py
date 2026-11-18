@@ -7,7 +7,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 import api_v1
 import drive_v1
 import web_chat
@@ -253,22 +253,14 @@ def integration_quick_start_page():
 
 @app.get("/integrations/connect", include_in_schema=False)
 def integration_admin_pairing_page():
-    return FileResponse(
-        ROOT / "static" / "integrations-connect.html",
-        media_type="text/html; charset=utf-8",
-        headers={"Cache-Control":"no-store",
-                 "X-Content-Type-Options":"nosniff",
-                 "Referrer-Policy":"no-referrer",
-                 "Content-Security-Policy":
-                   "default-src 'none'; script-src 'unsafe-inline'; "
-                   "style-src 'unsafe-inline'; connect-src 'self'; "
-                   "base-uri 'none'; frame-ancestors 'none'"}
-    )
+    # The public test no longer asks users for login, API keys, or owner pairing.
+    return RedirectResponse("/integrations/public", status_code=303,
+                            headers={"Cache-Control":"no-store"})
 
 @app.get("/integrations/docs", include_in_schema=False)
 async def public_integration_reference():
     return FileResponse(
-        ROOT / "static" / "integrations.html",
+        ROOT / "static" / "integrations-quick-start.html",
         media_type="text/html",
         headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
                  "Referrer-Policy":"no-referrer",
