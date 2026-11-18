@@ -338,6 +338,21 @@ def run():
                     print("FILE_DOWNLOAD_CANDIDATE_SCHEME="+safe_scheme,flush=True)
                     print("FILE_DOWNLOAD_CANDIDATE_HAS_DOWNLOAD_ATTR="+str(int(candidate.get_attribute("download") is not None)),flush=True)
                     print("FILE_DOWNLOAD_CANDIDATE_CSV_PATH="+str(int(parsed.path.lower().endswith(".csv"))),flush=True)
+                    print("FILE_DOWNLOAD_HREF_IS_HASH="+str(int(href.strip()=="#")),flush=True)
+                    print("FILE_DOWNLOAD_HREF_EMPTY="+str(int(not href.strip())),flush=True)
+                    print("FILE_DOWNLOAD_HREF_ABSOLUTE_PATH="+str(int(href.startswith("/"))),flush=True)
+                    print("FILE_DOWNLOAD_HREF_HAS_SANDBOX="+str(int("sandbox:" in href.lower())),flush=True)
+                    print("FILE_DOWNLOAD_HREF_LENGTH_BUCKET="+str(min(len(href)//20,25)),flush=True)
+                    # A file link rendered as a placeholder may have a
+                    # separate real download control. Only inspect the latest
+                    # assistant's response for a uniquely named button.
+                    if not parsed.path.lower().endswith(".csv") and candidate.get_attribute("download") is None:
+                        download_button=within.get_by_role("button",name=re.compile(
+                            r"download|save file|다운로드|파일 저장",re.I))
+                        print("FILE_DOWNLOAD_ASSISTANT_BUTTONS="+str(min(download_button.count(),10)),flush=True)
+                        if download_button.count()==1 and download_button.first.is_visible():
+                            candidate=download_button.first
+                            print("FILE_DOWNLOAD_USED_SCOPED_BUTTON=1",flush=True)
                     try:
                         before_pages=len(ctx.pages)
                         with page.expect_download(timeout=12000) as dl:
