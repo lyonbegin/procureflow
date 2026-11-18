@@ -1,14 +1,29 @@
-name: HITEL API real Chrome worker bridge E2E proof
+name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 
+# Manual operation only. No schedule, no push autostart, no public dispatch.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/hitel-integration-bridge-live-qa.yml"
   workflow_dispatch:
     inputs:
+      operation:
+        description: "Start worker only, or run an explicit account pairing / API verification"
+        required: true
+        type: choice
+        default: worker_only
+        options:
+          - worker_only
+          - verify_or_pair
+      run_minutes:
+        description: "Worker lifetime for this manual run"
+        required: true
+        type: choice
+        default: "240"
+        options:
+          - "30"
+          - "60"
+          - "120"
+          - "240"
       pairing_code:
-        description: "One-use code from the HITEL integration connection page; blank runs synthetic complete API QA"
+        description: "Only needed to pair your HITEL browser; leave blank to start worker"
         required: false
         type: string
 
@@ -25,7 +40,7 @@ jobs:
   verified-chatgpt-bridge:
     name: Signed Railway API to logged-in Chrome to ChatGPT reply
     runs-on: ubuntu-24.04
-    timeout-minutes: 18
+    timeout-minutes: 290
     env:
       GH_TOKEN: ${{ github.token }}
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
@@ -33,7 +48,7 @@ jobs:
       RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws
       PYTHONPATH: .github/scripts
       PYTHONUNBUFFERED: "1"
-      W2A_WORKER_SECONDS: "360"
+      W2A_WORKER_SECONDS: ${{ inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout integration API's exact worker/client revision
@@ -136,12 +151,35 @@ jobs:
             sleep 2
           done
 
-      - name: Reverify registered account and exercise actual external bearer key workflow
+      - name: Verify account pairing or real Bearer API only when explicitly requested
+        if: ${{ inputs.operation == 'verify_or_pair' || inputs.pairing_code != '' }}
         run: |
           set -euo pipefail
           python3 .github/scripts/w2a_verify_saved_registry.py
           python3 -m py_compile qa/.github/scripts/w2a_pairing_e2e.py
           python3 qa/.github/scripts/w2a_pairing_e2e.py
+
+      - name: Keep connected worker running for the selected session
+        if: ${{ inputs.operation == 'worker_only' && inputs.pairing_code == '' }}
+        run: |
+          set -euo pipefail
+          PID="$(cat "$RUNNER_TEMP/bridge-worker.pid")"
+          START="$(date +%s)"
+          echo "PASS_MANUAL_WORKER_SESSION_STARTED"
+          echo "WORKER_DURATION_MINUTES=${{ inputs.run_minutes }}"
+          while kill -0 "$PID" 2>/dev/null; do
+            STATE="$(ps -o stat= -p "$PID" 2>/dev/null || true)"
+            if [[ "$STATE" == Z* ]]; then
+              break
+            fi
+            sleep 15
+          done
+          ELAPSED=$(( $(date +%s) - START ))
+          if (( ELAPSED + 180 < W2A_WORKER_SECONDS )); then
+            echo "FAIL_CHROME_WORKER_EXITED_BEFORE_REQUESTED_DURATION"
+            exit 1
+          fi
+          echo "PASS_MANUAL_WORKER_SELECTED_SESSION_ENDED"
 
       - name: Sanitize and summarize actual transport evidence
         if: always()
@@ -149,7 +187,7 @@ jobs:
           {
             echo '## HITEL signed HTTPS to WebSocket to real ChatGPT E2E'
             echo ''
-            echo 'Signed browser pairing, key issuance, real Bearer chat and response are separately verified here. Files and continuous workers are not tested.'
+            echo 'Manual worker-only mode stays connected for the selected session; verify_or_pair mode tests account and Bearer chat. Not evidence of continuous 24x7 service or file attachment support.'
             echo ''
             if test -f "$RUNNER_TEMP/bridge-worker.log"; then
               grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|FAIL_RELAY_WEB2API_JOB_|RELAY_CONNECTION_INTERRUPTED_' \
@@ -157,4 +195,3 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-# rerun after correcting OIDC pairing workflow-ref pin, 2026-11-19
