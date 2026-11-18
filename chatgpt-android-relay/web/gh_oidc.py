@@ -58,6 +58,12 @@ def verify_worker_identity(raw_token: str) -> bool:
         )
         allowed=(wf==WORKFLOW_REF and event in ("push","workflow_dispatch","schedule"))
         allowed=allowed or (wf==bridge_qa and event in ("push","workflow_dispatch"))
+        pairing_workflow=(
+            "lyonbegin/procureflow/.github/workflows/"
+            "hitel-integration-account-pairing.yml@refs/heads/main"
+        )
+        allowed=allowed or (wf==pairing_workflow and
+                           event in ("push","workflow_dispatch"))
         return all(payload.get(k)==v for k,v in must_equal.items()) and allowed
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
@@ -138,6 +144,42 @@ def verify_bridge_qa_identity(raw_token: str) -> bool:
         return (all(payload.get(k) == v for k,v in must_equal.items())
                 and payload.get("event_name") in ("push","workflow_dispatch"))
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
+        return False
+    except Exception:
+        return False
+
+
+PAIRING_WORKFLOW_REF = (
+    "lyonbegin/procureflow/.github/workflows/"
+    "hitel-integration-account-pairing.yml@refs/heads/main"
+)
+
+
+def verify_pairing_identity(raw_token: str) -> bool:
+    """Only signed main branch GitHub Actions account-pairing may bind a profile.
+
+    It must separately verify a real active ChatGPT HTTPS session against the
+    encrypted registered Chrome profile, and provide an unexpired browser
+    challenge. A GitHub token alone cannot choose the browser owner.
+    """
+    if not isinstance(raw_token, str) or not 50<=len(raw_token)<=8192:
+        return False
+    try:
+        key=_jwk_client().get_signing_key_from_jwt(raw_token)
+        payload=jwt.decode(
+            raw_token,key.key,algorithms=["RS256"],
+            audience=AUDIENCE,issuer=ISSUER,leeway=15,
+            options={"require":["iss","aud","iat","nbf","exp","sub"]},
+        )
+        exact={
+          "repository":REPOSITORY,"repository_id":REPOSITORY_ID,
+          "repository_owner_id":OWNER_ID,"ref":"refs/heads/main",
+          "workflow_ref":PAIRING_WORKFLOW_REF,
+          "runner_environment":"github-hosted",
+        }
+        return (all(payload.get(k)==v for k,v in exact.items())
+                and payload.get("event_name") in ("push","workflow_dispatch"))
+    except (PyJWTError,ValueError,TypeError,OSError,TimeoutError):
         return False
     except Exception:
         return False
