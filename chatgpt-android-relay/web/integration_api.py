@@ -202,6 +202,19 @@ def capabilities():
             "method":"browser-owner CSRF challenge, GitHub OIDC, active Chrome account matching encrypted registry",
         },
         "worker_mode":"manual_github_actions_ephemeral",
+        "worker_start":{
+            "status_url":"/integrations/worker",
+            "github_workflow_url":"https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml",
+            "requires_github_run_workflow_confirmation":True,
+            "default_mode":"worker_only",
+            "default_minutes":240,
+            "schedule_enabled":False,
+        },
+        "chat_send_application_quotas":{
+            "hourly_max":None,
+            "daily_max":None,
+            "note":"No HITEL 5/hour or global 30/day cap; concurrency and external ChatGPT service limits remain",
+        },
         "chat_e2e_verified_with_real_bearer_key":{
             "supported":True,
             "github_actions_run":"44369381864",
