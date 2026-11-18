@@ -130,3 +130,19 @@ def public_latest_bridge_proof():
                 and row["chatgpt_url"].startswith("https://chatgpt.com/c/")),
             "end_to_end_pass":passed,"created_at":row["created_at"],
             "scope":"Signed one-shot GitHub Chrome QA; not evidence of external API key provisioning"}
+
+
+@router.post("/worker-fallback")
+def signed_runner_workflow_recovery(verified=Depends(oidc)):
+    """GitHub runner itself may request one successor if verified jobs remain.
+
+    This OIDC-only endpoint returns no customer data, no user account IDs,
+    and no GitHub credential. It is not a public workflow launch URL.
+    """
+    import worker_autostart
+    from app import web2api_device
+    granted=worker_autostart.reserve_signed_runner_fallback(
+        connected=web2api_device is not None)
+    return {"relaunch_authorized":granted,
+            "reason":"pending_authenticated_jobs" if granted else "no_relaunch_needed",
+            "scope":"GitHub OIDC pinned worker fallback only"}
