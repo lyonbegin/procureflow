@@ -146,7 +146,7 @@ def remove_attachment(page,name):
     if synthetic.count():
         for levels in (1,2,3):
             try:
-                parent=synthetic.first.locator("xpath="+"../"*levels)
+                parent=synthetic.first.locator("xpath="+"/".join([".."]*levels))
                 buttons=parent.locator("button")
                 for i in range(min(buttons.count(),4)):
                     button=buttons.nth(i)
