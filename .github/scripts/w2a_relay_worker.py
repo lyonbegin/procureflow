@@ -198,6 +198,16 @@ def ws_destination() -> str:
     return url
 
 
+async def _periodic_app_heartbeat(socket,deadline:float):
+    """Keep the Railway heartbeat alive while Chrome processes a long turn."""
+    while time.monotonic()<deadline:
+        await asyncio.sleep(15)
+        try:
+            await socket.send('{"type":"worker.heartbeat"}')
+        except Exception:
+            return
+
+
 async def run(max_seconds: int = 1500) -> None:
     address = ws_destination()
     deadline = time.monotonic() + max_seconds
@@ -222,6 +232,10 @@ async def run(max_seconds: int = 1500) -> None:
                 print("PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED", flush=True)
                 authenticated_once = True
                 attempts = 0
+                # WebSocket protocol ping frames are not visible to the Railway
+                # application: send a separate authenticated app heartbeat.
+                hb_task=asyncio.create_task(_periodic_app_heartbeat(socket,deadline))
+                hb_task.add_done_callback(lambda t:None)
                 while time.monotonic() < deadline:
                     raw = await asyncio.wait_for(
                         socket.recv(), timeout=max(1, deadline - time.monotonic())
