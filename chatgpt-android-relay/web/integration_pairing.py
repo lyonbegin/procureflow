@@ -106,11 +106,11 @@ def pairing_status(request:Request):
 
 @worker_router.post("/pair",status_code=201)
 def redeem_pairing(data:Redeem,verified=Depends(_oidc)):
-    from w2a_account_runtime import canonical_email
     if not PAIR_ID.fullmatch(data.pairing_code):
         raise HTTPException(422,"Invalid pairing challenge")
-    try:email=canonical_email(data.verified_session_email)
-    except Exception:raise HTTPException(422,"Invalid verified session email") from None
+    email=data.verified_session_email.strip().casefold()
+    if len(email)>254 or not re.fullmatch(r"[^@\s]{1,100}@[^@\s]{1,180}",email):
+        raise HTTPException(422,"Invalid verified session email")
     digest=hashlib.sha256(data.pairing_code.encode()).hexdigest()
     now=api_v1.clock()
     with api_v1.connection() as db:
