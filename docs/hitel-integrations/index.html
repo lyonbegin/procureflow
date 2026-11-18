@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>HITEL 외부 프로그램 연동 API | 개발자 문서</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans KR","Malgun Gothic",sans-serif;color:#1c2938;background:#f4f6f9}
+*{box-sizing:border-box}body{margin:0;line-height:1.6}main{max-width:1024px;margin:auto;padding:32px 22px 72px}
+header{background:#152c48;color:#fff;padding:30px 0}header>div{max-width:1024px;margin:auto;padding:0 22px}
+h1{font-size:clamp(26px,4vw,40px);line-height:1.22;margin:6px 0 12px}h2{font-size:23px;margin:34px 0 12px}h3{font-size:17px}
+p{margin:10px 0}a{color:#1764ac}header a{color:#e3eefb}
+.status{padding:10px 13px;border-left:4px solid #d89622;background:#fff8e7;border-radius:4px;color:#4c3818;margin-top:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.panel{background:#fff;border:1px solid #dbe1e9;border-radius:10px;padding:18px;margin:14px 0}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}nav a{display:inline-block;padding:8px 11px;border:1px solid #cbd7e3;border-radius:6px;background:#fff;text-decoration:none}
+table{width:100%;border-collapse:collapse;background:#fff;margin:14px 0 18px;font-size:14px}
+th,td{padding:11px;border:1px solid #dce3eb;text-align:left;vertical-align:top}
+th{background:#edf2f7}code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+code{font-size:.9em;word-break:break-word}pre{background:#142239;color:#ecf4ff;border-radius:8px;padding:18px;overflow:auto;font-size:13px;line-height:1.55}
+.method{display:inline-block;font-weight:700;letter-spacing:.02em;background:#e8f3ff;border-radius:4px;padding:1px 6px;color:#145d9c}
+.ok{color:#12643d;font-weight:700}.no{color:#a14b19;font-weight:700}
+small,.subtle{color:#617185}header .subtle{color:#d7e5f1}footer{border-top:1px solid #dbe1e9;margin-top:40px;padding-top:18px}
+@media (max-width:700px){main{padding:18px 14px 42px}th,td{padding:7px;font-size:12px}pre{font-size:12px}}
+</style>
+</head>
+<body>
+<header><div>
+<p class="subtle">HITEL · Integration API · v1</p>
+<h1>외부 프로그램용 ChatGPT 연동 API</h1>
+<p>앱·서버·자동화 프로그램에서 JSON 요청으로 대화방을 생성하고, 질문 작업을 접수하고, 결과를 조회하는 API입니다.</p>
+<p class="subtle">기본 호출 방식: HTTPS · JSON · Bearer 인증 · 비동기 작업 조회</p>
+</div></header>
+<main>
+<div class="status"><strong>운영 상태 안내</strong> — 소스 및 격리된 자동시험에서 API 계약을 구현·검증했습니다. 외부 HTTPS 서버에 실제 배포되었는지, 등록하신 1번 ChatGPT 계정과 운영 환경이 연결되었는지는 별도 검증이 필요합니다. 아래 주소의 <code>BASE_URL</code>은 실제 배포·확인한 서버 주소로 교체해야 합니다. 등록 계정과 GitHub Actions의 Chrome은 동일한 사용자를 검증해야 하며, 작업 접수(202)는 실제 ChatGPT 답변 완료가 아닙니다.</div>
+<nav aria-label="문서 목차">
+<a href="#status">지원 상태</a><a href="#setup">인증키 발급</a><a href="#flow">연동 순서</a>
+<a href="#endpoints">API 목록</a><a href="#curl">cURL 예제</a><a href="#errors">오류 및 제한</a><a href="#evidence">시험 근거</a>
+</nav>
+<section id="status"><h2>지원 상태</h2>
+<div class="cols">
+<div class="panel"><h3>텍스트 대화</h3><p class="ok">API 구현 및 계약시험 통과</p><p>실제 전송은 GitHub Chrome 작업자 연결 및 요청 계정의 로그인 일치 검증에 따라 달라집니다.</p></div>
+<div class="panel"><h3>첨부 파일</h3><p class="no">외부 API 미지원</p><p>TXT/CSV 파일의 ChatGPT 웹 UI 직접 시험은 통과했지만 외부 HTTP→Chrome 원본 바이트 전달 기능은 아직 없습니다.</p></div>
+<div class="panel"><h3>생성 파일 다운로드</h3><p class="no">미검증</p><p>파일을 실제로 내려받는 이벤트와 원본 파일 수신은 아직 검증되지 않았습니다. 성공처럼 반환하지 않습니다.</p></div>
+</div>
+<table><thead><tr><th>기능</th><th>상태</th><th>기준</th></tr></thead><tbody>
+<tr><td>인증키 발급·폐기</td><td>구현 / 자동시험 통과</td><td>기존 브라우저 로그인·CSRF 검증 필요</td></tr>
+<tr><td>계정 고정 대화방</td><td>구현 / 자동시험 통과</td><td>프로그램 인증키의 계정과 동일해야 함</td></tr>
+<tr><td>질문 접수 및 결과 조회</td><td>구현 / 자동시험 통과</td><td>202 접수 → 작업 ID로 조회</td></tr>
+<tr><td>실제 ChatGPT 텍스트 응답</td><td>기존 GitHub Chrome에서 검증</td><td>실제 배포 후 새 통합시험 필요</td></tr>
+<tr><td>중복 전송 방지</td><td>구현 / 자동시험 통과</td><td>Idempotency-Key 필수</td></tr>
+<tr><td>첨부 제거·TXT/CSV 내용 분석</td><td>Chrome UI 시험 성공</td><td>외부 API 지원과는 별개</td></tr>
+<tr><td>API 파일 첨부·생성 파일 회수</td><td>미지원</td><td>임의 대체·허위 완료 금지</td></tr>
+</tbody></table></section>
+<section id="setup"><h2>인증키 발급 및 관리</h2>
+<p>최초 1회는 기존 HITEL 브라우저에서 소유권이 검증된 ChatGPT 계정을 선택해야 합니다. 그다음 발급받은 <code>htli_...</code> 형태의 API 키를 외부 프로그램의 비밀 설정값으로 보관하십시오. ChatGPT 로그인 쿠키·Google 비밀번호·GitHub 토큰을 외부 프로그램에 넘기지 않습니다.</p>
+<div class="panel">
+<p><strong>발급 절차:</strong> 기존 HITEL 브라우저의 <code>GET /web/api/bootstrap</code>에서 세션과 CSRF값을 받은 다음, 동일 브라우저 쿠키와 <code>X-Web-Csrf</code> 헤더로 <code>POST /web/api/integrations/keys</code>에 <code>{"name":"My application"}</code>을 전송합니다. 계정이 검증·선택된 경우 키가 단 한 번 반환됩니다.</p>
+<p><strong>조회:</strong> <code>GET /web/api/integrations/keys</code>는 이름·ID·폐기 상태만 제공합니다. 비밀키 원문은 반환하지 않습니다.</p>
+<p><strong>폐기:</strong> 동일 브라우저 인증과 CSRF로 <code>DELETE /web/api/integrations/keys/{key_id}</code>를 요청합니다.</p>
+</div>
+<p>외부 프로그램은 브라우저 쿠키를 사용하지 않으며, 매 요청에 <code>Authorization: Bearer $HITEL_API_KEY</code>를 포함합니다. 선택한 계정이 해제되거나 다른 계정으로 변경되면 기존 키의 실행 권한이 자동으로 거부됩니다.</p>
+</section>
+<section id="flow"><h2>프로그램 연동 순서</h2>
+<ol>
+<li>계정 검증 후 통합 API 키를 발급받습니다.</li>
+<li><code>GET /integrations/v1/capabilities</code>로 서버 지원 기능을 확인합니다.</li>
+<li><code>POST /integrations/v1/rooms</code>로 해당 계정 전용 대화방을 생성합니다.</li>
+<li><code>POST /integrations/v1/chat</code>로 질문을 접수합니다. 이때 요청에 <strong>선택된 account_id</strong>를 따로 넣고, <strong>Idempotency-Key</strong>를 지정합니다.</li>
+<li>응답의 <code>job_id</code>로 <code>GET /integrations/v1/jobs/{job_id}</code>를 조회합니다. <code>completed</code>가 되어야 최종 답변입니다.</li>
+</ol>
+<p>같은 방에서 후속 질문을 보내려면 직전 작업이 <code>completed</code> 상태이며 기존 ChatGPT 대화방 URL이 정상 연결되어 있어야 합니다. 상태가 불확실하면 중복 전송하지 않고 오류를 확인해야 합니다.</p>
+</section>
+<section id="endpoints"><h2>API 목록</h2>
+<table><thead><tr><th>메서드</th><th>엔드포인트</th><th>설명</th><th>인증</th></tr></thead><tbody>
+<tr><td><span class="method">GET</span></td><td><code>/integrations/v1/capabilities</code></td><td>지원 기능·Chrome 작업자 연결 상태</td><td>없음</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/integrations/v1/rooms</code></td><td>자신의 계정에 연결된 대화방</td><td>Bearer</td></tr>
+<tr><td><span class="method">POST</span></td><td><code>/integrations/v1/rooms</code></td><td>새 계정 전용 대화방</td><td>Bearer</td></tr>
+<tr><td><span class="method">POST</span></td><td><code>/integrations/v1/chat</code></td><td>비동기 텍스트 질문 접수</td><td>Bearer + Idempotency-Key</td></tr>
+<tr><td><span class="method">GET</span></td><td><code>/integrations/v1/jobs/{job_id}</code></td><td>질문 진행 상태·검증된 답변</td><td>Bearer</td></tr>
+<tr><td><span class="method">POST</span></td><td><code>/integrations/v1/files</code></td><td>파일 전송</td><td>Bearer → 501 미지원</td></tr>
+</tbody></table>
+</section>
+<section id="curl"><h2>cURL 예제</h2>
+<p>서버 주소와 개인 API 키는 각 프로그램의 환경변수로 관리하시고, 소스나 GitHub Actions 로그에 직접 기록하지 마십시오.</p>
+<h3>1. 연결 정보</h3>
+<pre><code>export BASE_URL="https://&lt;배포-확인된-서버-도메인&gt;"
+export HITEL_API_KEY="htli_발급받은_비밀키"
+
+curl -fsS "$BASE_URL/integrations/v1/capabilities"</code></pre>
+<h3>2. 대화방 생성</h3>
+<pre><code>curl -sS -X POST "$BASE_URL/integrations/v1/rooms" \
+  -H "Authorization: Bearer $HITEL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"외부 프로그램 시험방"}'
+
+# 응답 예: {"room_id":"room_...","account_id":"oai_...","status":"active"}</code></pre>
+<h3>3. 질문 접수 (HTTP 202)</h3>
+<pre><code>curl -sS -X POST "$BASE_URL/integrations/v1/chat" \
+  -H "Authorization: Bearer $HITEL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: client-20261118-request-0001" \
+  -d '{
+    "room_id":"room_발급받은_대화방_ID",
+    "account_id":"oai_선택한_계정_ID",
+    "text":"안녕하세요. 한 문장으로 답변해 주십시오.",
+    "attachment_ids":[]
+  }'
+
+# 응답 예: {"job_id":"job_...","status":"queued",
+#            "accepted":true,"sent_to_chatgpt":false,"poll":"..."}</code></pre>
+<h3>4. 결과 조회</h3>
+<pre><code>curl -sS "$BASE_URL/integrations/v1/jobs/job_발급받은_작업_ID" \
+  -H "Authorization: Bearer $HITEL_API_KEY"
+
+# queued / running: 아직 답변 아님
+# completed: result_text가 최종 답변
+# failed: error가 오류 분류</code></pre>
+</section>
+<section id="errors"><h2>오류와 안전 규칙</h2>
+<table><thead><tr><th>HTTP</th><th>상황</th><th>해결</th></tr></thead><tbody>
+<tr><td>400</td><td>Idempotency-Key 누락 또는 형식 오류</td><td>요청마다 고유한 16~128자 키 지정</td></tr>
+<tr><td>401/403</td><td>Bearer 인증 누락·폐기·잘못된 키</td><td>실제 발급된 키인지 확인</td></tr>
+<tr><td>409</td><td>요청 계정 불일치·다른 계정 전환·작업 진행 중·중복키 충돌</td><td>해당 키의 계정과 방을 확인, 진행 중이면 작업 조회</td></tr>
+<tr><td>429</td><td>요청 횟수·인증키 개수 제한</td><td>불필요한 반복 전송 중단</td></tr>
+<tr><td>501</td><td>원본 파일 첨부·다운로드 미지원</td><td>지원 구현 및 실측 전까지 파일 전송 중단</td></tr>
+</tbody></table>
+<p>질문은 최대 2,000자이고, 기본 테스트 제한은 계정 프로필당 시간당 5회·브라우저 시험 대상 전체 하루 30회입니다. 작업이 실제 ChatGPT에 전달된 뒤 네트워크가 끊길 수 있으므로, 임의로 다른 Idempotency-Key를 발급하여 같은 질문을 재전송하지 마십시오.</p>
+<p><strong>보안:</strong> 한 API 키는 하나의 사용자 프로필과 하나의 검증된 ChatGPT 계정에 묶이며, 다른 계정이나 대화방의 메시지를 열람할 수 없습니다. 시스템이 계정 일치를 확인할 수 없으면 전송을 거부합니다.</p>
+</section>
+<section id="evidence"><h2>구현 소스와 시험 근거</h2>
+<p><a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/integration_api.py">외부 API 소스</a> · <a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/tests/test_integrations_api.py">자동 보안시험 코드</a> · <a href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integrations-api-tests.yml">GitHub Actions 검증</a></p>
+<p>기존 ChatGPT 웹 UI에서 TXT 첨부·제거·내용 읽기·CSV 분석 4/5 통과 증거: <a href="https://github.com/lyonbegin/procureflow/actions/runs/44216793647">#44216793647</a>. 생성 CSV 다운로드는 실패/차단 상태로 유지합니다.</p>
+<p>기계 호출 API의 HTTP 계약은 격리된 TestClient로 검증하였으며, **다른 실제 프로그램에서 인터넷을 통한 운영 서버 호출까지 검증한 것으로 주장하지 않습니다.**</p>
+</section>
+<footer><small>HITEL Integration API v1 · GitHub Pages는 정적 사용 설명서입니다. API 실행 자체는 별도의 HTTPS 서버와 연결된 GitHub Chrome 작업자가 처리합니다.</small></footer>
+</main>
+</body></html>
