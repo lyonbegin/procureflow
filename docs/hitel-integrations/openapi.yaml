@@ -122,6 +122,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/JobState"
         "404": {description: Job not accessible or not found}
+  /integrations/v1/scenarios/files/latest:
+    get:
+      tags: [Integration]
+      summary: Public sanitized latest five-file-scenario real HTTP/Chrome test results
+      description: |
+        Anonymous read-only evidence from a strictly isolated, OIDC-authenticated
+        GitHub Actions test workflow using synthetic TXT and CSV. This does not
+        grant general clients file-upload support.
+      responses:
+        "200":
+          description: Five per-scenario PASS/FAIL/BLOCKED statuses and HTTP SHA256 proof
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id: {type: string}
+                  status: {type: string}
+                  github_actions_url: {type: string, nullable: true}
+                  transport: {type: object, nullable: true, additionalProperties: true}
+                  cases:
+                    type: array
+                    items: {type: object, additionalProperties: true}
+                  summary: {type: object, additionalProperties: true}
+                  all_pass: {type: boolean}
+  /integrations/v1/scenarios/files/runs/{run_id}:
+    get:
+      tags: [Integration]
+      summary: Public sanitized result of an exact synthetic file test run
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema:
+            type: string
+            pattern: "^frun_[a-f0-9]{32}$"
+      responses:
+        "200": {description: Per-scenario result and proof without secrets or real user files}
+        "404": {description: Unknown synthetic test run}
   /integrations/v1/files:
     post:
       tags: [Integration]
