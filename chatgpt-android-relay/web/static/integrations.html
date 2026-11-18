@@ -35,9 +35,15 @@ small,.subtle{color:#617185}header .subtle{color:#d7e5f1}footer{border-top:1px s
 <main>
 <div class="status"><strong>운영 상태 안내</strong> — 2026-11-18 외부 HTTPS <code>/health</code>와 <code>/integrations/v1/capabilities</code>의 정상 응답을 실측했습니다. 다만 당시 GitHub Chrome 작업자는 <code>worker_connected=false</code>였고, 등록하신 1번 ChatGPT 계정은 이 신규 API 서버에 아직 연결되지 않았고, 공식 OpenAI 계정 연동 설정도 완료되지 않아 현재 새 API 키 발급을 시작할 수 없습니다. 등록 계정 연결 및 GitHub Chrome 작업자 확인이 끝나야 실제 메시지 송수신 시험을 할 수 있습니다. 작업 접수(202)는 실제 ChatGPT 답변 완료가 아닙니다.</div>
 <nav aria-label="문서 목차">
-<a href="#status">지원 상태</a><a href="#setup">인증키 발급</a><a href="#flow">연동 순서</a>
+<a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/view">파일 실측 결과</a><a href="#status">지원 상태</a><a href="#setup">인증키 발급</a><a href="#flow">연동 순서</a>
 <a href="#endpoints">API 목록</a><a href="#curl">cURL 예제</a><a href="#errors">오류 및 제한</a><a href="#evidence">시험 근거</a>
 </nav>
+<div class="panel">
+<h2>실제 API 파일 시험 결과</h2>
+<p>2026년 11월 18일 GitHub Actions가 HTTPS API로 합성 TXT/CSV를 전송하고 다시 내려받아 SHA-256을 확인한 뒤, 실제 ChatGPT Chrome을 통해 5개 파일 동작을 시험했습니다. <strong>TXT 첨부·제거·내용 읽기 및 CSV 분석 4개가 통과했고, 생성 CSV 다운로드 1개는 BLOCKED</strong>입니다.</p>
+<p><a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/view">실시간 시나리오 결과표 열기</a> · <a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/scenarios/files/latest">API JSON 시험 증거</a> · <a href="https://github.com/lyonbegin/procureflow/actions/runs/44312253301">실제 GitHub Actions 로그</a></p>
+<p class="subtle">별도 GitHub Actions QA 전용 API를 사용한 시험이며, 일반 외부 프로그램의 파일 업로드는 아직 501 미지원입니다.</p>
+</div>
 <section id="status"><h2>지원 상태</h2>
 <div class="cols">
 <div class="panel"><h3>텍스트 대화</h3><p class="ok">API 구현 및 계약시험 통과</p><p>실제 전송은 GitHub Chrome 작업자 연결 및 요청 계정의 로그인 일치 검증에 따라 달라집니다.</p></div>
