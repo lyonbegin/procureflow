@@ -155,6 +155,35 @@ async def home():
                                  "X-Content-Type-Options":"nosniff",
                                  "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src blob:; object-src 'none'; frame-ancestors 'none'", "Referrer-Policy":"no-referrer"})
 
+@app.get("/integrations/docs", include_in_schema=False)
+async def public_integration_reference():
+    return FileResponse(
+        ROOT / "static" / "integrations.html",
+        media_type="text/html",
+        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
+                 "Referrer-Policy":"no-referrer",
+                 "Content-Security-Policy":
+                 "default-src 'none'; style-src 'unsafe-inline'; "
+                 "img-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+                 "form-action 'none'"},
+    )
+
+
+@app.get("/integrations/openapi.yaml", include_in_schema=False)
+async def public_integration_openapi():
+    return FileResponse(ROOT / "static" / "integrations-openapi.yaml",
+                        media_type="application/yaml",
+                        headers={"X-Content-Type-Options":"nosniff"})
+
+
+@app.get("/integrations/example_client.py", include_in_schema=False)
+async def public_integration_python_example():
+    return FileResponse(ROOT / "static" / "integrations-example-client.py",
+                        filename="hitel_api_example_client.py",
+                        media_type="text/plain",
+                        headers={"X-Content-Type-Options":"nosniff"})
+
+
 @app.get("/demo")
 async def old_connection_test():
     return FileResponse(ROOT / "static" / "index.html",
