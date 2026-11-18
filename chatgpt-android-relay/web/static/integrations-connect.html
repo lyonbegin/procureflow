@@ -18,6 +18,11 @@ a{color:#1762aa}
 <h1>HITEL API 계정 연결</h1>
 <p class="warning"><strong>운영 배포 전 시험용입니다.</strong> 새 Railway 서비스와 이미 등록된 GitHub Chrome 계정 1번을 안전하게 연결하는 절차입니다. API의 상시 동작, 일반 파일 첨부나 대량 문서 분류가 아직 완성되었다는 뜻이 아닙니다.</p>
 <section class="card">
+<h2>기존 계정은 그대로 · Chrome 작업자 켜기</h2>
+<p>기존에 발급받은 API 키가 있다면 계정을 다시 등록하지 않으셔도 됩니다. 작업자가 꺼진 경우 아래 실행 링크에서 GitHub <strong>Run workflow</strong>를 눌러 작업자만 켜시면 됩니다.</p>
+<p><a href="/integrations/worker">작업자 실행 화면 및 연결 상태 확인</a></p>
+</section>
+<section class="card">
 <h2>1. 브라우저 연결 상태</h2>
 <p id="status" aria-live="polite">상태 확인 중</p>
 <button id="refresh">상태 다시 확인</button>
@@ -94,5 +99,6 @@ $("makeKey").onclick=async()=>{
 };
 $("copy").onclick=async()=>{if(lastKey)try{await navigator.clipboard.writeText(lastKey);}catch(e){alert("복사하지 못했습니다. 직접 복사해 주십시오.");}};
 bootstrap().catch(e=>$("status").textContent=String(e.message||e));
+setInterval(()=>{if(csrf)refresh();},5000);
 </script>
 </main></body></html>
