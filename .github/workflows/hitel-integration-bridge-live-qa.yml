@@ -26,6 +26,8 @@ jobs:
       FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
       DISPLAY: :99
       RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws
+      PYTHONPATH: .github/scripts
+      PYTHONUNBUFFERED: "1"
       W2A_WORKER_SECONDS: "360"
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +124,7 @@ jobs:
               break
             fi
             if [ "$i" -eq 40 ]; then
-              grep -E 'FAIL_|RELAY_CONNECTION_' "$RUNNER_TEMP/bridge-worker.log" || true
+              tail -n 60 "$RUNNER_TEMP/bridge-worker.log" | grep -E 'FAIL_|RELAY_CONNECTION_|ModuleNotFound|Error|Traceback|PASS_' || true
               echo FAIL_REAL_NEW_RAILWAY_WEBSOCKET
               exit 1
             fi
