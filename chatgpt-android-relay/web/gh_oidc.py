@@ -95,6 +95,43 @@ def verify_file_scenario_identity(raw_token: str) -> bool:
         # results; a one-shot push of that workflow file is permitted.
         return (all(payload.get(k) == v for k, v in must_equal.items())
                 and payload.get("event_name") in ("push","workflow_dispatch"))
+
+BRIDGE_QA_WORKFLOW_REF = (
+    "lyonbegin/procureflow/.github/workflows/"
+    "hitel-integration-bridge-live-qa.yml@refs/heads/main"
+)
+
+
+def verify_bridge_qa_identity(raw_token: str) -> bool:
+    """Only a main-branch, GitHub-hosted QA workflow may run fixed test chat.
+
+    No external application receives or supplies this identity. Browser session
+    ownership is NOT granted by a test workflow.
+    """
+    if not isinstance(raw_token, str) or not 50 <= len(raw_token) <= 8192:
+        return False
+    try:
+        signing_key = _jwk_client().get_signing_key_from_jwt(raw_token)
+        payload = jwt.decode(
+            raw_token, signing_key.key, algorithms=["RS256"],
+            audience=AUDIENCE, issuer=ISSUER, leeway=15,
+            options={"require": ["iss", "aud", "iat", "nbf", "exp", "sub"]},
+        )
+        must_equal = {
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "repository_owner_id": OWNER_ID,
+            "ref": "refs/heads/main",
+            "workflow_ref": BRIDGE_QA_WORKFLOW_REF,
+            "runner_environment": "github-hosted",
+        }
+        return (all(payload.get(k) == v for k,v in must_equal.items())
+                and payload.get("event_name") in ("push","workflow_dispatch"))
+    except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
+        return False
+    except Exception:
+        return False
+
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
     except Exception:
