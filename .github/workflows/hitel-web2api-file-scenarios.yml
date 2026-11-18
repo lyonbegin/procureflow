@@ -79,6 +79,12 @@ jobs:
             sleep 2
           done
           python3 .github/scripts/w2a_verify_saved_registry.py
+      - name: Diagnose file upload completion, user send and assistant DOM safely
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/w2a_file_diagnostic_v2.py
+          python3 .github/scripts/w2a_file_diagnostic_v2.py
       - name: Exercise real TXT and CSV add/remove/read/download UI
         run: |
           set -euo pipefail
