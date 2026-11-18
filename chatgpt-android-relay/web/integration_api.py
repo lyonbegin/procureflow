@@ -190,10 +190,12 @@ def revoke_integration_key(key_id: str, request: Request):
 @router.get("/capabilities")
 def capabilities():
     from app import web2api_device
+    import chatgpt_accounts
     return {
         "service":"hitel-chatgpt-relay",
         "api_version":"1",
         "worker_connected":web2api_device is not None,
+        "verified_account_enrollment_available":chatgpt_accounts._enabled(),
         "async_job_api":True,
         "text_chat":{"supported":True,"availability":"requires_verified_account_and_connected_worker"},
         "new_room":{"supported":True},
