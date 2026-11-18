@@ -69,3 +69,22 @@ Web2API를 통해 PDF·TXT·이미지 등 바이너리를 직접 첨부하려면
 **총계:** PASS 8 / FAIL 2 / UNSUPPORTED 1 / BLOCKED 3. 전체 GitHub Actions가 성공해도 개별 FAIL은 그대로 실패로 표시합니다.
 
 **발견된 중요한 설계 사항:** 고정된 원본 `api_server.py`의 368–389행은 요청에 `conversation_id`가 없더라도 이전 세션과 프로젝트 조건이 일치하면 기존 대화를 계속 이어가도록 구현되어 있습니다. S05의 실패 원인은 단순 HTTP 오류가 아니라 이 기본 동작과 '새 대화' 시나리오의 기대 결과가 다른 데 있습니다. 별도의 명시적 '새 대화' 플래그 또는 호출자 분리가 필요합니다.
+
+## 2차 실제 시험 — 새 대화·SSE 오류 수정
+
+실행: https://github.com/lyonbegin/procureflow/actions/runs/44205338405
+
+- **S05 PASS**: 새 `new_conversation=true` 선택 시 서로 다른 대화 ID 생성
+- **S06 PASS**: SSE 표식, `finish_reason=stop`, `[DONE]` 모두 확인
+- S01–S04, S12–S14: 재시험에서 모두 PASS
+- **S08 FAIL**: 이 실행에서는 TXT 파일 첨부 후 UI 파일 카드 표시가 확인되지 않음. 1차의 S08 PASS와 결과가 달라 불안정
+- S09–S11: S08이 확인되지 않아 BLOCKED
+- S07: 원본 Web2API의 파일 업로드 API 미구현으로 UNSUPPORTED
+
+**2차 합계:** PASS 9 / FAIL 1 / UNSUPPORTED 1 / BLOCKED 3.
+
+S05의 원본 문제: 대화 ID가 없는 요청을 무조건 새 대화로 처리하지 않고 기본적으로 이전 대화에 이어 붙이므로, 고정 원본에 **선택적인 `new_conversation` 플래그만 추가**했습니다. 기존 생략 시 이어쓰기 동작은 그대로 유지합니다.
+
+파일 항목은 별도의 **실제 Chrome 파일 전용 3차 시험**으로 분리했습니다. 파일 첨부 카드가 보이는지, 보내기 전 삭제가 되는지, TXT·CSV의 실제 내용 질문이 가능한지, 생성 파일을 내려받을 수 있는지를 검사합니다.
+
+- 파일 전용 시험: https://github.com/lyonbegin/procureflow/actions/runs/44206239567
