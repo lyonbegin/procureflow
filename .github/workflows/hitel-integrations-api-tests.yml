@@ -8,6 +8,7 @@ on:
       - "chatgpt-android-relay/web/integration_api.py"
       - "chatgpt-android-relay/web/app.py"
       - "chatgpt-android-relay/web/tests/test_integrations_api.py"
+      - "docs/hitel-integrations/**"
       - ".github/workflows/hitel-integrations-api-tests.yml"
   workflow_dispatch:
 
@@ -31,6 +32,7 @@ jobs:
         run: python3 -m pip install -q -r chatgpt-android-relay/web/requirements.txt
       - name: Validate Python syntax
         run: |
+          python3 -m py_compile docs/hitel-integrations/example_client.py
           python3 -m py_compile chatgpt-android-relay/web/integration_api.py
           python3 -m py_compile chatgpt-android-relay/web/app.py
       - name: Execute isolated API security and contract cases
@@ -39,3 +41,17 @@ jobs:
           PUBLIC_SMOKE_ONLY: "1"
           WEB_SESSION_SIGNING_KEY: "test-only-non-secret-signing-key-in-github-ci-20261118"
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_integrations_api.py -v
+      - name: Validate static OpenAPI contract
+        run: |
+          python3 -m pip install -q pyyaml
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          doc=yaml.safe_load(Path('docs/hitel-integrations/openapi.yaml').read_text())
+          assert doc['openapi']=='3.0.3'
+          expected={'/integrations/v1/capabilities','/integrations/v1/rooms',
+                    '/integrations/v1/chat','/integrations/v1/jobs/{job_id}',
+                    '/integrations/v1/files'}
+          assert expected <= set(doc['paths'])
+          print('PASS_STATIC_OPENAPI_PATHS')
+          PY
