@@ -11,7 +11,11 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
+
+concurrency:
+  group: hitel-real-web2api-scenario-tests
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -24,6 +28,17 @@ jobs:
       HITEL_ACCOUNT_SLOT: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Cancel superseded scenario runs only (no other workflows)
+        run: |
+          set -euo pipefail
+          for RUN_ID in $(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-web2api-scenarios.yml/runs?status=in_progress&per_page=15" \
+            --jq '.workflow_runs[].id' 2>/dev/null || true); do
+            if [[ "$RUN_ID" =~ ^[0-9]+$ ]] && (( RUN_ID < GITHUB_RUN_ID )); then
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/cancel" >/dev/null 2>&1 || true
+              echo "CANCEL_SUPERSEDED_SCENARIO_RUN=$RUN_ID"
+            fi
+          done
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
