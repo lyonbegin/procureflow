@@ -60,7 +60,7 @@ def verify_worker_identity(raw_token: str) -> bool:
         allowed=allowed or (wf==bridge_qa and event in ("push","workflow_dispatch"))
         pairing_workflow=(
             "lyonbegin/procureflow/.github/workflows/"
-            "hitel-integration-account-pairing.yml@refs/heads/main"
+            "hitel-integration-bridge-live-qa.yml@refs/heads/main"
         )
         allowed=allowed or (wf==pairing_workflow and
                            event in ("push","workflow_dispatch"))
