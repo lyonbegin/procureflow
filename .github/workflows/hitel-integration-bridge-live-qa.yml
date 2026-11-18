@@ -1,0 +1,149 @@
+name: HITEL API real Chrome worker bridge E2E proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/hitel-integration-bridge-live-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: hitel-real-bridge-live-qa
+  cancel-in-progress: false
+
+jobs:
+  verified-chatgpt-bridge:
+    name: Signed Railway API to logged-in Chrome to ChatGPT reply
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      DISPLAY: :99
+      RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws
+      W2A_WORKER_SECONDS: "360"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout integration API's exact worker/client revision
+        uses: actions/checkout@v4
+        with:
+          ref: feature/hitel-integrations-api-20261118
+          path: qa
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - name: Restore pre-registered encrypted account 1
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0 websockets==13.1
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT/download"
+          RUN_ID="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
+          test -n "$RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null
+          test -s "$ROOT/download/registry.bin"
+          test -s "$ROOT/download/account-0001.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/account-0001.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_EXISTING_REGISTERED_CHROME_ACCOUNT_RESTORED
+
+      - name: Start real logged-in Chrome, assert session and registry email match
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_LIVE_CHROME_CDP_READY
+              break
+            fi
+            if [ "$i" -eq 45 ]; then echo FAIL_CHROME_CDP_START; exit 1; fi
+            sleep 2
+          done
+          python3 .github/scripts/w2a_verify_saved_registry.py
+          echo PASS_ACCOUNT_1_LIVE_IDENTITY_REGISTRY_MATCH
+
+      - name: Run original Web2API local adapter with pinned DOM patch
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 -m pip install -q "$ROOT/original"
+          chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+            >"$ROOT/web2api.log" 2>&1 &
+          for i in $(seq 1 50); do
+            if curl -fsS --max-time 5 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo PASS_REAL_LOCAL_WEB2API_ADAPTER_HEALTH
+              break
+            fi
+            if [ "$i" -eq 50 ]; then echo FAIL_LOCAL_WEB2API_START; exit 1; fi
+            sleep 2
+          done
+
+      - name: Connect signed worker to actual Railway API WebSocket
+        run: |
+          set -euo pipefail
+          python3 -m py_compile qa/.github/scripts/w2a_relay_worker.py
+          python3 qa/.github/scripts/w2a_relay_worker.py \
+            >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
+          for i in $(seq 1 40); do
+            if grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED \
+              "$RUNNER_TEMP/bridge-worker.log"; then
+              echo PASS_SIGNED_GITHUB_CHROME_WORKER_NEW_RAILWAY_CONNECTED
+              break
+            fi
+            if [ "$i" -eq 40 ]; then
+              grep -E 'FAIL_|RELAY_CONNECTION_' "$RUNNER_TEMP/bridge-worker.log" || true
+              echo FAIL_REAL_NEW_RAILWAY_WEBSOCKET
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Issue fixed synthetic QA prompt through Railway HTTPS and verify real reply
+        run: |
+          set -euo pipefail
+          python3 qa/.github/scripts/w2a_bridge_qa_client.py
+
+      - name: Sanitize and summarize actual transport evidence
+        if: always()
+        run: |
+          {
+            echo '## HITEL signed HTTPS to WebSocket to real ChatGPT E2E'
+            echo ''
+            echo 'Never consider this a general API account key or file attachment test.'
+            echo ''
+            if test -f "$RUNNER_TEMP/bridge-worker.log"; then
+              grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|FAIL_RELAY_WEB2API_JOB_|RELAY_CONNECTION_INTERRUPTED_' \
+                "$RUNNER_TEMP/bridge-worker.log" || true
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
