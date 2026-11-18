@@ -28,6 +28,7 @@ class IntegrationContract(unittest.TestCase):
         self.cb=self.b.get("/web/api/bootstrap").json()["csrf"]
         app.web2api_device=None
         app.active_job_id=None
+        api_v1.on_new_job=None
 
     def tearDown(self):
         self.a.__exit__(None,None,None)
@@ -101,6 +102,11 @@ class IntegrationContract(unittest.TestCase):
         self.assertEqual(self.a.get("/integrations/v1/rooms",headers=headers).json()
                          ["rooms"][0]["id"],room)
         content={"room_id":room,"account_id":a_account,"text":"HITEL unit test message only"}
+        # Real API refuses to enqueue when Chrome is not connected.
+        self.assertEqual(self.a.post("/integrations/v1/chat",json=content,
+                        headers=self.headers(a_key["api_key"],
+                        "offline-test-no-worker-00001")).status_code,503)
+        app.web2api_device=object()  # isolate queue contract from socket transport
         k="client-test-unique-idempotency-00001"
         self.assertEqual(self.a.post("/integrations/v1/chat",json=content,
                          headers=headers).status_code,400)
