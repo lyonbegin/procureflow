@@ -220,6 +220,20 @@ def integration_worker_start_page():
     )
 
 
+@app.get("/integrations/quick-start", include_in_schema=False)
+def integration_quick_start_page():
+    return FileResponse(
+        ROOT / "static" / "integrations-quick-start.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control":"no-store",
+                 "X-Content-Type-Options":"nosniff",
+                 "Referrer-Policy":"no-referrer",
+                 "Content-Security-Policy":
+                    "default-src 'none'; style-src 'unsafe-inline'; "
+                    "base-uri 'none'; frame-ancestors 'none'"}
+    )
+
+
 @app.get("/integrations/connect", include_in_schema=False)
 def integration_admin_pairing_page():
     return FileResponse(
