@@ -59,3 +59,41 @@ def verify_worker_identity(raw_token: str) -> bool:
         # Never let a JWKS HTTP failure, invalid claim type or parser failure
         # convert an untrusted token into device authorization.
         return False
+
+
+FILE_SCENARIO_AUDIENCE = "urn:lyonbegin:procureflow:hitel-file-scenario-api"
+FILE_SCENARIO_WORKFLOW_REF = (
+    "lyonbegin/procureflow/.github/workflows/"
+    "hitel-file-scenarios-via-api.yml@refs/heads/main"
+)
+
+
+def verify_file_scenario_identity(raw_token: str) -> bool:
+    """Authorize only the main-branch manual synthetic file test workflow.
+
+    This identity is deliberately NOT the general relay worker identity:
+    it cannot access private user rooms, credentials or ordinary file APIs.
+    """
+    if not isinstance(raw_token, str) or not 50 <= len(raw_token) <= 8192:
+        return False
+    try:
+        signing_key = _jwk_client().get_signing_key_from_jwt(raw_token)
+        payload = jwt.decode(
+            raw_token, signing_key.key, algorithms=["RS256"],
+            audience=FILE_SCENARIO_AUDIENCE, issuer=ISSUER, leeway=15,
+            options={"require": ["iss", "aud", "iat", "nbf", "exp", "sub"]},
+        )
+        must_equal = {
+            "repository": REPOSITORY,
+            "repository_id": REPOSITORY_ID,
+            "repository_owner_id": OWNER_ID,
+            "ref": "refs/heads/main",
+            "workflow_ref": FILE_SCENARIO_WORKFLOW_REF,
+            "runner_environment": "github-hosted",
+            "event_name": "workflow_dispatch",
+        }
+        return all(payload.get(k) == v for k, v in must_equal.items())
+    except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
+        return False
+    except Exception:
+        return False
