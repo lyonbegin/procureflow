@@ -1,0 +1,42 @@
+name: Publish HITEL API reference to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-hitel-integrations-api-reference.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: hitel-public-api-reference-pages
+  cancel-in-progress: true
+
+jobs:
+  pages:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - name: Checkout integration API documentation branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/hitel-integrations-api-20261118
+      - name: Assemble public docs without credentials
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          cp docs/hitel-integrations/index.html public/index.html
+          cp docs/hitel-integrations/openapi.yaml public/openapi.yaml
+          cp docs/hitel-integrations/example_client.py public/example_client.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: publish
+        uses: actions/deploy-pages@v4
