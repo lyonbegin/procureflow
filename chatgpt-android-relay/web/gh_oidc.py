@@ -151,7 +151,7 @@ def verify_bridge_qa_identity(raw_token: str) -> bool:
 
 PAIRING_WORKFLOW_REF = (
     "lyonbegin/procureflow/.github/workflows/"
-    "hitel-integration-account-pairing.yml@refs/heads/main"
+    "hitel-integration-bridge-live-qa.yml@refs/heads/main"
 )
 
 
