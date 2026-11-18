@@ -174,6 +174,46 @@ def live_chat_scenarios():
         record("S06","Streaming ChatGPT response","FAIL",safe_error(e))
 
 
+
+def locate_upload_input(page):
+    """ChatGPT adds the file input lazily after clicking the composer plus."""
+    field=page.locator("input[type=file]")
+    if field.count():
+        return field.first
+    openers=[
+        page.locator('[data-testid="composer-plus-btn"]'),
+        page.locator('[data-testid*="composer-plus"]'),
+        page.locator('[aria-label*="Add photos"]'),
+        page.locator('[aria-label*="Add files"]'),
+        page.get_by_role("button",name=re.compile(
+            r"Attach|Add photos|Add files|Upload|파일|첨부|사진|도구|Tools",re.I)),
+    ]
+    for opener in openers:
+        try:
+            if opener.count() and opener.first.is_visible():
+                opener.first.click(timeout=3000)
+                page.wait_for_timeout(800)
+                field=page.locator("input[type=file]")
+                if field.count():
+                    return field.first
+        except Exception:
+            pass
+    # Some clients mount upload input after selecting "Add photos & files"
+    # from the plus menu, but never type a file path into an unrelated field.
+    for role in ("menuitem","button"):
+        candidate=page.get_by_role(role,name=re.compile(
+            r"Add photos|Add files|Upload file|파일 업로드|파일 추가|사진 및 파일",re.I))
+        try:
+            if candidate.count() and candidate.first.is_visible():
+                candidate.first.click(timeout=3000)
+                field=page.locator("input[type=file]")
+                if field.count():
+                    return field.first
+        except Exception:
+            pass
+    return None
+
+
 def file_scenarios():
     # The pinned upstream Web2API REST handler has only /v1/chat/completions,
     # /v1/models, /v1/projects and /health. The relay blocks binary attachments.
@@ -195,21 +235,8 @@ def file_scenarios():
             try:
                 page.goto("https://chatgpt.com/",wait_until="domcontentloaded",timeout=45000)
                 page.wait_for_timeout(1500)
-                f=page.locator("input[type=file]")
-                if f.count()==0:
-                    for regex in [r"Add photos|Add files|Attach|Upload|파일 추가|첨부|사진 및 파일",
-                                  r"Tools|도구"]:
-                        for role in ("button","menuitem"):
-                            btn=page.get_by_role(role,name=re.compile(regex,re.I))
-                            try:
-                                if btn.count() and btn.first.is_visible():
-                                    btn.first.click(timeout=3500)
-                                    break
-                            except Exception:
-                                pass
-                        if page.locator("input[type=file]").count():break
-                f=page.locator("input[type=file]")
-                if f.count()==0:
+                f=locate_upload_input(page)
+                if f is None:
                     record("S08","TXT attachment via ChatGPT browser","BLOCKED","FILE_INPUT_NOT_AVAILABLE_ON_CURRENT_CHAT_UI")
                     record("S09","Remove unsubmitted attachment","BLOCKED","NO_ATTACHMENT_CHIP_AVAILABLE")
                     record("S10","Ask question about TXT file","BLOCKED","FILE_ATTACHMENT_NOT_AVAILABLE")
@@ -235,6 +262,9 @@ def file_scenarios():
                             r"Remove|Delete|첨부 파일 제거|파일 제거|삭제",re.I)),
                         page.locator('[data-testid*="remove-attachment"]'),
                         page.locator('[aria-label*="Remove attachment"]'),
+                        page.locator('[title*="Remove"]'),
+                        page.locator('[data-testid*="attachment"] button'),
+                        page.locator('[data-testid*="file"] button[aria-label]'),
                     ]:
                         try:
                             if locator.count() and locator.first.is_visible():
@@ -256,8 +286,8 @@ def file_scenarios():
                     page.close()
                     page=ctx.new_page()
                     page.goto("https://chatgpt.com/",wait_until="domcontentloaded",timeout=45000)
-                    inp=page.locator("input[type=file]")
-                    if inp.count()==0:
+                    inp=locate_upload_input(page)
+                    if inp is None:
                         record("S10","Ask question about TXT file","BLOCKED","FILE_INPUT_MISSING_ON_NEW_CHAT")
                         record("S11","Download assistant generated file","BLOCKED","CHAT_FILE_UI_UNAVAILABLE")
                         return
