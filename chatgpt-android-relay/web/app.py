@@ -162,6 +162,21 @@ async def home():
                                  "X-Content-Type-Options":"nosniff",
                                  "Content-Security-Policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src blob:; object-src 'none'; frame-ancestors 'none'", "Referrer-Policy":"no-referrer"})
 
+@app.get("/integrations/worker", include_in_schema=False)
+def integration_worker_start_page():
+    return FileResponse(
+        ROOT / "static" / "integrations-worker.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control":"no-store",
+                 "X-Content-Type-Options":"nosniff",
+                 "Referrer-Policy":"no-referrer",
+                 "Content-Security-Policy":
+                   "default-src 'none'; script-src 'unsafe-inline'; "
+                   "style-src 'unsafe-inline'; connect-src 'self'; "
+                   "base-uri 'none'; frame-ancestors 'none'"}
+    )
+
+
 @app.get("/integrations/connect", include_in_schema=False)
 def integration_admin_pairing_page():
     return FileResponse(
