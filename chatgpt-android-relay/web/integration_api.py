@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 import api_v1
 import web_chat
+import worker_autostart
 
 router = APIRouter(prefix="/integrations/v1", tags=["HITEL programmatic integration"])
 browser_router = APIRouter(prefix="/web/api/integrations",
@@ -201,15 +202,20 @@ def capabilities():
             "requires_signed_github_actions_workflow":True,
             "method":"browser-owner CSRF challenge, GitHub OIDC, active Chrome account matching encrypted registry",
         },
-        "worker_mode":"manual_github_actions_ephemeral",
+        "worker_mode":"event_driven_autostart_when_configured",
         "worker_start":{
             "status_url":"/integrations/worker",
+            "auto_start_status_url":"/integrations/v1/worker/autostart",
             "github_workflow_url":"https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml",
             "requires_github_run_workflow_confirmation":True,
             "default_mode":"worker_only",
             "default_minutes":240,
             "schedule_enabled":False,
+            "automatic_when_verified_chat_arrives":worker_autostart.configured(),
+            "automatic_recovery_for_queued_jobs":worker_autostart.configured(),
         },
+        "worker_auto_start":worker_autostart.read_status(
+            connected=web2api_device is not None),
         "chat_send_application_quotas":{
             "hourly_max":None,
             "daily_max":None,
@@ -235,6 +241,12 @@ def capabilities():
         "streaming":{"supported":False,
             "reason":"Integration endpoint is async job polling, not SSE"},
     }
+
+
+@router.get("/worker/autostart")
+def autostart_public_state():
+    from app import web2api_device
+    return worker_autostart.read_status(connected=web2api_device is not None)
 
 
 @router.get("/rooms")
@@ -283,10 +295,10 @@ async def submit_chat(data: ChatCreate, request: Request,
     if data.attachment_ids:
         raise HTTPException(501,"Native file attachment to ChatGPT is not supported")
     from app import web2api_device
-    if web2api_device is None:
-        # Do not strand user jobs behind an offline or expired GitHub runner.
-        # A 202 receipt is never a promise of a future/automatic worker start.
-        raise HTTPException(503,"Chrome worker is offline; no job was enqueued")
+    if web2api_device is None and not worker_autostart.configured():
+        # An authenticated request must never be stranded behind a missing
+        # GitHub credential. Do not create a job we cannot even try to start.
+        raise HTTPException(503,"Chrome worker offline and GitHub autostart credential not configured")
     message=data.text.strip()
     if not message or any(ord(x)<32 and x not in "\n\r\t" for x in message):
         raise HTTPException(422,"Non-empty text without control characters required")
@@ -338,7 +350,9 @@ async def submit_chat(data: ChatCreate, request: Request,
     return {"job_id":queued,"status":"queued" if not replay else "existing",
             "replayed":replay,"accepted":True,
             "sent_to_chatgpt":False,"worker_connected":web2api_device is not None,
-            "poll":"/integrations/v1/jobs/"+queued}
+            "poll":"/integrations/v1/jobs/"+queued,
+            "worker_autostart":worker_autostart.read_status(
+                connected=web2api_device is not None)}
 
 
 @router.get("/jobs/{job_id}")
