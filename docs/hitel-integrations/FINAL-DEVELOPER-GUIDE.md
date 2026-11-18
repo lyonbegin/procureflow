@@ -11,6 +11,8 @@
 ## 1. 공식 호출 주소와 현재 운영 상태
 
 - Base URL: https://hitel-integration-api-production.up.railway.app
+- **작업자 실행·재시작 및 연결 상태 화면:** https://hitel-integration-api-production.up.railway.app/integrations/worker
+- **직접 GitHub Actions 실행:** https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml
 - 브라우저용 개발자 안내: https://hitel-integration-api-production.up.railway.app/integrations/docs
 - OpenAPI 3.0.3: https://hitel-integration-api-production.up.railway.app/integrations/openapi.yaml
 - Python 표준라이브러리 호출 예제: https://hitel-integration-api-production.up.railway.app/integrations/example_client.py
@@ -36,6 +38,19 @@
 3. GET /integrations/v1/jobs/{job_id}에서 status=completed이고 result_text가 있어야 최종 답변으로 취급할 수 있습니다.
 4. status=failed이면 error를 읽으십시오. queued/running이면 동일 작업 ID로 재조회하며 메시지 재전송은 하지 마십시오.
 5. worker_connected=false일 때는 운영용 질문을 제출하지 말고 의존성 복구를 기다리거나 장애를 노출하십시오.
+
+## 2-1. 매번 작업자를 켜는 방법
+
+이전에 연결된 1번 계정은 다시 등록하거나 로그인할 필요가 없습니다.
+
+1. **https://hitel-integration-api-production.up.railway.app/integrations/worker** 를 여십시오.
+2. "GitHub Chrome 작업자 실행 화면 열기" 링크를 누르십시오. 저장소 실행 권한이 있는 GitHub 계정이어야 합니다.
+3. GitHub에서 **Run workflow**를 누르십시오. 기본값은 operation=worker_only, run_minutes=240(4시간)입니다. pairing_code는 **비워 둡니다**.
+4. GitHub에서 Run workflow를 최종 확인하여 실제 워크플로를 실행하십시오. 로그인 프로필 검증 후 서버 WebSocket에 붙습니다.
+5. 원래 페이지에서 **worker_connected=true**가 표시되면 다른 프로그램이 API 메시지를 전송할 수 있습니다. 상태가 자동 갱신됩니다.
+6. 연결이 종료되면 같은 페이지에서 다시 실행하십시오. GitHub-hosted runner 한 회의 실행은 상시 서버가 아닙니다.
+
+**제약을 숨기지 마십시오:** GitHub 인증 및 CSRF 보호 때문에 단순 GET 링크 클릭만으로 GitHub Action을 실행할 수는 없습니다. 실행 화면에서 별도로 Run workflow를 승인해야 합니다. 승인 없이 자동 실행되는 공개 URL은 만들지 않았습니다. 예약 실행도 추가하지 않았습니다.
 
 ## 3. 기존 ChatGPT 1번 계정 연결과 API 키 발급
 
@@ -64,7 +79,7 @@
 | DELETE | /web/api/integrations/keys/{key_id} | 브라우저 쿠키·CSRF | 키 폐기 |
 | GET | /integrations/v1/rooms | Bearer | 현재 키와 계정의 활성 방 목록 (최대 100) |
 | POST | /integrations/v1/rooms | Bearer | 계정에 고정된 방 생성, HTTP 201 |
-| POST | /integrations/v1/chat | Bearer + Idempotency-Key | 질문 작업 생성, HTTP 202 |
+| POST | /integrations/v1/chat | Bearer + Idempotency-Key | 작업자 연결 시 HTTP 202, 미연결 시 HTTP 503 |
 | GET | /integrations/v1/jobs/{job_id} | Bearer | 해당 키/계정 작업의 진행 상태와 결과 |
 | POST | /integrations/v1/files | Bearer | 인증 후 HTTP 501. 일반 파일 전송 미지원 |
 | GET | /integrations/v1/scenarios/files/latest | 없음 | 마지막 합성파일 QA 실측 결과 |
@@ -177,7 +192,7 @@ curl -sS "$BASE_URL/integrations/v1/jobs/job_<실제 받은 작업 ID>" \
 | 501 | 일반 파일 전송/비어 있지 않은 attachment_ids | 미지원으로 처리 |
 | 503 | Chrome 작업자 미연결 | 신규 질문 미접수; 작업자 가동 확인 |
 
-현재 서버 코드에는 프로필당 시간당 최대 5개 채팅 작업, 브라우저 시험 계열 전체 하루 최대 30개 작업, 활성 인증키 최대 5개/프로필의 제한이 있습니다. 방·텍스트 한도를 무시한 무한 재시도를 금지합니다.
+**시간당 5건 및 전체 하루 30건의 HITEL 자체 채팅 횟수 제한은 제거했습니다.** 다른 서비스의 정책·실제 작업자 처리 속도와는 별개이며, 동일 방의 미완료 작업 중복 제출 차단과 Idempotency-Key 검사는 유지합니다. 활성 인증키 최대 5개/프로필은 채팅 횟수 제한이 아니라 키 관리 한도입니다.
 
 네트워크 타임아웃이 발생했을 때는 동일한 Idempotency-Key와 동일한 본문으로만 재확인하며, 성공적으로 접수된 작업은 GET jobs/{job_id}로 조회하십시오. HTTP 202를 실제 답변으로 보여주지 마십시오. 작업자가 끊긴 상태에서는 제출하지 않는 것을 원칙으로 합니다.
 
@@ -208,7 +223,7 @@ curl -sS "$BASE_URL/integrations/v1/jobs/job_<실제 받은 작업 ID>" \
 
 **아직 미완료:**
 
-1. GitHub Chrome 작업자의 상시 실행 또는 사용자가 명시적으로 실행하는 운영 정책. 작업자가 꺼져 있는 일반 시간에는 worker_connected=false이며 새 질문은 HTTP 503입니다.
+1. GitHub Chrome 작업자를 수동 실행하는 링크와 30~240분 선택은 제공했습니다. 24시간 상시 실행은 구현되지 않았으므로 작업자가 꺼져 있는 동안 worker_connected=false이며 새 질문은 HTTP 503입니다.
 2. 일반 외부 프로그램이 임의 파일을 첨부하는 API. POST /integrations/v1/files는 501입니다.
 3. ChatGPT 생성 파일을 외부 앱으로 전달하는 다운로드 API. S11은 BLOCKED입니다.
 4. 18,109개 제목의 CSV 대량 입력, 분할·재개·출력 무결성, 호출 제한 조정 및 실제 전체 분류 검증.
