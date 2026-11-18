@@ -148,6 +148,37 @@ class IntegrationContract(unittest.TestCase):
         self.assertEqual(revoke.status_code,200,revoke.text)
         self.assertEqual(self.a.get("/integrations/v1/jobs/"+jid,headers=headers).status_code,403)
 
+    def test_chat_api_has_no_unrequested_hourly_or_daily_caps(self):
+        account=self.link(self.a)
+        key=self.key(self.a,self.ca)
+        headers=self.headers(key["api_key"])
+        previous=self.a.post("/integrations/v1/rooms",
+                 json={"title":"Past valid chats"},headers=headers)
+        self.assertEqual(previous.status_code,201,previous.text)
+        target=self.a.post("/integrations/v1/rooms",
+                 json={"title":"Another valid chat"},headers=headers)
+        self.assertEqual(target.status_code,201,target.text)
+        with api_v1.connection() as db:
+            user_id=db.execute(
+                "SELECT user_id FROM hitel_integration_keys WHERE id=?",
+                (key["id"],)).fetchone()["user_id"]
+            # All 36 are same-user, same-day historical messages. Earlier
+            # arbitrary 5/hour and 30/day gates rejected the next send.
+            for _ in range(36):
+                job=api_v1.store_job(db,user_id,previous.json()["room_id"],
+                     "chat.send","previous completed synthetic turn",[],
+                     account_id=account)
+                db.execute("UPDATE jobs SET status='completed',stage='verified',"
+                           "result_text='historical result' WHERE id=?",(job,))
+        app.web2api_device=object()  # connected transport stub; no live send
+        current=self.a.post("/integrations/v1/chat",json={
+                    "room_id":target.json()["room_id"],"account_id":account,
+                    "text":"37th valid synthetic chat"},
+                    headers=self.headers(key["api_key"],
+                                         "thirty-seven-no-arbitrary-cap-00037"))
+        self.assertEqual(current.status_code,202,current.text)
+        self.assertTrue(current.json()["accepted"])
+
     def test_account_switch_revokes_effective_access_without_deleting_key(self):
         first=self.link(self.a)
         key=self.key(self.a,self.ca)
