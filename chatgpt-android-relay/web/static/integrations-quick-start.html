@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HITEL 외부 프로그램 간편 사용법</title>
+<style>
+*{box-sizing:border-box}body{font:15px/1.7 system-ui,-apple-system,"Malgun Gothic",sans-serif;background:#f6f8fa;color:#20364d;margin:0}
+main{max-width:790px;padding:24px;margin:20px auto}article{border:1px solid #dce5ef;border-radius:12px;background:#fff;padding:25px}
+h1{font-size:26px}h2{font-size:19px;margin-top:24px}p{margin:10px 0}
+pre{background:#172536;color:#e6effa;padding:16px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
+a{color:#14578d}small{color:#67788a}button{padding:9px 13px;border-radius:8px;background:#225b91;color:white;border:0;cursor:pointer}
+</style></head><body><main><article>
+<h1>HITEL ChatGPT API — 링크 중심 간편 사용법</h1>
+<p>다른 프로그램에 아래 서버 주소를 전달하십시오. <strong>GitHub Actions 실행, GitHub App 생성, Railway 설정, 계정 재로그인은 필요하지 않습니다.</strong> 서버가 필요할 때 기존 워커를 자동 실행합니다.</p>
+<h2>1. 서버 접속 링크</h2>
+<p><a href="https://hitel-integration-api-production.up.railway.app/integrations/v1/capabilities">https://hitel-integration-api-production.up.railway.app/integrations/v1/capabilities</a></p>
+<p>이 URL은 누구나 바로 열어 연결 상태를 확인할 수 있습니다.</p>
+<h2>2. 실제 ChatGPT 텍스트 API</h2>
+<p>기본 주소: <code>https://hitel-integration-api-production.up.railway.app</code></p>
+<p><small>이미 발급된 HITEL 전용 연결키와 계정 식별자를 사용하는 프로그램만 실제 계정으로 질문을 보낼 수 있습니다. 이 값은 기존 사용자 계정을 임의로 공개하지 않기 위한 서버 내부 접근 통제이며 GitHub나 Railway에 다시 로그인하는 과정이 아닙니다.</small></p>
+<pre>POST /integrations/v1/rooms
+Authorization: Bearer &lt;기존 HITEL 연결키&gt;
+Content-Type: application/json
+
+{"title":"새 대화"}</pre>
+<p>반환된 <code>room_id</code>와 <code>account_id</code>로 아래 요청을 보냅니다.</p>
+<pre>POST /integrations/v1/chat
+Authorization: Bearer &lt;기존 HITEL 연결키&gt;
+Content-Type: application/json
+Idempotency-Key: user-request-20261119-00001
+
+{"room_id":"&lt;room_...&gt;","account_id":"&lt;oai_...&gt;",
+ "text":"질문 내용","attachment_ids":[]}</pre>
+<p>HTTP 202 응답의 <code>job_id</code>를 보관한 다음 해당 결과를 조회합니다.</p>
+<pre>GET /integrations/v1/jobs/&lt;job_id&gt;
+Authorization: Bearer &lt;기존 HITEL 연결키&gt;</pre>
+<p><strong>status=completed</strong>와 <code>result_text</code>가 있으면 답변이 완료된 것입니다. HTTP 202는 질문 접수만 의미합니다.</p>
+<h2>3. 자동 연결 및 장애 복구</h2>
+<p>워커가 꺼져 있으면 질문을 받았을 때 서버가 GitHub 작업자를 자동 실행합니다. 처리할 작업이 없다면 워커는 꺼져 있어도 됩니다. 기존 계정을 다시 등록할 필요는 없습니다.</p>
+<p><a href="/integrations/worker">실시간 연결 상태</a> · <a href="/integrations/v1/worker/autostart">자동 실행 상태</a></p>
+<h2>4. 테스트 전 확인 사항</h2>
+<p>텍스트 질문은 실증 시험에 통과했지만 <strong>현재 등록된 외부 프로그램 키로 무인 자동 기동부터 답변까지 완주하는 실서버 시험은 아직 별도로 확인해야 합니다.</strong> TXT·CSV·PDF 등 외부 파일 첨부 및 파일 다운로드 API는 아직 지원하지 않습니다.</p>
+<p><small>시간당 5건 및 하루 30건의 HITEL 자체 메시지 수 제한은 없습니다. 같은 대화방에서 미완료 질문을 동시에 두 번 보내거나, 동일 요청을 다른 Idempotency-Key로 반복 제출하지 마십시오.</small></p>
+</article></main></body></html>
