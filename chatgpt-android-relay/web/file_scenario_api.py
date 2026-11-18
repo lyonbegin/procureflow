@@ -151,11 +151,25 @@ def create_run(verified=Depends(signed_workflow)):
               (now-86400000,)).fetchone()[0]
             if recent>=MAX_RUNS_PER_DAY:
                 raise HTTPException(429,"Synthetic browser test daily cap reached")
-            if db.execute(
-                "SELECT 1 FROM hitel_file_scenario_runs "
-                "WHERE status IN ('preparing','running') AND created_at>? LIMIT 1",
-                (now-1800000,)).fetchone():
-                raise HTTPException(409,"Synthetic file scenario already active")
+            active=db.execute(
+                "SELECT id,status,created_at FROM hitel_file_scenario_runs "
+                "WHERE status IN ('preparing','running') "
+                "ORDER BY created_at DESC LIMIT 1").fetchone()
+            if active:
+                if active["status"]=="preparing" and active["created_at"]<now-60000:
+                    # Previous workflow failed while uploading test bytes.
+                    # Keep its history; never silently delete it.
+                    db.execute(
+                        "UPDATE hitel_file_scenario_runs "
+                        "SET status='abandoned',completed_at=? WHERE id=?",
+                        (now,active["id"]))
+                elif active["status"]=="running" and active["created_at"]<now-1800000:
+                    db.execute(
+                        "UPDATE hitel_file_scenario_runs "
+                        "SET status='timed_out',completed_at=? WHERE id=?",
+                        (now,active["id"]))
+                else:
+                    raise HTTPException(409,"Synthetic file scenario already active")
             run_id="frun_"+api_v1.new_id()
             marker="HITEL_FILE_"+secrets.token_hex(4).upper()+"_795"
             db.execute(
