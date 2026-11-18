@@ -7,6 +7,9 @@ on:
     paths:
       - "chatgpt-android-relay/web/integration_api.py"
       - "chatgpt-android-relay/web/worker_autostart.py"
+      - ".github/scripts/w2a_relay_worker.py"
+      - ".github/scripts/w2a_worker_fallback.py"
+      - "chatgpt-android-relay/web/bridge_qa_api.py"
       - "chatgpt-android-relay/web/tests/test_worker_autostart.py"
       - "chatgpt-android-relay/web/app.py"
       - "chatgpt-android-relay/web/tests/test_integrations_api.py"
@@ -45,6 +48,8 @@ jobs:
           python3 -m py_compile docs/hitel-integrations/example_client.py
           python3 -m py_compile chatgpt-android-relay/web/integration_api.py
           python3 -m py_compile chatgpt-android-relay/web/worker_autostart.py
+          python3 -m py_compile .github/scripts/w2a_relay_worker.py
+          python3 -m py_compile .github/scripts/w2a_worker_fallback.py
           python3 -m py_compile chatgpt-android-relay/web/file_scenario_api.py
           python3 -m py_compile chatgpt-android-relay/web/integration_pairing.py
           python3 -m py_compile chatgpt-android-relay/web/bridge_qa_api.py
