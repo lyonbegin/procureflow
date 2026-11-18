@@ -130,7 +130,7 @@ curl -fsS "$BASE_URL/integrations/v1/capabilities"</code></pre>
 <p><strong>보안:</strong> 한 API 키는 하나의 사용자 프로필과 하나의 검증된 ChatGPT 계정에 묶이며, 다른 계정이나 대화방의 메시지를 열람할 수 없습니다. 시스템이 계정 일치를 확인할 수 없으면 전송을 거부합니다.</p>
 </section>
 <section id="evidence"><h2>구현 소스와 시험 근거</h2>
-<p><a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/integration_api.py">외부 API 소스</a> · <a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/tests/test_integrations_api.py">자동 보안시험 코드</a> · <a href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integrations-api-tests.yml">GitHub Actions 검증</a></p>
+<p><a href="openapi.yaml">OpenAPI 3.0 명세</a> · <a href="example_client.py">Python API 예제</a> · <a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/integration_api.py">외부 API 소스</a> · <a href="https://github.com/lyonbegin/procureflow/blob/feature/hitel-integrations-api-20261118/chatgpt-android-relay/web/tests/test_integrations_api.py">자동 보안시험 코드</a> · <a href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integrations-api-tests.yml">GitHub Actions 검증</a></p>
 <p>기존 ChatGPT 웹 UI에서 TXT 첨부·제거·내용 읽기·CSV 분석 4/5 통과 증거: <a href="https://github.com/lyonbegin/procureflow/actions/runs/44216793647">#44216793647</a>. 생성 CSV 다운로드는 실패/차단 상태로 유지합니다.</p>
 <p>기계 호출 API의 HTTP 계약은 격리된 TestClient로 검증하였으며, **다른 실제 프로그램에서 인터넷을 통한 운영 서버 호출까지 검증한 것으로 주장하지 않습니다.**</p>
 </section>
