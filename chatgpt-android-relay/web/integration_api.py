@@ -34,8 +34,6 @@ KEY_ID = re.compile(r"^ikey_[a-f0-9]{24}$")
 ACCOUNT_ID = re.compile(r"^oai_[A-Za-z0-9_-]{3,75}$")
 MAX_KEYS_PER_PROFILE = 5
 MAX_TEXT = 2000
-MAX_PER_HOUR = 5
-MAX_PER_DAY = 30
 
 with api_v1.connection() as _db:
     _db.executescript("""
@@ -310,18 +308,6 @@ async def submit_chat(data: ChatCreate, request: Request,
                       AND status='completed' LIMIT 1
                 """,(data.room_id,key["user_id"])).fetchone():
                     raise HTTPException(409,"Unverified previous conversation: use a fresh room")
-                hourly=db.execute("""
-                    SELECT COUNT(*) FROM jobs WHERE user_id=? AND action='chat.send'
-                      AND created_at>?
-                """,(key["user_id"], now-3600000)).fetchone()[0]
-                if hourly>=MAX_PER_HOUR:
-                    raise HTTPException(429,"Hourly integration quota exceeded")
-                daily=db.execute("""
-                    SELECT COUNT(*) FROM jobs WHERE user_id LIKE 'usr_browser_%'
-                      AND action='chat.send' AND created_at>?
-                """,(now-86400000,)).fetchone()[0]
-                if daily>=MAX_PER_DAY:
-                    raise HTTPException(429,"Global integration quota exceeded")
                 queued=api_v1.store_job(db,key["user_id"],data.room_id,
                                         "chat.send",message,[],account_id=key["account_id"])
                 db.execute("""
