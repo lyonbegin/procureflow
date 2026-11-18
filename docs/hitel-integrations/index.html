@@ -33,7 +33,7 @@ small,.subtle{color:#617185}header .subtle{color:#d7e5f1}footer{border-top:1px s
 <p class="subtle">기본 호출 방식: HTTPS · JSON · Bearer 인증 · 비동기 작업 조회</p>
 </div></header>
 <main>
-<div class="status"><strong>운영 상태 안내</strong> — 소스 및 격리된 자동시험에서 API 계약을 구현·검증했습니다. 외부 HTTPS 서버에 실제 배포되었는지, 등록하신 1번 ChatGPT 계정과 운영 환경이 연결되었는지는 별도 검증이 필요합니다. 아래 주소의 <code>BASE_URL</code>은 실제 배포·확인한 서버 주소로 교체해야 합니다. 등록 계정과 GitHub Actions의 Chrome은 동일한 사용자를 검증해야 하며, 작업 접수(202)는 실제 ChatGPT 답변 완료가 아닙니다.</div>
+<div class="status"><strong>운영 상태 안내</strong> — 2026-11-18 외부 HTTPS <code>/health</code>와 <code>/integrations/v1/capabilities</code>의 정상 응답을 실측했습니다. 다만 당시 GitHub Chrome 작업자는 <code>worker_connected=false</code>였고, 등록하신 1번 ChatGPT 계정과 이 신규 API 서버의 연결은 아직 검증되지 않았습니다. 작업 접수(202)는 실제 ChatGPT 답변 완료가 아닙니다.</div>
 <nav aria-label="문서 목차">
 <a href="#status">지원 상태</a><a href="#setup">인증키 발급</a><a href="#flow">연동 순서</a>
 <a href="#endpoints">API 목록</a><a href="#curl">cURL 예제</a><a href="#errors">오류 및 제한</a><a href="#evidence">시험 근거</a>
@@ -85,7 +85,7 @@ small,.subtle{color:#617185}header .subtle{color:#d7e5f1}footer{border-top:1px s
 <section id="curl"><h2>cURL 예제</h2>
 <p>서버 주소와 개인 API 키는 각 프로그램의 환경변수로 관리하시고, 소스나 GitHub Actions 로그에 직접 기록하지 마십시오.</p>
 <h3>1. 연결 정보</h3>
-<pre><code>export BASE_URL="https://&lt;배포-확인된-서버-도메인&gt;"
+<pre><code>export BASE_URL="https://hitel-integration-api-production.up.railway.app"
 export HITEL_API_KEY="htli_발급받은_비밀키"
 
 curl -fsS "$BASE_URL/integrations/v1/capabilities"</code></pre>
