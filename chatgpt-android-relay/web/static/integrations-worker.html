@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="HITEL GitHub Chrome 작업자 수동 실행 링크 및 worker_connected 상태 실시간 확인">
+<title>HITEL ChatGPT API 작업자 켜기 · 실시간 연결 상태</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f8fc;color:#162b42;font:16px/1.65 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+main{max-width:770px;margin:40px auto;padding:20px}.panel{background:white;padding:26px;border:1px solid #d9e2ed;border-radius:14px;margin:17px 0}
+h1{font-size:26px;line-height:1.3}h2{font-size:18px}.status{display:flex;align-items:center;gap:12px;font-weight:700;padding:14px;background:#f2f6fb;border-radius:9px}
+.dot{display:inline-block;width:13px;height:13px;background:#7f8896;border-radius:50%}.online .dot{background:#16945f}.offline .dot{background:#c16a29}
+a.run{display:inline-block;padding:14px 20px;background:#184e89;color:white;border-radius:9px;font-weight:700;text-decoration:none}
+a{color:#145fa4}p{margin:10px 0}ol{padding-left:23px}li{margin:11px 0}small{color:#65788b}
+code{font:13px/1.45 ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+</style></head><body><main>
+<h1>HITEL ChatGPT API 작업자 켜기</h1>
+<p>등록된 ChatGPT 계정과 GitHub Chrome을 연결하는 <strong>작업자 실행 화면</strong>입니다. 연결 상태는 자동으로 갱신됩니다.</p>
+<div class="panel">
+  <h2>현재 연결 상태</h2>
+  <div id="workerStatus" class="status" role="status" aria-live="polite"><span class="dot"></span><span id="workerMessage">서버 확인 중</span></div>
+  <p><small id="checkedAt">연결 상태를 조회하고 있습니다.</small></p>
+</div>
+<div class="panel">
+<h2>작업자 실행 / 다시 켜기</h2>
+<p><a class="run" target="_blank" rel="noopener noreferrer"
+href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml">GitHub Chrome 작업자 실행 화면 열기</a></p>
+<ol>
+<li>GitHub 페이지의 <strong>Run workflow</strong>를 누르십시오. GitHub 권한이 있는 계정으로 로그인되어 있어야 합니다.</li>
+<li><code>operation=worker_only</code>가 기본 선택이고, <code>run_minutes=240</code>(4시간)이 기본값입니다. 기존 계정 연결코드는 <strong>비워 두시면 됩니다.</strong></li>
+<li><strong>Run workflow</strong>를 확정하시면 Chrome 로그인 확인 후 작업자가 신규 Railway API WebSocket에 연결됩니다.</li>
+<li>이 페이지로 돌아오시면 상태가 자동 갱신됩니다. <code>worker_connected=true</code>가 확인된 다음 다른 앱에서 질문을 보내십시오.</li>
+</ol>
+<p><small>이 링크를 열기만 해서는 GitHub Action이 시작되지 않습니다. GitHub의 인증된 실행 확인 클릭이 필요합니다. GitHub 토큰이나 로그인 비밀번호를 이 웹페이지에서 수집하지 않습니다.</small></p>
+</div>
+<div class="panel">
+<h2>외부 프로그램 연동</h2>
+<p>작업자가 연결된 동안 기존에 발급받은 <code>htli_</code> 인증키와 <code>oai_</code> 계정 ID로 텍스트 채팅 API를 호출할 수 있습니다. 종료 후에는 이 링크로 다시 실행하십시오.</p>
+<p>해당 API에는 <strong>시간당 5건 및 하루 전체 30건의 임의 호출 제한을 두지 않습니다.</strong> 작업자 처리 능력과 ChatGPT 서비스 자체의 제한은 별개입니다.</p>
+<p><a href="/integrations/connect">기존 계정 연결·인증키 발급</a> · <a href="/integrations/v1/capabilities">기계 판독 연결 상태(JSON)</a> · <a href="/integrations/docs">외부 개발자 명세</a></p>
+</div>
+<script>
+"use strict";
+let inflight=false;
+async function update(){
+ if(inflight)return;
+ inflight=true;
+ try{
+  const r=await fetch("/integrations/v1/capabilities",{cache:"no-store",credentials:"omit"});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  const j=await r.json();
+  const up=j.worker_connected===true;
+  const status=document.getElementById("workerStatus");
+  status.className="status "+(up?"online":"offline");
+  document.getElementById("workerMessage").textContent=up?"연결됨 · worker_connected=true":"미연결 · worker_connected=false";
+  document.getElementById("checkedAt").textContent="서버 실측 · "+new Date().toLocaleString("ko-KR");
+ }catch(e){
+  document.getElementById("workerStatus").className="status offline";
+  document.getElementById("workerMessage").textContent="상태 확인 실패 · 자동 재시도";
+  document.getElementById("checkedAt").textContent="서버 응답 오류";
+ }
+ finally{inflight=false}
+}
+update();setInterval(update,5000);
+</script>
+</main></body></html>
