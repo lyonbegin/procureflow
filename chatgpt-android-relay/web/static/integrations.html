@@ -56,7 +56,7 @@ small{font-size:12px;color:#67788b}
 <article>
 <h1 id="section-1">HITEL 외부 프로그램 연동 API — 검증된 사용 범위</h1>
 <p>문서 버전: 1.3 · 2026-11-19 · 실제 Bearer 채팅 PASS · 5건/30건 채팅 제한 제거 · 작업자 실행 링크 추가</p>
-<blockquote>인증키 기반 텍스트 채팅은 실제 왕복시험을 통과했습니다. 단, 작업자는 수동으로 시작되는 일회성 GitHub 실행이므로 <strong>worker_connected=true</strong>일 때만 질문을 접수합니다. 다른 기능을 완성으로 주장하지 않습니다.</blockquote>
+<blockquote>인증키 기반 텍스트 채팅은 실제 왕복시험을 통과했습니다. GitHub 실행 권한이 Railway에 설정되어 있으면 유효한 질문으로 작업자를 자동 기동할 수 있습니다. <strong>현재 권한이 설정되지 않았다면 미연결 상태에서 HTTP 503</strong>을 반환합니다. 다른 기능을 완성으로 주장하지 않습니다.</blockquote>
 <h2 id="section-2">1. 공식 호출 주소와 현재 운영 상태</h2>
 <ul>
 <li>Base URL: <a href="https://hitel-integration-api-production.up.railway.app" rel="noopener noreferrer">https://hitel-integration-api-production.up.railway.app</a></li>
