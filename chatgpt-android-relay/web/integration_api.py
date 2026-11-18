@@ -207,7 +207,7 @@ def capabilities():
             "status_url":"/integrations/worker",
             "auto_start_status_url":"/integrations/v1/worker/autostart",
             "github_workflow_url":"https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml",
-            "requires_github_run_workflow_confirmation":True,
+            "requires_github_run_workflow_confirmation":not worker_autostart.configured(),
             "default_mode":"worker_only",
             "default_minutes":240,
             "schedule_enabled":False,
