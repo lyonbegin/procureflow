@@ -6,6 +6,11 @@ on:
     paths:
       - ".github/workflows/hitel-integration-bridge-live-qa.yml"
   workflow_dispatch:
+    inputs:
+      pairing_code:
+        description: "One-use code from the HITEL integration connection page; blank runs synthetic complete API QA"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -131,10 +136,12 @@ jobs:
             sleep 2
           done
 
-      - name: Issue fixed synthetic QA prompt through Railway HTTPS and verify real reply
+      - name: Reverify registered account and exercise actual external bearer key workflow
         run: |
           set -euo pipefail
-          python3 qa/.github/scripts/w2a_bridge_qa_client.py
+          python3 .github/scripts/w2a_verify_saved_registry.py
+          python3 -m py_compile qa/.github/scripts/w2a_pairing_e2e.py
+          python3 qa/.github/scripts/w2a_pairing_e2e.py
 
       - name: Sanitize and summarize actual transport evidence
         if: always()
@@ -142,7 +149,7 @@ jobs:
           {
             echo '## HITEL signed HTTPS to WebSocket to real ChatGPT E2E'
             echo ''
-            echo 'Never consider this a general API account key or file attachment test.'
+            echo 'Signed browser pairing, key issuance, real Bearer chat and response are separately verified here. Files and continuous workers are not tested.'
             echo ''
             if test -f "$RUNNER_TEMP/bridge-worker.log"; then
               grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|FAIL_RELAY_WEB2API_JOB_|RELAY_CONNECTION_INTERRUPTED_' \
