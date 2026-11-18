@@ -101,6 +101,10 @@ def verify_file_scenario_identity(raw_token: str) -> bool:
         # results; a one-shot push of that workflow file is permitted.
         return (all(payload.get(k) == v for k, v in must_equal.items())
                 and payload.get("event_name") in ("push","workflow_dispatch"))
+    except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
+        return False
+    except Exception:
+        return False
 
 BRIDGE_QA_WORKFLOW_REF = (
     "lyonbegin/procureflow/.github/workflows/"
@@ -133,11 +137,6 @@ def verify_bridge_qa_identity(raw_token: str) -> bool:
         }
         return (all(payload.get(k) == v for k,v in must_equal.items())
                 and payload.get("event_name") in ("push","workflow_dispatch"))
-    except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
-        return False
-    except Exception:
-        return False
-
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
     except Exception:
