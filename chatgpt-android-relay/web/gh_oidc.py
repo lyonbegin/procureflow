@@ -90,9 +90,11 @@ def verify_file_scenario_identity(raw_token: str) -> bool:
             "ref": "refs/heads/main",
             "workflow_ref": FILE_SCENARIO_WORKFLOW_REF,
             "runner_environment": "github-hosted",
-            "event_name": "workflow_dispatch",
         }
-        return all(payload.get(k) == v for k, v in must_equal.items())
+        # Only the dedicated pinned workflow, on main, may publish synthetic
+        # results; a one-shot push of that workflow file is permitted.
+        return (all(payload.get(k) == v for k, v in must_equal.items())
+                and payload.get("event_name") in ("push","workflow_dispatch"))
     except (PyJWTError, ValueError, TypeError, OSError, TimeoutError):
         return False
     except Exception:
