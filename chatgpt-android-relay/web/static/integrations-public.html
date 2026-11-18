@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>HITEL — 누구나 질문하기</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f6f8fa;color:#1b2d42;font:16px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+main{max-width:740px;margin:36px auto;padding:16px}
+h1{font-size:28px;margin:0 0 7px}h2{font-size:19px;margin:0 0 8px}
+p{margin:7px 0 13px}section{background:#fff;border:1px solid #dae2ec;border-radius:12px;padding:22px;margin-top:16px}
+label{display:block;margin-bottom:7px;font-weight:650}
+textarea{width:100%;min-height:150px;resize:vertical;border:1px solid #aebcce;border-radius:8px;padding:12px;font:inherit}
+button{background:#145d95;color:#fff;border:0;border-radius:9px;font:inherit;font-weight:650;padding:11px 20px;cursor:pointer}
+button:disabled{opacity:.65;cursor:wait}
+a{color:#14649b}
+small{color:#6c7b8c}
+pre{background:#edf3f8;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:450px;overflow-y:auto}
+.status{font-weight:650}
+</style></head><body><main>
+<h1>HITEL ChatGPT — 누구나 질문하기</h1>
+<p>링크를 여시면 바로 사용하실 수 있습니다. <strong>별도 로그인, API 키, 계정 등록, GitHub 버튼 실행이 필요하지 않습니다.</strong></p>
+<section>
+<h2>질문하기</h2>
+<label for="prompt">질문 내용</label>
+<textarea id="prompt" maxlength="24000" placeholder="ChatGPT에 보낼 질문을 입력하십시오."></textarea>
+<p><button id="send">질문 보내기</button></p>
+<p id="status" class="status" role="status" aria-live="polite">준비 완료</p>
+<pre id="answer" role="region" aria-label="답변" hidden></pre>
+<p><small>질문마다 새 대화가 생성됩니다. 답변이 올 때까지 이 화면을 유지하십시오.</small></p>
+</section>
+<section>
+<h2>연결 상태</h2>
+<p id="worker" role="status">서버 확인 중</p>
+<p><a href="/integrations/quick-start">외부 프로그램용 API 주소와 사용법</a></p>
+</section>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let sending=false;
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function status(){
+ try {
+  const r=await fetch("/integrations/v1/public/status",{cache:"no-store"});
+  if(!r.ok)throw Error();
+  const j=await r.json();
+  $("worker").textContent=j.worker_connected?"작업자 연결됨":
+    j.worker_autostart_configured?"작업자 대기 중 · 질문을 보내면 자동 시작":"작업자 연결 준비 중";
+ }catch(e){$("worker").textContent="상태 확인 후 재시도 중";}
+}
+async function send(){
+ if(sending)return;
+ const text=$("prompt").value.trim();
+ if(!text){$("status").textContent="질문을 입력해 주십시오.";return;}
+ sending=true;$("send").disabled=true;$("answer").hidden=true;
+ $("status").textContent="질문 접수 중";
+ try{
+  const request_id="req_"+crypto.randomUUID();
+  const r=await fetch("/integrations/v1/public/chat",{
+   method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({text,request_id})});
+  const j=await r.json();
+  if(!r.ok)throw Error("질문 접수 실패 (HTTP "+r.status+"): "+(j.detail||""));
+  $("status").textContent="질문 접수 완료 · 작업자 연결과 답변을 확인 중";
+  for(let i=0;i<360;i++){
+   await delay(2000);
+   const reply=await fetch(j.result_url,{cache:"no-store"});
+   if(!reply.ok)throw Error("결과 확인 실패 (HTTP "+reply.status+")");
+   const result=await reply.json();
+   if(result.status==="completed"){
+    $("status").textContent="답변 완료";
+    $("answer").textContent=result.result_text||"(빈 답변)";
+    $("answer").hidden=false;return;
+   }
+   if(result.status==="failed"){
+    throw Error("처리 실패: "+(result.error||result.stage||"원인 미확인"));
+   }
+   if(i%6===0)await status();
+  }
+  $("status").textContent="처리 중입니다. 작업 ID: "+j.job_id;
+  $("answer").textContent="답변 조회 주소: "+location.origin+j.result_url;
+  $("answer").hidden=false;
+ }catch(e){$("status").textContent=String(e.message||e);}
+ finally{sending=false;$("send").disabled=false;}
+}
+$("send").addEventListener("click",send);
+status();setInterval(status,5000);
+</script>
+</main></body></html>
