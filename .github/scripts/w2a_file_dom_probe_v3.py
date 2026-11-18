@@ -75,6 +75,23 @@ with sync_playwright() as p:
                 log("SEND_TESTID_BUTTONS",q.count())
                 q=page.get_by_role("button",name=re.compile("send|submit|보내기|전송",re.I))
                 log("SEND_ROLE_BUTTONS",q.count())
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(1500)
+                # Test the unique local test-file remove control only.
+                chip=page.get_by_text(name,exact=False)
+                log("CHIP_PRESENT_BEFORE_REMOVE",int(chip.count()>0))
+                log("FILENAME_IN_BODY_BEFORE_REMOVE",int(visible_filename(page,name)))
+                if chip.count():
+                    buttons=chip.first.locator("xpath=../../..").locator("button")
+                    if buttons.count()==1 and buttons.first.is_visible():
+                        b=buttons.first
+                        aria=(b.get_attribute("aria-label") or "").replace(name,"SYNTHETIC_FILE")
+                        aria=re.sub(r"[^A-Za-z가-힣0-9 _.:/-]","",aria)[:90]
+                        log("REMOVE_BUTTON_ARIA",aria or "empty")
+                        b.click(timeout=5000)
+                        page.wait_for_timeout(1200)
+                        log("REMOVE_BUTTON_CLICKED",1)
+                        log("FILENAME_IN_BODY_AFTER_REMOVE",int(visible_filename(page,name)))
+                    else:
+                        log("REMOVE_BUTTON_CLICKED",0)
         for k in sorted(net):log("NETWORK_"+k,net[k])
     finally:page.close()
