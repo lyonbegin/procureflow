@@ -23,6 +23,7 @@ import socket
 import sys
 import time
 import urllib.request
+from urllib.parse import urlsplit
 from typing import Any
 
 ROOM_PATTERN = re.compile(r"^room_[a-f0-9]{32}$")
@@ -117,10 +118,24 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
                 # Deliberate read-only navigation to a previously bound
                 # conversation. NEVER send a new prompt or create a new chat.
                 page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
-                final=page.url.rstrip("/")
-                if final!=conversation_url.rstrip("/"):
-                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_CONVERSATION_REDIRECT")
-                return target_id
+                expected=urlsplit(conversation_url)
+                # ChatGPT may add a model/query parameter to an unchanged
+                # conversation route. Verify hostname + exact conversation
+                # path instead of rejecting harmless query-string changes.
+                for _ in range(20):
+                    observed=urlsplit(page.url)
+                    if (observed.scheme=="https"
+                        and observed.hostname=="chatgpt.com"
+                        and observed.path.rstrip("/")==expected.path.rstrip("/")):
+                        return target_id
+                    page.wait_for_timeout(500)
+                if observed.hostname!="chatgpt.com":
+                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
+                if observed.path.rstrip("/") in ("","/","/auth/login","/login"):
+                    raise TabIsolationError("ROOM_PREWARM_HOME_OR_LOGIN_REDIRECT")
+                if observed.path.startswith(("/c/","/c2/","/uc/")):
+                    raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
+                raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_CHATGPT_ROUTE")
     raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
 
 
