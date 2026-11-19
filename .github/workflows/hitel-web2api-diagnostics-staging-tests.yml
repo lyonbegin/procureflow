@@ -1,0 +1,37 @@
+name: HITEL Web2API diagnostics staging - unit and syntax tests
+on:
+  push:
+    branches: [fix/hitel-api-safe-web2api-diagnostics-20261119]
+    paths:
+      - '.github/scripts/safe_worker_error.py'
+      - '.github/scripts/test_safe_worker_error.py'
+      - '.github/scripts/w2a_relay_worker.py'
+      - '.github/workflows/hitel-web2api-diagnostics-staging-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-safety-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile patched worker and safe diagnostics without network
+        run: |
+          python3 -m py_compile .github/scripts/w2a_relay_worker.py
+          python3 -m py_compile .github/scripts/safe_worker_error.py
+      - name: Check secret-safe error classification
+        run: python3 .github/scripts/test_safe_worker_error.py -v
+      - name: Assert patched worker reports classified failures, not generic hides
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code=Path('.github/scripts/w2a_relay_worker.py').read_text(encoding='utf-8')
+          assert 'from safe_worker_error import classify_web2api_failure' in code
+          assert 'reason = classify_web2api_failure(exc)' in code
+          assert 'reason = "WEB2API_SEND_OR_VERIFY_FAILED"' not in code
+          print('PASS_SAFE_WEB2API_FAILURE_DIAGNOSTICS_NO_PRODUCTION_DEPLOY')
+          PY
