@@ -1,4 +1,4 @@
-name: HITEL guarded v4 two-room tab prewarm final manual launch
+name: HITEL guarded v4 room-linked prewarm retry after URL identity fix
 on:
   push:
     branches: [main]
