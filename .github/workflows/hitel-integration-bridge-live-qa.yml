@@ -3,10 +3,6 @@ name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 # Manual operation or a one-time source-verified upgrade on this exact workflow.
 # No schedule or public dispatch; Railway dispatch remains signed and on demand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/hitel-integration-bridge-live-qa.yml
   workflow_dispatch:
     inputs:
       operation:
@@ -37,11 +33,11 @@ permissions:
   actions: write
   id-token: write
 
-# One-time Web2API phase-1 timeout and vendor HTTP 500 diagnostics upgrade; signed v3 worker remains required.
+# One-time Web2API phase-1 timeout and vendor HTTP 500 diagnostics upgrade; signed v4 room-affine worker is required.
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-direct-ws-job-reply-v13
+  group: hitel-room-owned-tabs-worker-v4
   cancel-in-progress: false
 
 jobs:
@@ -62,7 +58,7 @@ jobs:
       - name: Checkout integration API's exact worker/client revision
         uses: actions/checkout@v4
         with:
-          ref: fix/hitel-ws-job-owned-direct-reply-20261119
+          ref: fix/hitel-room-tab-isolation-20261120
           path: qa
       - uses: actions/setup-python@v5
         with:
@@ -148,6 +144,8 @@ jobs:
           cat > "$HOME/.chatgpt_web2api/config.json" <<'W2A_WAIT_JSON'
           {
             "request_timeout": 14400,
+            "tab_mode": "owned",
+            "parallel_tabs": true,
             "detector_reasoning_first_content_timeout_seconds": 14400,
             "detector_reasoning_stream_idle_timeout_seconds": 14400,
             "detector_default_first_content_timeout_seconds": 14400,
@@ -165,23 +163,34 @@ jobs:
           assert cfg.chatgpt.detector_default_stream_idle_timeout_seconds >= 600
           assert cfg.chatgpt.detector_reasoning_stream_idle_timeout_seconds >= 600
           assert cfg.chatgpt.detector_hard_timeout_seconds >= 600
+          assert cfg.chatgpt.tab_mode == 'owned'
+          assert cfg.chatgpt.parallel_tabs is True
           print("PASS_CHATGPT_ORIGINAL_WEB2API_LONG_RUNNING_WAIT_CONFIG")
           W2A_WAIT_CHECK
-          chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
-            >"$ROOT/web2api.log" 2>&1 &
-          for i in $(seq 1 50); do
-            if curl -fsS --max-time 5 http://127.0.0.1:18080/health >/dev/null 2>&1; then
-              echo PASS_REAL_LOCAL_WEB2API_ADAPTER_HEALTH
-              break
-            fi
-            if [ "$i" -eq 50 ]; then echo FAIL_LOCAL_WEB2API_START; exit 1; fi
-            sleep 2
-          done
+          # Per-room vendor instances are started by the authenticated worker,
+          # not by the workflow. No shared singleton browser tab in normal mode.
+          if [[ "${{ inputs.operation }}" == "verify_or_pair" ]]; then
+            chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+              >"$ROOT/web2api.log" 2>&1 &
+            for i in $(seq 1 50); do
+              if curl -fsS --max-time 5 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+                echo PASS_PAIRING_ONLY_LOCAL_WEB2API_HEALTH
+                break
+              fi
+              if [ "$i" -eq 50 ]; then echo FAIL_PAIRING_LOCAL_WEB2API_START; exit 1; fi
+              sleep 2
+            done
+          else
+            echo PASS_LAZY_PER_ROOM_OWNED_TAB_WORKER_CONFIGURATION
+          fi
 
       - name: Connect signed worker to actual Railway API WebSocket
         run: |
           set -euo pipefail
           python3 -m py_compile qa/.github/scripts/w2a_relay_worker.py
+          python3 -m py_compile qa/.github/scripts/hitel_room_tab_pool.py
+          grep -q '"hitel_protocol_version":4' qa/.github/scripts/w2a_relay_worker.py
+          echo PASS_EXACT_SIGNED_ROOM_TAB_WORKER_V4
           python3 qa/.github/scripts/w2a_relay_worker.py \
             >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
           echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
@@ -197,22 +206,6 @@ jobs:
               exit 1
             fi
             sleep 2
-          done
-
-      - name: Retire known stale workers after new Chrome worker authentication
-        if: ${{ github.event_name == 'push' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
-          # Retire only exact older Chrome worker runs after the new v5 worker signs in.
-          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219 44482440343 44482517100 44485326863 44525169077; do
-            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
-            if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
-              gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
-              echo "RETIRE_SUPERSEDED_WORKER_RUN=$old"
-            fi
           done
 
       - name: Verify account pairing or real Bearer API only when explicitly requested
@@ -264,24 +257,6 @@ jobs:
             fi
           done
           echo "PASS_CHROME_WORKER_SESSION_WATCHDOG_COMPLETED"
-
-      - name: GitHub-signed self-restart fallback if verified jobs survive worker shutdown
-        if: ${{ always() && (github.event_name == 'push' || inputs.operation == 'worker_only') }}
-        run: |
-          set -euo pipefail
-          python3 -m py_compile qa/.github/scripts/w2a_worker_fallback.py
-          # Also run safely if setup-chrome failed before the main pip step.
-          python3 -m pip install -q websockets==13.1
-          python3 qa/.github/scripts/w2a_worker_fallback.py
-
-      - name: Self-continue Chrome only while the existing 18,109-title corpus workflow is active
-        if: ${{ always() && (github.event_name == 'push' || inputs.operation == 'worker_only') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python3 -m py_compile qa/.github/scripts/w2a_corpus_continuation.py
-          python3 qa/.github/scripts/w2a_corpus_continuation.py
 
       - name: Sanitize and summarize actual transport evidence
         if: always()
