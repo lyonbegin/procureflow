@@ -134,11 +134,12 @@ def _room_result(room:dict, created:bool) -> dict:
 
 @router.get("/status")
 def public_status():
-    # A connected socket does not prove the sole worker is available:
-    # it may be processing a long ChatGPT turn in another room.
+    # A connected socket does not prove the worker is available.
+    # Two independent owned tabs must finish verified prewarm first.
     # Expose health and capacity only, never private room/job IDs or text.
     from app import (web2api_device, web2api_last_seen_monotonic,
-                     web2api_active_jobs, WEB2API_MAX_ACTIVE)
+                     web2api_active_jobs, WEB2API_MAX_ACTIVE,
+                     worker_bootstrap_ready, worker_prewarm_targets)
     connected = web2api_device is not None
     heartbeat_age = (max(0, int(time.monotonic() - web2api_last_seen_monotonic))
                      if connected and web2api_last_seen_monotonic > 0 else None)
@@ -159,7 +160,9 @@ def public_status():
         "worker_busy":busy,
         "worker_active_jobs_count":len(web2api_active_jobs),
         "worker_capacity":WEB2API_MAX_ACTIVE,
-        "worker_available_for_new_job":heartbeat_recent and not busy,
+        "worker_bootstrap_ready":worker_bootstrap_ready,
+        "prewarmed_room_count":len(worker_prewarm_targets),
+        "worker_available_for_new_job":heartbeat_recent and worker_bootstrap_ready and not busy,
         "worker_autostart_configured":worker_autostart.configured(),
         "supported":"text_only",
     }
