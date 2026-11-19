@@ -33,6 +33,7 @@ JOB_ID=re.compile(r"^job_[a-f0-9]{32}$")
 ROOM_ID=re.compile(r"^room_[a-f0-9]{32}$")
 LOCK=threading.RLock()
 MAX_TEXT=24000
+SERVICE_ID=re.compile(r"^[A-Za-z0-9_.-]{2,64}$")
 
 with api_v1.connection() as db:
     db.execute("""CREATE TABLE IF NOT EXISTS hitel_public_link_requests (
@@ -50,11 +51,29 @@ with api_v1.connection() as db:
     )""")
     db.execute("""CREATE INDEX IF NOT EXISTS idx_hitel_public_named_room_id
                   ON hitel_public_named_rooms(room_id)""")
+    # Opt-in service namespaces. Existing clients remain in the legacy global
+    # namespace with their room IDs and history fully unchanged.
+    db.execute("""CREATE TABLE IF NOT EXISTS hitel_public_service_names (
+       service_id TEXT NOT NULL,
+       name_key TEXT NOT NULL,
+       name TEXT NOT NULL,
+       room_id TEXT NOT NULL,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY(service_id,name_key)
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS hitel_public_room_services (
+       room_id TEXT PRIMARY KEY,
+       service_id TEXT NOT NULL
+    )""")
+    db.execute("""CREATE INDEX IF NOT EXISTS idx_hitel_public_room_service
+                  ON hitel_public_room_services(service_id)""")
 
 
 class PublicRoom(BaseModel):
     name: str = Field(min_length=1,max_length=160)
     create_new: bool = False
+    service_id: str | None = Field(default=None,min_length=2,max_length=64,pattern=r"^[A-Za-z0-9_.-]{2,64}$")
 
 
 class PublicChat(BaseModel):
@@ -62,6 +81,7 @@ class PublicChat(BaseModel):
     request_id: str | None = Field(default=None,min_length=16,max_length=128)
     room_id: str | None = Field(default=None,min_length=37,max_length=37)
     room_name: str | None = Field(default=None,min_length=1,max_length=160)
+    service_id: str | None = Field(default=None,min_length=2,max_length=64,pattern=r"^[A-Za-z0-9_.-]{2,64}$")
 
 
 def _name(value: str) -> tuple[str,str]:
@@ -78,10 +98,24 @@ def _ensure_public_user(db) -> None:
         "disabled-public-link-no-owner-key",api_v1.clock()))
 
 
-def _open_named_room(db,name: str, *, create_new:bool=False) -> tuple[dict,bool]:
+def _service_for_room(db, room_id: str) -> str | None:
+    row=db.execute("""SELECT service_id FROM hitel_public_room_services
+                      WHERE room_id=?""",(room_id,)).fetchone()
+    return row["service_id"] if row else None
+
+
+def _open_named_room(db,name: str, *, create_new:bool=False,
+                     service_id:str | None=None) -> tuple[dict,bool]:
     name,key=_name(name)
-    mapped=db.execute("""SELECT room_id FROM hitel_public_named_rooms
-                       WHERE name_key=?""",(key,)).fetchone()
+    if service_id is None:
+        mapped=db.execute("""SELECT room_id FROM hitel_public_named_rooms
+                           WHERE name_key=?""",(key,)).fetchone()
+    else:
+        if not SERVICE_ID.fullmatch(service_id):
+            raise HTTPException(422,"Invalid service_id")
+        mapped=db.execute("""SELECT room_id FROM hitel_public_service_names
+                            WHERE service_id=? AND name_key=?""",
+                          (service_id,key)).fetchone()
     if mapped and not create_new:
         room=db.execute("""SELECT * FROM rooms WHERE id=? AND user_id=?
                            AND status='active'""",
@@ -95,33 +129,49 @@ def _open_named_room(db,name: str, *, create_new:bool=False) -> tuple[dict,bool]
                  (id,user_id,title,android_state,created_at,updated_at)
                  VALUES(?,?,?,?,?,?)""",
                (rid,USER_ID,name,"uncreated",now,now))
-    db.execute("""INSERT INTO hitel_public_named_rooms
-                 (name_key,name,room_id,created_at,updated_at)
-                 VALUES(?,?,?,?,?)
-                 ON CONFLICT(name_key) DO UPDATE SET
-                  name=excluded.name,room_id=excluded.room_id,
-                  updated_at=excluded.updated_at""",
-               (key,name,rid,now,now))
+    if service_id is None:
+        db.execute("""INSERT INTO hitel_public_named_rooms
+                     (name_key,name,room_id,created_at,updated_at)
+                     VALUES(?,?,?,?,?)
+                     ON CONFLICT(name_key) DO UPDATE SET
+                      name=excluded.name,room_id=excluded.room_id,
+                      updated_at=excluded.updated_at""",
+                   (key,name,rid,now,now))
+    else:
+        db.execute("""INSERT INTO hitel_public_service_names
+                     (service_id,name_key,name,room_id,created_at,updated_at)
+                     VALUES(?,?,?,?,?,?)
+                     ON CONFLICT(service_id,name_key) DO UPDATE SET
+                      name=excluded.name,room_id=excluded.room_id,
+                      updated_at=excluded.updated_at""",
+                   (service_id,key,name,rid,now,now))
+        db.execute("""INSERT INTO hitel_public_room_services
+                     (room_id,service_id) VALUES(?,?)""",(rid,service_id))
     room=db.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
     return dict(room),True
 
 
-def _room_by_id(db,room_id:str, room_name: str | None=None) -> dict:
+def _room_by_id(db,room_id:str, room_name: str | None=None,
+                service_id:str | None=None) -> dict:
     if not ROOM_ID.fullmatch(room_id):
         raise HTTPException(422,"Invalid room_id")
     room=db.execute("""SELECT * FROM rooms WHERE id=? AND user_id=?
                        AND status='active'""",(room_id,USER_ID)).fetchone()
     if not room:
         raise HTTPException(404,"Public room not found")
-    # An explicitly replaced room stays accessible by its original room_id;
-    # only name lookup switches to the most recently created room.
+    # Explicitly selected old room IDs continue to work even when the
+    # same name was later recreated. A scoped program must match its ID.
+    actual_service=_service_for_room(db,room_id)
+    if service_id is not None and actual_service!=service_id:
+        raise HTTPException(409,"room_id belongs to a different service")
     if room_name is not None and _name(room_name)[1]!=_name(room["title"])[1]:
         raise HTTPException(409,"room_id and room_name select different rooms")
     return dict(room)
 
 
-def _room_result(room:dict, created:bool) -> dict:
+def _room_result(room:dict, created:bool, service_id:str | None=None) -> dict:
     return {"room_id":room["id"],"room_name":room["title"],
+            "service_id":service_id,
             "created":created,
             "conversation_linked":bool(room["chatgpt_url"]),
             "status":"active"}
@@ -139,6 +189,7 @@ def public_status():
         "same_room_name_reuses_conversation":True,
         "explicit_new_room_supported":True,
         "default_room_name":DEFAULT_ROOM_NAME,
+        "service_id_supported":True,
         "worker_connected":web2api_device is not None,
         "worker_autostart_configured":worker_autostart.configured(),
         "supported":"text_only",
@@ -148,11 +199,15 @@ def public_status():
 @router.get("/rooms")
 def list_public_rooms():
     with api_v1.connection() as db:
-        rows=db.execute("""SELECT n.name,n.room_id,r.chatgpt_url
-            FROM hitel_public_named_rooms n
-            JOIN rooms r ON r.id=n.room_id AND r.user_id=? AND r.status='active'
-            ORDER BY n.updated_at DESC LIMIT 100""",(USER_ID,)).fetchall()
-    return {"rooms":[{"room_name":row["name"],"room_id":row["room_id"],
+        rows=db.execute("""SELECT r.id,r.title,r.chatgpt_url,
+                      s.service_id
+              FROM rooms r LEFT JOIN hitel_public_room_services s ON s.room_id=r.id
+              WHERE r.user_id=? AND r.status='active'
+                AND (EXISTS(SELECT 1 FROM hitel_public_named_rooms n WHERE n.room_id=r.id)
+                 OR EXISTS(SELECT 1 FROM hitel_public_service_names sn WHERE sn.room_id=r.id))
+              ORDER BY r.updated_at DESC LIMIT 250""",(USER_ID,)).fetchall()
+    return {"rooms":[{"room_name":row["title"],"room_id":row["id"],
+                      "service_id":row["service_id"],
                       "conversation_linked":bool(row["chatgpt_url"])}
                      for row in rows],"default_room_name":DEFAULT_ROOM_NAME}
 
@@ -163,8 +218,10 @@ def open_public_room(payload:PublicRoom):
         with api_v1.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             room,created=_open_named_room(
-                db,payload.name,create_new=payload.create_new)
-    return JSONResponse(_room_result(room,created),status_code=201 if created else 200)
+                db,payload.name,create_new=payload.create_new,
+                service_id=payload.service_id)
+    return JSONResponse(_room_result(room,created,payload.service_id),
+                        status_code=201 if created else 200)
 
 
 @router.post("/chat",status_code=202)
@@ -183,7 +240,10 @@ async def submit_public_chat(payload:PublicChat):
         with api_v1.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             previous=db.execute("""SELECT p.fingerprint,p.job_id,j.room_id,
-                    r.title AS room_name FROM hitel_public_link_requests p
+                    r.title AS room_name,
+                    (SELECT service_id FROM hitel_public_room_services s
+                     WHERE s.room_id=j.room_id) AS service_id
+                    FROM hitel_public_link_requests p
                     JOIN jobs j ON j.id=p.job_id
                     JOIN rooms r ON r.id=j.room_id
                     WHERE p.request_id=? AND j.user_id=?""",
@@ -201,14 +261,18 @@ async def submit_public_chat(payload:PublicChat):
                     raise HTTPException(409,"request_id belongs to a different room")
                 if payload.room_name and _name(payload.room_name)[1]!=_name(previous["room_name"])[1]:
                     raise HTTPException(409,"request_id belongs to a different room")
+                if payload.service_id is not None and payload.service_id!=previous["service_id"]:
+                    raise HTTPException(409,"request_id belongs to a different service")
                 room_name=previous["room_name"]
                 job_id=previous["job_id"]
                 replay=True
             else:
                 if payload.room_id is not None:
-                    room=_room_by_id(db,payload.room_id,payload.room_name)
+                    room=_room_by_id(db,payload.room_id,payload.room_name,
+                                     payload.service_id)
                 else:
-                    room,_=_open_named_room(db,payload.room_name or DEFAULT_ROOM_NAME)
+                    room,_=_open_named_room(db,payload.room_name or DEFAULT_ROOM_NAME,
+                                           service_id=payload.service_id)
                 room_id=room["id"]
                 room_name=room["title"]
                 if db.execute("""SELECT 1 FROM jobs WHERE user_id=? AND room_id=?
@@ -242,6 +306,7 @@ async def submit_public_chat(payload:PublicChat):
         "accepted":True,"replayed":replay,
         "request_id":request_id,"job_id":job_id,"room_id":room_id,
         "room_name":room_name,
+        "service_id":payload.service_id,
         "status":"queued" if not replay else "existing",
         "sent_to_chatgpt":False,
         "worker_connected":web2api_device is not None,
@@ -254,7 +319,10 @@ def read_public_result(job_id:str):
     if not JOB_ID.fullmatch(job_id):
         raise HTTPException(404,"Unknown public job")
     with api_v1.connection() as db:
-        row=db.execute("""SELECT j.id,j.room_id,r.title AS room_name,j.status,
+        row=db.execute("""SELECT j.id,j.room_id,r.title AS room_name,
+                      (SELECT service_id FROM hitel_public_room_services s
+                       WHERE s.room_id=j.room_id) AS service_id,
+                      j.status,
                       j.stage,j.result_text,j.error,j.created_at,j.updated_at
                  FROM jobs j
                  JOIN rooms r ON r.id=j.room_id AND r.user_id=j.user_id
@@ -265,7 +333,7 @@ def read_public_result(job_id:str):
         raise HTTPException(404,"Unknown public job")
     return {
         "job_id":row["id"],"room_id":row["room_id"],
-        "room_name":row["room_name"],"status":row["status"],
+        "room_name":row["room_name"],"service_id":row["service_id"],"status":row["status"],
         "stage":row["stage"],
         "result_text":row["result_text"] if row["status"]=="completed" else None,
         "error":row["error"] if row["status"]=="failed" else None,
