@@ -156,7 +156,7 @@ def public_status():
         "worker_connected":connected,
         "worker_heartbeat_recent":heartbeat_recent,
         "worker_heartbeat_age_seconds":heartbeat_age,
-        "worker_busy":bool(web2api_active_jobs),
+        "worker_busy":busy,
         "worker_active_jobs_count":len(web2api_active_jobs),
         "worker_capacity":WEB2API_MAX_ACTIVE,
         "worker_available_for_new_job":heartbeat_recent and not busy,
