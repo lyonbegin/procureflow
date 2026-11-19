@@ -14,6 +14,7 @@ import web_chat
 import chatgpt_accounts
 import integration_api
 import integration_public
+import long_job_events
 import file_scenario_api
 import bridge_qa_api
 import integration_pairing
@@ -44,7 +45,8 @@ app.include_router(remote_login_landing.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
-MAX_MESSAGE_SIZE = 100_000
+MAX_MESSAGE_SIZE = 2_800_000
+MAX_FINAL_REPLY_BYTES = 2_000_000
 # Legacy console commands have no verified room_id. Never let them
 # submit a prompt or create a thread in whichever chat happens to be foreground.
 ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
@@ -104,6 +106,8 @@ async def dispatch_next():
         active_job_transport = transport
         try:
             await transmit(receiver, event("job", job=job))
+            if transport=="web2api":
+                long_job_events.observe(job["id"],"worker_dispatched")
             await broadcast(event("job.dispatched", job_id=job["id"], room_id=job["room_id"],
                                   action=job["action"], user_id=job["user_id"], worker=transport))
             print(f"[relay-v1] dispatched job={job['id'][:12]} room={job['room_id'][:12]} via={transport}", flush=True)
@@ -505,6 +509,8 @@ async def socket(ws: WebSocket):
                 if role == "web2api" and web2api_device is ws:
                     web2api_last_seen_monotonic=time.monotonic()
                     if kind == "worker.heartbeat":
+                        if active_job_id and active_job_transport=="web2api":
+                            long_job_events.heartbeat(active_job_id)
                         continue
                 if kind == "ping":
                     await transmit(ws, event("pong"))
@@ -584,6 +590,9 @@ async def socket(ws: WebSocket):
                         if kind in {"job.received", "job.progress"}:
                             stage = str(msg.get("stage", kind))[:100]
                             api_v1.update_job(jid, stage=stage)
+                            if role=="web2api":
+                                long_job_events.observe(
+                                    jid,"worker_received" if kind=="job.received" else stage)
                             await broadcast(event(kind, job_id=jid, stage=stage))
                         else:
                             # Never trust a device-reported room_id as the target
@@ -631,7 +640,13 @@ async def socket(ws: WebSocket):
                                 "room.bind": "assistant_reply_stable",
                                 "room.open": "room_open_verified",
                             }.get(action)
-                            output = str(msg.get("result_text", ""))[:100000]
+                            output = msg.get("result_text", "")
+                            if not isinstance(output,str):
+                                output = ""
+                            reply_too_large=(len(output.encode("utf-8"))>MAX_FINAL_REPLY_BYTES)
+                            if reply_too_large:
+                                output = ""
+                                claimed_success = False
                             proof_ok = bool(
                                 expected_stage and reported_stage == expected_stage
                                 and (action == "room.open" or output.strip())
@@ -660,13 +675,15 @@ async def socket(ws: WebSocket):
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
                             wrong_browser_chat = False
-                            stage = ("ROOM_ID_MISMATCH" if mismatch else
+                            stage = ("REPLY_TOO_LARGE_NO_TRUNCATION" if reply_too_large else
+                                     "ROOM_ID_MISMATCH" if mismatch else
                                      "ACCOUNT_ID_MISMATCH" if account_mismatch else
                                      "ACCOUNT_EXECUTION_NOT_VERIFIED" if account_not_verified else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
                                      "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
                                      reported_stage or ("completed" if good else "failed"))
-                            reason = ("Worker completion room_id did not match the assigned job room"
+                            reason = ("Assistant reply exceeds verified transport maximum; never truncated" if reply_too_large else
+                                      "Worker completion room_id did not match the assigned job room"
                                       if mismatch else
                                       "Chrome execution account differs from request account"
                                       if account_mismatch else
@@ -698,6 +715,12 @@ async def socket(ws: WebSocket):
                                 api_v1.update_job(jid, status="completed" if good else "failed",
                                                   stage=stage, result_text=output if good else None,
                                                   error=None if good else reason)
+                            if role=="web2api":
+                                long_job_events.observe(
+                                    jid,"assistant_reply_verified" if good else "worker_reported_failure",
+                                    send_confirmed=good,reply_observed=good,
+                                    error_code=None if good else stage,
+                                    error_stage=None if good else stage)
                             if good and msg.get("room_state") and not saved_by_web2api:
                                 api_v1.set_room_android_state(
                                     assigned_room, str(msg["room_state"]),
@@ -758,6 +781,9 @@ async def socket(ws: WebSocket):
             if active_job_id and active_job_transport == "web2api":
                 api_v1.release_running_job(
                     active_job_id, "GitHub Chrome disconnected; not automatically retried")
+                long_job_events.observe(active_job_id,"worker_connection_lost",
+                                        error_code="WORKER_CONNECTION_LOST",
+                                        error_stage="connection_lost")
                 await broadcast(event(
                     "job.error", job_id=active_job_id,
                     reason="GitHub Chrome disconnected; not automatically retried"))
