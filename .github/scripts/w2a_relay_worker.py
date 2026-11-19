@@ -136,6 +136,39 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
     return discard_verified_duplicate_json_tail(answer), cid
 
 
+def _safe_vendor_http_error(exc: urllib.error.HTTPError) -> str:
+    """Parse a bounded local Web2API error for safe diagnostics only.
+
+    Neither server-supplied message text nor URLs/conversation IDs appear in
+    this return value. HTTP500 after SEND remains delivery-uncertain.
+    """
+    status=int(exc.code)
+    try:
+        payload=json.loads(exc.read(8192))
+        detail=payload.get("error",{}) if isinstance(payload,dict) else {}
+        code=detail.get("code","") if isinstance(detail,dict) else ""
+        message=detail.get("message","") if isinstance(detail,dict) else ""
+    except (ValueError,TypeError,UnicodeDecodeError):
+        code=""
+        message=""
+    message=message if isinstance(message,str) else ""
+    if "nav_displaced" in message:
+        suffix="NAV_DISPLACED"
+    elif "composer" in message.lower():
+        suffix="COMPOSER_UNAVAILABLE"
+    elif "stage:" in message and "url" in message.lower():
+        suffix="NAV_URL_MISMATCH"
+    elif "Navigation to " in message:
+        suffix="NAV_UNVERIFIED"
+    elif "auth" in message.lower():
+        suffix="AUTH_UNAVAILABLE"
+    elif isinstance(code,str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,35}",code):
+        suffix="VENDOR_"+code.upper()
+    else:
+        suffix="UNCLASSIFIED"
+    return f"WEB2API_ADAPTER_HTTP_{status}_{suffix}"
+
+
 def post_chat_uri(text: str, cid: str | None, api_url: str,
                   *, internal_owned_room: bool = False) -> tuple[str, str]:
     trusted_legacy = api_url in (CHAT_API,CHAT_API_B)
@@ -167,10 +200,13 @@ def post_chat_uri(text: str, cid: str | None, api_url: str,
     )
     # Wait for Web2API to report a verified reply or a definite upstream failure.
     # The persistent GitHub Actions worker supplies the outer lifecycle bound.
-    with urllib.request.urlopen(request, timeout=UPSTREAM_SOCKET_TIMEOUT) as response:
-        if response.status != 200:
-            raise RuntimeError("WEB2API_HTTP_NOT_200")
-        data = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=UPSTREAM_SOCKET_TIMEOUT) as response:
+            if response.status != 200:
+                raise RuntimeError("WEB2API_HTTP_NOT_200")
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(_safe_vendor_http_error(exc)) from None
     return parse_web2api_response(data, cid)
 
 
@@ -239,6 +275,11 @@ async def process_job(job: dict[str, Any], account_preflight=None,
     if adapter_pool is not None:
         # A stable room-ID owns exactly one browser tab, via its own vendor
         # process and CDP target ID. Do not fall back to a shared tab on error.
+        if target:
+            # A new GitHub worker has no memory of the previous room tab.
+            # Verify the saved target is visibly loaded before Web2API sends.
+            await adapter_pool.navigate_existing(
+                room_id,route_port,job.get("target_chatgpt_url") or "")
         api_url = await adapter_pool.endpoint(room_id, route_port)
         answer, cid = await asyncio.to_thread(
             post_chat_uri, content, target, api_url, internal_owned_room=True)
@@ -374,6 +415,7 @@ async def run(max_seconds: int = 1500) -> None:
                                              "WEB2API_ADAPTER_HTTP_503",
                                              "WEB2API_ADAPTER_HTTP_504"}
                                     or code.startswith("ROOM_TAB_DISCONNECTED")
+                                    or code.startswith("WEB2API_ADAPTER_HTTP_500")
                                 )
                                 if uncertain:
                                     pool.quarantine(rid)
