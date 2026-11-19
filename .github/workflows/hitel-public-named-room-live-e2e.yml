@@ -13,7 +13,7 @@ permissions:
 jobs:
   four-turn-real-chatgpt:
     runs-on: ubuntu-24.04
-    timeout-minutes: 17
+    timeout-minutes: 35
     steps:
       - name: A room -> A followup -> B room -> A return, real HTTPS Web2API
         env:
@@ -53,7 +53,7 @@ jobs:
               assert d["room_id"]==room,d
               job=d["job_id"]
               print("LIVE_JOB_ACCEPTED",seq,job,flush=True)
-              end=time.monotonic()+220
+              end=time.monotonic()+600
               while time.monotonic()<end:
                   _,j=request(d["result_url"])
                   if j["status"]=="completed":
