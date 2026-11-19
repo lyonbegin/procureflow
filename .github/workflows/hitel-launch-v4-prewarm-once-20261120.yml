@@ -1,0 +1,23 @@
+name: HITEL one-time v4 prewarm retry after audited vendor patch validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-launch-v4-prewarm-once-20261120.yml
+permissions:
+  contents: read
+  actions: write
+jobs:
+  retry-exact-existing-signed-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Launch existing manual-only signed v4 Chrome worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run hitel-integration-bridge-live-qa.yml \
+            --repo "$GITHUB_REPOSITORY" --ref main \
+            -f operation=worker_only -f run_minutes=240 -f pairing_code=''
+          echo PASS_EXISTING_V4_WORKER_DISPATCHED_AFTER_PATCH_FIX
