@@ -75,8 +75,8 @@ WEB2API_V4_CUTOVER_CREATED_AT = 1795104560000  # 2026-11-19 16:09:20 UTC
 PREWARM_KNOWN_ROOMS = {
     "room_e43054eed81d46fba991b946ede92d1b":
         "STOCK-KG-A-RESEARCH-20261119-R3",
-    "room_40f5ecf138064891964f1d5539c316c7":
-        "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G001",
+    "room_e31b6755688748f6a9ddb5a0f6b3cdaf":
+        "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G003",
 }
 worker_bootstrap_ready = False
 worker_prewarm_targets: dict[str,str] = {}
