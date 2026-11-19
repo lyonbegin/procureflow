@@ -6,6 +6,7 @@ sends a ChatGPT message, and no owner credentials are used.
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -53,6 +54,27 @@ class PublicNoLoginContract(unittest.TestCase):
         self.assertFalse(p.json()["hitel_api_key_required"])
         self.assertFalse(p.json()["new_conversation_per_question"])
         self.assertTrue(p.json()["same_room_name_reuses_conversation"])
+
+    def test_worker_busy_and_heartbeat_are_distinct_from_connection(self):
+        # Simulate state only; no real worker, GitHub Actions or ChatGPT send.
+        app.web2api_device=object()
+        app.web2api_last_seen_monotonic=time.monotonic()
+        app.active_job_id="job_synthetic_do_not_expose"
+        state=self.client.get("/integrations/v1/public/status").json()
+        self.assertTrue(state["worker_connected"])
+        self.assertTrue(state["worker_heartbeat_recent"])
+        self.assertTrue(state["worker_busy"])
+        self.assertFalse(state["worker_available_for_new_job"])
+        self.assertNotIn("job_synthetic_do_not_expose",str(state))
+        app.active_job_id=None
+        state=self.client.get("/integrations/v1/public/status").json()
+        self.assertTrue(state["worker_available_for_new_job"])
+        app.web2api_last_seen_monotonic=time.monotonic()-100
+        state=self.client.get("/integrations/v1/public/status").json()
+        self.assertFalse(state["worker_heartbeat_recent"])
+        self.assertFalse(state["worker_available_for_new_job"])
+        app.web2api_device=None
+        app.web2api_last_seen_monotonic=0
 
     def test_not_configured_reports_503_instead_of_fake_success(self):
         with patch.dict(os.environ,{"HITEL_GITHUB_ACTIONS_TOKEN":"",
