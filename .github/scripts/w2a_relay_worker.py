@@ -22,9 +22,11 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 from typing import Any
 
 import websockets
+from safe_worker_error import classify_web2api_failure
 
 from w2a_account_runtime import (AccountGateError, actual_chrome_account,
                                  canonical_email, verify_same_session,
@@ -320,24 +322,10 @@ async def run(max_seconds: int = 1500) -> None:
                         try:
                             result = await process_job(job,account_preflight=account_preflight)
                         except Exception as exc:
-                            # Never repeat an uncertain chat send; signal failure
-                            # and leave the server's original job state intact.
-                            reason = str(exc)
-                            if reason not in {
-                                "UNSUPPORTED_WEB_WORKER_ACTION",
-                                "WEB2API_BINARY_ATTACHMENT_NOT_VERIFIED",
-                                "INVALID_CHAT_TEXT", "UNVERIFIED_TARGET_CONVERSATION",
-                                "UNVERIFIED_TARGET_URL", "WEB2API_RESPONSE_INVALID",
-                                "WEB2API_CHOICES_MISSING", "WEB2API_ASSISTANT_REPLY_MISSING",
-                                "WEB2API_CONVERSATION_ID_MISSING", "ROOM_CONVERSATION_ID_MISMATCH",
-                                "MALFORMED_RELAY_JOB", "ACCOUNT_EXECUTION_NOT_VERIFIED",
-                                "ACCOUNT_ID_INVALID", "ACCOUNT_EMAIL_INVALID",
-                                "ACCOUNT_LOGOUT_UI_UNAVAILABLE", "ACCOUNT_LOGOUT_NOT_VERIFIED",
-                                "ACCOUNT_LOGIN_WRONG_IDENTITY", "ACCOUNT_INTERACTIVE_LOGIN_REQUIRED",
-                                "ACCOUNT_CHANGED_DURING_SEND", "CHROME_CONTEXT_MISSING",
-                                "ACCOUNT_PREFLIGHT_UNAVAILABLE","ACCOUNT_PREFLIGHT_DENIED",
-                            }:
-                                reason = "WEB2API_SEND_OR_VERIFY_FAILED"
+                            # Never repeat an uncertain ChatGPT send. Classify only
+                            # a fixed safe code or Python exception type; never
+                            # log raw prompts, response bodies, secrets or URLs.
+                            reason = classify_web2api_failure(exc)
                             await socket.send(json.dumps({
                                 "type": "job.error", "job_id": jid, "room_id": rid,
                                 "stage": "web2api_failed", "reason": reason,
