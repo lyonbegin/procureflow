@@ -132,8 +132,9 @@ jobs:
           from pathlib import Path
           import os
           source=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/api_server.py").read_text()
-          assert '"subcode":' in source and '"anchor_mode":' in source, "NO_ACTUAL_VENDOR_TURN_DIAGNOSTICS"
-          print("PASS_ACTUAL_VENDOR_TURN_STATUS_AND_ANCHOR_PATCH")
+          assert 'new_conversation = body.get("new_conversation") is True' in source, "NEW_ROOM_FORCE_NEW_CHAT_PATCH_MISSING"
+          assert '"code": type(exc).__name__' in source, "VENDOR_SAFE_ERROR_CLASS_PATCH_MISSING"
+          print("PASS_PINNED_VENDOR_CURRENT_PATCH_VERIFIED")
           PY
           # This is an actual, source-pinned Web2API config path. The old
           # built-in request=120s and detector=90/120s prematurely failed
