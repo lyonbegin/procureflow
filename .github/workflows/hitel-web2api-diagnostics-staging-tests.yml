@@ -7,6 +7,8 @@ on:
       - '.github/scripts/test_safe_worker_error.py'
       - '.github/scripts/w2a_relay_worker.py'
       - 'chatgpt-android-relay/web/integration_public.py'
+      - 'chatgpt-android-relay/web/app.py'
+      - 'chatgpt-android-relay/web/tests/test_worker_protocol_upgrade.py'
       - 'chatgpt-android-relay/web/tests/test_integration_public.py'
       - '.github/workflows/hitel-web2api-diagnostics-staging-tests.yml'
   workflow_dispatch:

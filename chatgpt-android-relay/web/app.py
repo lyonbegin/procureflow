@@ -427,13 +427,13 @@ async def socket(ws: WebSocket):
             await ws.close(code=1008)
             return
         actions_worker = valid_actions
-        if role == "web2api" and valid_actions and auth.get("hitel_protocol_version") != 2:
+        if role == "web2api" and valid_actions and auth.get("hitel_protocol_version") != 3:
             # Workers started before the fresh-conversation fix retain old
             # Python code for their entire four-hour GitHub Actions lifetime.
             # They cannot safely process named-room jobs: the old Web2API
             # client silently reuses its previous conversation and collides
             # with another room. Reject stale workers so Railway may launch
-            # a new, compatible worker from the current feature branch.
+            # a new, compatible protocol-v3 worker from the current feature branch.
             await transmit(ws, event("auth.error", reason="WORKER_PROTOCOL_UPGRADE_REQUIRED"))
             await ws.close(code=1008)
             print("[relay-v1] refused outdated GitHub Chrome worker version",flush=True)
