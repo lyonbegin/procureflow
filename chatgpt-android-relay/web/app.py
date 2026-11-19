@@ -65,6 +65,8 @@ active_job_transport: str | None = None
 # The native Android device retains its independent legacy active_job_id.
 web2api_active_jobs: dict[str, str] = {}  # job_id -> room_id
 WEB2API_MAX_ACTIVE = 3
+# Cutover protects all old queued jobs from accidental replay by the v4 worker.
+WEB2API_V4_CUTOVER_CREATED_AT = 1795104560000
 # Preserve all pre-v4 jobs and prior chat records; never replay a stalled
 # request merely because a new Chrome worker has empty tab slots.
 WEB2API_V4_CUTOVER_CREATED_AT = 1795104560000  # 2026-11-19 16:09:20 UTC
