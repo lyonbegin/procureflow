@@ -1,0 +1,92 @@
+name: HITEL public named rooms - real ChatGPT four-turn E2E (no key)
+
+on:
+  push:
+    branches: [feature/hitel-integrations-api-20261118]
+    paths:
+      - ".github/workflows/hitel-public-named-room-live-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  four-turn-real-chatgpt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - name: A room -> A followup -> B room -> A return, real HTTPS Web2API
+        env:
+          RUN_LABEL: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json,os,time,urllib.request,urllib.error
+          BASE="https://hitel-integration-api-production.up.railway.app"
+          TAG=os.environ["RUN_LABEL"]
+          ROOM_A="HITEL-live-regression-"+TAG+"-A"
+          ROOM_B="HITEL-live-regression-"+TAG+"-B"
+
+          def request(path,payload=None,timeout=35):
+              b=None if payload is None else json.dumps(payload,ensure_ascii=False).encode("utf-8")
+              req=urllib.request.Request(BASE+path,b,
+                  headers={"Content-Type":"application/json"},
+                  method="GET" if b is None else "POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as resp:
+                      return resp.status,json.load(resp)
+              except urllib.error.HTTPError as e:
+                  detail=e.read(1600).decode("utf-8","replace")
+                  raise RuntimeError(f"HTTP_{e.code} path={path} detail={detail[:350]}") from None
+
+          def named_room(name):
+              code,d=request("/integrations/v1/public/rooms",{"name":name})
+              assert code in (200,201),(code,d)
+              print("LIVE_ROOM_OPEN",name,"room_id",d["room_id"],
+                    "linked",d["conversation_linked"],flush=True)
+              return d["room_id"]
+
+          def ask(room,text,marker,seq):
+              request_id=f"hitel-live-{TAG}-{seq:02d}"
+              code,d=request("/integrations/v1/public/chat",{
+                  "room_id":room,"text":text,"request_id":request_id})
+              assert code==202,(code,d)
+              assert d["room_id"]==room,d
+              job=d["job_id"]
+              print("LIVE_JOB_ACCEPTED",seq,job,flush=True)
+              end=time.monotonic()+220
+              while time.monotonic()<end:
+                  _,j=request(d["result_url"])
+                  if j["status"]=="completed":
+                      text=j["result_text"] or ""
+                      if marker not in text:
+                          raise RuntimeError(
+                              f"LIVE_REPLY_UNEXPECTED seq={seq} reply_preview={text[:180]!r}")
+                      print("PASS_LIVE_REPLY",seq,job,
+                            "room_id",j["room_id"],
+                            "marker_present",True,flush=True)
+                      return text
+                  if j["status"]=="failed":
+                      raise RuntimeError(
+                          f"LIVE_JOB_FAILED seq={seq} job={job} stage={j['stage']} "
+                          f"error={j['error']}")
+                  time.sleep(4)
+              raise RuntimeError(f"LIVE_JOB_TIMEOUT seq={seq} job={job}")
+
+          status,init=request("/integrations/v1/public/status")
+          print("LIVE_INITIAL_STATUS",json.dumps(init,ensure_ascii=False),flush=True)
+          a=named_room(ROOM_A)
+          b=named_room(ROOM_B)
+          a_again=named_room(ROOM_A)
+          assert a_again==a,"SAME_NAME_CHANGED_ROOM_ID"
+          print("PASS_LIVE_ROOM_NAME_IDEMPOTENCY",flush=True)
+
+          ask(a,"Reply with exactly HITEL_A1_"+TAG+" and nothing else.",
+              "HITEL_A1_"+TAG,1)
+          ask(a,"Repeat the marker from your previous reply, no other text.",
+              "HITEL_A1_"+TAG,2)
+          ask(b,"Reply with exactly HITEL_B1_"+TAG+" and nothing else.",
+              "HITEL_B1_"+TAG,3)
+          ask(a,"Repeat the marker from the first reply in this conversation.",
+              "HITEL_A1_"+TAG,4)
+          print("PASS_FULL_REAL_A_A_B_A_CHATGPT_DIALOGUE",flush=True)
+          PY
