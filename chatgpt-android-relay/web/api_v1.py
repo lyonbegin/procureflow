@@ -1098,18 +1098,23 @@ def fail_orphaned_running_jobs(public_trial_only=False):
     with connection() as c:
         if public_trial_only:
             rows = c.execute(
-                "SELECT id,room_id,action FROM jobs WHERE status='running' AND "
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running' AND "
                 "(user_id=? OR user_id LIKE 'usr_browser_%')",
                 ("usr_public_web2api_probe_20261113",)
             ).fetchall()
         else:
             rows = c.execute(
-                "SELECT id,room_id,action FROM jobs WHERE status='running'"
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running'"
             ).fetchall()
         for item in rows:
-            c.execute("""UPDATE jobs SET status='failed',stage='server_restarted',
+            # Public ChatGPT rooms may still be generating in the browser.
+            # Quarantine their original job_id instead of recording a false
+            # terminal model failure; disallow a second prompt in the room.
+            preserved = item["user_id"] == "usr_browser_hitel_public_link"
+            c.execute("""UPDATE jobs SET status=?,stage='server_restarted',
                 error=?,updated_at=? WHERE id=?""",
-                ("Server restarted; delivery unknown; not automatically retried",
+                ("unknown" if preserved else "failed",
+                 "Server restarted; delivery unknown; not automatically retried",
                  clock(), item["id"]))
             if item["action"] == "room.delete":
                 c.execute("""UPDATE rooms SET status='delete_failed',updated_at=?
