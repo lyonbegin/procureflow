@@ -98,6 +98,14 @@ def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
     }
     if cid:
         body["conversation_id"] = cid
+    else:
+        # The pinned Web2API vendor *defaults to reusing the previous chat*
+        # when conversation_id is omitted. The source-pinned DOM patch
+        # provides an explicit opt-in to force a brand-new conversation.
+        # Every new public/private HITEL room MUST use it; otherwise two
+        # separate rooms can receive the same conversation URL and the
+        # server correctly refuses to bind the second one.
+        body["new_conversation"] = True
     raw = json.dumps(body).encode("utf-8")
     request = urllib.request.Request(
         api_url, data=raw, method="POST",
