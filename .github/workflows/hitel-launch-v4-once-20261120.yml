@@ -1,4 +1,4 @@
-name: HITEL once launch v4 after verified Railway & vendor patch fix
+name: HITEL one-time R3 and G003 verified two-room prewarm
 on:
   push:
     branches: [main]
