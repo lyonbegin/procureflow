@@ -1,0 +1,24 @@
+name: HITEL Web2API privacy-safe failure diagnostic unit tests (isolated only)
+on:
+  push:
+    branches: [feature/hitel-web2api-safe-errors-20261119]
+    paths:
+      - .github/scripts/safe_worker_error.py
+      - .github/scripts/w2a_relay_worker.py
+      - .github/scripts/test_safe_worker_error.py
+      - .github/workflows/hitel-web2api-safe-error-tests.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-error-diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no-production-impact typed error classifier
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/safe_worker_error.py .github/scripts/w2a_relay_worker.py
+          python3 -m unittest discover -s .github/scripts -p 'test_safe_worker_error.py' -v
+          echo 'SAFE_ERROR_CLASSIFIER_PASS without changing running HITEL worker'
