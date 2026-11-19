@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import threading
+import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -129,7 +130,16 @@ def _room_result(room:dict, created:bool) -> dict:
 
 @router.get("/status")
 def public_status():
-    from app import web2api_device
+    # A connected socket does not prove the sole worker is available:
+    # it may be processing a long ChatGPT turn in another room.
+    # Expose health and capacity only, never private room/job IDs or text.
+    from app import (web2api_device, web2api_last_seen_monotonic,
+                     active_job_id)
+    connected = web2api_device is not None
+    heartbeat_age = (max(0, int(time.monotonic() - web2api_last_seen_monotonic))
+                     if connected and web2api_last_seen_monotonic > 0 else None)
+    heartbeat_recent = bool(heartbeat_age is not None and heartbeat_age <= 75)
+    busy = bool(active_job_id)
     return {
         "public_link_enabled":True,
         "login_required":False,
@@ -139,7 +149,11 @@ def public_status():
         "same_room_name_reuses_conversation":True,
         "explicit_new_room_supported":True,
         "default_room_name":DEFAULT_ROOM_NAME,
-        "worker_connected":web2api_device is not None,
+        "worker_connected":connected,
+        "worker_heartbeat_recent":heartbeat_recent,
+        "worker_heartbeat_age_seconds":heartbeat_age,
+        "worker_busy":busy,
+        "worker_available_for_new_job":heartbeat_recent and not busy,
         "worker_autostart_configured":worker_autostart.configured(),
         "supported":"text_only",
     }
