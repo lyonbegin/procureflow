@@ -41,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-reconciliation-diagnosis-v8
+  group: hitel-real-bridge-live-qa-reconciliation-diagnosis-v9
   cancel-in-progress: false
 
 jobs:
@@ -128,7 +128,8 @@ jobs:
           python3 qa/.github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
           python3 - <<'PY'
           from pathlib import Path
-          source=Path("$RUNNER_TEMP/w2a-check/original/src/chatgpt_web2api/api_server.py").read_text()
+          import os
+          source=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/api_server.py").read_text()
           assert '"subcode":' in source and '"anchor_mode":' in source, "NO_ACTUAL_VENDOR_TURN_DIAGNOSTICS"
           print("PASS_ACTUAL_VENDOR_TURN_STATUS_AND_ANCHOR_PATCH")
           PY
@@ -200,7 +201,7 @@ jobs:
           set -euo pipefail
           grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
           # Retire only exact older Chrome worker runs after the new v5 worker signs in.
-          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219; do
+          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219 44482440343; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
             if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
               gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
