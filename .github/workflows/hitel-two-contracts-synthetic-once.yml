@@ -1,7 +1,7 @@
 name: HITEL | A-shape and Scribd-20-shape ONE-SHOT isolated live contracts
 on:
   push:
-    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    branches: [fix/hitel-ws-job-owned-direct-reply-20261119]
     paths: [.github/workflows/hitel-two-contracts-synthetic-once.yml]
 permissions:
   contents: read
@@ -23,7 +23,8 @@ jobs:
       - name: Exactly one synthetic A-shaped and one synthetic 20-title request
         run: |
           python3 - <<'PY'
-          import json,sys,time,urllib.request,urllib.error
+          import json,sys,time,urllib.request,urllib.error,os
+          run_id=os.environ['GITHUB_RUN_ID']
           from pathlib import Path
           base="https://hitel-integration-api-production.up.railway.app"
           sys.path.insert(0,str(Path("stock-a/research").resolve()))
@@ -38,12 +39,12 @@ jobs:
                         "원문 제목":"중학교 1학년 1학기 수학 연습문제 테스트 "+str(i)}
                        for i in range(1,21)]
           suites=[
-              ("A", "HITEL-RECOVERY-CONTRACT-A-SYNTH-20261119",
-               "hitel-recovery-a-synth-20261119-unchanged",
+              ("A", "HITEL-RECOVERY-CONTRACT-A-SYNTH-"+run_id,
+               "hitel-recovery-a-synth-"+run_id,
                A.discovery_prompt(synthetic_A),
                lambda x: x.get("source_id")=="SYNTHETIC_A_ONLY" and isinstance(x.get("cases"),list)),
-              ("SCRIBD20", "HITEL-RECOVERY-CONTRACT-SCRIBD20-SYNTH-20261119",
-               "hitel-recovery-b-synth-20261119-unchanged",
+              ("SCRIBD20", "HITEL-RECOVERY-CONTRACT-SCRIBD20-SYNTH-"+run_id,
+               "hitel-recovery-b-synth-"+run_id,
                B.title_prompt(synthetic_B),
                lambda x: isinstance(x.get("rows"),list) and
                  len(B.validated_rows(json.dumps(x,ensure_ascii=False),synthetic_B))==20),
