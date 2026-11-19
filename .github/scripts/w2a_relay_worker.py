@@ -26,6 +26,11 @@ import urllib.error
 from typing import Any
 
 import websockets
+# The worker is also loaded with importlib.spec_from_file_location in existing
+# API contract tests. Resolve the adjacent reviewed helper in both entry modes.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
 from safe_worker_error import classify_web2api_failure
 
 from w2a_account_runtime import (AccountGateError, actual_chrome_account,
