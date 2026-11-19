@@ -194,15 +194,28 @@ jobs:
           python3 qa/.github/scripts/w2a_relay_worker.py \
             >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
           echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
-          for i in $(seq 1 40); do
-            if grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED \
+          for i in $(seq 1 210); do
+            if grep -q 'PASS_AUTHENTICATED_ROOM_TAB_PREWARM=2/2' \
               "$RUNNER_TEMP/bridge-worker.log"; then
-              echo PASS_SIGNED_GITHUB_CHROME_WORKER_NEW_RAILWAY_CONNECTED
-              break
+              STATE="$(curl --max-time 6 -fsS \
+                https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status \
+                | python3 -c 'import json,sys; x=json.load(sys.stdin); print(int(x.get("worker_bootstrap_ready") is True and x.get("prewarmed_room_count")==2))' \
+                2>/dev/null || echo 0)"
+              if [[ "$STATE" == "1" ]]; then
+                echo PASS_TWO_EXISTING_CHATGPT_ROOMS_PREWARMED_IN_INDEPENDENT_TABS
+                break
+              fi
             fi
-            if [ "$i" -eq 40 ]; then
-              tail -n 60 "$RUNNER_TEMP/bridge-worker.log" | grep -E 'FAIL_|RELAY_CONNECTION_|ModuleNotFound|Error|Traceback|PASS_' || true
-              echo FAIL_REAL_NEW_RAILWAY_WEBSOCKET
+            if grep -Eq 'FAIL_ROOM_TAB_PREWARM|RELAY_CONNECTION_INTERRUPTED|RELAY_WEBSOCKET_LIFETIME_EXPIRED' \
+              "$RUNNER_TEMP/bridge-worker.log"; then
+              grep -E 'FAIL_ROOM_TAB_PREWARM|RELAY_CONNECTION_INTERRUPTED|PASS_AUTHENTICATED_ROOM_TAB' \
+                "$RUNNER_TEMP/bridge-worker.log" || true
+              echo FAIL_EXISTING_ROOM_TAB_PREWARM
+              exit 1
+            fi
+            if [ "$i" -eq 210 ]; then
+              tail -n 45 "$RUNNER_TEMP/bridge-worker.log" | grep -E 'FAIL_|PASS_|RELAY_CONNECTION_' || true
+              echo FAIL_TWO_ROOM_TAB_PREWARM_VERIFICATION
               exit 1
             fi
             sleep 2
@@ -267,7 +280,7 @@ jobs:
             echo 'Manual worker-only mode stays connected for the selected session; verify_or_pair mode tests account and Bearer chat. Not evidence of continuous 24x7 service or file attachment support.'
             echo ''
             if test -f "$RUNNER_TEMP/bridge-worker.log"; then
-              grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|FAIL_RELAY_WEB2API_JOB_|RELAY_CONNECTION_INTERRUPTED_' \
+              grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_AUTHENTICATED_ROOM_TAB_PREWARM|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|FAIL_RELAY_WEB2API_JOB_|RELAY_CONNECTION_INTERRUPTED_' \
                 "$RUNNER_TEMP/bridge-worker.log" || true
             fi
           } >> "$GITHUB_STEP_SUMMARY"
