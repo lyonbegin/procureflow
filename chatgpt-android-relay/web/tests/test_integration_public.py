@@ -29,7 +29,9 @@ class PublicNoLoginContract(unittest.TestCase):
         self.client=TestClient(app.app,base_url="https://testserver")
         self.client.__enter__()
         app.web2api_device=None
+        app.worker_bootstrap_ready=False
         app.active_job_id=None
+        app.web2api_active_jobs.clear()
         api_v1.on_new_job=app.notify_new_job
         with api_v1.connection() as db:
             db.execute("DELETE FROM hitel_public_named_rooms")
@@ -44,7 +46,9 @@ class PublicNoLoginContract(unittest.TestCase):
     def tearDown(self):
         self.client.__exit__(None,None,None)
         app.web2api_device=None
+        app.worker_bootstrap_ready=False
         app.active_job_id=None
+        app.web2api_active_jobs.clear()
 
     def test_link_and_status_are_public(self):
         self.assertEqual(self.client.get("/integrations/public").status_code,200)
@@ -59,14 +63,20 @@ class PublicNoLoginContract(unittest.TestCase):
         # Simulate state only; no real worker, GitHub Actions or ChatGPT send.
         app.web2api_device=object()
         app.web2api_last_seen_monotonic=time.monotonic()
-        app.active_job_id="job_synthetic_do_not_expose"
+        app.worker_bootstrap_ready=False
+        self.assertFalse(self.client.get("/integrations/v1/public/status").json()
+                         ["worker_available_for_new_job"])
+        app.worker_bootstrap_ready=True
+        for i in range(app.WEB2API_MAX_ACTIVE):
+            app.web2api_active_jobs["job_synthetic_do_not_expose_"+str(i)] = "room_"+str(i)
         state=self.client.get("/integrations/v1/public/status").json()
         self.assertTrue(state["worker_connected"])
         self.assertTrue(state["worker_heartbeat_recent"])
         self.assertTrue(state["worker_busy"])
         self.assertFalse(state["worker_available_for_new_job"])
         self.assertNotIn("job_synthetic_do_not_expose",str(state))
-        app.active_job_id=None
+        self.assertEqual(state["worker_active_jobs_count"],app.WEB2API_MAX_ACTIVE)
+        app.web2api_active_jobs.clear()
         state=self.client.get("/integrations/v1/public/status").json()
         self.assertTrue(state["worker_available_for_new_job"])
         app.web2api_last_seen_monotonic=time.monotonic()-100

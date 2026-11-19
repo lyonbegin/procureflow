@@ -14,6 +14,7 @@ import web_chat
 import chatgpt_accounts
 import integration_api
 import integration_public
+import long_job_events
 import file_scenario_api
 import bridge_qa_api
 import integration_pairing
@@ -44,7 +45,8 @@ app.include_router(remote_login_landing.router)
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 DEVICE_ID = "android-main"
-MAX_MESSAGE_SIZE = 100_000
+MAX_MESSAGE_SIZE = 2_800_000
+MAX_FINAL_REPLY_BYTES = 2_000_000
 # Legacy console commands have no verified room_id. Never let them
 # submit a prompt or create a thread in whichever chat happens to be foreground.
 ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
@@ -59,59 +61,119 @@ recent: deque[dict[str, Any]] = deque(maxlen=30)
 last_command: dict[str, Any] = {"stage": "idle"}
 active_job_id: str | None = None
 active_job_transport: str | None = None
+# Internal multi-tab dispatch: each in-flight Web2API request belongs to ONE room.
+# The native Android device retains its independent legacy active_job_id.
+web2api_active_jobs: dict[str, str] = {}  # job_id -> room_id
+WEB2API_MAX_ACTIVE = 3
+# Exact two previously-linked user rooms. Never use new room IDs or overwrite
+# existing saved conversation URLs for a prewarming task.
+PREWARM_KNOWN_ROOMS = {
+    "room_e43054eed81d46fba991b946ede92d1b":
+        "STOCK-KG-A-RESEARCH-20261119-R3",
+    "room_40f5ecf138064891964f1d5539c316c7":
+        "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G001",
+}
+worker_bootstrap_ready = False
+worker_prewarm_targets: dict[str,str] = {}
 job_dispatch_lock = asyncio.Lock()
+
+
+def linked_rooms_for_authenticated_worker() -> list[dict[str,str]]:
+    """Recover *actual* previously bound conversation URLs from room DB.
+
+    Only the signed GitHub worker receives these private editable links.
+    No public endpoint accepts or exposes the resulting tab target IDs.
+    """
+    with api_v1.connection() as c:
+        ids=tuple(PREWARM_KNOWN_ROOMS)
+        rows=c.execute("""SELECT id,title,chatgpt_url,user_id,status FROM rooms
+                          WHERE id IN (?,?)""", ids).fetchall()
+    result=[]
+    for row in rows:
+        if (row["user_id"]!="usr_browser_hitel_public_link"
+            or row["title"]!=PREWARM_KNOWN_ROOMS.get(row["id"])
+            or row["status"]!="active" or not row["chatgpt_url"]):
+            continue
+        try:
+            url=api_v1.normalize_chatgpt_conversation_url(row["chatgpt_url"])
+        except Exception:
+            continue
+        if url:
+            result.append({"room_id":row["id"],"chatgpt_url":url})
+    return sorted(result,key=lambda x:x["room_id"])
 recovery_checked = False
 
 async def dispatch_next():
+    """Fill free Chrome-tab slots without blocking other rooms or Android.
+
+    A room has at most one RUNNING job (enforced atomically by claim_next_job).
+    Each signed Web2API job gets its own adapter process + Chrome owned tab.
+    """
     global active_job_id, active_job_transport, recovery_checked
-    if active_job_id or (device is None and web2api_device is None):
+    if device is None and web2api_device is None:
         return
     async with job_dispatch_lock:
-        if active_job_id or (device is None and web2api_device is None):
-            return
         if not recovery_checked:
-            recovered = api_v1.fail_orphaned_running_jobs(public_trial_only=PUBLIC_SMOKE_ONLY)
+            recovered = api_v1.fail_orphaned_running_jobs(
+                public_trial_only=PUBLIC_SMOKE_ONLY)
             recovery_checked = True
             if recovered:
-                print(f"[relay-v1] recovery: failed {recovered} orphaned jobs; no auto-retry", flush=True)
-        failed_missing = 0 if PUBLIC_SMOKE_ONLY else api_v1.fail_queued_jobs_with_unavailable_files()
+                print(f"[relay-v1] recovery: {recovered} orphaned uncertain jobs; no auto-retry",
+                      flush=True)
+        failed_missing = (0 if PUBLIC_SMOKE_ONLY
+                          else api_v1.fail_queued_jobs_with_unavailable_files())
         if failed_missing:
-            print(f"[relay-v1] failed {failed_missing} queued jobs with missing attachments", flush=True)
-        # Account-specific prompts may ONLY be claimed by the GitHub Chrome
-        # worker. If offline, leave queued: never fall back to Android which
-        # cannot attest the same ChatGPT identity.
-        job = api_v1.claim_next_job(
-            public_trial_only=PUBLIC_SMOKE_ONLY,
-            allow_account_bound=web2api_device is not None,
-        )
-        if job is None:
-            return
+            print(f"[relay-v1] unavailable attachments: {failed_missing}", flush=True)
 
-        # Native attachments and original Android controls remain routed to
-        # Android when it is connected. Text-only chat prefers GitHub Chrome.
-        prefer_web = (web2api_device is not None and
-                      job["action"] == "chat.send" and
-                      not job.get("attachment_ids"))
-        if prefer_web:
-            receiver, transport = web2api_device, "web2api"
-        elif device is not None:
-            receiver, transport = device, "android"
-        else:
-            # Browser worker will explicitly fail unsupported/file actions;
-            # never pretend that it attached an original binary file.
-            receiver, transport = web2api_device, "web2api"
-        active_job_id = job["id"]
-        active_job_transport = transport
-        try:
-            await transmit(receiver, event("job", job=job))
-            await broadcast(event("job.dispatched", job_id=job["id"], room_id=job["room_id"],
-                                  action=job["action"], user_id=job["user_id"], worker=transport))
-            print(f"[relay-v1] dispatched job={job['id'][:12]} room={job['room_id'][:12]} via={transport}", flush=True)
-            asyncio.create_task(job_timeout(job["id"]))
-        except Exception:
-            api_v1.release_running_job(job["id"], "Worker transport interrupted; not auto-retried")
-            active_job_id = None
-            active_job_transport = None
+        if web2api_device is not None and worker_bootstrap_ready:
+            while len(web2api_active_jobs) < WEB2API_MAX_ACTIVE:
+                job = api_v1.claim_next_job(
+                    public_trial_only=PUBLIC_SMOKE_ONLY,
+                    allow_account_bound=True,
+                    web_text_only=True,
+                )
+                if job is None:
+                    break
+                jid = job["id"]
+                web2api_active_jobs[jid] = job["room_id"]
+                try:
+                    await transmit(web2api_device, event("job", job=job))
+                    long_job_events.observe(jid, "worker_dispatched")
+                    await broadcast(event(
+                        "job.dispatched", job_id=jid, room_id=job["room_id"],
+                        action=job["action"], user_id=job["user_id"], worker="web2api"))
+                    asyncio.create_task(job_timeout(jid))
+                except Exception:
+                    api_v1.update_job(
+                        jid,status="unknown",stage="worker_transport_interrupted",
+                        error="Web2API transport interrupted; delivery unconfirmed; no retry")
+                    long_job_events.observe(
+                        jid, "worker_transport_interrupted",
+                        error_code="WORKER_CONNECTION_LOST", error_stage="dispatch")
+                    web2api_active_jobs.pop(jid, None)
+                    break
+        # Preserve existing Android / file operations on a separate route.
+        if device is not None and active_job_id is None:
+            job = api_v1.claim_next_job(
+                public_trial_only=PUBLIC_SMOKE_ONLY,
+                allow_account_bound=False,
+                web_text_only=False,
+            )
+            if job is not None:
+                jid = job["id"]
+                active_job_id = jid
+                active_job_transport = "android"
+                try:
+                    await transmit(device, event("job", job=job))
+                    await broadcast(event(
+                        "job.dispatched", job_id=jid, room_id=job["room_id"],
+                        action=job["action"], user_id=job["user_id"], worker="android"))
+                    asyncio.create_task(job_timeout(jid))
+                except Exception:
+                    api_v1.release_running_job(
+                        jid, "Android transport interrupted; not auto-retried")
+                    active_job_id = None
+                    active_job_transport = None
 
 
 # A slow ChatGPT model is not a failed model. This is a *progress* threshold,
@@ -129,7 +191,7 @@ async def job_timeout(job_id: str):
     continues to await the original worker's verified response. Never resend.
     """
     await asyncio.sleep(JOB_SLOW_NOTICE_SECONDS)
-    if active_job_id != job_id:
+    if active_job_id != job_id and job_id not in web2api_active_jobs:
         return
     with api_v1.connection() as db:
         changed = db.execute(
@@ -137,7 +199,7 @@ async def job_timeout(job_id: str):
                WHERE id=? AND status='running'""",
             ("waiting_for_verified_reply", api_v1.clock(), job_id),
         ).rowcount
-    if changed and active_job_id == job_id:
+    if changed and (active_job_id == job_id or job_id in web2api_active_jobs):
         await broadcast(event("job.progress", job_id=job_id,
                               stage="waiting_for_verified_reply"))
 
@@ -323,7 +385,7 @@ async def download_controller():
 async def health():
     return {"status": "ok", "deviceOnline": device is not None,
             "web2apiOnline": web2api_device is not None,
-            "activeApiJob": active_job_id,
+            "activeApiJob": active_job_id or next(iter(web2api_active_jobs), None),
             "consoleCount": len(consoles),
             "lastCommand": {"stage": last_command.get("stage", "idle")}}
 
@@ -361,7 +423,7 @@ async def demo_start(request: Request):
     # Queue the fixed, isolated test even when the GitHub Chrome runner is
     # offline. A scheduled GitHub Actions workflow starts the runner when
     # this queue is non-empty. Do not expose a disabled button.
-    if active_job_id:
+    if active_job_id or web2api_active_jobs:
         raise HTTPException(409, "Another test is already running")
     now = api_v1.clock()
     with api_v1.connection() as db:
@@ -397,6 +459,7 @@ async def demo_start(request: Request):
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
     global device, web2api_device, web2api_last_seen_monotonic, active_job_id, active_job_transport
+    global worker_bootstrap_ready
     await ws.accept()
     role = ""
     actions_worker = False
@@ -427,13 +490,10 @@ async def socket(ws: WebSocket):
             await ws.close(code=1008)
             return
         actions_worker = valid_actions
-        if role == "web2api" and valid_actions and auth.get("hitel_protocol_version") != 3:
-            # Workers started before the fresh-conversation fix retain old
-            # Python code for their entire four-hour GitHub Actions lifetime.
-            # They cannot safely process named-room jobs: the old Web2API
-            # client silently reuses its previous conversation and collides
-            # with another room. Reject stale workers so Railway may launch
-            # a new, compatible protocol-v3 worker from the current feature branch.
+        if role == "web2api" and valid_actions and auth.get("hitel_protocol_version") != 4:
+            # Old workers have a single blocking Web2API driver and cannot
+            # honor concurrent room-affine ownership. Fail closed: never send
+            # 3 simultaneous messages to the old shared-tab implementation.
             await transmit(ws, event("auth.error", reason="WORKER_PROTOCOL_UPGRADE_REQUIRED"))
             await ws.close(code=1008)
             print("[relay-v1] refused outdated GitHub Chrome worker version",flush=True)
@@ -470,23 +530,27 @@ async def socket(ws: WebSocket):
             if web2api_device is not None and web2api_device is not ws:
                 old_worker = web2api_device
                 web2api_device = ws
-                if active_job_id and active_job_transport == "web2api":
-                    api_v1.release_running_job(
-                        active_job_id, "Chrome worker session replaced; no automatic retry")
-                    await broadcast(event(
-                        "job.error", job_id=active_job_id,
-                        reason="Chrome worker replaced; not retried"))
-                    active_job_id = None
-                    active_job_transport = None
+                for jid in list(web2api_active_jobs):
+                    api_v1.update_job(
+                        jid,status="unknown",stage="worker_replaced",
+                        error="Chrome worker replaced; delivery unconfirmed; no retry")
+                    long_job_events.observe(jid, "worker_replaced",
+                        error_code="WORKER_CONNECTION_LOST",error_stage="worker_replaced")
+                    web2api_active_jobs.pop(jid, None)
                 await old_worker.close(code=1001)
             else:
                 web2api_device = ws
+            worker_bootstrap_ready=False
+            worker_prewarm_targets.clear()
             web2api_last_seen_monotonic=time.monotonic()
             worker_autostart.worker_connected()
             print("[relay] GitHub Chrome worker authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="web2api"))
+            warm=linked_rooms_for_authenticated_worker()
+            await transmit(ws,event("room.bootstrap",rooms=warm))
+            print("[relay] requested signed Chrome prewarm for "+str(len(warm))+
+                  " verified existing rooms",flush=True)
             await broadcast(event("web2api.status", online=True, worker="github-chrome"))
-            await dispatch_next()
         else:
             consoles.add(ws)
             print("[relay] Web console authenticated", flush=True)
@@ -505,7 +569,33 @@ async def socket(ws: WebSocket):
                 if role == "web2api" and web2api_device is ws:
                     web2api_last_seen_monotonic=time.monotonic()
                     if kind == "worker.heartbeat":
+                        for jid in tuple(web2api_active_jobs):
+                            long_job_events.heartbeat(jid)
                         continue
+                if role=="web2api" and kind=="room.bootstrap.done":
+                    expected={x["room_id"] for x in linked_rooms_for_authenticated_worker()}
+                    ready={}
+                    received=msg.get("ready_rooms",[])
+                    if isinstance(received,list):
+                        for info in received:
+                            if not isinstance(info,dict):
+                                continue
+                            rid,tid=info.get("room_id"),info.get("target_id")
+                            if (rid in expected and isinstance(tid,str)
+                                and 8<=len(tid)<=100):
+                                ready[rid]=tid
+                    # A lone browser heartbeat cannot be mistaken for two
+                    # independently prewarmed and navigated conversation tabs.
+                    worker_prewarm_targets.clear()
+                    worker_prewarm_targets.update(ready)
+                    worker_bootstrap_ready=(bool(expected)
+                        and expected==set(ready)
+                        and len(set(ready.values()))==len(ready))
+                    print("[relay] signed room-tabs prewarm verified="
+                        +str(len(ready))+"/"+str(len(expected)),flush=True)
+                    if worker_bootstrap_ready:
+                        await dispatch_next()
+                    continue
                 if kind == "ping":
                     await transmit(ws, event("pong"))
                     continue
@@ -565,8 +655,8 @@ async def socket(ws: WebSocket):
                         approved = bool(
                             actions_worker
                             and isinstance(jid,str)
-                            and jid == active_job_id
-                            and active_job_transport == "web2api"
+                            and jid in web2api_active_jobs
+                            and web2api_active_jobs[jid] == rid
                             and api_v1.authorize_web2api_preflight(jid,rid,aid,email)
                         )
                         if approved:
@@ -577,13 +667,34 @@ async def socket(ws: WebSocket):
                             room_id=rid if isinstance(rid,str) else "",
                         ))
                         continue
-                    if kind in {"job.received", "job.progress", "job.result", "job.error"}:
+                    if kind in {"job.received", "job.progress", "job.result", "job.error", "job.uncertain"}:
                         jid = str(msg.get("job_id", ""))
-                        if jid != active_job_id or active_job_transport != ("android" if role == "device" else "web2api"):
+                        if role == "web2api":
+                            if jid not in web2api_active_jobs:
+                                continue
+                            if msg.get("room_id") != web2api_active_jobs[jid]:
+                                continue
+                        elif jid != active_job_id or active_job_transport != "android":
+                            continue
+                        if kind == "job.uncertain":
+                            # A lost upstream HTTP response does not prove AI failure.
+                            # Preserve the same job_id; never auto-resubmit.
+                            reason = str(msg.get("reason", "UPSTREAM_DELIVERY_UNKNOWN"))[:100]
+                            api_v1.update_job(jid,status="unknown",
+                                stage="upstream_delivery_unknown",error=reason)
+                            long_job_events.observe(
+                                jid,"upstream_delivery_unknown",
+                                error_code=reason,error_stage="upstream_delivery_unknown")
+                            web2api_active_jobs.pop(jid,None)
+                            preflight_jobs.discard(jid)
+                            await dispatch_next()
                             continue
                         if kind in {"job.received", "job.progress"}:
                             stage = str(msg.get("stage", kind))[:100]
                             api_v1.update_job(jid, stage=stage)
+                            if role=="web2api":
+                                long_job_events.observe(
+                                    jid,"worker_received" if kind=="job.received" else stage)
                             await broadcast(event(kind, job_id=jid, stage=stage))
                         else:
                             # Never trust a device-reported room_id as the target
@@ -631,7 +742,13 @@ async def socket(ws: WebSocket):
                                 "room.bind": "assistant_reply_stable",
                                 "room.open": "room_open_verified",
                             }.get(action)
-                            output = str(msg.get("result_text", ""))[:100000]
+                            output = msg.get("result_text", "")
+                            if not isinstance(output,str):
+                                output = ""
+                            reply_too_large=(len(output.encode("utf-8"))>MAX_FINAL_REPLY_BYTES)
+                            if reply_too_large:
+                                output = ""
+                                claimed_success = False
                             proof_ok = bool(
                                 expected_stage and reported_stage == expected_stage
                                 and (action == "room.open" or output.strip())
@@ -660,13 +777,15 @@ async def socket(ws: WebSocket):
                             mismatch = claimed_success and not identity_ok
                             invalid_proof = claimed_success and identity_ok and not proof_ok
                             wrong_browser_chat = False
-                            stage = ("ROOM_ID_MISMATCH" if mismatch else
+                            stage = ("REPLY_TOO_LARGE_NO_TRUNCATION" if reply_too_large else
+                                     "ROOM_ID_MISMATCH" if mismatch else
                                      "ACCOUNT_ID_MISMATCH" if account_mismatch else
                                      "ACCOUNT_EXECUTION_NOT_VERIFIED" if account_not_verified else
                                      "UNVERIFIED_JOB_COMPLETION" if invalid_proof else
                                      "ROOM_CONVERSATION_ID_MISMATCH" if wrong_browser_chat else
                                      reported_stage or ("completed" if good else "failed"))
-                            reason = ("Worker completion room_id did not match the assigned job room"
+                            reason = ("Assistant reply exceeds verified transport maximum; never truncated" if reply_too_large else
+                                      "Worker completion room_id did not match the assigned job room"
                                       if mismatch else
                                       "Chrome execution account differs from request account"
                                       if account_mismatch else
@@ -698,6 +817,12 @@ async def socket(ws: WebSocket):
                                 api_v1.update_job(jid, status="completed" if good else "failed",
                                                   stage=stage, result_text=output if good else None,
                                                   error=None if good else reason)
+                            if role=="web2api":
+                                long_job_events.observe(
+                                    jid,"assistant_reply_verified" if good else "worker_reported_failure",
+                                    send_confirmed=good,reply_observed=good,
+                                    error_code=None if good else stage,
+                                    error_stage=None if good else stage)
                             if good and msg.get("room_state") and not saved_by_web2api:
                                 api_v1.set_room_android_state(
                                     assigned_room, str(msg["room_state"]),
@@ -708,8 +833,11 @@ async def socket(ws: WebSocket):
                                                   reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
                             preflight_jobs.discard(jid)
-                            active_job_id = None
-                            active_job_transport = None
+                            if role == "web2api":
+                                web2api_active_jobs.pop(jid, None)
+                            else:
+                                active_job_id = None
+                                active_job_transport = None
                             await dispatch_next()
                     elif role == "device" and kind in {"command.received", "command.progress", "command.result", "command.error"}:
                         cmd_id = str(msg.get("id", ""))[:80]
@@ -754,15 +882,17 @@ async def socket(ws: WebSocket):
             await broadcast(event("device.status", online=False, deviceId=DEVICE_ID))
             await dispatch_next()
         elif role == "web2api" and web2api_device is ws:
+            worker_bootstrap_ready=False
+            worker_prewarm_targets.clear()
             web2api_device = None
-            if active_job_id and active_job_transport == "web2api":
-                api_v1.release_running_job(
-                    active_job_id, "GitHub Chrome disconnected; not automatically retried")
-                await broadcast(event(
-                    "job.error", job_id=active_job_id,
-                    reason="GitHub Chrome disconnected; not automatically retried"))
-                active_job_id = None
-                active_job_transport = None
+            for jid in list(web2api_active_jobs):
+                api_v1.update_job(
+                    jid,status="unknown",stage="connection_lost",
+                    error="GitHub Chrome disconnected; delivery unconfirmed; no retry")
+                long_job_events.observe(
+                    jid,"worker_connection_lost",
+                    error_code="WORKER_CONNECTION_LOST",error_stage="connection_lost")
+                web2api_active_jobs.pop(jid,None)
             web2api_last_seen_monotonic=0.0
             worker_autostart.worker_disconnected()
             await broadcast(event("web2api.status", online=False, worker="github-chrome"))

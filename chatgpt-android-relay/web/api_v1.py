@@ -774,26 +774,35 @@ def fail_queued_jobs_with_unavailable_files():
 
 
 def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
-                   allow_account_bound: bool = True):
+                   allow_account_bound: bool = True,
+                   web_text_only: bool = False):
+    """Atomically claim ONE queued job, never a second active job in its room.
+
+    The web worker can process multiple *different* rooms concurrently but
+    must not send two messages to one ChatGPT tab at the same time.
+    """
     with connection() as c:
-        account_filter = "" if allow_account_bound else " AND account_id IS NULL"
+        c.execute("BEGIN IMMEDIATE")
+        filters = [
+            "status='queued'",
+            "NOT EXISTS (SELECT 1 FROM jobs AS busy"
+            " WHERE busy.room_id=jobs.room_id AND busy.status IN ('running','unknown','stalled'))",
+        ]
+        args = []
+        if not allow_account_bound:
+            filters.append("account_id IS NULL")
+        if web_text_only:
+            filters.extend(("action='chat.send'", "attachment_ids='[]'"))
         if public_trial_only:
-            # The publicly reachable test process may NEVER claim the
-            # pre-existing private Android rooms, jobs or files.
-            r = c.execute(
-                "SELECT * FROM jobs WHERE status='queued' AND "
-                "(user_id=? OR user_id LIKE 'usr_browser_%') "
-                + account_filter + " ORDER BY created_at,id LIMIT 1",
-                ("usr_public_web2api_probe_20261113",)
-            ).fetchone()
-        elif only_user_id is None:
-            r = c.execute("SELECT * FROM jobs WHERE status='queued'"
-                          + account_filter + " ORDER BY created_at,id LIMIT 1").fetchone()
-        else:
-            r = c.execute(
-                "SELECT * FROM jobs WHERE status='queued' AND user_id=? "
-                + account_filter + " ORDER BY created_at,id LIMIT 1", (only_user_id,)
-            ).fetchone()
+            filters.append("(user_id=? OR user_id LIKE 'usr_browser_%')")
+            args.append("usr_public_web2api_probe_20261113")
+        elif only_user_id is not None:
+            filters.append("user_id=?")
+            args.append(only_user_id)
+        r = c.execute(
+            "SELECT * FROM jobs WHERE " + " AND ".join(filters)
+            + " ORDER BY created_at,id LIMIT 1", tuple(args)
+        ).fetchone()
         if not r:
             return None
         c.execute("UPDATE jobs SET status='running',stage='dispatched',updated_at=? WHERE id=?",
@@ -1022,7 +1031,7 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
     job, or a conversation already linked to a different room. A reconnect
     must never replay a completed turn.
     """
-    if not isinstance(result_text, str) or not result_text.strip() or len(result_text) > 100000:
+    if not isinstance(result_text, str) or not result_text.strip() or len(result_text.encode('utf-8')) > 2000000:
         return False
     try:
         normalized = normalize_chatgpt_conversation_url(chatgpt_url)
@@ -1089,18 +1098,23 @@ def fail_orphaned_running_jobs(public_trial_only=False):
     with connection() as c:
         if public_trial_only:
             rows = c.execute(
-                "SELECT id,room_id,action FROM jobs WHERE status='running' AND "
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running' AND "
                 "(user_id=? OR user_id LIKE 'usr_browser_%')",
                 ("usr_public_web2api_probe_20261113",)
             ).fetchall()
         else:
             rows = c.execute(
-                "SELECT id,room_id,action FROM jobs WHERE status='running'"
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running'"
             ).fetchall()
         for item in rows:
-            c.execute("""UPDATE jobs SET status='failed',stage='server_restarted',
+            # Public ChatGPT rooms may still be generating in the browser.
+            # Quarantine their original job_id instead of recording a false
+            # terminal model failure; disallow a second prompt in the room.
+            preserved = item["user_id"] == "usr_browser_hitel_public_link"
+            c.execute("""UPDATE jobs SET status=?,stage='server_restarted',
                 error=?,updated_at=? WHERE id=?""",
-                ("Server restarted; delivery unknown; not automatically retried",
+                ("unknown" if preserved else "failed",
+                 "Server restarted; delivery unknown; not automatically retried",
                  clock(), item["id"]))
             if item["action"] == "room.delete":
                 c.execute("""UPDATE rooms SET status='delete_failed',updated_at=?
