@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import socket
 import sys
@@ -63,6 +64,66 @@ def _health(port: int) -> dict:
         return json.load(response)
 
 
+CONVERSATION_URL = re.compile(
+    r"^https://chatgpt\\.com/(?:c|c2|uc)/[A-Za-z0-9_-]{8,128}$"
+)
+
+
+def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
+    """Read own vendor instance registry; navigate ONLY its owned Chrome target.
+
+    No send/typing/clicking. A valid URL is supplied by the authenticated HITEL
+    server from that exact room's persisted ChatGPT conversation mapping.
+    """
+    from playwright.sync_api import sync_playwright
+
+    registry = Path.home()/".chatgpt_web2api"/"owned_tabs.json"
+    deadline=time.monotonic()+35
+    target_id=None
+    while time.monotonic()<deadline:
+        try:
+            data=json.loads(registry.read_text(encoding="utf-8"))
+            info=data.get(slot.instance_id,{})
+            if isinstance(info,dict) and isinstance(info.get("target_id"),str):
+                target_id=info["target_id"]
+                break
+        except (FileNotFoundError,PermissionError,OSError,ValueError):
+            pass
+        time.sleep(0.5)
+    if not target_id:
+        raise TabIsolationError("ROOM_OWNED_TARGET_NOT_RECORDED")
+
+    with sync_playwright() as pw:
+        browser=pw.chromium.connect_over_cdp(
+            f"http://127.0.0.1:{slot.cdp_port}",timeout=12000)
+        for context in browser.contexts:
+            for page in context.pages:
+                if page.is_closed():
+                    continue
+                session=None
+                try:
+                    session=context.new_cdp_session(page)
+                    target=session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+                except (KeyError,ValueError,RuntimeError):
+                    continue
+                finally:
+                    if session is not None:
+                        try:
+                            session.detach()
+                        except Exception:
+                            pass
+                if target != target_id:
+                    continue
+                # Deliberate read-only navigation to a previously bound
+                # conversation. NEVER send a new prompt or create a new chat.
+                page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
+                final=page.url.rstrip("/")
+                if final!=conversation_url.rstrip("/"):
+                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_CONVERSATION_REDIRECT")
+                return target_id
+    raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
+
+
 class RoomTabPool:
     """Bounded room-affine local vendor processes, never a shared DOM tab."""
 
@@ -107,6 +168,29 @@ class RoomTabPool:
                 await victim.process.wait()
         self._rooms.pop(victim.room_id,None)
         return True
+
+    async def prewarm(self, room_id: str, cdp_port: int,
+                      conversation_url: str) -> str:
+        """Ensure a separate tab exists and points at the saved ChatGPT room."""
+        if not isinstance(conversation_url,str) or not CONVERSATION_URL.fullmatch(
+            conversation_url
+        ):
+            raise TabIsolationError("UNVERIFIED_SAVED_CONVERSATION_URL")
+        self.pin(room_id)
+        try:
+            await self.endpoint(room_id,cdp_port)
+            slot=self._rooms.get(room_id)
+            if slot is None:
+                raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
+            target_id=await asyncio.to_thread(
+                _navigate_owned_target,slot,conversation_url)
+            return target_id
+        except TabIsolationError:
+            # Failure to navigate does not authorize a replacement tab or a new SEND.
+            self.quarantine(room_id)
+            raise
+        finally:
+            self.unpin(room_id)
 
     def inspect(self) -> dict[str, tuple[int, int]]:
         # Internal diagnostics only. No room IDs or account identity in logs.
