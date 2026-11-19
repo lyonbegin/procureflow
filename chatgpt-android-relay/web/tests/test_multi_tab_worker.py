@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-SCRIPT_DIR=Path(__file__).resolve().parents[4]/".github"/"scripts"
+SCRIPT_DIR=Path(__file__).resolve().parents[3]/".github"/"scripts"
 sys.path.insert(0,str(SCRIPT_DIR))
 from hitel_room_tab_pool import RoomTabPool, TabIsolationError
 
