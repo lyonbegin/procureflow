@@ -31,6 +31,7 @@ class MultiRoomDispatchTests(unittest.TestCase):
         self.client.__enter__()
         self.ws=FakeChromeSocket()
         app.web2api_device=self.ws
+        app.worker_bootstrap_ready=True
         app.web2api_last_seen_monotonic=time.monotonic()
         app.web2api_active_jobs.clear()
         app.active_job_id=None
@@ -49,6 +50,7 @@ class MultiRoomDispatchTests(unittest.TestCase):
         self.client.__exit__(None,None,None)
         api_v1.on_new_job=app.notify_new_job
         app.web2api_device=None
+        app.worker_bootstrap_ready=False
         app.web2api_active_jobs.clear()
         app.active_job_id=None
 
