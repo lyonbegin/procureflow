@@ -110,3 +110,39 @@ if server.count(old_opaque) != 1:
     raise SystemExit("REFUSE_PATCH_VENDOR_500_ERROR_SHAPE_MISMATCH")
 api.write_text(server.replace(old_opaque, new_typed), encoding="utf-8")
 print("PASS_VENDOR_500_ERROR_CLASS_REPORTED_WITHOUT_ERROR_MESSAGE", flush=True)
+
+
+# The relay WS protocol already binds every job.result to the active signed
+# worker, job_id, and server-assigned room_id. The vendor has already streamed
+# the current assistant DOM response via CompletionDetector; a SECOND HTTP
+# backend content reconciliation can incorrectly discard that completed result
+# (observed TurnReconciliationError on both A and Scribd20).
+#
+# Do not compare the reply contents with the prompt or with prior answers.
+# Retain the original send, DOM baseline, completion observation, and browser
+# conversation URL acquisition. Reject missing content / missing conversation
+# rather than fabricating success. Source pin and exact anchors fail closed.
+driver = root / "src" / "chatgpt_web2api" / "cdp_driver.py"
+code = driver.read_text(encoding="utf-8")
+direct_start = '            if conv_id:\n                logger.info("Conversation: %s", conv_id)\n'
+direct_end = '        finally:\n            # A2 Step 9: ALWAYS clear the capture scope'
+if code.count(direct_start) != 1 or code.count(direct_end) != 1:
+    raise SystemExit("REFUSE_PATCH_VENDOR_FINAL_RECONCILIATION_ANCHORS_CHANGED")
+start = code.index(direct_start)
+finish = code.index(direct_end, start)
+replaced_section = code[start:finish]
+if ('TurnReconciliationError(' not in replaced_section
+        or 'self._fetch_text_for_turn(conv_id, turn_anchor)' not in replaced_section
+        or 'last_dom_text = self._completion.last_dom_text' not in replaced_section):
+    raise SystemExit("REFUSE_PATCH_VENDOR_FINAL_RECONCILIATION_SHAPE_CHANGED")
+new_section = (
+    '            if not conv_id:\n'
+    '                raise SendReadinessError("WEB2API_CONVERSATION_ID_MISSING_AFTER_SEND")\n'
+    '            if not self._completion.last_dom_text.strip():\n'
+    '                raise SendReadinessError("WEB2API_ASSISTANT_REPLY_MISSING_AFTER_SEND")\n'
+    '            logger.info("Conversation: %s", conv_id)\n'
+    '            self._current_conv_id = conv_id\n'
+)
+code = code[:start] + new_section + code[finish:]
+driver.write_text(code, encoding="utf-8")
+print("PASS_VENDOR_POST_STREAM_DUPLICATE_RECONCILIATION_REMOVED", flush=True)
