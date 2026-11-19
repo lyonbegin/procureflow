@@ -1,11 +1,14 @@
-"""Read-only, live HITEL and Scribd operations monitoring.
+"""HITEL cross-service, read-only operational monitoring.
 
-Public dashboard intentionally exposes only synthetic/public HITEL test
-job identifiers, status and timing, never question/response text, login keys,
-Chrome cookies, profile emails, private rooms or runner credentials.
-Fast-changing Railway state is read on every request. Public GitHub Actions
-run metadata is refreshed at most every 80 seconds per process to stay
-within public API limits.
+This endpoint aggregates every HITEL public API client and every named room.
+Clients may optionally identify service_id at room creation or chat submission.
+Older calls remain compatible and are shown as "unassigned".
+
+The public payload never includes chat question/answer content, secret tokens,
+personal ChatGPT conversation URLs, email addresses, private room titles, or
+internal worker credentials. Authenticated API jobs appear only as aggregate
+counts. Live Railway job snapshots are fresh; GitHub workflow metadata is
+cached for 75 seconds, with partial failures explicitly marked.
 """
 from __future__ import annotations
 
@@ -13,7 +16,6 @@ import json
 import os
 import threading
 import time
-import urllib.error
 import urllib.request
 
 from fastapi import APIRouter
@@ -22,226 +24,223 @@ import api_v1
 import integration_public
 import worker_autostart
 
-router = APIRouter(prefix="/integrations/v1/public", tags=["public monitoring"])
-GH_REPOS = ("lyonbegin/procureflow", "lyonbegin/hitel-scribd-runner")
-PILOT_RUN = 44438675220
-PILOT_EVIDENCE = (
-    "https://github.com/lyonbegin/hitel-scribd-runner/actions/runs/"
-    + str(PILOT_RUN)
-)
-ORIGINAL_TOTAL = 18109
-CACHE_TTL_SECONDS = 80
-_CACHE_LOCK = threading.Lock()
-_GH_CACHE: dict = {"at": 0, "runs": [], "error": "not_loaded", "last_success": None}
+router = APIRouter(prefix="/integrations/v1/public", tags=["HITEL cross-service operations"])
+_REPOS=("lyonbegin/procureflow","lyonbegin/hitel-scribd-runner")
+_CACHE_TTL=75
+_CACHE_LOCK=threading.Lock()
+_CACHE={"last_attempt":0.0,"updated_ms":None,"runs":[],"error":None}
+_STATUS={"queued","running","completed","failed"}
 
-
-def _is_relevant(name: str, repo: str) -> bool:
-    if repo == "lyonbegin/procureflow":
-        return any(q in name for q in (
-            "HITEL - Start Chrome API worker",
-            "HITEL public named rooms",
-            "HITEL programmatic API contract",
-        ))
-    return any(q in name for q in (
-        "HITEL real Scribd 20-title",
-        "HITEL 18109 AI classification",
-        "HITEL 18109 named room runner",
-        "HITEL named rooms real conversation",
-        "HITEL 18109 named room",
-    ))
-
-
-def _fetch_run_list(repo: str) -> list[dict]:
-    url = f"https://api.github.com/repos/{repo}/actions/runs?per_page=35"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "HITEL-Public-ReadOnly-Monitor/1",
-        "X-GitHub-Api-Version": "2022-11-28",
+def _github_runs(repo: str) -> list[dict]:
+    url=f"https://api.github.com/repos/{repo}/actions/runs?per_page=50"
+    headers={
+        "User-Agent":"HITEL-Shared-API-Monitor/1.0",
+        "Accept":"application/vnd.github+json",
+        "X-GitHub-Api-Version":"2022-11-28",
     }
-    # Existing Railway token is used only for the repository to which it
-    # was granted. It never reaches the browser or the API response.
-    if repo == "lyonbegin/procureflow":
-        token = os.environ.get("HITEL_GITHUB_ACTIONS_TOKEN", "")
+    if repo=="lyonbegin/procureflow":
+        token=os.environ.get("HITEL_GITHUB_ACTIONS_TOKEN","")
         if token:
-            headers["Authorization"] = "Bearer " + token
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=7) as response:
-        doc = json.load(response)
-    runs = doc.get("workflow_runs")
-    if not isinstance(runs, list):
-        raise ValueError("github_response_missing_runs")
-    out = []
-    for item in runs:
-        name = item.get("name", "")
-        if not isinstance(name, str) or not _is_relevant(name, repo):
+            headers["Authorization"]="Bearer "+token
+    req=urllib.request.Request(url,headers=headers)
+    with urllib.request.urlopen(req,timeout=7) as resp:
+        doc=json.load(resp)
+    raw=doc.get("workflow_runs")
+    if not isinstance(raw,list):
+        raise ValueError("unexpected_github_schema")
+    matches=[]
+    for item in raw:
+        name=str(item.get("name") or "")
+        if not ("hitel" in name.casefold() or "chatgpt" in name.casefold()):
             continue
-        run_id = item.get("id")
-        if not isinstance(run_id, int):
+        run_id=item.get("id")
+        if not isinstance(run_id,int):
             continue
-        out.append({
-            "repository": repo,
-            "name": name[:115],
-            "id": run_id,
-            "url": f"https://github.com/{repo}/actions/runs/{run_id}",
-            "status": item.get("status", "unknown"),
-            "conclusion": item.get("conclusion"),
-            "created_at": item.get("created_at"),
-            "updated_at": item.get("updated_at"),
+        matches.append({
+            "id":run_id,
+            "repository":repo,
+            "name":name[:120],
+            "status":item.get("status"),
+            "conclusion":item.get("conclusion"),
+            "created_at":item.get("created_at"),
+            "updated_at":item.get("updated_at"),
+            "url":f"https://github.com/{repo}/actions/runs/{run_id}",
         })
-        if len(out) >= 12:
+        if len(matches)>=18:
             break
-    return out
+    return matches
 
 
-def github_run_snapshot() -> dict:
-    now = time.monotonic()
+def github_snapshot() -> dict:
+    now=time.monotonic()
     with _CACHE_LOCK:
-        if _GH_CACHE["at"] and now - _GH_CACHE["at"] < CACHE_TTL_SECONDS:
-            return {
-                "checked_at": _GH_CACHE["last_success"],
-                "runs": list(_GH_CACHE["runs"]),
-                "error": _GH_CACHE["error"],
-                "cache_seconds": CACHE_TTL_SECONDS,
-            }
-        _GH_CACHE["at"] = now
-        collected: list[dict] = []
-        errors: list[str] = []
-        for repo in GH_REPOS:
+        if _CACHE["last_attempt"] and now-_CACHE["last_attempt"]<_CACHE_TTL:
+            return {"checked_at":_CACHE["updated_ms"],
+                    "runs":list(_CACHE["runs"]),
+                    "error":_CACHE["error"],
+                    "refresh_interval_seconds":_CACHE_TTL}
+        _CACHE["last_attempt"]=now
+        all_runs=[]
+        errors=[]
+        for repo in _REPOS:
             try:
-                collected.extend(_fetch_run_list(repo))
+                all_runs.extend(_github_runs(repo))
             except Exception as exc:
-                # No arbitrary HTTP exception bodies, GitHub response details,
-                # token values or credential configuration are exposed.
-                errors.append(repo.split("/")[1] + ":" + type(exc).__name__)
-        if collected:
-            _GH_CACHE["runs"] = collected
-            _GH_CACHE["last_success"] = api_v1.clock()
-        _GH_CACHE["error"] = ", ".join(errors) if errors else None
-        return {
-            "checked_at": _GH_CACHE["last_success"],
-            "runs": list(_GH_CACHE["runs"]),
-            "error": _GH_CACHE["error"],
-            "cache_seconds": CACHE_TTL_SECONDS,
-        }
+                # Only a safe exception type is returned; never a response
+                # body or a header that could contain GitHub credentials.
+                errors.append(repo.split("/")[1]+":"+type(exc).__name__)
+        if all_runs:
+            _CACHE["runs"]=sorted(all_runs,
+                                  key=lambda x:x.get("created_at") or "",
+                                  reverse=True)[:35]
+            _CACHE["updated_ms"]=api_v1.clock()
+        _CACHE["error"]=", ".join(errors) if errors else None
+        return {"checked_at":_CACHE["updated_ms"],
+                "runs":list(_CACHE["runs"]),
+                "error":_CACHE["error"],
+                "refresh_interval_seconds":_CACHE_TTL}
+
+
+def _status_counts(rows:list) -> dict:
+    d={s:0 for s in sorted(_STATUS)}
+    for item in rows:
+        status=item["status"]
+        if status in d:
+            d[status]+=item["n"]
+    d["total"]=sum(d.values())
+    return d
 
 
 @router.get("/monitor")
-def public_monitor_snapshot():
-    from app import active_job_id, web2api_device, web2api_last_seen_monotonic
-
-    now = api_v1.clock()
-    uid = integration_public.USER_ID
-    statuses = ("queued", "running", "completed", "failed")
+def cross_service_monitor():
+    from app import active_job_id,web2api_device,web2api_last_seen_monotonic
+    observed=api_v1.clock()
+    since=observed-86400000
+    pub=integration_public.USER_ID
     with api_v1.connection() as db:
-        counted = db.execute(
-            "SELECT status, COUNT(*) AS n FROM jobs "
-            "WHERE user_id=? AND account_id IS NULL GROUP BY status",
-            (uid,),
-        ).fetchall()
-        counts = {s: 0 for s in statuses}
-        for row in counted:
-            if row["status"] in counts:
-                counts[row["status"]] = row["n"]
-        recent = db.execute(
-            """SELECT j.id, j.room_id, r.title AS room_name,
-                      j.status, j.stage, j.created_at, j.updated_at
-               FROM jobs j JOIN rooms r
-               ON r.id=j.room_id AND r.user_id=j.user_id
+        # The account-bound integration is counted without exposing any
+        # owner identity, room name, URL, message text or individual job.
+        global_jobs=db.execute("""SELECT
+          CASE WHEN user_id=? AND account_id IS NULL THEN 'public'
+               WHEN account_id IS NOT NULL THEN 'account_bound'
+               ELSE 'legacy_other' END AS channel,
+          status, COUNT(*) AS n
+          FROM jobs WHERE action='chat.send'
+          GROUP BY channel,status""",(pub,)).fetchall()
+        global_24h=db.execute("""SELECT
+          CASE WHEN user_id=? AND account_id IS NULL THEN 'public'
+               WHEN account_id IS NOT NULL THEN 'account_bound'
+               ELSE 'legacy_other' END AS channel,
+          status, COUNT(*) AS n
+          FROM jobs WHERE action='chat.send' AND created_at>=?
+          GROUP BY channel,status""",(pub,since)).fetchall()
+        # New namespaced clients are associated with room_id. Existing
+        # clients have no service id and remain explicitly "unassigned".
+        public_jobs=db.execute("""SELECT j.status,COUNT(*) AS n
+            FROM jobs j WHERE j.user_id=? AND j.account_id IS NULL
+              AND j.action='chat.send'
+            GROUP BY j.status""",(pub,)).fetchall()
+        recent=db.execute("""SELECT j.id,j.room_id,r.title AS room_name,
+               sr.service_id,j.status,j.stage,j.created_at,j.updated_at
+               FROM jobs j
+               JOIN rooms r ON r.id=j.room_id
+               LEFT JOIN hitel_public_room_services sr ON sr.room_id=r.id
                WHERE j.user_id=? AND j.account_id IS NULL
-               ORDER BY j.created_at DESC, j.id DESC LIMIT 24""",
-            (uid,),
-        ).fetchall()
-        room_rows = db.execute(
-            """SELECT r.id, r.title, r.chatgpt_url,
-                    COUNT(j.id) AS total,
-                    COALESCE(SUM(CASE WHEN j.status='completed' THEN 1 ELSE 0 END),0) AS completed,
-                    COALESCE(SUM(CASE WHEN j.status='failed' THEN 1 ELSE 0 END),0) AS failed,
-                    COALESCE(SUM(CASE WHEN j.status IN ('queued','running') THEN 1 ELSE 0 END),0) AS pending,
-                    MAX(j.updated_at) AS last_activity
-               FROM rooms r
-               LEFT JOIN jobs j ON j.room_id=r.id AND j.user_id=r.user_id
-               WHERE r.user_id=? AND r.status='active'
-               GROUP BY r.id
-               ORDER BY COALESCE(MAX(j.updated_at),r.updated_at) DESC
-               LIMIT 35""",
-            (uid,),
-        ).fetchall()
-        today_rows = db.execute(
-            "SELECT status,COUNT(*) AS n FROM jobs "
-            "WHERE user_id=? AND account_id IS NULL AND created_at>=? GROUP BY status",
-            (uid, now - 24*60*60*1000),
-        ).fetchall()
-    last24 = {s:0 for s in statuses}
-    for row in today_rows:
-        if row["status"] in last24:
-            last24[row["status"]] = row["n"]
-    gh = github_run_snapshot()
-    pilot = next(
-        (item for item in gh["runs"]
-         if item["repository"] == "lyonbegin/hitel-scribd-runner"
-         and item["id"] == PILOT_RUN),
-        None,
-    )
-    # The named pilot has a real 20/20 checkpoint and a success record.
-    # Do not equate pilot samples with full-corpus completed rows.
-    if not pilot:
-        pilot_status = "previously_verified"
-    elif pilot.get("conclusion") == "success":
-        pilot_status = "verified"
-    else:
-        pilot_status = "unverified"
-    connected = web2api_device is not None
-    age = (
-        round(max(0.0, time.monotonic()-web2api_last_seen_monotonic),1)
-        if connected and web2api_last_seen_monotonic > 0
-        else None
-    )
-    recent_items = [
-        {
-            "job_id": row["id"],
-            "room_id": row["room_id"],
-            "room_name": row["room_name"],
-            "status": row["status"],
-            "stage": row["stage"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        } for row in recent
-    ]
-    room_items = [
-        {
-            "room_id": row["id"],
-            "room_name": row["title"],
-            "conversation_linked": bool(row["chatgpt_url"]),
-            "total": row["total"],
-            "completed": row["completed"],
-            "failed": row["failed"],
-            "pending": row["pending"],
-            "last_activity": row["last_activity"],
-        } for row in room_rows
-    ]
+                 AND j.action='chat.send'
+               ORDER BY j.created_at DESC,j.id DESC LIMIT 40""",
+               (pub,)).fetchall()
+        rooms=db.execute("""SELECT r.id,r.title,r.chatgpt_url,r.updated_at,
+                sr.service_id,
+                COUNT(j.id) AS total,
+                COALESCE(SUM(CASE WHEN j.status='completed' THEN 1 ELSE 0 END),0) AS completed,
+                COALESCE(SUM(CASE WHEN j.status='failed' THEN 1 ELSE 0 END),0) AS failed,
+                COALESCE(SUM(CASE WHEN j.status='queued' THEN 1 ELSE 0 END),0) AS queued,
+                COALESCE(SUM(CASE WHEN j.status='running' THEN 1 ELSE 0 END),0) AS running,
+                MAX(j.updated_at) AS last_job_at
+                FROM rooms r
+                LEFT JOIN hitel_public_room_services sr ON sr.room_id=r.id
+                LEFT JOIN jobs j ON j.room_id=r.id AND j.user_id=r.user_id
+                  AND j.action='chat.send'
+                WHERE r.user_id=? AND r.status='active'
+                GROUP BY r.id
+                ORDER BY COALESCE(MAX(j.updated_at),r.updated_at) DESC LIMIT 150""",
+                (pub,)).fetchall()
+        recent_error_groups=db.execute("""SELECT stage,COUNT(*) AS n
+            FROM jobs WHERE user_id=? AND account_id IS NULL
+             AND action='chat.send' AND status='failed'
+             AND created_at>=?
+            GROUP BY stage ORDER BY n DESC LIMIT 10""",(pub,since)).fetchall()
+    by_channel={}
+    by_channel_24h={}
+    for rows,dest in ((global_jobs,by_channel),(global_24h,by_channel_24h)):
+        for channel in ("public","account_bound","legacy_other"):
+            subset=[row for row in rows if row["channel"]==channel]
+            dest[channel]=_status_counts(subset)
+    program_map={}
+    for r in rooms:
+        service=r["service_id"] or "미지정"
+        if service not in program_map:
+            program_map[service]={
+                "service_id":service,"room_count":0,
+                "total":0,"completed":0,"failed":0,
+                "queued":0,"running":0,"last_activity":None,
+            }
+        p=program_map[service]
+        p["room_count"]+=1
+        for s in ("total","completed","failed","queued","running"):
+            p[s]+=int(r[s])
+        latest=r["last_job_at"] or r["updated_at"]
+        p["last_activity"]=max(p["last_activity"] or 0, latest or 0)
+    room_items=[{
+        "room_id":r["id"],
+        "room_name":r["title"],
+        "service_id":r["service_id"] or "미지정",
+        "conversation_linked":bool(r["chatgpt_url"]),
+        "total":r["total"],"completed":r["completed"],
+        "failed":r["failed"],"queued":r["queued"],
+        "running":r["running"],
+        "last_activity":r["last_job_at"] or r["updated_at"],
+    } for r in rooms]
+    github=github_snapshot()
+    online=web2api_device is not None
+    heartbeat_age=(round(max(0,time.monotonic()-web2api_last_seen_monotonic),1)
+                   if online and web2api_last_seen_monotonic else None)
     return {
-        "observed_at": now,
-        "scope": "public_HITEL_text_jobs_and_GitHub_Action_runs",
-        "worker": {
-            "connected": connected,
-            "heartbeat_age_seconds": age,
-            "active_job_id": active_job_id,
-            "auto_start": worker_autostart.read_status(connected=connected),
-        },
-        "jobs": {
-            "counts": {**counts, "total": sum(counts.values())},
-            "last_24h": {**last24, "total": sum(last24.values())},
-            "recent": recent_items,
-        },
-        "rooms": room_items,
-        "github": gh,
-        "scribd": {
-            "original_total": ORIGINAL_TOTAL,
-            "pilot_verified_rows": 20 if pilot_status != "unverified" else None,
-            "pilot_status": pilot_status,
-            "pilot_run_url": PILOT_EVIDENCE,
-            "full_corpus_verified_rows": None,
-            "full_corpus_status": "not_independently_verified",
-            "full_corpus_note": "20-title pilot is not 18,109-row production completion.",
-        },
+      "observed_at":observed,
+      "scope":"all_HITEL_public_named_rooms_plus_anonymized_account_bound",
+      "monitor_version":"2.0",
+      "worker":{
+        "connected":online,
+        "heartbeat_age_seconds":heartbeat_age,
+        "active_job_id":active_job_id if active_job_id and
+           any(r["id"]==active_job_id for r in recent) else None,
+        "auto_start":worker_autostart.read_status(connected=online),
+      },
+      "jobs":{
+        "total_by_channel":by_channel,
+        "last24h_by_channel":by_channel_24h,
+        "public_counts":_status_counts(public_jobs),
+        "recent":[{
+            "job_id":r["id"],"room_id":r["room_id"],
+            "room_name":r["room_name"],
+            "service_id":r["service_id"] or "미지정",
+            "status":r["status"],"stage":r["stage"],
+            "created_at":r["created_at"],
+            "updated_at":r["updated_at"],
+        } for r in recent],
+        "recent_error_stages":[{
+            "stage":r["stage"],"count":r["n"]
+        } for r in recent_error_groups],
+      },
+      "programs":sorted(program_map.values(),
+                        key=lambda x:x["last_activity"] or 0,reverse=True),
+      "rooms":room_items,
+      "github":github,
+      "notes":{
+        "program_tagging":"Provide optional service_id in POST /public/rooms or /public/chat.",
+        "untagged_programs":"미지정 groups existing clients which did not send service_id.",
+        "account_bound_privacy":"Authenticated integrations are counted globally only; no private room names or messages.",
+        "content_privacy":"Messages, credentials and ChatGPT URLs are never returned.",
+        "github_data":"GitHub Actions metadata is cached. This does not imply every external program has a GitHub workflow.",
+      },
     }
