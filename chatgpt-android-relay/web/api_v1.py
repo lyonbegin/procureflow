@@ -774,26 +774,35 @@ def fail_queued_jobs_with_unavailable_files():
 
 
 def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
-                   allow_account_bound: bool = True):
+                   allow_account_bound: bool = True,
+                   web_text_only: bool = False):
+    """Atomically claim ONE queued job, never a second active job in its room.
+
+    The web worker can process multiple *different* rooms concurrently but
+    must not send two messages to one ChatGPT tab at the same time.
+    """
     with connection() as c:
-        account_filter = "" if allow_account_bound else " AND account_id IS NULL"
+        c.execute("BEGIN IMMEDIATE")
+        filters = [
+            "status='queued'",
+            "NOT EXISTS (SELECT 1 FROM jobs AS busy"
+            " WHERE busy.room_id=jobs.room_id AND busy.status='running')",
+        ]
+        args = []
+        if not allow_account_bound:
+            filters.append("account_id IS NULL")
+        if web_text_only:
+            filters.extend(("action='chat.send'", "attachment_ids='[]'"))
         if public_trial_only:
-            # The publicly reachable test process may NEVER claim the
-            # pre-existing private Android rooms, jobs or files.
-            r = c.execute(
-                "SELECT * FROM jobs WHERE status='queued' AND "
-                "(user_id=? OR user_id LIKE 'usr_browser_%') "
-                + account_filter + " ORDER BY created_at,id LIMIT 1",
-                ("usr_public_web2api_probe_20261113",)
-            ).fetchone()
-        elif only_user_id is None:
-            r = c.execute("SELECT * FROM jobs WHERE status='queued'"
-                          + account_filter + " ORDER BY created_at,id LIMIT 1").fetchone()
-        else:
-            r = c.execute(
-                "SELECT * FROM jobs WHERE status='queued' AND user_id=? "
-                + account_filter + " ORDER BY created_at,id LIMIT 1", (only_user_id,)
-            ).fetchone()
+            filters.append("(user_id=? OR user_id LIKE 'usr_browser_%')")
+            args.append("usr_public_web2api_probe_20261113")
+        elif only_user_id is not None:
+            filters.append("user_id=?")
+            args.append(only_user_id)
+        r = c.execute(
+            "SELECT * FROM jobs WHERE " + " AND ".join(filters)
+            + " ORDER BY created_at,id LIMIT 1", tuple(args)
+        ).fetchone()
         if not r:
             return None
         c.execute("UPDATE jobs SET status='running',stage='dispatched',updated_at=? WHERE id=?",
