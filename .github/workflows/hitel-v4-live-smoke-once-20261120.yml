@@ -1,0 +1,121 @@
+name: HITEL v4 one-time live JSON smoke without modifying research rooms
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-v4-live-smoke-once-20261120.yml
+permissions:
+  contents: read
+jobs:
+  actual-chatgpt-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify prewarmed A + Scribd rooms, submit ONE isolated QA question, poll and validate
+        run: |
+          set -euo pipefail
+          mkdir -p hitel-v4-smoke
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.error,urllib.request
+          from pathlib import Path
+          from urllib.parse import urlencode
+          BASE="https://hitel-integration-api-production.up.railway.app"
+          ROOM="HITEL-V4-LIVE-SMOKE-20261120-R1"
+          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R1"
+          PROMPT='HITEL 실제 연결 시험입니다. 다른 말 없이 정확히 다음 JSON 객체만 응답해 주십시오: {"hitel_v4_smoke":"OK"}'
+          output=Path("hitel-v4-smoke")
+          observations=[]
+          expected={
+            "STOCK-KG-A-RESEARCH-20261119-R3":"room_e43054eed81d46fba991b946ede92d1b",
+            "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G003":"room_e31b6755688748f6a9ddb5a0f6b3cdaf",
+          }
+          def get(path):
+            with urllib.request.urlopen(BASE+path,timeout=15) as r:
+              return json.load(r)
+          def save(name,value):
+            (output/name).write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding="utf-8")
+          def post(path,payload):
+            request=urllib.request.Request(BASE+path,data=json.dumps(payload,ensure_ascii=False).encode("utf-8"),headers={"Content-Type":"application/json"},method="POST")
+            with urllib.request.urlopen(request,timeout=20) as r:
+              return r.status,json.load(r)
+          try:
+            rooms=get("/integrations/v1/public/rooms")["rooms"]
+            found={x["room_name"]:x for x in rooms}
+            for title,roomid in expected.items():
+              info=found.get(title)
+              if not info or info.get("room_id")!=roomid or not info.get("conversation_linked"):
+                raise RuntimeError("PREWARMED_EXISTING_ROOM_MAPPING_MISMATCH")
+            print("PASS_ORIGINAL_A_AND_SCRIBD_ROOM_IDS_UNCHANGED",flush=True)
+            status=get("/integrations/v1/public/status")
+            if not (status.get("worker_connected") is True
+              and status.get("worker_bootstrap_ready") is True
+              and status.get("prewarmed_room_count")==2):
+              raise RuntimeError("TWO_REAL_CHATGPT_TABS_NOT_READY")
+            print("PASS_TWO_VERIFIED_CHROME_TABS_PREWARMED",flush=True)
+            try:
+              known=get("/integrations/v1/public/requests/"+REQUEST)
+              jobid=known["job_id"]
+              print("PASS_REUSED_EXISTING_REQUEST_ID_WITHOUT_SECOND_POST",flush=True)
+            except urllib.error.HTTPError as ex:
+              if ex.code!=404:
+                raise
+              accepted,body=post("/integrations/v1/public/chat",{
+                "room_name":ROOM,"request_id":REQUEST,"text":PROMPT})
+              if accepted!=202 or not body.get("job_id") or body.get("request_id")!=REQUEST:
+                raise RuntimeError("ONE_SHOT_NOT_ACCEPTED")
+              jobid=body["job_id"]
+              print("PASS_SINGLE_CHATGPT_QA_POST_202",flush=True)
+            save("request.json",{"request_id":REQUEST,"job_id":jobid,"room_name":ROOM,"submitted_once":True})
+            deadline=time.monotonic()+480
+            result=None
+            while time.monotonic()<deadline:
+              item=get("/integrations/v1/public/jobs/"+jobid)
+              if item.get("job_id")!=jobid or item.get("request_id")!=REQUEST:
+                raise RuntimeError("JOB_REQUEST_ID_MISMATCH")
+              observations.append({"polled_at_unix":time.time(),"status":item.get("status"),"stage":item.get("stage"),"worker_connected":item.get("worker_connected"),"job_last_progress_at":item.get("job_last_progress_at"),"result_ready":item.get("result_ready"),"error_code":item.get("error_code")})
+              print("HITEL_V4_READ_ONLY_POLL",len(observations),item.get("status"),item.get("stage"),flush=True)
+              save("polls.json",observations)
+              if item.get("status") in ("failed","stalled","unknown"):
+                raise RuntimeError("REAL_QA_JOB_NOT_COMPLETED_"+str(item.get("status")))
+              if item.get("status")=="completed" and len(observations)>=3:
+                result=item
+                break
+              time.sleep(10)
+            if result is None:
+              raise RuntimeError("REAL_QA_POLLING_WINDOW_ELAPSED_JOB_NOT_RESENT")
+            if not result.get("result_ready") or not result.get("result_json_complete"):
+              raise RuntimeError("FINAL_REPLY_NOT_VALIDATED_JSON")
+            raw=bytearray()
+            total=result["result_length_bytes"]
+            sha=result["result_sha256"]
+            while len(raw)<total:
+              part=get("/integrations/v1/public/jobs/"+jobid+"/result?"+urlencode({"offset":len(raw),"limit":65536}))
+              if part.get("job_id")!=jobid or part.get("result_sha256")!=sha:
+                raise RuntimeError("RESULT_CHUNK_SCOPE_OR_SHA_MISMATCH")
+              chunk=base64.b64decode(part["content_base64"],validate=True)
+              if not chunk or len(chunk)!=part["bytes_returned"]:
+                raise RuntimeError("RESULT_CHUNK_LENGTH_ERROR")
+              raw.extend(chunk)
+            if len(raw)!=total or hashlib.sha256(raw).hexdigest()!=sha:
+              raise RuntimeError("FINAL_RESULT_BYTES_SHA256_MISMATCH")
+            parsed=json.loads(bytes(raw).decode("utf-8"))
+            if parsed!={"hitel_v4_smoke":"OK"}:
+              raise RuntimeError("ACTUAL_AI_REPLY_NOT_REQUESTED_QA_JSON")
+            (output/"answer.raw.json").write_bytes(raw)
+            save("verified.json",{"job_id":jobid,"request_id":REQUEST,"sha256":sha,"bytes":total,"json_valid":True,"poll_count":len(observations),"answer":parsed})
+            final_rooms=get("/integrations/v1/public/rooms")["rooms"]
+            after={x["room_name"]:x for x in final_rooms}
+            if any(after.get(k,{}).get("room_id")!=v or not after[k]["conversation_linked"] for k,v in expected.items()):
+              raise RuntimeError("EXISTING_RESEARCH_ROOM_CHANGED")
+            print("PASS_REAL_AI_REPLY_COMPLETE_EXACT_JSON_AND_SHA256",flush=True)
+            print("PASS_EXISTING_A_AND_SCRIBD_ROOMS_UNCHANGED",flush=True)
+          except Exception as exc:
+            save("failure.json",{"error_code":str(exc)[:100],"poll_count":len(observations)})
+            raise
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hitel-v4-live-json-smoke-once-20261120
+          path: hitel-v4-smoke/
+          retention-days: 14
