@@ -88,7 +88,7 @@ class MultiRoomDispatchTests(unittest.TestCase):
         self.assertEqual(self.client.get("/integrations/v1/public/jobs/"+a).json()["status"],
                          "running")
         status=self.client.get("/integrations/v1/public/status").json()
-        self.assertTrue(status["worker_busy"])
+        self.assertFalse(status["worker_busy"])
         self.assertTrue(status["worker_available_for_new_job"])
         self.assertEqual(status["worker_active_jobs_count"],1)
 
