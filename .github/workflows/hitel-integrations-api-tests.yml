@@ -6,6 +6,7 @@ on:
       - feature/hitel-integrations-api-20261118
       - fix/hitel-long-research-status-20261119
       - fix/hitel-room-tab-isolation-20261120
+      - fix/hitel-v4-live-reply-followup-20261120
     paths:
       - "chatgpt-android-relay/web/integration_api.py"
       - "chatgpt-android-relay/web/integration_public.py"
