@@ -1,4 +1,4 @@
-name: HITEL one-time protocol-v2 Chrome worker unblock
+name: HITEL one-time obsolete Chrome worker and pending duplicate cleanup
 
 on:
   push:
@@ -11,24 +11,27 @@ permissions:
   actions: write
 
 jobs:
-  start-v2-if-offline:
+  cleanup-obsolete-only:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Dispatch fresh Chrome worker only if no worker currently connected
+      - name: Cancel old v1 and duplicate pending runs; preserve active verified v2
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          CURRENT="$(curl -fsS --max-time 15 https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status)"
-          if python3 -c 'import json,sys;exit(0 if json.load(sys.stdin)["worker_connected"] else 1)' <<< "$CURRENT"; then
-            echo PASS_PROTOCOL_V2_ALREADY_CONNECTED
-            exit 0
-          fi
-          # Main's concurrency group was bumped to protocol-v2.
-          gh api -X POST \
-             "repos/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" \
-             -f ref=main \
-             -f 'inputs[operation]=worker_only' \
-             -f 'inputs[run_minutes]=240' >/dev/null
-          echo PASS_FRESH_PROTOCOL_V2_WORKER_DISPATCHED
+          # The real four-turn A-A-B-A live test passed with the active v2 run
+          # 44436597201. Keep that run completely untouched.
+          KEEP=44436597201
+          for id in 44436200860 44436865071 44427600999; do
+            state="$(gh api "repos/lyonbegin/procureflow/actions/runs/$id" --jq '.status')"
+            if [[ "$state" == "queued" || "$state" == "pending" || "$state" == "in_progress" ]]; then
+              gh api -X POST "repos/lyonbegin/procureflow/actions/runs/$id/cancel" >/dev/null
+              echo "PASS_OBSOLETE_OR_DUPLICATE_RUN_CANCEL_REQUESTED id=$id"
+            else
+              echo "SKIP_ALREADY_TERMINAL_RUN id=$id state=$state"
+            fi
+          done
+          active="$(gh api "repos/lyonbegin/procureflow/actions/runs/$KEEP" --jq '.status')"
+          test "$active" == "in_progress"
+          echo "PASS_VERIFIED_V2_RUN_PRESERVED"
