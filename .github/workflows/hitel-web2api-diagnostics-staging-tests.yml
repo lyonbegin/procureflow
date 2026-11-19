@@ -35,6 +35,16 @@ jobs:
         run: |
           python3 -m pip install -q -r chatgpt-android-relay/web/requirements.txt
           python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_integration_public.py -v
+      - name: Verify existing API contract, long waits, Chrome protocol and worker start
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PUBLIC_SMOKE_ONLY: '1'
+          WEB_SESSION_SIGNING_KEY: 'synthetic-only-for-isolated-ci'
+        run: |
+          set -euo pipefail
+          for test in test_integrations_api.py test_long_running_reply.py test_worker_protocol_upgrade.py test_worker_autostart.py test_worker_fresh_chat.py; do
+            python3 -m unittest discover -s chatgpt-android-relay/web/tests -p "$test" -v
+          done
       - name: Assert patched worker reports classified failures, not generic hides
         run: |
           python3 - <<'PY'
