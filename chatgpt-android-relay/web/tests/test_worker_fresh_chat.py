@@ -81,6 +81,18 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         self.assertEqual(json.loads(normalized),record)
         self.assertEqual(normalized,original)
 
+    def test_short_exact_suffix_from_live_chatgpt_reply_is_cleaned(self):
+        actual='{"hitel_v4_smoke":"OK"}e":"OK"}'
+        self.assertEqual(
+            worker.discard_verified_duplicate_json_tail(actual),
+            '{"hitel_v4_smoke":"OK"}')
+        self.assertEqual(json.loads(worker.discard_verified_duplicate_json_tail(actual)),
+                         {"hitel_v4_smoke":"OK"})
+
+    def test_similar_short_tail_not_provably_repeated_remains_unchanged(self):
+        raw='{"hitel_v4_smoke":"OK"}e":"NO"}'
+        self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
+
     def test_legitimate_post_json_explanation_is_not_discarded(self):
         raw='{"rows":[{"id":"A123","title":"example"}]}\n설명: 데이터는 참고용입니다.'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
