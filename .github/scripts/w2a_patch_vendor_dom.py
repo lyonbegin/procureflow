@@ -73,3 +73,34 @@ api.write_text(server, encoding="utf-8")
 print("PASS_EXPLICIT_NEW_CONVERSATION_FLAG_SUPPORTED", flush=True)
 
 print("PASS_PINNED_VENDOR_ORIGINAL_FUNCTIONS_PRESERVED", flush=True)
+
+
+# Source-confirmed 2026-11-19 correction: the vendor's phase-1 assistant
+# appearance detector uses an unconfigurable 90s PHASE_STALL_SECONDS even when
+# request_timeout and first-content budgets have been raised to 14400s.
+# Apply the configured budget only to phase-1 detection. Preserve the legacy
+# 90s default when no budgets are provided; never synthesize a completion.
+detector = root / "src" / "chatgpt_web2api" / "completion_detector.py"
+source = detector.read_text(encoding="utf-8")
+old_phase1 = "            if time.monotonic() - last_progress > PHASE_STALL_SECONDS:\n"
+new_phase1 = (
+    "            phase1_limit = (budgets.first_content_timeout_seconds\n"
+    "                            if budgets is not None else PHASE_STALL_SECONDS)\n"
+    "            if time.monotonic() - last_progress > phase1_limit:\n"
+)
+if source.count(old_phase1) != 1:
+    raise SystemExit("REFUSE_PATCH_VENDOR_PHASE1_STALL_SOURCE_MISMATCH")
+detector.write_text(source.replace(old_phase1, new_phase1), encoding="utf-8")
+print("PASS_CONFIGURED_PHASE1_STALL_BUDGET_APPLIED", flush=True)
+
+# The pinned vendor maps all unknown browser/DOM errors to HTTP 500, with
+# no structured code. Preserve its HTTP status, error body, and behavior, but
+# add only the Python exception class name as a machine-readable error code.
+# The worker consumes this locally without recording prompts or error messages.
+server = api.read_text(encoding="utf-8")
+old_opaque = '            {"error": {"message": str(exc), "type": "server_error"}},'
+new_typed = '            {"error": {"message": str(exc), "type": "server_error", "code": type(exc).__name__}},'
+if server.count(old_opaque) != 1:
+    raise SystemExit("REFUSE_PATCH_VENDOR_500_ERROR_SHAPE_MISMATCH")
+api.write_text(server.replace(old_opaque, new_typed), encoding="utf-8")
+print("PASS_VENDOR_500_ERROR_CLASS_REPORTED_WITHOUT_ERROR_MESSAGE", flush=True)

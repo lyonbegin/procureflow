@@ -37,11 +37,11 @@ permissions:
   actions: write
   id-token: write
 
-# One-time protocol-v3 recovery after HITEL API redeployment; stale v2 workers must not block v3.
+# One-time Web2API phase-1 timeout and vendor HTTP 500 diagnostics upgrade; signed v3 worker remains required.
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-protocol-v5
+  group: hitel-real-bridge-live-qa-vendor500-phase1fix-v6
   cancel-in-progress: false
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
       - name: Checkout integration API's exact worker/client revision
         uses: actions/checkout@v4
         with:
-          ref: feature/hitel-integrations-api-20261118
+          ref: fix/hitel-web2api-phase1-500-diagnostics-20261119
           path: qa
       - uses: actions/setup-python@v5
         with:
@@ -194,7 +194,7 @@ jobs:
           set -euo pipefail
           grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
           # Retire only exact older Chrome worker runs after the new v5 worker signs in.
-          for old in 44436597201 44441066090 44453032920 44473673506; do
+          for old in 44436597201 44441066090 44453032920 44473673506 44477286953; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
             if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
               gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
