@@ -109,7 +109,7 @@ class AccountRoutingTests(unittest.TestCase):
             )
         with self.client.websocket_connect("/ws") as ws:
             ws.send_json({"role":"web2api","deviceId":"web2api-main",
-                          "oidc_token":"fake-signed-runner-test"})
+                          "oidc_token":"fake-signed-runner-test","hitel_protocol_version":2})
             self.assertEqual(ws.receive_json()["type"], "auth.ok")
             dispatched = ws.receive_json()
             self.assertEqual(dispatched["type"], "job")
