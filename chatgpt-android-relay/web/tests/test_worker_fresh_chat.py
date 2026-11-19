@@ -81,6 +81,22 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         self.assertEqual(json.loads(normalized),record)
         self.assertEqual(normalized,original)
 
+    def test_real_scribd_short_duplicate_tail_stripped(self):
+        raw='{"rows":[{"no":2,"id":"SYNTHETIC-S2","reason":"판본 정보 미확인"}]} 미확인"}]}'
+        cleaned=worker.discard_verified_duplicate_json_tail(raw)
+        self.assertEqual(json.loads(cleaned)["rows"][0]["reason"],"판본 정보 미확인")
+        self.assertEqual(cleaned,'{"rows":[{"no":2,"id":"SYNTHETIC-S2","reason":"판본 정보 미확인"}]}')
+
+    def test_real_a_short_duplicate_tail_stripped(self):
+        raw='{"source_id":"0LJUxO7T","source_access_status":"PREVIEW_ONLY"}W_ONLY"}'
+        cleaned=worker.discard_verified_duplicate_json_tail(raw)
+        self.assertEqual(json.loads(cleaned)["source_access_status"],"PREVIEW_ONLY")
+        self.assertEqual(cleaned,'{"source_id":"0LJUxO7T","source_access_status":"PREVIEW_ONLY"}')
+
+    def test_nonmatching_short_tail_is_never_discarded(self):
+        raw='{"rows":[{"id":1}]} Later information needs manual confirmation'
+        self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
+
     def test_legitimate_post_json_explanation_is_not_discarded(self):
         raw='{"rows":[{"id":"A123","title":"example"}]}\n설명: 데이터는 참고용입니다.'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)

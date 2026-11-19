@@ -96,9 +96,21 @@ def discard_verified_duplicate_json_tail(answer: str) -> str:
         return answer
     compact_tail=re.sub(r"\s+","",tail)
     compact_head=re.sub(r"\s+","",clean[:end])
-    if (len(compact_tail)>=60 and
-            any(ch in tail for ch in ("}","]")) and
-            compact_tail[:60] in compact_head):
+    # Confirmed live DOM duplication can append only 8-10 characters,
+    # e.g. a repeated final JSON field value and its closing brackets.
+    # A suffix must occur EXACTLY at the end of the already parsed JSON.
+    short_proven_duplicate = (
+        len(compact_tail) >= 8
+        and any(ch.isalnum() for ch in compact_tail)
+        and any(ch in compact_tail for ch in ("}", "]"))
+        and compact_head.endswith(compact_tail)
+    )
+    long_proven_duplicate = (
+        len(compact_tail) >= 60
+        and any(ch in compact_tail for ch in ("}", "]"))
+        and compact_tail[:60] in compact_head
+    )
+    if short_proven_duplicate or long_proven_duplicate:
         return clean[:end]
     return answer
 
