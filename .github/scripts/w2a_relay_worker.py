@@ -100,7 +100,7 @@ def discard_verified_duplicate_json_tail(answer: str) -> str:
     # e.g. a repeated final JSON field value and its closing brackets.
     # A suffix must occur EXACTLY at the end of the already parsed JSON.
     short_proven_duplicate = (
-        len(compact_tail) >= 8
+        len(compact_tail) >= 7
         and any(ch.isalnum() for ch in compact_tail)
         and any(ch in compact_tail for ch in ("}", "]"))
         and compact_head.endswith(compact_tail)
