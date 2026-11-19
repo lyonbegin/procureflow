@@ -20,8 +20,8 @@ jobs:
           from pathlib import Path
           from urllib.parse import urlencode
           BASE="https://hitel-integration-api-production.up.railway.app"
-          ROOM="HITEL-V4-LIVE-SMOKE-20261120-R1"
-          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R2"
+          ROOM="HITEL-V4-LIVE-SMOKE-20261120-R2"
+          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R3"
           PROMPT='HITEL 실제 연결 시험입니다. 다른 말 없이 정확히 다음 JSON 객체만 응답해 주십시오: {"hitel_v4_smoke":"OK"}'
           output=Path("hitel-v4-smoke")
           observations=[]
