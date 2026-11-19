@@ -259,6 +259,7 @@ async def run(max_seconds: int = 1500) -> None:
                 await socket.send(json.dumps({
                     "role": "web2api", "deviceId": "web2api-main",
                     "oidc_token": token,
+                    "hitel_protocol_version": 2,
                 }))
                 first = json.loads(await asyncio.wait_for(socket.recv(), timeout=20))
                 if first.get("type") != "auth.ok":
