@@ -99,7 +99,13 @@ print("PASS_CONFIGURED_PHASE1_STALL_BUDGET_APPLIED", flush=True)
 # The worker consumes this locally without recording prompts or error messages.
 server = api.read_text(encoding="utf-8")
 old_opaque = '            {"error": {"message": str(exc), "type": "server_error"}},'
-new_typed = '            {"error": {"message": str(exc), "type": "server_error", "code": type(exc).__name__}},'
+new_typed = (
+    '            {"error": {"message": str(exc), "type": "server_error", "code": type(exc).__name__,'
+    ' "subcode": (getattr(exc, "last_status", None) if getattr(exc, "last_status", None) '
+    'in ("not_ready", "ambiguous", "degraded_not_fresh", "fetch_failed", "auth_failed") else None),'
+    ' "anchor_mode": (getattr(exc, "anchor_mode", None) if getattr(exc, "anchor_mode", None) '
+    'in ("captured_id", "existing_conversation", "degraded_existing", "fresh_chat") else None)}},'
+)
 if server.count(old_opaque) != 1:
     raise SystemExit("REFUSE_PATCH_VENDOR_500_ERROR_SHAPE_MISMATCH")
 api.write_text(server.replace(old_opaque, new_typed), encoding="utf-8")

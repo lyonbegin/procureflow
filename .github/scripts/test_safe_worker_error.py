@@ -18,6 +18,22 @@ class TestSafeWorkerError(unittest.TestCase):
         err=urllib.error.HTTPError("http://127.0.0.1:18080/v1/chat/completions",
               500,"private reason",{},io.BytesIO(body.encode("utf-8")))
         self.assertEqual(classify(err),"WEB2API_VENDOR_SENDREADINESSERROR")
+    def test_vendor_500_reports_only_whitelisted_reconciliation_status_and_anchor(self):
+        body=json.dumps({"error":{"message":"PRIVATE https://secret.example bearer",
+                   "code":"TurnReconciliationError",
+                   "subcode":"fetch_failed","anchor_mode":"fresh_chat"}})
+        err=urllib.error.HTTPError("http://127.0.0.1:18080",500,"private",{},
+              io.BytesIO(body.encode("utf-8")))
+        self.assertEqual(classify(err),"WEB2API_VENDOR_TURNRECONCILIATIONERROR_FETCH_FAILED_FRESH_CHAT")
+
+    def test_vendor_500_untrusted_subcode_never_logged(self):
+        body=json.dumps({"error":{"message":"PRIVATE CONTENT",
+                   "code":"TurnReconciliationError",
+                   "subcode":"secret-token","anchor_mode":"fresh_chat"}})
+        err=urllib.error.HTTPError("http://127.0.0.1:18080",500,"private",{},
+              io.BytesIO(body.encode("utf-8")))
+        self.assertEqual(classify(err),"WEB2API_VENDOR_TURNRECONCILIATIONERROR")
+
     def test_vendor_500_unknown_class_does_not_leak_code_or_message(self):
         body=json.dumps({"error":{"message":"secret prompt",
                                   "code":"SecretTokenBearerUserValue"}})

@@ -43,6 +43,19 @@ def classify_web2api_failure(exc: Exception) -> str:
                     "CircuitOpenError", "OwnedTabRequiredError",
                 }
                 if isinstance(kind, str) and kind in known:
+                    if kind == "TurnReconciliationError":
+                        subcode = payload.get("error", {}).get("subcode")
+                        anchor = payload.get("error", {}).get("anchor_mode")
+                        statuses = {
+                            "not_ready", "ambiguous", "degraded_not_fresh",
+                            "fetch_failed", "auth_failed",
+                        }
+                        anchors = {
+                            "captured_id", "existing_conversation",
+                            "degraded_existing", "fresh_chat",
+                        }
+                        if subcode in statuses and anchor in anchors:
+                            return "WEB2API_VENDOR_TURNRECONCILIATIONERROR_" + subcode.upper() + "_" + anchor.upper()
                     return "WEB2API_VENDOR_" + kind.upper()
             except (ValueError, UnicodeDecodeError, TypeError, AttributeError):
                 pass

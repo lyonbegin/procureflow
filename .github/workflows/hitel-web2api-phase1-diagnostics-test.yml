@@ -44,6 +44,7 @@ jobs:
           assert 'if time.monotonic() - last_progress > PHASE_STALL_SECONDS:' not in d
           assert 'if budgets is not None else PHASE_STALL_SECONDS' in d
           assert '"code": type(exc).__name__' in api
+          assert '"subcode":' in api and '"anchor_mode":' in api
           assert 'not new_conversation' in api
           print('PASS_VENDOR_PINNED_PHASE1_AND_500_CLASS_PATCH')
           PY
