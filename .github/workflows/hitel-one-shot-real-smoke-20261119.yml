@@ -1,0 +1,66 @@
+name: HITEL Web2API | one-shot real reply after vendor fix
+on:
+  push:
+    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    paths: [.github/workflows/hitel-one-shot-real-smoke-20261119.yml]
+permissions:
+  contents: read
+concurrency:
+  group: hitel-one-real-smoke-20261119
+  cancel-in-progress: false
+jobs:
+  one-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - name: One synthetic independent room, same request ID, and verified ChatGPT reply
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,time,urllib.request,urllib.error
+          API="https://hitel-integration-api-production.up.railway.app"
+          code="HITEL_W2A_RECOVERY_OK_20261119"
+          def req(path,data=None):
+              raw=json.dumps(data,ensure_ascii=False).encode() if data is not None else None
+              r=urllib.request.Request(API+path,data=raw,headers={"Content-Type":"application/json"})
+              try:
+                  with urllib.request.urlopen(r,timeout=22) as h:
+                      return h.status,json.load(h)
+              except urllib.error.HTTPError as e:
+                  print("HTTP_ERROR",path,e.code,flush=True)
+                  raise
+          # Do not compete with stock or title-classification work.
+          for attempt in range(90):
+              _,s=req("/integrations/v1/public/status")
+              if s.get("worker_available_for_new_job"):
+                  break
+              time.sleep(3)
+          else:
+              raise SystemExit("WORKER_NOT_AVAILABLE_FOR_SAFE_SMOKE")
+          # The purpose of this only post is to diagnose a known failing relay,
+          # without sending any actual student title or financial source text.
+          request_id="hitel-one-shot-smoke-20261119-verified"
+          payload={
+              "room_name":"HITEL-ONE-SHOT-RECOVERY-SMOKE-20261119",
+              "request_id":request_id,
+              "text":"Connection test: Reply with exactly HITEL_W2A_RECOVERY_OK_20261119 and no other text."
+          }
+          sc,result=req("/integrations/v1/public/chat",payload)
+          assert sc==202 and result.get("job_id") and result.get("accepted")
+          print("SUBMITTED_ONCE",result["job_id"],"replayed",result["replayed"],flush=True)
+          jid=result["job_id"]
+          for i in range(90):
+              _,state=req("/integrations/v1/public/jobs/"+jid)
+              st=state.get("status")
+              if st=="completed":
+                  text=state.get("result_text") or ""
+                  print("VERIFIED_REPLY_MATCH",text.strip()==code,"length",len(text),flush=True)
+                  assert text.strip()==code,"COMPLETED_BUT_REPLY_NOT_EXACT"
+                  raise SystemExit(0)
+              if st=="failed":
+                  print("REAL_WEB2API_FAILURE",str(state.get("error"))[:100],"stage",state.get("stage"),flush=True)
+                  raise SystemExit("REAL_WEB2API_SMOKE_FAILED")
+              time.sleep(3)
+          print("SMOKE_STILL_PENDING",jid,flush=True)
+          raise SystemExit("SMOKE_PENDING_RESULT_NOT_VERIFIED_NO_REPOST")
+          PY
