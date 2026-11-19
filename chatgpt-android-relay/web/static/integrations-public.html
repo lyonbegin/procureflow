@@ -1,89 +1,133 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light">
-<title>HITEL — 누구나 질문하기</title>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HITEL ChatGPT — 이름별 대화방</title>
 <style>
-*{box-sizing:border-box}
-body{margin:0;background:#f6f8fa;color:#1b2d42;font:16px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif}
-main{max-width:740px;margin:36px auto;padding:16px}
-h1{font-size:28px;margin:0 0 7px}h2{font-size:19px;margin:0 0 8px}
-p{margin:7px 0 13px}section{background:#fff;border:1px solid #dae2ec;border-radius:12px;padding:22px;margin-top:16px}
+*{box-sizing:border-box}body{margin:0;background:#f6f8fa;color:#1b2d42;font:16px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+main{max-width:770px;margin:32px auto;padding:16px}
+h1{font-size:27px;margin:0 0 7px}h2{font-size:19px;margin:0 0 8px}
+p{margin:8px 0 14px}section{background:#fff;border:1px solid #dae2ec;border-radius:12px;padding:22px;margin:15px 0}
 label{display:block;margin-bottom:7px;font-weight:650}
-textarea{width:100%;min-height:150px;resize:vertical;border:1px solid #aebcce;border-radius:8px;padding:12px;font:inherit}
-button{background:#145d95;color:#fff;border:0;border-radius:9px;font:inherit;font-weight:650;padding:11px 20px;cursor:pointer}
-button:disabled{opacity:.65;cursor:wait}
-a{color:#14649b}
-small{color:#6c7b8c}
+textarea,input{width:100%;border:1px solid #b8c6d5;border-radius:8px;padding:11px;font:inherit}
+textarea{min-height:145px;resize:vertical}input{max-width:460px}
+button{background:#145d95;color:#fff;border:0;border-radius:9px;font:inherit;font-weight:650;padding:10px 17px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}button.secondary{background:#e9eff6;color:#194769}
+.buttons{display:flex;flex-wrap:wrap;gap:9px;margin:10px 0}
+a{color:#14649b}small{color:#69798a}
 pre{background:#edf3f8;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;max-height:450px;overflow-y:auto}
-.status{font-weight:650}
+.status{font-weight:650}#roomStatus{color:#315c75}
 </style></head><body><main>
-<h1>HITEL ChatGPT — 누구나 질문하기</h1>
-<p>링크를 여시면 바로 사용하실 수 있습니다. <strong>별도 로그인, API 키, 계정 등록, GitHub 버튼 실행이 필요하지 않습니다.</strong></p>
+<h1>HITEL ChatGPT — 누구나 대화하기</h1>
+<p>로그인·API 키 없이 사용합니다. <strong>같은 대화방 이름을 선택하시면 이전 대화를 계속하고, 다른 이름을 선택하시면 해당 대화방으로 전환합니다.</strong></p>
 <section>
-<h2>질문하기</h2>
-<label for="prompt">질문 내용</label>
-<textarea id="prompt" maxlength="24000" placeholder="ChatGPT에 보낼 질문을 입력하십시오."></textarea>
-<p><button id="send">질문 보내기</button></p>
-<p id="status" class="status" role="status" aria-live="polite">준비 완료</p>
-<pre id="answer" role="region" aria-label="답변" hidden></pre>
-<p><small>질문마다 새 대화가 생성됩니다. 답변이 올 때까지 이 화면을 유지하십시오.</small></p>
+<h2>1. 대화방 선택</h2>
+<label for="roomName">대화방 이름</label>
+<input id="roomName" list="roomList" maxlength="160" value="기본 대화방" autocomplete="off">
+<datalist id="roomList"></datalist>
+<div class="buttons">
+<button id="openRoom">기존 방 열기 / 이름으로 선택</button>
+<button id="newRoom" class="secondary">새 대화방 만들기</button>
+</div>
+<p id="roomStatus" role="status">대화방을 확인하고 있습니다.</p>
+<p><small>이름이 같으면 기존 대화방을 사용합니다. 새 대화방 만들기를 명시적으로 눌렀을 때에만 같은 이름으로도 새 방이 생성됩니다. 공개 시험용 대화방은 모든 이용자에게 공유될 수 있으므로 비밀 내용은 보내지 마십시오.</small></p>
 </section>
 <section>
-<h2>연결 상태</h2>
+<h2>2. 선택된 대화방에 질문하기</h2>
+<label for="prompt">질문 내용</label>
+<textarea id="prompt" maxlength="24000" placeholder="선택된 대화방에 계속할 질문을 입력하십시오."></textarea>
+<div class="buttons"><button id="send">질문 보내기</button></div>
+<p id="status" class="status" role="status" aria-live="polite">준비 완료</p>
+<pre id="answer" role="region" aria-label="답변" hidden></pre>
+<p><small>HTTP 202는 접수이며, 완료된 답변만 화면에 표시합니다. 질문 전환 시에는 위 대화방을 먼저 선택하십시오.</small></p>
+</section>
+<section>
+<h2>연결 상태 및 사용법</h2>
 <p id="worker" role="status">서버 확인 중</p>
-<p><a href="/integrations/quick-start">외부 프로그램용 API 주소와 사용법</a></p>
+<p><a href="/integrations/quick-start">다른 프로그램용 이름별 대화방 API 사용법</a></p>
 </section>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-let sending=false;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function status(){
- try {
-  const r=await fetch("/integrations/v1/public/status",{cache:"no-store"});
-  if(!r.ok)throw Error();
-  const j=await r.json();
-  $("worker").textContent=j.worker_connected?"작업자 연결됨":
-    j.worker_autostart_configured?"작업자 대기 중 · 질문을 보내면 자동 시작":"작업자 연결 준비 중";
- }catch(e){$("worker").textContent="상태 확인 후 재시도 중";}
+let sending=false,selected=null,selecting=false;
+const remembered=(()=>{try{return localStorage.getItem("hitel_public_room_name")}catch(e){return null}})();
+if(remembered)$("roomName").value=remembered;
+function rememberRoom(name){try{localStorage.setItem("hitel_public_room_name",name)}catch(e){}}
+async function jsonFetch(url,opts){
+ const response=await fetch(url,Object.assign({cache:"no-store"},opts||{}));
+ const body=await response.json().catch(()=>({}));
+ if(!response.ok)throw Error("HTTP "+response.status+": "+(body.detail||"요청 실패"));
+ return body;
+}
+async function refreshRooms(){
+ const d=await jsonFetch("/integrations/v1/public/rooms");
+ $("roomList").replaceChildren(...d.rooms.map(r=>{
+  const opt=document.createElement("option");opt.value=r.room_name;return opt;
+ }));
+}
+async function openRoom(createNew=false){
+ if(selecting)throw Error("대화방을 확인하는 중입니다.");
+ selecting=true;$("openRoom").disabled=true;$("newRoom").disabled=true;
+ try{
+  const name=$("roomName").value.trim();
+  if(!name)throw Error("대화방 이름을 입력하십시오.");
+  const d=await jsonFetch("/integrations/v1/public/rooms",{
+   method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({name,create_new:createNew})});
+  selected={room_id:d.room_id,room_name:d.room_name};
+  $("roomName").value=d.room_name;
+  rememberRoom(d.room_name);
+  $("roomStatus").textContent=(createNew?"새 대화방 생성":d.created?"대화방 생성":"기존 대화방 열기")
+    +" · "+d.room_name+" · "+d.room_id
+    +(d.conversation_linked?" · 이전 ChatGPT 대화 연결":" · 첫 질문 대기");
+  $("answer").hidden=true;
+  await refreshRooms();
+  return d;
+ }finally{selecting=false;$("openRoom").disabled=false;$("newRoom").disabled=false;}
+}
+async function workerStatus(){
+ try{
+  const d=await jsonFetch("/integrations/v1/public/status");
+  $("worker").textContent=d.worker_connected?"Chrome 작업자 연결됨":
+    d.worker_autostart_configured?"작업자 대기 · 질문 시 자동 시작":"작업자 연결 준비 중";
+ }catch(e){$("worker").textContent="연결 상태 재조회 중";}
 }
 async function send(){
  if(sending)return;
  const text=$("prompt").value.trim();
- if(!text){$("status").textContent="질문을 입력해 주십시오.";return;}
- sending=true;$("send").disabled=true;$("answer").hidden=true;
- $("status").textContent="질문 접수 중";
+ if(!text){$("status").textContent="질문을 입력하십시오.";return;}
+ sending=true;$("send").disabled=true;
  try{
+  // Reopen by typed name before every send: same name reuses the exact room.
+  const opened=await openRoom(false);
+  $("status").textContent="질문 접수 중 · 대화방: "+opened.room_name;
   const request_id="req_"+crypto.randomUUID();
-  const r=await fetch("/integrations/v1/public/chat",{
+  const j=await jsonFetch("/integrations/v1/public/chat",{
    method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({text,request_id})});
-  const j=await r.json();
-  if(!r.ok)throw Error("질문 접수 실패 (HTTP "+r.status+"): "+(j.detail||""));
-  $("status").textContent="질문 접수 완료 · 작업자 연결과 답변을 확인 중";
+   body:JSON.stringify({room_id:opened.room_id,text,request_id})});
+  $("status").textContent="질문 접수 · "+opened.room_name+" · 답변 대기 중";
   for(let i=0;i<360;i++){
    await delay(2000);
-   const reply=await fetch(j.result_url,{cache:"no-store"});
-   if(!reply.ok)throw Error("결과 확인 실패 (HTTP "+reply.status+")");
-   const result=await reply.json();
+   const result=await jsonFetch(j.result_url);
    if(result.status==="completed"){
-    $("status").textContent="답변 완료";
+    $("status").textContent="답변 완료 · "+result.room_name+" · 동일 대화방 유지";
     $("answer").textContent=result.result_text||"(빈 답변)";
-    $("answer").hidden=false;return;
+    $("answer").hidden=false;$("prompt").value="";
+    await refreshRooms();return;
    }
-   if(result.status==="failed"){
-    throw Error("처리 실패: "+(result.error||result.stage||"원인 미확인"));
-   }
-   if(i%6===0)await status();
+   if(result.status==="failed")throw Error(
+    "처리 실패 · "+(result.error||result.stage||"원인 미확인"));
+   if(i%8===0)await workerStatus();
   }
   $("status").textContent="처리 중입니다. 작업 ID: "+j.job_id;
-  $("answer").textContent="답변 조회 주소: "+location.origin+j.result_url;
+  $("answer").textContent="결과 조회: "+location.origin+j.result_url;
   $("answer").hidden=false;
  }catch(e){$("status").textContent=String(e.message||e);}
  finally{sending=false;$("send").disabled=false;}
 }
+$("openRoom").addEventListener("click",()=>openRoom(false).catch(e=>$("roomStatus").textContent=e.message));
+$("newRoom").addEventListener("click",()=>openRoom(true).catch(e=>$("roomStatus").textContent=e.message));
 $("send").addEventListener("click",send);
-status();setInterval(status,5000);
+openRoom(false).catch(e=>$("roomStatus").textContent=e.message);
+workerStatus();setInterval(workerStatus,5000);
 </script>
 </main></body></html>
