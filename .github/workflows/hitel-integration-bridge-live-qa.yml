@@ -58,7 +58,7 @@ jobs:
       - name: Checkout integration API's exact worker/client revision
         uses: actions/checkout@v4
         with:
-          ref: fix/hitel-room-tab-isolation-20261120
+          ref: feature/hitel-integrations-api-20261118
           path: qa
       - uses: actions/setup-python@v5
         with:
