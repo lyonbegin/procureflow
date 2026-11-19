@@ -16,7 +16,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TARGET=44564429683
+          TARGET=44564823242
           STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TARGET" --jq '.status')"
           echo "QUEUED_V4_RUN=$TARGET STATE=$STATE"
           if [[ "$STATE" == "pending" || "$STATE" == "queued" || "$STATE" == "in_progress" ]]; then
