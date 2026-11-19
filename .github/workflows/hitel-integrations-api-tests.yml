@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - feature/hitel-integrations-api-20261118
+      - fix/hitel-long-research-status-20261119
     paths:
       - "chatgpt-android-relay/web/integration_api.py"
       - "chatgpt-android-relay/web/integration_public.py"
+      - "chatgpt-android-relay/web/long_job_events.py"
+      - "chatgpt-android-relay/web/tests/test_long_job_status.py"
       - "chatgpt-android-relay/web/tests/test_integration_public.py"
       - "chatgpt-android-relay/web/tests/test_worker_fresh_chat.py"
       - "chatgpt-android-relay/web/tests/test_worker_protocol_upgrade.py"
@@ -36,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hitel-programmatic-api-contract
+  group: hitel-programmatic-api-contract-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -55,6 +58,7 @@ jobs:
           python3 -m py_compile docs/hitel-integrations/example_client.py
           python3 -m py_compile chatgpt-android-relay/web/integration_api.py
           python3 -m py_compile chatgpt-android-relay/web/integration_public.py
+          python3 -m py_compile chatgpt-android-relay/web/long_job_events.py
           python3 -m py_compile chatgpt-android-relay/web/worker_autostart.py
           python3 -m py_compile .github/scripts/w2a_relay_worker.py
           python3 -m py_compile .github/scripts/w2a_worker_fallback.py
@@ -79,6 +83,8 @@ jobs:
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_worker_autostart.py -v
       - name: Verify public no-login API, GitHub autostart and private-room isolation
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_integration_public.py -v
+      - name: Verify long-job status, request lookup and lossless final bytes
+        run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_long_job_status.py -v
       - name: Verify two fresh conversations and deduplicated structured output
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_worker_fresh_chat.py -v
       - name: Ensure old GitHub Chrome workers rejected after code upgrades
