@@ -32,6 +32,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from safe_worker_error import classify_web2api_failure
+from hitel_room_tab_pool import RoomTabPool, TabIsolationError
 
 from w2a_account_runtime import (AccountGateError, actual_chrome_account,
                                  canonical_email, verify_same_session,
@@ -43,6 +44,9 @@ CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
 CHAT_API_B = "http://127.0.0.1:18081/v1/chat/completions"
 CONVERSATION_ID = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MAX_TEXT = 24000
+MAX_WORKER_TABS = 3
+# Bounded socket read, never an unbounded call that freezes worker dispatch.
+UPSTREAM_SOCKET_TIMEOUT = max(60,min(14000,int(os.environ.get("W2A_REPLY_SOCKET_TIMEOUT","13800"))))
 MAX_REPLY_BYTES = 2000000
 
 
@@ -125,8 +129,14 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
     return discard_verified_duplicate_json_tail(answer), cid
 
 
-def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
-    if api_url not in (CHAT_API,CHAT_API_B):
+def post_chat_uri(text: str, cid: str | None, api_url: str,
+                  *, internal_owned_room: bool = False) -> tuple[str, str]:
+    trusted_legacy = api_url in (CHAT_API,CHAT_API_B)
+    trusted_room = bool(
+        internal_owned_room
+        and re.fullmatch(r"http://127\\.0\\.0\\.1:[1-9][0-9]{1,4}/v1/chat/completions",api_url)
+    )
+    if not trusted_legacy and not trusted_room:
         raise ValueError("REFUSE_UNTRUSTED_CHAT_API")
     body: dict[str, Any] = {
         "model": "auto",
@@ -150,7 +160,7 @@ def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
     )
     # Wait for Web2API to report a verified reply or a definite upstream failure.
     # The persistent GitHub Actions worker supplies the outer lifecycle bound.
-    with urllib.request.urlopen(request, timeout=None) as response:
+    with urllib.request.urlopen(request, timeout=UPSTREAM_SOCKET_TIMEOUT) as response:
         if response.status != 200:
             raise RuntimeError("WEB2API_HTTP_NOT_200")
         data = json.load(response)
@@ -161,7 +171,8 @@ def post_chat(text: str, cid: str | None) -> tuple[str,str]:
     return post_chat_uri(text,cid,CHAT_API)
 
 
-async def process_job(job: dict[str, Any], account_preflight=None) -> dict[str, Any]:
+async def process_job(job: dict[str, Any], account_preflight=None,
+                      adapter_pool: RoomTabPool | None = None) -> dict[str, Any]:
     """Return a server-protocol result, without leaking text into diagnostic logs."""
     jid = job.get("id")
     room_id = job.get("room_id")
@@ -207,7 +218,13 @@ async def process_job(job: dict[str, Any], account_preflight=None) -> dict[str, 
         if account_preflight is None:
             raise AccountGateError("ACCOUNT_PREFLIGHT_UNAVAILABLE")
         await account_preflight(job,expected_email)
-    if route_port == 9223:
+    if adapter_pool is not None:
+        # A stable room-ID owns exactly one browser tab, via its own vendor
+        # process and CDP target ID. Do not fall back to a shared tab on error.
+        api_url = await adapter_pool.endpoint(room_id, route_port)
+        answer, cid = await asyncio.to_thread(
+            post_chat_uri, content, target, api_url, internal_owned_room=True)
+    elif route_port == 9223:
         answer, cid = await asyncio.to_thread(
             post_chat_uri, content, target, CHAT_API_B)
     else:
@@ -256,102 +273,173 @@ async def _periodic_app_heartbeat(socket,deadline:float):
 
 
 async def run(max_seconds: int = 1500) -> None:
+    """One signed WebSocket, independent per-room browser tabs and reply tasks.
+
+    ONLY this main loop reads socket.recv(). Worker preflight approvals are
+    routed to the job-specific Future; no concurrent readers or shared-tab
+    navigation are permitted.
+    """
     address = ws_destination()
     deadline = time.monotonic() + max_seconds
     attempts = 0
     authenticated_once = False
     seen_jobs: set[str] = set()
-    while time.monotonic() < deadline:
-        attempts += 1
-        try:
-            token = await asyncio.to_thread(get_oidc_token)
-            async with websockets.connect(
-                address, ping_interval=20, ping_timeout=20,
-                close_timeout=5, max_size=3 * 1024 * 1024,
-            ) as socket:
-                await socket.send(json.dumps({
-                    "role": "web2api", "deviceId": "web2api-main",
-                    "oidc_token": token,
-                    "hitel_protocol_version": 3,
-                }))
-                first = json.loads(await asyncio.wait_for(socket.recv(), timeout=20))
-                if first.get("type") != "auth.ok":
-                    raise RuntimeError("RELAY_OIDC_AUTH_REJECTED")
-                print("PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED", flush=True)
-                authenticated_once = True
-                attempts = 0
-                # WebSocket protocol ping frames are not visible to the Railway
-                # application: send a separate authenticated app heartbeat.
-                hb_task=asyncio.create_task(_periodic_app_heartbeat(socket,deadline))
-                hb_task.add_done_callback(lambda t:None)
-                while time.monotonic() < deadline:
-                    raw = await asyncio.wait_for(
-                        socket.recv(), timeout=max(1, deadline - time.monotonic())
-                    )
-                    item = json.loads(raw)
-                    typ = item.get("type")
-                    if typ == "ping":
-                        await socket.send(json.dumps({"type": "pong"}))
-                    elif typ == "job":
-                        job = item.get("job")
-                        if not isinstance(job, dict):
-                            continue
-                        jid, rid = job.get("id"), job.get("room_id")
-                        if not isinstance(jid, str) or not isinstance(rid, str):
-                            continue
-                        if jid in seen_jobs:
-                            print("REFUSE_DUPLICATE_RELAY_JOB", flush=True)
-                            continue
-                        seen_jobs.add(jid)
-                        await socket.send(json.dumps({
-                            "type": "job.received", "job_id": jid,
-                            "room_id": rid, "stage": "web2api_received",
-                        }))
-                        print("RELAY_WEB2API_JOB_RECEIVED", flush=True)
+    pool = RoomTabPool(MAX_WORKER_TABS)
+    try:
+        while time.monotonic() < deadline:
+            attempts += 1
+            active: dict[str, asyncio.Task] = {}
+            preflight_waiters: dict[str, asyncio.Future] = {}
+            try:
+                token = await asyncio.to_thread(get_oidc_token)
+                async with websockets.connect(
+                    address, ping_interval=20, ping_timeout=20,
+                    close_timeout=5, max_size=4 * 1024 * 1024,
+                ) as socket:
+                    await socket.send(json.dumps({
+                        "role":"web2api","deviceId":"web2api-main",
+                        "oidc_token":token,
+                        "hitel_protocol_version":4,
+                        "max_concurrent_jobs":MAX_WORKER_TABS,
+                    }))
+                    first = json.loads(await asyncio.wait_for(socket.recv(),timeout=20))
+                    if first.get("type")!="auth.ok":
+                        raise RuntimeError("RELAY_OIDC_AUTH_REJECTED")
+                    authenticated_once = True
+                    attempts = 0
+                    print("PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED",flush=True)
+                    hb=asyncio.create_task(_periodic_app_heartbeat(socket,deadline))
+                    try:
                         async def account_preflight(job,expected_email):
+                            jid=job["id"]
+                            future=asyncio.get_running_loop().create_future()
+                            preflight_waiters[jid]=future
+                            try:
+                                await socket.send(json.dumps({
+                                    "type":"job.preflight",
+                                    "job_id":jid,"room_id":job["room_id"],
+                                    "account_id":job["account_id"],
+                                    "execution_account_email":expected_email,
+                                }))
+                                approved=await asyncio.wait_for(future,timeout=45)
+                                if approved is not True:
+                                    raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
+                            finally:
+                                preflight_waiters.pop(jid,None)
+
+                        async def execute_one(job):
+                            jid,rid=job["id"],job["room_id"]
                             await socket.send(json.dumps({
-                                "type":"job.preflight",
-                                "job_id":job["id"],
-                                "room_id":job["room_id"],
-                                "account_id":job["account_id"],
-                                "execution_account_email":expected_email,
+                                "type":"job.received","job_id":jid,
+                                "room_id":rid,"stage":"web2api_received",
                             }))
-                            for _ in range(4):
-                                response=json.loads(await asyncio.wait_for(
-                                    socket.recv(),timeout=12))
-                                if response.get("type")=="ping":
-                                    await socket.send(json.dumps({"type":"pong"}))
-                                    continue
-                                if response.get("job_id")!=job["id"] or response.get("room_id")!=job["room_id"]:
-                                    raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
-                                if response.get("type")!="job.preflight.ok":
-                                    raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
-                                return
-                            raise AccountGateError("ACCOUNT_PREFLIGHT_DENIED")
+                            try:
+                                result=await process_job(
+                                    job,account_preflight=account_preflight,
+                                    adapter_pool=pool)
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as exc:
+                                code=classify_web2api_failure(exc)
+                                if isinstance(exc,TabIsolationError):
+                                    # Tab ownership could not be established.
+                                    code=str(exc)[:100]
+                                # Any HTTP timeout/5xx after submission may be a
+                                # completed ChatGPT turn whose reply was lost.
+                                # Do not label it model failure or retry SEND.
+                                uncertain=(
+                                    code in {"WEB2API_ADAPTER_TIMEOUT",
+                                             "WEB2API_ADAPTER_TRANSPORT",
+                                             "WEB2API_ADAPTER_HTTP_500",
+                                             "WEB2API_ADAPTER_HTTP_502",
+                                             "WEB2API_ADAPTER_HTTP_503",
+                                             "WEB2API_ADAPTER_HTTP_504"}
+                                    or code.startswith("ROOM_TAB_DISCONNECTED")
+                                )
+                                await socket.send(json.dumps({
+                                    "type":"job.uncertain" if uncertain else "job.error",
+                                    "job_id":jid,"room_id":rid,
+                                    "stage":"upstream_delivery_unknown" if uncertain else "web2api_failed",
+                                    "reason":code,
+                                }))
+                                print("RELAY_ROOM_JOB_"+(
+                                    "UNCERTAIN_" if uncertain else "ERROR_")+code,flush=True)
+                            else:
+                                await socket.send(json.dumps(result,ensure_ascii=False))
+                                print("PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED",flush=True)
+                            finally:
+                                active.pop(jid,None)
+
+                        while time.monotonic() < deadline:
+                            raw=await asyncio.wait_for(
+                                socket.recv(),timeout=max(1,deadline-time.monotonic()))
+                            item=json.loads(raw)
+                            typ=item.get("type")
+                            if typ=="ping":
+                                await socket.send(json.dumps({"type":"pong"}))
+                                continue
+                            if typ in ("job.preflight.ok","job.preflight.denied"):
+                                jid=item.get("job_id")
+                                pending=preflight_waiters.get(jid)
+                                if pending is not None and not pending.done():
+                                    pending.set_result(typ=="job.preflight.ok")
+                                continue
+                            if typ!="job":
+                                continue
+                            job=item.get("job")
+                            if not isinstance(job,dict):
+                                continue
+                            jid,rid=job.get("id"),job.get("room_id")
+                            if not isinstance(jid,str) or not isinstance(rid,str):
+                                continue
+                            if jid in seen_jobs:
+                                print("REFUSE_DUPLICATE_RELAY_JOB",flush=True)
+                                continue
+                            # This is a capacity guard, not a hidden backlog.
+                            if len(active)>=MAX_WORKER_TABS:
+                                await socket.send(json.dumps({
+                                    "type":"job.error","job_id":jid,
+                                    "room_id":rid,"stage":"capacity_mismatch",
+                                    "reason":"WORKER_TAB_CAPACITY_EXCEEDED",
+                                }))
+                                continue
+                            if any(
+                                task.get_name()==rid for task in active.values()
+                            ):
+                                await socket.send(json.dumps({
+                                    "type":"job.error","job_id":jid,
+                                    "room_id":rid,"stage":"room_already_busy",
+                                    "reason":"ROOM_ALREADY_RUNNING_NO_DUPLICATE_SEND",
+                                }))
+                                continue
+                            seen_jobs.add(jid)
+                            task=asyncio.create_task(
+                                execute_one(job),name=rid)
+                            active[jid]=task
+                    finally:
+                        hb.cancel()
                         try:
-                            result = await process_job(job,account_preflight=account_preflight)
-                        except Exception as exc:
-                            # Never repeat an uncertain ChatGPT send. Classify only
-                            # a fixed safe code or Python exception type; never
-                            # log raw prompts, response bodies, secrets or URLs.
-                            reason = classify_web2api_failure(exc)
-                            await socket.send(json.dumps({
-                                "type": "job.error", "job_id": jid, "room_id": rid,
-                                "stage": "web2api_failed", "reason": reason,
-                            }))
-                            print("FAIL_RELAY_WEB2API_JOB_" + reason, flush=True)
-                        else:
-                            await socket.send(json.dumps(result, ensure_ascii=False))
-                            print("PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED", flush=True)
-        except asyncio.TimeoutError:
-            print("RELAY_WEBSOCKET_IDLE_TIMEOUT", flush=True)
-        except Exception as exc:
-            # Never include network exception text: it can contain signed URLs.
-            print("RELAY_CONNECTION_INTERRUPTED_" + type(exc).__name__, flush=True)
-        if time.monotonic() >= deadline:
-            break
-        await asyncio.sleep(min(30, max(2, 2 ** min(attempts, 4))))
-    print("RELAY_ACTIONS_WORKER_RUN_ENDED", flush=True)
+                            await hb
+                        except asyncio.CancelledError:
+                            pass
+            except asyncio.TimeoutError:
+                print("RELAY_WEBSOCKET_LIFETIME_EXPIRED",flush=True)
+            except Exception as exc:
+                print("RELAY_CONNECTION_INTERRUPTED_"+type(exc).__name__,flush=True)
+            finally:
+                if active:
+                    # On socket loss the API marks all these jobs UNCERTAIN;
+                    # do not reconnect and potentially accept overlapping sends.
+                    for task in active.values():
+                        task.cancel()
+                    await asyncio.gather(*active.values(),return_exceptions=True)
+                    break
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(min(30,max(2,2**min(attempts,4))))
+    finally:
+        await pool.close()
+    print("RELAY_ACTIONS_WORKER_RUN_ENDED",flush=True)
     if not authenticated_once:
         raise RuntimeError("RELAY_OIDC_AUTH_NEVER_SUCCEEDED")
 
