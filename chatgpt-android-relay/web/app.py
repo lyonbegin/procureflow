@@ -114,16 +114,32 @@ async def dispatch_next():
             active_job_transport = None
 
 
+# A slow ChatGPT model is not a failed model. This is a *progress* threshold,
+# not a hard deadline: the actual worker result (or a confirmed connection
+# loss) is authoritative. In particular do NOT dispatch the next question
+# merely because 150 seconds elapsed: that would overlap two conversations.
+JOB_SLOW_NOTICE_SECONDS = 10 * 60
+
+
 async def job_timeout(job_id: str):
-    global active_job_id, active_job_transport
-    await asyncio.sleep(150)
-    if active_job_id == job_id:
-        api_v1.update_job(job_id, status="failed", stage="timed_out",
-                          error="No verified worker completion after 150 seconds")
-        active_job_id = None
-        active_job_transport = None
-        await broadcast(event("job.error", job_id=job_id, reason="Timeout"))
-        await dispatch_next()
+    """After ten minutes, report 'still waiting' without failing the job.
+
+    The legacy 150-second failure discarded valid long-running generations.
+    The job remains RUNNING, retains the same room/conversation identity and
+    continues to await the original worker's verified response. Never resend.
+    """
+    await asyncio.sleep(JOB_SLOW_NOTICE_SECONDS)
+    if active_job_id != job_id:
+        return
+    with api_v1.connection() as db:
+        changed = db.execute(
+            """UPDATE jobs SET stage=?, updated_at=?
+               WHERE id=? AND status='running'""",
+            ("waiting_for_verified_reply", api_v1.clock(), job_id),
+        ).rowcount
+    if changed and active_job_id == job_id:
+        await broadcast(event("job.progress", job_id=job_id,
+                              stage="waiting_for_verified_reply"))
 
 
 async def notify_new_job():
