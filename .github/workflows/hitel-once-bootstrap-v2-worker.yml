@@ -1,0 +1,34 @@
+name: HITEL one-time protocol-v2 Chrome worker unblock
+
+on:
+  push:
+    branches: [feature/hitel-integrations-api-20261118]
+    paths:
+      - ".github/workflows/hitel-once-bootstrap-v2-worker.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  start-v2-if-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch fresh Chrome worker only if no worker currently connected
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(curl -fsS --max-time 15 https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status)"
+          if python3 -c 'import json,sys;exit(0 if json.load(sys.stdin)["worker_connected"] else 1)' <<< "$CURRENT"; then
+            echo PASS_PROTOCOL_V2_ALREADY_CONNECTED
+            exit 0
+          fi
+          # Main's concurrency group was bumped to protocol-v2.
+          gh api -X POST \
+             "repos/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" \
+             -f ref=main \
+             -f 'inputs[operation]=worker_only' \
+             -f 'inputs[run_minutes]=240' >/dev/null
+          echo PASS_FRESH_PROTOCOL_V2_WORKER_DISPATCHED
