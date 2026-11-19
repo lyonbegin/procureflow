@@ -207,10 +207,21 @@ async def process_job(job: dict[str, Any], account_preflight=None,
                     verify_same_session, expected_email, cdp_port=route_port):
                 raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
         else:
-            # Legacy single authenticated Chrome installation remains supported.
-            await asyncio.to_thread(actual_chrome_account, expected_email)
-            if not await asyncio.to_thread(verify_same_session, expected_email):
-                raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+            # Multi-room workers must NEVER log out or switch the Chrome
+            # profile: doing so invalidates every other active room tab.
+            # Actual account identity is observed read-only in the existing
+            # signed-in browser, before the account-bound send.
+            if adapter_pool is not None:
+                if not await asyncio.to_thread(
+                    verify_same_session, expected_email, cdp_port=9222
+                ):
+                    raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
+            else:
+                # Retain the legacy standalone test path, never used by the
+                # protocol-v4 concurrent worker.
+                await asyncio.to_thread(actual_chrome_account, expected_email)
+                if not await asyncio.to_thread(verify_same_session, expected_email):
+                    raise AccountGateError("ACCOUNT_EXECUTION_NOT_VERIFIED")
         # A previously dispatched job can have been revoked or deleted while
         # the user completed Chrome sign-in. Re-check with Railway immediately
         # before allowing Web2API to submit ANY message text.
