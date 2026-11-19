@@ -1,7 +1,12 @@
 name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 
-# Manual operation only. No schedule or public dispatch. Railway authenticates and dispatches on demand; this worker can self-restart once when signed verified work remains.
+# Manual operation or a one-time source-verified upgrade on this exact workflow.
+# No schedule or public dispatch; Railway dispatch remains signed and on demand.
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-integration-bridge-live-qa.yml
   workflow_dispatch:
     inputs:
       operation:
@@ -36,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-protocol-v2
+  group: hitel-real-bridge-live-qa-protocol-v3
   cancel-in-progress: false
 
 jobs:
@@ -181,6 +186,22 @@ jobs:
             sleep 2
           done
 
+      - name: Retire known stale workers after new Chrome worker authentication
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
+          # Exact superseded v2 run IDs only, never unrelated Actions.
+          for old in 44436597201 44441066090; do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
+            if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
+              gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
+              echo "RETIRE_SUPERSEDED_WORKER_RUN=$old"
+            fi
+          done
+
       - name: Verify account pairing or real Bearer API only when explicitly requested
         if: ${{ inputs.operation == 'verify_or_pair' || inputs.pairing_code != '' }}
         run: |
@@ -190,7 +211,7 @@ jobs:
           python3 qa/.github/scripts/w2a_pairing_e2e.py
 
       - name: Keep connected worker running for the selected session
-        if: ${{ inputs.operation == 'worker_only' && inputs.pairing_code == '' }}
+        if: ${{ (github.event_name == 'push' || inputs.operation == 'worker_only') && (github.event_name == 'push' || inputs.pairing_code == '') }}
         run: |
           set -euo pipefail
           PID="$(cat "$RUNNER_TEMP/bridge-worker.pid")"
@@ -212,7 +233,7 @@ jobs:
           echo "PASS_MANUAL_WORKER_SELECTED_SESSION_ENDED"
 
       - name: GitHub-signed self-restart fallback if verified jobs survive worker shutdown
-        if: ${{ always() && inputs.operation == 'worker_only' }}
+        if: ${{ always() && (github.event_name == 'push' || inputs.operation == 'worker_only') }}
         run: |
           set -euo pipefail
           python3 -m py_compile qa/.github/scripts/w2a_worker_fallback.py
