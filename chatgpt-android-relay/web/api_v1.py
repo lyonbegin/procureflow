@@ -1022,7 +1022,7 @@ def complete_web2api_job(job_id: str, room_id: str, result_text: str,
     job, or a conversation already linked to a different room. A reconnect
     must never replay a completed turn.
     """
-    if not isinstance(result_text, str) or not result_text.strip() or len(result_text) > 100000:
+    if not isinstance(result_text, str) or not result_text.strip() or len(result_text.encode('utf-8')) > 2000000:
         return False
     try:
         normalized = normalize_chatgpt_conversation_url(chatgpt_url)
