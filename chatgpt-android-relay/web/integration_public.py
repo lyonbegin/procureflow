@@ -113,11 +113,8 @@ def _room_by_id(db,room_id:str, room_name: str | None=None) -> dict:
                        AND status='active'""",(room_id,USER_ID)).fetchone()
     if not room:
         raise HTTPException(404,"Public room not found")
-    # Refuse selecting old, single-use public probe rooms as a named conversation.
-    linked=db.execute("""SELECT 1 FROM hitel_public_named_rooms
-                         WHERE room_id=?""",(room_id,)).fetchone()
-    if not linked:
-        raise HTTPException(404,"Room is not a named public conversation")
+    # An explicitly replaced room stays accessible by its original room_id;
+    # only name lookup switches to the most recently created room.
     if room_name is not None and _name(room_name)[1]!=_name(room["title"])[1]:
         raise HTTPException(409,"room_id and room_name select different rooms")
     return dict(room)
