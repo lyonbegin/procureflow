@@ -51,7 +51,8 @@ class PublicNoLoginContract(unittest.TestCase):
         self.assertEqual(p.status_code,200)
         self.assertFalse(p.json()["login_required"])
         self.assertFalse(p.json()["hitel_api_key_required"])
-        self.assertTrue(p.json()["new_conversation_per_question"])
+        self.assertFalse(p.json()["new_conversation_per_question"])
+        self.assertTrue(p.json()["same_room_name_reuses_conversation"])
 
     def test_not_configured_reports_503_instead_of_fake_success(self):
         with patch.dict(os.environ,{"HITEL_GITHUB_ACTIONS_TOKEN":"",
