@@ -137,7 +137,9 @@ def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
         api_url, data=raw, method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=138) as response:
+    # Wait for Web2API to report a verified reply or a definite upstream failure.
+    # The persistent GitHub Actions worker supplies the outer lifecycle bound.
+    with urllib.request.urlopen(request, timeout=None) as response:
         if response.status != 200:
             raise RuntimeError("WEB2API_HTTP_NOT_200")
         data = json.load(response)
