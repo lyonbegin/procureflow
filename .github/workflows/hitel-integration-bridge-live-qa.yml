@@ -127,7 +127,7 @@ jobs:
           ROOT="$RUNNER_TEMP/w2a-check"
           git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
           git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
-          python3 qa/.github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
           python3 - <<'PY'
           from pathlib import Path
           import os
