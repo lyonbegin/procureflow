@@ -70,6 +70,32 @@ def extract_conversation_id(job: dict[str, Any]) -> str | None:
     return target
 
 
+def discard_verified_duplicate_json_tail(answer: str) -> str:
+    """Remove only proven duplicate DOM fragments after a complete JSON answer.
+
+    Do not truncate arbitrary answers or legitimate independent notes. A
+    repeated JSON fragment must contain structural closing brackets and its
+    first 60 compact characters must already occur in the parsed JSON.
+    """
+    clean=answer.strip()
+    if not clean.startswith(("{","[")):
+        return answer
+    try:
+        _,end=json.JSONDecoder().raw_decode(clean)
+    except (ValueError,TypeError):
+        return answer
+    tail=clean[end:].strip()
+    if not tail or tail.startswith(("{","[")):
+        return answer
+    compact_tail=re.sub(r"\s+","",tail)
+    compact_head=re.sub(r"\s+","",clean[:end])
+    if (len(compact_tail)>=60 and
+            any(ch in tail for ch in ("}","]")) and
+            compact_tail[:60] in compact_head):
+        return clean[:end]
+    return answer
+
+
 def parse_web2api_response(response: dict[str, Any], target: str | None) -> tuple[str, str]:
     if not isinstance(response, dict):
         raise ValueError("WEB2API_RESPONSE_INVALID")
@@ -85,7 +111,7 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
         raise ValueError("WEB2API_CONVERSATION_ID_MISSING")
     if target and cid != target:
         raise ValueError("ROOM_CONVERSATION_ID_MISMATCH")
-    return answer, cid
+    return discard_verified_duplicate_json_tail(answer), cid
 
 
 def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
