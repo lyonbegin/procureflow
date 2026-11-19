@@ -71,7 +71,42 @@ class RoomTabPool:
             raise ValueError("ROOM_TAB_CAPACITY_INVALID")
         self.max_rooms = max_rooms
         self._rooms: dict[str, RoomTab] = {}
+        self._busy_rooms: set[str] = set()
+        self._uncertain_rooms: set[str] = set()
         self._lock = asyncio.Lock()
+
+    def pin(self, room_id: str) -> None:
+        if room_id in self._busy_rooms:
+            raise TabIsolationError("ROOM_ALREADY_RUNNING")
+        self._busy_rooms.add(room_id)
+
+    def unpin(self, room_id: str) -> None:
+        self._busy_rooms.discard(room_id)
+
+    def quarantine(self, room_id: str) -> None:
+        # A ChatGPT send may have succeeded despite the lost HTTP response.
+        # Never replace its tab automatically; preserve for read-only review.
+        self._uncertain_rooms.add(room_id)
+
+    async def _evict_one_idle(self) -> bool:
+        """Only an idle, confirmed-safe tab may be reclaimed for another room."""
+        candidates = sorted(
+            (item for key,item in self._rooms.items()
+             if key not in self._busy_rooms and key not in self._uncertain_rooms),
+            key=lambda item:item.assigned_at,
+        )
+        if not candidates:
+            return False
+        victim=candidates[0]
+        if victim.process.returncode is None:
+            victim.process.terminate()
+            try:
+                await asyncio.wait_for(victim.process.wait(),timeout=5)
+            except asyncio.TimeoutError:
+                victim.process.kill()
+                await victim.process.wait()
+        self._rooms.pop(victim.room_id,None)
+        return True
 
     def inspect(self) -> dict[str, tuple[int, int]]:
         # Internal diagnostics only. No room IDs or account identity in logs.
@@ -98,7 +133,8 @@ class RoomTabPool:
                 return existing.chat_endpoint
 
             if len(self._rooms) >= self.max_rooms:
-                raise TabIsolationError("ROOM_TAB_CAPACITY_EXCEEDED")
+                if not await self._evict_one_idle():
+                    raise TabIsolationError("ROOM_TAB_CAPACITY_EXCEEDED")
 
             port = _available_port()
             instance_id = (
@@ -115,14 +151,7 @@ class RoomTabPool:
             })
             # Adapter must only connect to an *already authenticated* Chrome.
             # Vendor process creates/owns one tab by CDP Target.createTarget.
-            command = (
-                sys.executable, "-m", "chatgpt_web2api",
-                "--port", str(port),
-                "--host", "127.0.0.1",
-                "--cdp-port", str(cdp_port),
-            )
-            # Existing CLI installed as an entry-point; use its verified path
-            # rather than guessing whether python -m exposes __main__.
+            # Vendor CLI is installed in the existing GitHub Actions venv.
             command = ("chatgpt-web2api", "--port", str(port),
                        "--host", "127.0.0.1", "--cdp-port", str(cdp_port))
             try:
