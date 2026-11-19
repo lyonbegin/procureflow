@@ -1,0 +1,31 @@
+name: HITEL | isolated Scribd and A JSON recovery contracts
+on:
+  push:
+    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    paths:
+      - .github/scripts/hitel_program_recovery_contract.py
+      - .github/workflows/hitel-program-recovery-contract.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-two-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify synthetic Scribd 2-title classification with real ChatGPT
+        run: python3 .github/scripts/hitel_program_recovery_contract.py --case scribd
+      - name: Verify isolated A-source-shaped JSON with real ChatGPT
+        if: always()
+        run: python3 .github/scripts/hitel_program_recovery_contract.py --case a
+      - name: Preserve server verdict and request IDs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-isolated-two-program-recovery-contract
+          path: recovery-contract-evidence/
+          if-no-files-found: warn
