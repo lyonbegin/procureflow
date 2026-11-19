@@ -1,4 +1,5 @@
 import json
+import io
 import sys
 import unittest
 import urllib.error
@@ -11,6 +12,19 @@ class TestSafeWorkerError(unittest.TestCase):
     def test_http_status(self):
         err=urllib.error.HTTPError("https://secret:token@example.com",502,"failure",{},None)
         self.assertEqual(classify(err),"WEB2API_ADAPTER_HTTP_502")
+    def test_vendor_500_exposes_safe_error_class_only(self):
+        body=json.dumps({"error":{"message":"private text Bearer SECRET token",
+                                  "type":"server_error","code":"SendReadinessError"}})
+        err=urllib.error.HTTPError("http://127.0.0.1:18080/v1/chat/completions",
+              500,"private reason",{},io.BytesIO(body.encode("utf-8")))
+        self.assertEqual(classify(err),"WEB2API_VENDOR_SENDREADINESSERROR")
+    def test_vendor_500_unknown_class_does_not_leak_code_or_message(self):
+        body=json.dumps({"error":{"message":"secret prompt",
+                                  "code":"SecretTokenBearerUserValue"}})
+        err=urllib.error.HTTPError("http://127.0.0.1:18080",
+                500,"failure",{},io.BytesIO(body.encode("utf-8")))
+        self.assertEqual(classify(err),"WEB2API_ADAPTER_HTTP_500")
+
     def test_transport_does_not_leak_url(self):
         err=urllib.error.URLError("https://user:password@secret.example/private")
         self.assertEqual(classify(err),"WEB2API_ADAPTER_TRANSPORT")

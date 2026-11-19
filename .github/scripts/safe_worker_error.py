@@ -27,6 +27,25 @@ def classify_web2api_failure(exc: Exception) -> str:
         return message
     if isinstance(exc, urllib.error.HTTPError):
         code = int(getattr(exc, "code", 0) or 0)
+        if code == 500:
+            # The pinned localhost vendor is patched to supply a Python
+            # exception CLASS in error.code. Never forward error.message,
+            # request data, response body, credentials or browser URL.
+            try:
+                payload = json.loads(exc.read(4096).decode("utf-8"))
+                kind = payload.get("error", {}).get("code")
+                known = {
+                    "SendReadinessError", "CDPJSError", "CDPReconnectError",
+                    "TurnReconciliationError", "RuntimeError", "TypeError",
+                    "ValueError", "TimeoutError", "KeyError", "AssertionError",
+                    "ConnectionError", "IndexError", "AuthExpiredError",
+                    "LockAcquisitionError", "GenerationStuckError",
+                    "CircuitOpenError", "OwnedTabRequiredError",
+                }
+                if isinstance(kind, str) and kind in known:
+                    return "WEB2API_VENDOR_" + kind.upper()
+            except (ValueError, UnicodeDecodeError, TypeError, AttributeError):
+                pass
         return "WEB2API_ADAPTER_HTTP_" + str(code if 400 <= code <= 599 else "OTHER")
     if isinstance(exc, urllib.error.URLError):
         return "WEB2API_ADAPTER_TRANSPORT"

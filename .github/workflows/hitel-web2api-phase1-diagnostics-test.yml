@@ -1,0 +1,43 @@
+name: HITEL | pinned Web2API phase-1 and 500 diagnosis regression
+on:
+  push:
+    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    paths:
+      - .github/scripts/w2a_patch_vendor_dom.py
+      - .github/scripts/safe_worker_error.py
+      - .github/scripts/test_safe_worker_error.py
+      - .github/workflows/hitel-web2api-phase1-diagnostics-test.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check classified HTTP 500 without leaking prompts or tokens
+        run: |
+          python3 -m py_compile .github/scripts/safe_worker_error.py .github/scripts/w2a_patch_vendor_dom.py
+          python3 .github/scripts/test_safe_worker_error.py -v
+      - name: Apply exact source-pinned vendor patch without opening a ChatGPT session
+        run: |
+          set -euo pipefail
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git vendor
+          git -C vendor checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py vendor
+          python3 -m py_compile vendor/src/chatgpt_web2api/api_server.py vendor/src/chatgpt_web2api/completion_detector.py vendor/src/chatgpt_web2api/cdp_driver.py
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path('vendor/src/chatgpt_web2api/completion_detector.py').read_text()
+          api=Path('vendor/src/chatgpt_web2api/api_server.py').read_text()
+          assert 'if time.monotonic() - last_progress > phase1_limit:' in d
+          assert 'if time.monotonic() - last_progress > PHASE_STALL_SECONDS:' not in d
+          assert 'if budgets is not None else PHASE_STALL_SECONDS' in d
+          assert '"code": type(exc).__name__' in api
+          assert 'not new_conversation' in api
+          print('PASS_VENDOR_PINNED_PHASE1_AND_500_CLASS_PATCH')
+          PY
