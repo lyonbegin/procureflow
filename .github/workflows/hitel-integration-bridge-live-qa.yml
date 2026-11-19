@@ -41,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-reconciliation-diagnosis-v7
+  group: hitel-real-bridge-live-qa-reconciliation-diagnosis-v8
   cancel-in-progress: false
 
 jobs:
@@ -125,7 +125,13 @@ jobs:
           ROOT="$RUNNER_TEMP/w2a-check"
           git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
           git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
-          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 qa/.github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 - <<'PY'
+          from pathlib import Path
+          source=Path("$RUNNER_TEMP/w2a-check/original/src/chatgpt_web2api/api_server.py").read_text()
+          assert '"subcode":' in source and '"anchor_mode":' in source, "NO_ACTUAL_VENDOR_TURN_DIAGNOSTICS"
+          print("PASS_ACTUAL_VENDOR_TURN_STATUS_AND_ANCHOR_PATCH")
+          PY
           # This is an actual, source-pinned Web2API config path. The old
           # built-in request=120s and detector=90/120s prematurely failed
           # valid long reasoning generations. Wait for verified end_turn or
@@ -194,7 +200,7 @@ jobs:
           set -euo pipefail
           grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
           # Retire only exact older Chrome worker runs after the new v5 worker signs in.
-          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610; do
+          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
             if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
               gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
