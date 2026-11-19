@@ -267,6 +267,25 @@ async def submit_public_chat(payload:PublicChat):
     }
 
 
+@router.get("/requests/{request_id}")
+def lookup_existing_request(request_id:str):
+    """Read-only lookup after a lost POST response; NEVER resubmits a prompt."""
+    if not REQUEST_ID.fullmatch(request_id):
+        raise HTTPException(404,"Unknown public request")
+    with api_v1.connection() as db:
+        row=db.execute("""SELECT p.request_id,p.job_id,j.room_id,j.status
+            FROM hitel_public_link_requests p
+            JOIN jobs j ON j.id=p.job_id
+            WHERE p.request_id=? AND j.user_id=? AND j.account_id IS NULL""",
+            (request_id,USER_ID)).fetchone()
+    if row is None:
+        raise HTTPException(404,"Unknown public request")
+    return {"request_id":row["request_id"],"job_id":row["job_id"],
+            "room_id":row["room_id"],
+            "status":row["status"],
+            "result_url":"/integrations/v1/public/jobs/"+row["job_id"]}
+
+
 @router.get("/jobs/{job_id}/result")
 def read_public_result_bytes(job_id:str, offset:int=0, limit:int=65536):
     """Return immutable UTF-8 byte chunks as Base64, never re-query ChatGPT."""
