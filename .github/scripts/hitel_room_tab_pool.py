@@ -23,6 +23,7 @@ import socket
 import sys
 import time
 import urllib.request
+from urllib.parse import urlsplit
 from typing import Any
 
 ROOM_PATTERN = re.compile(r"^room_[a-f0-9]{32}$")
@@ -65,7 +66,7 @@ def _health(port: int) -> dict:
 
 
 CONVERSATION_URL = re.compile(
-    r"^https://chatgpt\\.com/(?:c|c2|uc)/[A-Za-z0-9_-]{8,128}$"
+    r"^https://chatgpt\.com/(?:c|c2|uc)/[A-Za-z0-9_-]{8,128}$"
 )
 
 
@@ -117,9 +118,23 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
                 # Deliberate read-only navigation to a previously bound
                 # conversation. NEVER send a new prompt or create a new chat.
                 page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
-                final=page.url.rstrip("/")
-                if final!=conversation_url.rstrip("/"):
-                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_CONVERSATION_REDIRECT")
+                final=urlsplit(page.url)
+                expected=urlsplit(conversation_url)
+                # Same exact conversation path is authoritative. ChatGPT may
+                # attach non-identity search parameters during hydration.
+                if (final.scheme!="https"
+                    or final.hostname not in {"chatgpt.com","www.chatgpt.com"}):
+                    raise TabIsolationError("ROOM_PREWARM_UNTRUSTED_ORIGIN_REDIRECT")
+                if final.path.rstrip("/") != expected.path.rstrip("/"):
+                    if final.path.startswith("/auth") or final.path.startswith("/login"):
+                        code="ROOM_PREWARM_LOGIN_REQUIRED"
+                    elif final.path.rstrip("/") in ("","/"):
+                        code="ROOM_PREWARM_HOME_REDIRECT"
+                    elif final.path.startswith("/c/"):
+                        code="ROOM_PREWARM_OTHER_CONVERSATION"
+                    else:
+                        code="ROOM_PREWARM_DIFFERENT_PATH_REDIRECT"
+                    raise TabIsolationError(code)
                 return target_id
     raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
 
