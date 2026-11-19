@@ -65,7 +65,42 @@ active_job_transport: str | None = None
 # The native Android device retains its independent legacy active_job_id.
 web2api_active_jobs: dict[str, str] = {}  # job_id -> room_id
 WEB2API_MAX_ACTIVE = 3
+# Exact two previously-linked user rooms. Never use new room IDs or overwrite
+# existing saved conversation URLs for a prewarming task.
+PREWARM_KNOWN_ROOMS = {
+    "room_e43054eed81d46fba991b946ede92d1b":
+        "STOCK-KG-A-RESEARCH-20261119-R3",
+    "room_40f5ecf138064891964f1d5539c316c7":
+        "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G001",
+}
+worker_bootstrap_ready = False
+worker_prewarm_targets: dict[str,str] = {}
 job_dispatch_lock = asyncio.Lock()
+
+
+def linked_rooms_for_authenticated_worker() -> list[dict[str,str]]:
+    """Recover *actual* previously bound conversation URLs from room DB.
+
+    Only the signed GitHub worker receives these private editable links.
+    No public endpoint accepts or exposes the resulting tab target IDs.
+    """
+    with api_v1.connection() as c:
+        ids=tuple(PREWARM_KNOWN_ROOMS)
+        rows=c.execute("""SELECT id,title,chatgpt_url,user_id,status FROM rooms
+                          WHERE id IN (?,?)""", ids).fetchall()
+    result=[]
+    for row in rows:
+        if (row["user_id"]!="usr_browser_hitel_public_link"
+            or row["title"]!=PREWARM_KNOWN_ROOMS.get(row["id"])
+            or row["status"]!="active" or not row["chatgpt_url"]):
+            continue
+        try:
+            url=api_v1.normalize_chatgpt_conversation_url(row["chatgpt_url"])
+        except Exception:
+            continue
+        if url:
+            result.append({"room_id":row["id"],"chatgpt_url":url})
+    return sorted(result,key=lambda x:x["room_id"])
 recovery_checked = False
 
 async def dispatch_next():
@@ -90,7 +125,7 @@ async def dispatch_next():
         if failed_missing:
             print(f"[relay-v1] unavailable attachments: {failed_missing}", flush=True)
 
-        if web2api_device is not None:
+        if web2api_device is not None and worker_bootstrap_ready:
             while len(web2api_active_jobs) < WEB2API_MAX_ACTIVE:
                 job = api_v1.claim_next_job(
                     public_trial_only=PUBLIC_SMOKE_ONLY,
@@ -424,6 +459,7 @@ async def demo_start(request: Request):
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
     global device, web2api_device, web2api_last_seen_monotonic, active_job_id, active_job_transport
+    global worker_bootstrap_ready
     await ws.accept()
     role = ""
     actions_worker = False
@@ -504,12 +540,17 @@ async def socket(ws: WebSocket):
                 await old_worker.close(code=1001)
             else:
                 web2api_device = ws
+            worker_bootstrap_ready=False
+            worker_prewarm_targets.clear()
             web2api_last_seen_monotonic=time.monotonic()
             worker_autostart.worker_connected()
             print("[relay] GitHub Chrome worker authenticated", flush=True)
             await transmit(ws, event("auth.ok", role="web2api"))
+            warm=linked_rooms_for_authenticated_worker()
+            await transmit(ws,event("room.bootstrap",rooms=warm))
+            print("[relay] requested signed Chrome prewarm for "+str(len(warm))+
+                  " verified existing rooms",flush=True)
             await broadcast(event("web2api.status", online=True, worker="github-chrome"))
-            await dispatch_next()
         else:
             consoles.add(ws)
             print("[relay] Web console authenticated", flush=True)
@@ -531,6 +572,30 @@ async def socket(ws: WebSocket):
                         for jid in tuple(web2api_active_jobs):
                             long_job_events.heartbeat(jid)
                         continue
+                if role=="web2api" and kind=="room.bootstrap.done":
+                    expected={x["room_id"] for x in linked_rooms_for_authenticated_worker()}
+                    ready={}
+                    received=msg.get("ready_rooms",[])
+                    if isinstance(received,list):
+                        for info in received:
+                            if not isinstance(info,dict):
+                                continue
+                            rid,tid=info.get("room_id"),info.get("target_id")
+                            if (rid in expected and isinstance(tid,str)
+                                and 8<=len(tid)<=100):
+                                ready[rid]=tid
+                    # A lone browser heartbeat cannot be mistaken for two
+                    # independently prewarmed and navigated conversation tabs.
+                    worker_prewarm_targets.clear()
+                    worker_prewarm_targets.update(ready)
+                    worker_bootstrap_ready=(bool(expected)
+                        and expected==set(ready)
+                        and len(set(ready.values()))==len(ready))
+                    print("[relay] signed room-tabs prewarm verified="
+                        +str(len(ready))+"/"+str(len(expected)),flush=True)
+                    if worker_bootstrap_ready:
+                        await dispatch_next()
+                    continue
                 if kind == "ping":
                     await transmit(ws, event("pong"))
                     continue
@@ -817,6 +882,8 @@ async def socket(ws: WebSocket):
             await broadcast(event("device.status", online=False, deviceId=DEVICE_ID))
             await dispatch_next()
         elif role == "web2api" and web2api_device is ws:
+            worker_bootstrap_ready=False
+            worker_prewarm_targets.clear()
             web2api_device = None
             for jid in list(web2api_active_jobs):
                 api_v1.update_job(
