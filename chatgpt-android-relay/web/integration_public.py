@@ -138,12 +138,12 @@ def public_status():
     # it may be processing a long ChatGPT turn in another room.
     # Expose health and capacity only, never private room/job IDs or text.
     from app import (web2api_device, web2api_last_seen_monotonic,
-                     active_job_id)
+                     web2api_active_jobs, WEB2API_MAX_ACTIVE)
     connected = web2api_device is not None
     heartbeat_age = (max(0, int(time.monotonic() - web2api_last_seen_monotonic))
                      if connected and web2api_last_seen_monotonic > 0 else None)
     heartbeat_recent = bool(heartbeat_age is not None and heartbeat_age <= 75)
-    busy = bool(active_job_id)
+    busy = len(web2api_active_jobs) >= WEB2API_MAX_ACTIVE
     return {
         "public_link_enabled":True,
         "login_required":False,
@@ -156,7 +156,9 @@ def public_status():
         "worker_connected":connected,
         "worker_heartbeat_recent":heartbeat_recent,
         "worker_heartbeat_age_seconds":heartbeat_age,
-        "worker_busy":busy,
+        "worker_busy":bool(web2api_active_jobs),
+        "worker_active_jobs_count":len(web2api_active_jobs),
+        "worker_capacity":WEB2API_MAX_ACTIVE,
         "worker_available_for_new_job":heartbeat_recent and not busy,
         "worker_autostart_configured":worker_autostart.configured(),
         "supported":"text_only",
@@ -230,7 +232,7 @@ async def submit_public_chat(payload:PublicChat):
                 room_id=room["id"]
                 room_name=room["title"]
                 if db.execute("""SELECT 1 FROM jobs WHERE user_id=? AND room_id=?
-                    AND status IN ('queued','running') LIMIT 1""",
+                    AND status IN ('queued','running','unknown','stalled') LIMIT 1""",
                     (USER_ID,room_id)).fetchone():
                     raise HTTPException(409,"Previous question in this room is unfinished; poll first")
                 if not room["chatgpt_url"] and db.execute("""SELECT 1 FROM jobs
@@ -312,7 +314,7 @@ def read_public_result(job_id:str):
     row=long_job_events.job_row(job_id)
     if row is None:
         raise HTTPException(404,"Unknown public job")
-    from app import (web2api_device, web2api_last_seen_monotonic,active_job_id)
+    from app import (web2api_device, web2api_last_seen_monotonic,web2api_active_jobs)
     connected=web2api_device is not None
     heartbeat_age=(time.monotonic()-web2api_last_seen_monotonic
                    if connected and web2api_last_seen_monotonic>0 else None)
@@ -325,7 +327,7 @@ def read_public_result(job_id:str):
     elif stage=="connection_lost":
         status="stalled"
         error_code="WORKER_CONNECTION_LOST"
-    elif original_status=="running" and (not heartbeat_recent or active_job_id!=job_id):
+    elif original_status=="running" and (not heartbeat_recent or job_id not in web2api_active_jobs):
         status="stalled"
         error_code="WORKER_NOT_ACTIVE_FOR_JOB"
     elif original_status in ("queued","running","completed","failed","stalled","unknown"):
