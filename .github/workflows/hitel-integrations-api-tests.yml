@@ -5,11 +5,15 @@ on:
     branches:
       - feature/hitel-integrations-api-20261118
       - fix/hitel-long-research-status-20261119
+      - fix/hitel-room-tab-isolation-20261120
     paths:
       - "chatgpt-android-relay/web/integration_api.py"
       - "chatgpt-android-relay/web/integration_public.py"
       - "chatgpt-android-relay/web/long_job_events.py"
       - "chatgpt-android-relay/web/tests/test_long_job_status.py"
+      - "chatgpt-android-relay/web/tests/test_multi_room_dispatch.py"
+      - "chatgpt-android-relay/web/tests/test_multi_tab_worker.py"
+      - ".github/scripts/hitel_room_tab_pool.py"
       - "chatgpt-android-relay/web/tests/test_integration_public.py"
       - "chatgpt-android-relay/web/tests/test_worker_fresh_chat.py"
       - "chatgpt-android-relay/web/tests/test_worker_protocol_upgrade.py"
@@ -61,6 +65,7 @@ jobs:
           python3 -m py_compile chatgpt-android-relay/web/long_job_events.py
           python3 -m py_compile chatgpt-android-relay/web/worker_autostart.py
           python3 -m py_compile .github/scripts/w2a_relay_worker.py
+          python3 -m py_compile .github/scripts/hitel_room_tab_pool.py
           python3 -m py_compile .github/scripts/w2a_worker_fallback.py
           python3 -m py_compile chatgpt-android-relay/web/file_scenario_api.py
           python3 -m py_compile chatgpt-android-relay/web/integration_pairing.py
@@ -83,6 +88,10 @@ jobs:
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_worker_autostart.py -v
       - name: Verify public no-login API, GitHub autostart and private-room isolation
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_integration_public.py -v
+      - name: Verify room-affine concurrent queue and stuck-room isolation
+        run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_multi_room_dispatch.py -v
+      - name: Verify independent Chrome owned-tab vendor instance pools
+        run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_multi_tab_worker.py -v
       - name: Verify long-job status, request lookup and lossless final bytes
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_long_job_status.py -v
       - name: Verify two fresh conversations and deduplicated structured output
