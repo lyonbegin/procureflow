@@ -1,0 +1,75 @@
+name: HITEL internal Chrome owned-tab isolation browser proof
+on:
+  push:
+    branches: [fix/hitel-room-tab-isolation-20261120]
+    paths:
+      - .github/workflows/hitel-room-tab-browser-proof.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  two-rooms-one-chrome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: false
+      - name: Prove distinct vendor-owned CDP target IDs in one real Chrome
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/roomtab-cdp-test"
+          mkdir -p "$ROOT" "$HOME/.chatgpt_web2api"
+          "$CHROME_BINARY" --headless=new --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" about:blank \
+            >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:9222/json/version > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:9222/json/version > /dev/null
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 -m pip install -q "$ROOT/original"
+          export W2A_TAB_MODE=owned W2A_PARALLEL_TABS=true
+          W2A_INSTANCE_ID=hitel-internal-test-room-a \
+            chatgpt-web2api --host 127.0.0.1 --port 18311 --cdp-port 9222 \
+            >"$ROOT/a.log" 2>&1 &
+          PIDA=$!
+          W2A_INSTANCE_ID=hitel-internal-test-room-b \
+            chatgpt-web2api --host 127.0.0.1 --port 18312 --cdp-port 9222 \
+            >"$ROOT/b.log" 2>&1 &
+          PIDB=$!
+          trap 'kill "$PIDA" "$PIDB" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import json, pathlib, time, urllib.request
+          reg=pathlib.Path.home()/".chatgpt_web2api"/"owned_tabs.json"
+          for i in range(70):
+              try:
+                  data=json.loads(reg.read_text())
+                  a=data["hitel-internal-test-room-a"]["target_id"]
+                  b=data["hitel-internal-test-room-b"]["target_id"]
+                  targets=json.load(urllib.request.urlopen(
+                      "http://127.0.0.1:9222/json/list",timeout=4))
+                  ids={t["id"] for t in targets if t.get("type")=="page"}
+                  if a!=b and a in ids and b in ids:
+                      print("PASS_ONE_REAL_CHROME_TWO_INDEPENDENT_VENDOR_OWNED_TABS")
+                      print("PASS_PER_TAB_TARGET_ID_ISOLATION")
+                      print("PASS_NO_CHATGPT_MESSAGE_SENT")
+                      break
+              except (OSError,KeyError,ValueError):
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit("FAIL_VENDOR_DID_NOT_PROVE_TWO_OWNED_CDP_TARGETS")
+          PY
