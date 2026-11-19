@@ -41,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-direct-ws-job-reply-v10
+  group: hitel-real-bridge-live-qa-direct-ws-job-reply-v11
   cancel-in-progress: false
 
 jobs:
@@ -201,7 +201,7 @@ jobs:
           set -euo pipefail
           grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
           # Retire only exact older Chrome worker runs after the new v5 worker signs in.
-          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219 44482440343 44482517100; do
+          for old in 44436597201 44441066090 44453032920 44473673506 44477286953 44480140610 44482216219 44482440343 44482517100 44485326863; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
             if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
               gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
@@ -223,21 +223,41 @@ jobs:
           set -euo pipefail
           PID="$(cat "$RUNNER_TEMP/bridge-worker.pid")"
           START="$(date +%s)"
-          echo "PASS_MANUAL_WORKER_SESSION_STARTED"
+          RESTARTS=0
+          MISSED=0
+          echo "PASS_CHROME_WORKER_WATCHDOG_SESSION_STARTED"
           echo "WORKER_DURATION_MINUTES=${{ inputs.run_minutes }}"
-          while kill -0 "$PID" 2>/dev/null; do
+          # The process can remain alive even after losing its signed socket.
+          # A real /status heartbeat, not PID existence, decides liveness.
+          # Never enqueue or replay a ChatGPT prompt from this watchdog.
+          while (( $(date +%s) - START < W2A_WORKER_SECONDS - 30 )); do
             STATE="$(ps -o stat= -p "$PID" 2>/dev/null || true)"
-            if [[ "$STATE" == Z* ]]; then
-              break
+            if ! kill -0 "$PID" 2>/dev/null || [[ "$STATE" == Z* ]]; then
+              MISSED=3
+            else
+              HEALTH="$(curl --max-time 10 -fsS                 https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status 2>/dev/null                 | python3 -c 'import json,sys; x=json.load(sys.stdin); print(int(x.get("worker_connected") is True and x.get("worker_heartbeat_recent") is True))'                 2>/dev/null || echo 0)"
+              if [[ "$HEALTH" == "1" ]]; then MISSED=0; else MISSED=$(( MISSED + 1 )); fi
             fi
-            sleep 15
+            if (( MISSED >= 3 )); then
+              if (( RESTARTS >= 4 )); then
+                echo "FAIL_SIGNED_CHROME_WORKER_HEARTBEAT_RECOVERY_EXHAUSTED"
+                exit 1
+              fi
+              echo "RECOVER_CHROME_WORKER_DISCONNECTED_ATTEMPT=$(( RESTARTS + 1 ))"
+              kill "$PID" 2>/dev/null || true
+              sleep 3
+              python3 qa/.github/scripts/w2a_relay_worker.py                 >>"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
+              PID=$!
+              echo "$PID" > "$RUNNER_TEMP/bridge-worker.pid"
+              RESTARTS=$(( RESTARTS + 1 ))
+              MISSED=0
+              # Allow signed WebSocket re-authentication before the next probes.
+              sleep 25
+            else
+              sleep 15
+            fi
           done
-          ELAPSED=$(( $(date +%s) - START ))
-          if (( ELAPSED + 180 < W2A_WORKER_SECONDS )); then
-            echo "FAIL_CHROME_WORKER_EXITED_BEFORE_REQUESTED_DURATION"
-            exit 1
-          fi
-          echo "PASS_MANUAL_WORKER_SELECTED_SESSION_ENDED"
+          echo "PASS_CHROME_WORKER_SESSION_WATCHDOG_COMPLETED"
 
       - name: GitHub-signed self-restart fallback if verified jobs survive worker shutdown
         if: ${{ always() && (github.event_name == 'push' || inputs.operation == 'worker_only') }}
