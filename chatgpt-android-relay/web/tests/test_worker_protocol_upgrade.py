@@ -49,7 +49,7 @@ class WorkerProtocolUpgradeTests(unittest.TestCase):
                     self.assertEqual(item["reason"],"WORKER_PROTOCOL_UPGRADE_REQUIRED")
                     self.assertIsNone(app.web2api_device)
 
-    def test_current_worker_still_connects_without_reenrollment(self):
+    def test_old_serial_worker_version_three_rejected(self):
         with patch.object(app,"verify_worker_identity",return_value=True):
             with TestClient(app.app) as client:
                 with client.websocket_connect("/ws") as ws:
@@ -57,6 +57,19 @@ class WorkerProtocolUpgradeTests(unittest.TestCase):
                         "role":"web2api","deviceId":"web2api-main",
                         "oidc_token":"synthetic-github-oidc",
                         "hitel_protocol_version":3
+                    })
+                    item=ws.receive_json()
+                    self.assertEqual(item["type"],"auth.error")
+                    self.assertEqual(item["reason"],"WORKER_PROTOCOL_UPGRADE_REQUIRED")
+
+    def test_current_worker_still_connects_without_reenrollment(self):
+        with patch.object(app,"verify_worker_identity",return_value=True):
+            with TestClient(app.app) as client:
+                with client.websocket_connect("/ws") as ws:
+                    ws.send_json({
+                        "role":"web2api","deviceId":"web2api-main",
+                        "oidc_token":"synthetic-github-oidc",
+                        "hitel_protocol_version":4
                     })
                     item=ws.receive_json()
                     self.assertEqual(item["type"],"auth.ok")
