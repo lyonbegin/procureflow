@@ -99,6 +99,14 @@ def discard_verified_duplicate_json_tail(answer: str) -> str:
     tail=clean[end:].strip()
     if not tail or tail.startswith(("{","[")):
         return answer
+    # Real browser DOM sometimes appends an exact short suffix fragment:
+    # {"hitel_v4_smoke":"OK"}e":"OK"}
+    # This is a proven duplicate only if EVERY trailing character is the
+    # exact suffix of the fully decoded JSON, with a structural terminator.
+    # Never trim natural language, distinct JSON, or merely similar fragments.
+    if (len(tail)>=6 and tail.endswith(("}","]"))
+        and clean[:end].endswith(tail)):
+        return clean[:end]
     compact_tail=re.sub(r"\s+","",tail)
     compact_head=re.sub(r"\s+","",clean[:end])
     if (len(compact_tail)>=60 and
