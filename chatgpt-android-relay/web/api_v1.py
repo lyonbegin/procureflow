@@ -775,7 +775,8 @@ def fail_queued_jobs_with_unavailable_files():
 
 def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
                    allow_account_bound: bool = True,
-                   web_text_only: bool = False):
+                   web_text_only: bool = False,
+                   min_created_at: int | None = None):
     """Atomically claim ONE queued job, never a second active job in its room.
 
     The web worker can process multiple *different* rooms concurrently but
@@ -793,6 +794,9 @@ def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = Fa
             filters.append("account_id IS NULL")
         if web_text_only:
             filters.extend(("action='chat.send'", "attachment_ids='[]'"))
+        if min_created_at is not None:
+            filters.append("created_at>=?")
+            args.append(min_created_at)
         if public_trial_only:
             filters.append("(user_id=? OR user_id LIKE 'usr_browser_%')")
             args.append("usr_public_web2api_probe_20261113")
