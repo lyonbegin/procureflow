@@ -1,31 +1,76 @@
 openapi: 3.0.3
 info:
-  title: HITEL public ChatGPT test API (no login, no API key)
-  version: "2.0.0-public-test"
+  title: HITEL public named ChatGPT room API (no login)
+  version: "2.1.0-public-named-rooms"
   description: |
-    Public HTTPS text-chat bridge. Anyone can POST a prompt without an
-    account, token or GitHub login. Each request uses a new isolated ChatGPT
-    conversation. HTTP 202 is queue receipt, not a final answer. File upload,
-    file retrieval and old conversation access are not supported.
+    Login-free public test bridge. Open a named room first.
+    Same room_name or room_id continues the same verified ChatGPT conversation.
+    A different name opens/creates another room. Only explicit
+    POST /rooms create_new=true creates a new room when the name exists.
+    Omitted room selector uses persistent default room "기본 대화방".
+    Public named rooms are shared test rooms, not private account history.
+    HTTP 202 means queued; poll job endpoint for completed result_text.
 servers:
   - url: https://hitel-integration-api-production.up.railway.app
 paths:
   /integrations/v1/public/status:
     get:
-      summary: Public feature and worker availability
-      operationId: hitelPublicStatus
+      summary: Current public test chat and worker status
       responses:
         "200":
-          description: Current public service capabilities
+          description: Public status and supported room semantics
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+  /integrations/v1/public/rooms:
+    get:
+      summary: List current named public test rooms
+      responses:
+        "200":
+          description: Public named rooms; no private ChatGPT history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        room_name: {type: string}
+                        room_id: {type: string}
+                        conversation_linked: {type: boolean}
+    post:
+      summary: Open named existing room or create once; optionally force new
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 160}
+                create_new: {type: boolean, default: false}
+      responses:
+        "200":
+          description: Existing room opened, same room_id
+        "201":
+          description: Named room created, either first use or explicit new
+        "422":
+          description: Invalid name
   /integrations/v1/public/chat:
     post:
-      summary: Submit a new ChatGPT question, no login or API key
-      operationId: hitelPublicChat
+      summary: Submit a text turn to the existing named or selected room
+      description: |
+        room_id takes precedence. Supplying both selectors requires matching
+        names. If omitted, the persistent 기본 대화방 is selected.
+        Same room_id continues the same conversation_id after first verified
+        completion; no implicit new ChatGPT conversation on later turns.
+        Only one unfinished job per room is permitted.
       requestBody:
         required: true
         content:
@@ -34,41 +79,41 @@ paths:
               type: object
               required: [text]
               properties:
-                text:
+                text: {type: string, minLength: 1, maxLength: 24000}
+                room_id:
                   type: string
-                  minLength: 1
-                  maxLength: 24000
-                  example: "안녕하세요. 짧게 답변해 주세요."
+                  pattern: '^room_[a-f0-9]{32}$'
+                room_name: {type: string, minLength: 1, maxLength: 160}
                 request_id:
                   type: string
-                  description: Optional retry-safe request identifier (16-128 safe chars)
                   minLength: 16
                   maxLength: 128
                   pattern: '^[A-Za-z0-9_.:-]{16,128}$'
       responses:
         "202":
-          description: Prompt queued; GitHub Chrome may autostart
+          description: Accepted and queued, not a final assistant answer
           content:
             application/json:
               schema:
                 type: object
-                required: [accepted,job_id,status,result_url]
                 properties:
                   accepted: {type: boolean}
                   replayed: {type: boolean}
                   request_id: {type: string}
-                  job_id: {type: string, pattern: '^job_[a-f0-9]{32}$'}
+                  job_id: {type: string}
+                  room_id: {type: string}
+                  room_name: {type: string}
                   status: {type: string}
                   sent_to_chatgpt: {type: boolean}
                   worker_connected: {type: boolean}
                   result_url: {type: string}
-        "409": {description: Reused request_id with different text}
-        "422": {description: Invalid text or request_id}
-        "503": {description: Chrome unavailable and automatic launch not configured}
+        "404": {description: Selected room not in public namespace}
+        "409": {description: Room/job mismatch, unfinished prior turn, or unknown previous conversation}
+        "422": {description: Invalid text or room name or request_id}
+        "503": {description: Chrome worker offline with no automatic launch}
   /integrations/v1/public/jobs/{job_id}:
     get:
-      summary: Poll only a public-link job; never exposes a private room
-      operationId: hitelPublicJobResult
+      summary: Poll a public named-room job for its real answer
       parameters:
         - name: job_id
           in: path
@@ -78,17 +123,19 @@ paths:
             pattern: '^job_[a-f0-9]{32}$'
       responses:
         "200":
-          description: Queued/running/completed/failed state
+          description: Status and result text when completed
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   job_id: {type: string}
+                  room_id: {type: string}
+                  room_name: {type: string}
                   status: {type: string, enum: [queued, running, completed, failed]}
                   stage: {type: string}
                   result_text: {type: string, nullable: true}
                   error: {type: string, nullable: true}
                   created_at: {type: integer}
                   updated_at: {type: integer}
-        "404": {description: Job is not a public-link job}
+        "404": {description: Job not found in public test namespace}
