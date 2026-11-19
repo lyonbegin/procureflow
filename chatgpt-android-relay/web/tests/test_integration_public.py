@@ -46,6 +46,7 @@ class PublicNoLoginContract(unittest.TestCase):
     def tearDown(self):
         self.client.__exit__(None,None,None)
         app.web2api_device=None
+        app.worker_bootstrap_ready=False
         app.active_job_id=None
         app.web2api_active_jobs.clear()
 
@@ -62,6 +63,10 @@ class PublicNoLoginContract(unittest.TestCase):
         # Simulate state only; no real worker, GitHub Actions or ChatGPT send.
         app.web2api_device=object()
         app.web2api_last_seen_monotonic=time.monotonic()
+        app.worker_bootstrap_ready=False
+        self.assertFalse(self.client.get("/integrations/v1/public/status").json()
+                         ["worker_available_for_new_job"])
+        app.worker_bootstrap_ready=True
         for i in range(app.WEB2API_MAX_ACTIVE):
             app.web2api_active_jobs["job_synthetic_do_not_expose_"+str(i)] = "room_"+str(i)
         state=self.client.get("/integrations/v1/public/status").json()
