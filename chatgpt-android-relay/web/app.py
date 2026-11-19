@@ -150,6 +150,11 @@ async def _close_unresponsive_chrome():
 @app.on_event("startup")
 async def boot_worker_recovery():
     global worker_watch_task
+    # DB status may say "connected" from the previous Railway container.
+    # After a deployment there is no live WebSocket until a v2 worker
+    # actually authenticates. Do not expose that stale state as connected.
+    if web2api_device is None:
+        worker_autostart.worker_disconnected()
     if worker_watch_task is None:
         worker_watch_task=asyncio.create_task(worker_autostart.monitor_connected(
             check_connected=lambda:web2api_device is not None,
