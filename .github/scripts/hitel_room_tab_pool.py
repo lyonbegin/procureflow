@@ -65,7 +65,7 @@ def _health(port: int) -> dict:
 
 
 CONVERSATION_URL = re.compile(
-    r"^https://chatgpt\\.com/(?:c|c2|uc)/[A-Za-z0-9_-]{8,128}$"
+    r"^https://chatgpt\.com/(?:c|c2|uc)/[A-Za-z0-9_-]{8,128}$"
 )
 
 
