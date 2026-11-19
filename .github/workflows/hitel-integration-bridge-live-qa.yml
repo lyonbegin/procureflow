@@ -41,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-protocol-v4
+  group: hitel-real-bridge-live-qa-protocol-v5
   cancel-in-progress: false
 
 jobs:
@@ -193,8 +193,8 @@ jobs:
         run: |
           set -euo pipefail
           grep -q PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED "$RUNNER_TEMP/bridge-worker.log"
-          # Exact superseded v2 run IDs only, never unrelated Actions.
-          for old in 44436597201 44441066090; do
+          # Retire only exact older Chrome worker runs after the new v5 worker signs in.
+          for old in 44436597201 44441066090 44453032920 44473673506; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$old" --jq .status)"
             if [[ "$status" == "in_progress" || "$status" == "pending" || "$status" == "queued" ]]; then
               gh run cancel "$old" --repo "$GITHUB_REPOSITORY" || true
