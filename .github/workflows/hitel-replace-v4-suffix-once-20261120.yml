@@ -1,0 +1,42 @@
+name: HITEL one-time safe replacement of idle prewarm worker for verified JSON fix
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-replace-v4-suffix-once-20261120.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  replace-only-exact-idle-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: \${{ github.token }}
+    steps:
+      - name: Verify idle old worker; stop exact run and launch one corrected worker
+        run: |
+          set -euo pipefail
+          OLD=44565632426
+          RUNNING="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$OLD" --jq .status)"
+          STATUS="$(curl --max-time 12 -fsS https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status)"
+          printf '%s' "$STATUS" | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("worker_active_jobs_count")==0, "ACTIVE_REQUEST_IN_PROGRESS"; assert x.get("worker_bootstrap_ready") is True, "NO_PREWARMED_CHROME"; print("PASS_IDLE_TWO_ROOM_PREWARM_BEFORE_WORKER_REPLACEMENT")'
+          if [[ "$RUNNING" == "in_progress" || "$RUNNING" == "queued" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$OLD/force-cancel" > /dev/null
+            echo "REQUESTED_EXACT_OLD_WORKER_CANCEL=$OLD"
+          fi
+          for i in $(seq 1 40); do
+            STATE="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$OLD" --jq .status)"
+            if [[ "$STATE" == "completed" ]]; then
+              echo "PASS_OLD_WORKER_TERMINAL=$OLD"
+              break
+            fi
+            if [[ "$i" == "40" ]]; then echo "FAIL_OLD_WORKER_NOT_TERMINAL"; exit 1; fi
+            sleep 3
+          done
+          status="$(gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" \
+            -f ref=main -f 'inputs[operation]=worker_only' \
+            -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' --include | head -n 1)"
+          echo "NEW_V4_WORKER_DISPATCH_STATUS=$status"
+          [[ "$status" == *"204"* ]]
+          echo PASS_SINGLE_CORRECTED_WORKER_DISPATCH_REQUESTED
