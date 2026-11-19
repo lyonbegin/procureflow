@@ -1,4 +1,4 @@
-name: HITEL one-time safe replacement of idle prewarm worker for verified JSON fix
+name: HITEL one-time safe replacement after verified follow-up pre-navigation fix
 on:
   push:
     branches: [main]
@@ -16,7 +16,7 @@ jobs:
       - name: Verify idle old worker; stop exact run and launch one corrected worker
         run: |
           set -euo pipefail
-          OLD=44565632426
+          OLD=44567480031
           RUNNING="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$OLD" --jq .status)"
           STATUS="$(curl --max-time 12 -fsS https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status)"
           printf '%s' "$STATUS" | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x.get("worker_active_jobs_count")==0, "ACTIVE_REQUEST_IN_PROGRESS"; assert x.get("worker_bootstrap_ready") is True, "NO_PREWARMED_CHROME"; print("PASS_IDLE_TWO_ROOM_PREWARM_BEFORE_WORKER_REPLACEMENT")'
