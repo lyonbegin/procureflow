@@ -43,6 +43,7 @@ CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
 CHAT_API_B = "http://127.0.0.1:18081/v1/chat/completions"
 CONVERSATION_ID = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MAX_TEXT = 24000
+MAX_REPLY_BYTES = 2000000
 
 
 def get_oidc_token() -> str:
@@ -111,7 +112,10 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
         raise ValueError("WEB2API_CHOICES_MISSING")
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     answer = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(answer, str) or not answer.strip() or len(answer) > 100000:
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError("WEB2API_ASSISTANT_REPLY_MISSING")
+    if len(answer.encode("utf-8")) > MAX_REPLY_BYTES:
+        raise ValueError("WEB2API_ASSISTANT_REPLY_TOO_LARGE")
         raise ValueError("WEB2API_ASSISTANT_REPLY_MISSING")
     cid = response.get("conversation_id")
     if not isinstance(cid, str) or not CONVERSATION_ID.fullmatch(cid):
