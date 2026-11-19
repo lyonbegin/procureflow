@@ -29,6 +29,7 @@ class PublicNoLoginContract(unittest.TestCase):
         self.client=TestClient(app.app,base_url="https://testserver")
         self.client.__enter__()
         app.web2api_device=None
+        app.worker_bootstrap_ready=False
         app.active_job_id=None
         app.web2api_active_jobs.clear()
         api_v1.on_new_job=app.notify_new_job
