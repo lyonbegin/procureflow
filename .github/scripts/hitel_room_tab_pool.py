@@ -1,0 +1,176 @@
+"""HITEL internal room-affine Web2API adapter pool.
+
+ONE ChatGPT room -> ONE pinned vendor CDPDriver -> ONE Chrome-owned tab.
+The vendor's REST API is singleton-driver; multiple HTTP requests to the same
+vendor process do NOT create independent tabs.  Separate local vendor processes
+per room, all attaching to the *same* authenticated Chrome CDP port, are the
+minimal reliable isolation boundary.  W2A_PARALLEL_TABS ensures per-target
+mutation locks instead of the legacy CDP-port-wide lock.
+
+No Railway services, logins, Chrome profiles, or new browser processes created.
+No shared-tab adoption, automatic retries, or cross-room fallback.
+"""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+import re
+import socket
+import sys
+import time
+import urllib.request
+from typing import Any
+
+ROOM_PATTERN = re.compile(r"^room_[a-f0-9]{32}$")
+CHROME_PORTS = frozenset((9222, 9223))
+MAX_ROOMS = 4
+STARTUP_SECONDS = 65
+
+
+class TabIsolationError(RuntimeError):
+    pass
+
+
+@dataclass
+class RoomTab:
+    room_id: str
+    cdp_port: int
+    api_port: int
+    instance_id: str
+    process: Any
+    assigned_at: float
+
+    @property
+    def chat_endpoint(self) -> str:
+        return f"http://127.0.0.1:{self.api_port}/v1/chat/completions"
+
+
+def _available_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _health(port: int) -> dict:
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/health",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=3) as response:
+        return json.load(response)
+
+
+class RoomTabPool:
+    """Bounded room-affine local vendor processes, never a shared DOM tab."""
+
+    def __init__(self, max_rooms: int = 3) -> None:
+        if not 1 <= max_rooms <= MAX_ROOMS:
+            raise ValueError("ROOM_TAB_CAPACITY_INVALID")
+        self.max_rooms = max_rooms
+        self._rooms: dict[str, RoomTab] = {}
+        self._lock = asyncio.Lock()
+
+    def inspect(self) -> dict[str, tuple[int, int]]:
+        # Internal diagnostics only. No room IDs or account identity in logs.
+        return {key: (value.cdp_port, value.api_port)
+                for key, value in self._rooms.items()}
+
+    async def endpoint(self, room_id: str, cdp_port: int) -> str:
+        if not ROOM_PATTERN.fullmatch(room_id):
+            raise TabIsolationError("INVALID_ROOM_ID")
+        if cdp_port not in CHROME_PORTS:
+            raise TabIsolationError("UNVERIFIED_CHROME_CDP_PORT")
+
+        async with self._lock:
+            existing = self._rooms.get(room_id)
+            if existing:
+                if existing.cdp_port != cdp_port:
+                    raise TabIsolationError("ROOM_CHROME_ACCOUNT_CHANGED")
+                if existing.process.returncode is not None:
+                    # The tab may still be generating an answer in Chrome.
+                    # NEVER silently create a new tab and resend a question.
+                    raise TabIsolationError("ROOM_TAB_PROCESS_EXITED_NO_RETRY")
+                if not await self._ready(existing.api_port):
+                    raise TabIsolationError("ROOM_TAB_DISCONNECTED_NO_RETRY")
+                return existing.chat_endpoint
+
+            if len(self._rooms) >= self.max_rooms:
+                raise TabIsolationError("ROOM_TAB_CAPACITY_EXCEEDED")
+
+            port = _available_port()
+            instance_id = (
+                "hitel-room-"
+                + hashlib.sha256(room_id.encode("ascii")).hexdigest()[:24]
+                + "-" + str(cdp_port)
+            )
+            env = os.environ.copy()
+            env.update({
+                "W2A_INSTANCE_ID": instance_id,
+                "W2A_TAB_MODE": "owned",
+                "W2A_PARALLEL_TABS": "true",
+                "W2A_MCP_SESSION_POOL_ENABLED": "false",
+            })
+            # Adapter must only connect to an *already authenticated* Chrome.
+            # Vendor process creates/owns one tab by CDP Target.createTarget.
+            command = (
+                sys.executable, "-m", "chatgpt_web2api",
+                "--port", str(port),
+                "--host", "127.0.0.1",
+                "--cdp-port", str(cdp_port),
+            )
+            # Existing CLI installed as an entry-point; use its verified path
+            # rather than guessing whether python -m exposes __main__.
+            command = ("chatgpt-web2api", "--port", str(port),
+                       "--host", "127.0.0.1", "--cdp-port", str(cdp_port))
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *command, env=env,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except (OSError, ValueError) as exc:
+                raise TabIsolationError("ROOM_TAB_START_FAILED") from exc
+            slot = RoomTab(room_id, cdp_port, port, instance_id,
+                           process, time.monotonic())
+            # Persist in this worker even when readiness fails; unknown delivery
+            # is not an invitation to replace this room with another tab.
+            self._rooms[room_id] = slot
+
+            deadline = time.monotonic() + STARTUP_SECONDS
+            while time.monotonic() < deadline:
+                if process.returncode is not None:
+                    raise TabIsolationError("ROOM_TAB_STARTUP_EXITED")
+                if await self._ready(port):
+                    return slot.chat_endpoint
+                await asyncio.sleep(1)
+            raise TabIsolationError("ROOM_TAB_NOT_READY_NO_FALLBACK")
+
+    @staticmethod
+    async def _ready(port: int) -> bool:
+        try:
+            data = await asyncio.to_thread(_health, port)
+        except (OSError, ValueError, KeyError):
+            return False
+        return (
+            isinstance(data, dict)
+            and data.get("chrome_running") is True
+            and data.get("driver_connected") is True
+            and data.get("status") in ("healthy", "starting")
+        )
+
+    async def close(self) -> None:
+        async with self._lock:
+            procs = list(self._rooms.values())
+            self._rooms.clear()
+        for item in procs:
+            if item.process.returncode is None:
+                item.process.terminate()
+        for item in procs:
+            try:
+                await asyncio.wait_for(item.process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                item.process.kill()
+                await item.process.wait()
