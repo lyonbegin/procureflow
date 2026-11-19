@@ -9,6 +9,7 @@ on:
       - "chatgpt-android-relay/web/integration_public.py"
       - "chatgpt-android-relay/web/tests/test_integration_public.py"
       - "chatgpt-android-relay/web/tests/test_worker_fresh_chat.py"
+      - "chatgpt-android-relay/web/tests/test_worker_protocol_upgrade.py"
       - ".github/scripts/w2a_relay_worker.py"
       - "chatgpt-android-relay/web/static/integrations-public.html"
       - "chatgpt-android-relay/web/worker_autostart.py"
@@ -79,6 +80,8 @@ jobs:
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_integration_public.py -v
       - name: Verify two fresh conversations and deduplicated structured output
         run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_worker_fresh_chat.py -v
+      - name: Ensure old GitHub Chrome workers rejected after code upgrades
+        run: python3 -m unittest discover -s chatgpt-android-relay/web/tests -p test_worker_protocol_upgrade.py -v
       - name: Validate static OpenAPI contract
         run: |
           python3 -m pip install -q pyyaml
