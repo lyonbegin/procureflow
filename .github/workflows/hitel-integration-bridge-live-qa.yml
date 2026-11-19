@@ -37,11 +37,11 @@ permissions:
   actions: write
   id-token: write
 
-# A long-lived protocol-v1 worker must not block a new compatible worker.
+# One-time protocol-v3 recovery after HITEL API redeployment; stale v2 workers must not block v3.
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-protocol-v3
+  group: hitel-real-bridge-live-qa-protocol-v4
   cancel-in-progress: false
 
 jobs:
