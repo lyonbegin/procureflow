@@ -1,0 +1,27 @@
+name: HITEL once launch manually controlled v4 prewarmed Chrome worker
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/hitel-launch-v4-once-20261120.yml"]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  once-dispatch-existing-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch existing manual v4 worker exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" \
+            -f ref=main -f 'inputs[operation]=worker_only' \
+            -f 'inputs[run_minutes]=240' \
+            -f 'inputs[pairing_code]=' \
+            --include | head -n 1)"
+          echo "CHROME_WORKER_DISPATCH_RESPONSE=$status"
+          [[ "$status" == *"204"* ]]
+          echo PASS_REQUESTED_SINGLE_EXISTING_V4_CHROME_WORKER
