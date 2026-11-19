@@ -21,7 +21,7 @@ jobs:
           from urllib.parse import urlencode
           BASE="https://hitel-integration-api-production.up.railway.app"
           ROOM="HITEL-V4-LIVE-SMOKE-20261120-R1"
-          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R1"
+          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R2"
           PROMPT='HITEL 실제 연결 시험입니다. 다른 말 없이 정확히 다음 JSON 객체만 응답해 주십시오: {"hitel_v4_smoke":"OK"}'
           output=Path("hitel-v4-smoke")
           observations=[]
@@ -46,10 +46,15 @@ jobs:
               if not info or info.get("room_id")!=roomid or not info.get("conversation_linked"):
                 raise RuntimeError("PREWARMED_EXISTING_ROOM_MAPPING_MISMATCH")
             print("PASS_ORIGINAL_A_AND_SCRIBD_ROOM_IDS_UNCHANGED",flush=True)
-            status=get("/integrations/v1/public/status")
-            if not (status.get("worker_connected") is True
-              and status.get("worker_bootstrap_ready") is True
-              and status.get("prewarmed_room_count")==2):
+            for probe in range(48):
+              status=get("/integrations/v1/public/status")
+              if (status.get("worker_connected") is True
+                and status.get("worker_bootstrap_ready") is True
+                and status.get("prewarmed_room_count")==2):
+                break
+              print("WAIT_FOR_TWO_PREWARMED_TABS",probe+1,flush=True)
+              time.sleep(5)
+            else:
               raise RuntimeError("TWO_REAL_CHATGPT_TABS_NOT_READY")
             print("PASS_TWO_VERIFIED_CHROME_TABS_PREWARMED",flush=True)
             try:
