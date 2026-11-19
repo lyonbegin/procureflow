@@ -408,7 +408,10 @@ async def run(max_seconds: int = 1500) -> None:
                                         except Exception as exc:
                                             code=(str(exc) if isinstance(exc,TabIsolationError)
                                                   else type(exc).__name__)
-                                            print("FAIL_ROOM_TAB_PREWARM_"+code[:70],flush=True)
+                                            label=("STOCK_A" if rid=="room_e43054eed81d46fba991b946ede92d1b"
+                                                   else "SCRIBD" if rid=="room_40f5ecf138064891964f1d5539c316c7"
+                                                   else "UNRELATED")
+                                            print("FAIL_ROOM_TAB_PREWARM_"+label+"_"+code[:70],flush=True)
                                             continue
                                         ready.append({"room_id":rid,"target_id":target})
                                 await socket.send(json.dumps({
