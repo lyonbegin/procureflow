@@ -58,7 +58,7 @@ jobs:
       - name: Checkout integration API's exact worker/client revision
         uses: actions/checkout@v4
         with:
-          ref: feature/hitel-integrations-api-20261118
+          ref: fix/hitel-room-tab-isolation-20261120
           path: qa
       - uses: actions/setup-python@v5
         with:
@@ -207,11 +207,19 @@ jobs:
                 break
               fi
             fi
-            if grep -Eq 'FAIL_ROOM_TAB_PREWARM|RELAY_CONNECTION_INTERRUPTED|RELAY_WEBSOCKET_LIFETIME_EXPIRED' \
+            if grep -Eq 'RELAY_CONNECTION_INTERRUPTED|RELAY_WEBSOCKET_LIFETIME_EXPIRED' \
               "$RUNNER_TEMP/bridge-worker.log"; then
-              grep -E 'FAIL_ROOM_TAB_PREWARM|RELAY_CONNECTION_INTERRUPTED|PASS_AUTHENTICATED_ROOM_TAB' \
+              grep -E 'FAIL_ROOM_TAB_PREWARM|RELAY_CONNECTION_INTERRUPTED' \
                 "$RUNNER_TEMP/bridge-worker.log" || true
-              echo FAIL_EXISTING_ROOM_TAB_PREWARM
+              echo FAIL_EXISTING_ROOM_TAB_PREWARM_TRANSPORT
+              exit 1
+            fi
+            if grep -q 'PASS_AUTHENTICATED_ROOM_TAB_PREWARM=' \
+              "$RUNNER_TEMP/bridge-worker.log" && ! grep -q 'PASS_AUTHENTICATED_ROOM_TAB_PREWARM=2/2' \
+              "$RUNNER_TEMP/bridge-worker.log"; then
+              grep -E 'FAIL_ROOM_TAB_PREWARM|PASS_AUTHENTICATED_ROOM_TAB_PREWARM=' \
+                "$RUNNER_TEMP/bridge-worker.log" || true
+              echo FAIL_EXISTING_ROOM_TAB_PREWARM_VERIFIED_INCOMPLETE
               exit 1
             fi
             if [ "$i" -eq 210 ]; then
