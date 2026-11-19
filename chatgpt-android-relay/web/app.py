@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 import api_v1
 import drive_v1
 import web_chat
 import chatgpt_accounts
 import integration_api
 import integration_public
+import integration_monitor
 import file_scenario_api
 import bridge_qa_api
 import integration_pairing
@@ -29,6 +31,16 @@ DEMO_QUESTION = "연결 확인 시험입니다. 정확히 HITEL_W2A_OK_20261113�
 DEMO_MARKER = "HITEL_W2A_OK_20261113"
 DEMO_COOLDOWN_MS = 10 * 60 * 1000
 app = FastAPI(title="ChatGPT Android Relay API Test Server", docs_url="/docs", redoc_url=None)
+# GitHub Pages is the independent read-only dashboard frontend.
+# No browser-origin permission is granted for chat writes or account APIs:
+# the monitor route is GET-only and does not read or return chat text.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://lyonbegin.github.io"],
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["Accept","Content-Type"],
+)
 app.include_router(api_v1.router)
 app.include_router(drive_v1.router)
 app.include_router(web_chat.router)
@@ -36,6 +48,7 @@ app.include_router(chatgpt_accounts.router)
 app.include_router(integration_api.browser_router)
 app.include_router(integration_api.router)
 app.include_router(integration_public.router)
+app.include_router(integration_monitor.router)
 app.include_router(file_scenario_api.router)
 app.include_router(bridge_qa_api.router)
 app.include_router(integration_pairing.browser_router)
@@ -224,6 +237,23 @@ def public_chat_page():
                     "default-src 'none'; script-src 'unsafe-inline'; "
                     "style-src 'unsafe-inline'; connect-src 'self'; "
                     "base-uri 'none'; frame-ancestors 'none'"}
+    )
+
+
+@app.get("/integrations/monitor", include_in_schema=False)
+def public_monitor_page():
+    return FileResponse(
+        ROOT / "static" / "integrations-monitor.html",
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control":"no-store",
+            "X-Content-Type-Options":"nosniff",
+            "Referrer-Policy":"no-referrer",
+            "Content-Security-Policy":
+                "default-src 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; connect-src 'self'; "
+                "base-uri 'none'; frame-ancestors 'none'",
+        },
     )
 
 
