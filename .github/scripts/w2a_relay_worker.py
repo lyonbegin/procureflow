@@ -389,6 +389,37 @@ async def run(max_seconds: int = 1500) -> None:
                                 socket.recv(),timeout=max(1,deadline-time.monotonic()))
                             item=json.loads(raw)
                             typ=item.get("type")
+                            if typ=="room.bootstrap":
+                                # The signed Railway server provides actual saved
+                                # conversation URLs, never user-supplied placeholders.
+                                # Open both existing chats in separate vendor OWNED tabs,
+                                # WITHOUT typing, clicking Send, or adding a new turn.
+                                rooms=item.get("rooms",[])
+                                ready=[]
+                                if isinstance(rooms,list) and len(rooms)<=MAX_WORKER_TABS:
+                                    for info in rooms:
+                                        if not isinstance(info,dict):
+                                            continue
+                                        rid,url=info.get("room_id"),info.get("chatgpt_url")
+                                        if not isinstance(rid,str) or not isinstance(url,str):
+                                            continue
+                                        try:
+                                            target=await pool.prewarm(rid,9222,url)
+                                        except Exception as exc:
+                                            code=(str(exc) if isinstance(exc,TabIsolationError)
+                                                  else type(exc).__name__)
+                                            print("FAIL_ROOM_TAB_PREWARM_"+code[:70],flush=True)
+                                            continue
+                                        ready.append({"room_id":rid,"target_id":target})
+                                await socket.send(json.dumps({
+                                    "type":"room.bootstrap.done",
+                                    "ready_rooms":ready,
+                                }))
+                                print("PASS_AUTHENTICATED_ROOM_TAB_PREWARM="
+                                      +str(len(ready))+"/"+str(len(rooms))
+                                      if isinstance(rooms,list) else
+                                      "FAIL_INVALID_ROOM_TAB_BOOTSTRAP",flush=True)
+                                continue
                             if typ=="ping":
                                 await socket.send(json.dumps({"type":"pong"}))
                                 continue
