@@ -101,6 +101,46 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         raw='{"rows":[{"id":1}]}'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
 
+    def test_followup_prewarms_exact_room_before_send(self):
+        import asyncio
+        from unittest.mock import AsyncMock,Mock
+        room="room_"+"a"*32
+        target="abcdefgh-existing-2026"
+        class PinnedPool:
+            def __init__(self):
+                self.calls=[]
+            async def navigate_existing(self,rid,cdp,url):
+                self.calls.append(("navigate",rid,cdp,url))
+                return "target_browser_tab"
+            async def endpoint(self,rid,cdp):
+                self.calls.append(("endpoint",rid,cdp))
+                return "http://127.0.0.1:18311/v1/chat/completions"
+        pool=PinnedPool()
+        def fake_post(text,cid,url,**kw):
+            pool.calls.append(("send",cid))
+            return '{"hitel_v4_smoke":"OK"}',cid
+        job={"id":"job_"+"f"*32,"room_id":room,
+             "action":"chat.send","text":"next turn",
+             "target_conversation_id":target,
+             "target_chatgpt_url":"https://chatgpt.com/c/"+target}
+        with patch.object(worker,"post_chat_uri",side_effect=fake_post):
+            reply=asyncio.run(worker.process_job(job,adapter_pool=pool))
+        self.assertEqual(reply["type"],"job.result")
+        self.assertEqual([x[0] for x in pool.calls],["navigate","endpoint","send"])
+        self.assertEqual(pool.calls[0][1],room)
+        self.assertEqual(pool.calls[0][3],job["target_chatgpt_url"])
+
+    def test_vendor_http500_exposes_safe_stage_not_chat_text(self):
+        import urllib.error
+        body=io.BytesIO(json.dumps({"error":{
+            "message":"Navigation to PRIVATE_CONVERSATION_123 failed after 15s - stage: composer missing",
+            "code":"RuntimeError"
+        }}).encode())
+        exc=urllib.error.HTTPError("http://127.0.0.1:18311",500,"Oops",{},body)
+        safe=worker._safe_vendor_http_error(exc)
+        self.assertEqual(safe,"WEB2API_ADAPTER_HTTP_500_COMPOSER_UNAVAILABLE")
+        self.assertNotIn("PRIVATE_CONVERSATION",safe)
+
     def test_nonjson_answer_unmodified(self):
         raw="이 문장은 일반 자연어 답변입니다."
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
