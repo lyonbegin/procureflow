@@ -118,24 +118,24 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
                 # Deliberate read-only navigation to a previously bound
                 # conversation. NEVER send a new prompt or create a new chat.
                 page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
-                final=urlsplit(page.url)
                 expected=urlsplit(conversation_url)
-                # Same exact conversation path is authoritative. ChatGPT may
-                # attach non-identity search parameters during hydration.
-                if (final.scheme!="https"
-                    or final.hostname not in {"chatgpt.com","www.chatgpt.com"}):
-                    raise TabIsolationError("ROOM_PREWARM_UNTRUSTED_ORIGIN_REDIRECT")
-                if final.path.rstrip("/") != expected.path.rstrip("/"):
-                    if final.path.startswith("/auth") or final.path.startswith("/login"):
-                        code="ROOM_PREWARM_LOGIN_REQUIRED"
-                    elif final.path.rstrip("/") in ("","/"):
-                        code="ROOM_PREWARM_HOME_REDIRECT"
-                    elif final.path.startswith("/c/"):
-                        code="ROOM_PREWARM_OTHER_CONVERSATION"
-                    else:
-                        code="ROOM_PREWARM_DIFFERENT_PATH_REDIRECT"
-                    raise TabIsolationError(code)
-                return target_id
+                # ChatGPT may add a model/query parameter to an unchanged
+                # conversation route. Verify hostname + exact conversation
+                # path instead of rejecting harmless query-string changes.
+                for _ in range(20):
+                    observed=urlsplit(page.url)
+                    if (observed.scheme=="https"
+                        and observed.hostname=="chatgpt.com"
+                        and observed.path.rstrip("/")==expected.path.rstrip("/")):
+                        return target_id
+                    page.wait_for_timeout(500)
+                if observed.hostname!="chatgpt.com":
+                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
+                if observed.path.rstrip("/") in ("","/","/auth/login","/login"):
+                    raise TabIsolationError("ROOM_PREWARM_HOME_OR_LOGIN_REDIRECT")
+                if observed.path.startswith(("/c/","/c2/","/uc/")):
+                    raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
+                raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_CHATGPT_ROUTE")
     raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
 
 
@@ -206,6 +206,24 @@ class RoomTabPool:
             raise
         finally:
             self.unpin(room_id)
+
+    async def navigate_existing(self, room_id: str, cdp_port: int,
+                                conversation_url: str) -> str:
+        """Verify the exact existing conversation BEFORE a follow-up send.
+
+        The room has already been pinned by execute_one. No other room's
+        tabs are touched, and no new ChatGPT message is emitted here.
+        """
+        if room_id not in self._busy_rooms:
+            raise TabIsolationError("ROOM_TAB_NOT_LOCKED")
+        if (not isinstance(conversation_url, str)
+                or not CONVERSATION_URL.fullmatch(conversation_url)):
+            raise TabIsolationError("UNVERIFIED_SAVED_CONVERSATION_URL")
+        await self.endpoint(room_id,cdp_port)
+        slot=self._rooms.get(room_id)
+        if slot is None:
+            raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
+        return await asyncio.to_thread(_navigate_owned_target,slot,conversation_url)
 
     def inspect(self) -> dict[str, tuple[int, int]]:
         # Internal diagnostics only. No room IDs or account identity in logs.

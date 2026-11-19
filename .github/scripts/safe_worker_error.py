@@ -18,7 +18,7 @@ EXACT_SAFE = frozenset({
     "CHROME_CONTEXT_MISSING", "ACCOUNT_PREFLIGHT_UNAVAILABLE",
     "ACCOUNT_PREFLIGHT_DENIED", "WEB2API_HTTP_NOT_200",
 })
-SAFE_VENDOR = re.compile(r"^WEB2API_(?:ADAPTER_HTTP_[45][0-9][0-9]|ADAPTER_TRANSPORT|RESPONSE_JSON_INVALID)$")
+SAFE_VENDOR = re.compile(r"^WEB2API_(?:ADAPTER_HTTP_[45][0-9][0-9](?:_[A-Z0-9_]{1,55})?|ADAPTER_TRANSPORT|RESPONSE_JSON_INVALID)$")
 
 def classify_web2api_failure(exc: Exception) -> str:
     """Return only a fixed code or a standard Python exception class name."""

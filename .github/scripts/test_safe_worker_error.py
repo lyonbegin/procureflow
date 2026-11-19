@@ -22,6 +22,16 @@ class TestSafeWorkerError(unittest.TestCase):
         self.assertEqual(classify(err),"WEB2API_UNCLASSIFIED_RUNTIMEERROR")
     def test_preserve_known_safe_code(self):
         self.assertEqual(classify(ValueError("WEB2API_CHOICES_MISSING")),"WEB2API_CHOICES_MISSING")
+    def test_safe_vendor_http_500_reason_retained(self):
+        self.assertEqual(classify(RuntimeError('WEB2API_ADAPTER_HTTP_500_NAV_DISPLACED')),
+                         'WEB2API_ADAPTER_HTTP_500_NAV_DISPLACED')
+        self.assertEqual(classify(RuntimeError('WEB2API_ADAPTER_HTTP_500_VENDOR_TIMEOUTERROR')),
+                         'WEB2API_ADAPTER_HTTP_500_VENDOR_TIMEOUTERROR')
+
+    def test_private_vendor_text_rejected(self):
+        self.assertEqual(classify(RuntimeError('WEB2API_ADAPTER_HTTP_500_secret=http://private')),
+                         'WEB2API_UNCLASSIFIED_RUNTIMEERROR')
+
     def test_standard_timeout(self):
         self.assertEqual(classify(TimeoutError("private timeout")), "WEB2API_ADAPTER_TIMEOUT")
 
