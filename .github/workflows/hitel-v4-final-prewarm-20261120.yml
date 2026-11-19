@@ -1,0 +1,25 @@
+name: HITEL guarded v4 two-room tab prewarm final manual launch
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-v4-final-prewarm-20261120.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  existing-worker-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch only if no other signed worker is running
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/runs?status=in_progress&per_page=100" --jq '.total_count')"
+          echo "EXISTING_SIGNED_WORKERS=$CURRENT"
+          if (( CURRENT > 0 )); then echo "SKIP_DUPLICATE_WORKER_START"; exit 0; fi
+          gh workflow run hitel-integration-bridge-live-qa.yml \
+            --repo "$GITHUB_REPOSITORY" --ref main \
+            -f operation=worker_only -f run_minutes=240 -f pairing_code=''
+          echo "PASS_ONE_EXISTING_SIGNED_V4_WORKER_DISPATCHED"
