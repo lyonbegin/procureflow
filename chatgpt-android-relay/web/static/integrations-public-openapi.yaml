@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: HITEL public ChatGPT test API (no login, no API key)
+  version: "2.0.0-public-test"
+  description: |
+    Public HTTPS text-chat bridge. Anyone can POST a prompt without an
+    account, token or GitHub login. Each request uses a new isolated ChatGPT
+    conversation. HTTP 202 is queue receipt, not a final answer. File upload,
+    file retrieval and old conversation access are not supported.
+servers:
+  - url: https://hitel-integration-api-production.up.railway.app
+paths:
+  /integrations/v1/public/status:
+    get:
+      summary: Public feature and worker availability
+      operationId: hitelPublicStatus
+      responses:
+        "200":
+          description: Current public service capabilities
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /integrations/v1/public/chat:
+    post:
+      summary: Submit a new ChatGPT question, no login or API key
+      operationId: hitelPublicChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 24000
+                  example: "안녕하세요. 짧게 답변해 주세요."
+                request_id:
+                  type: string
+                  description: Optional retry-safe request identifier (16-128 safe chars)
+                  minLength: 16
+                  maxLength: 128
+                  pattern: '^[A-Za-z0-9_.:-]{16,128}$'
+      responses:
+        "202":
+          description: Prompt queued; GitHub Chrome may autostart
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted,job_id,status,result_url]
+                properties:
+                  accepted: {type: boolean}
+                  replayed: {type: boolean}
+                  request_id: {type: string}
+                  job_id: {type: string, pattern: '^job_[a-f0-9]{32}$'}
+                  status: {type: string}
+                  sent_to_chatgpt: {type: boolean}
+                  worker_connected: {type: boolean}
+                  result_url: {type: string}
+        "409": {description: Reused request_id with different text}
+        "422": {description: Invalid text or request_id}
+        "503": {description: Chrome unavailable and automatic launch not configured}
+  /integrations/v1/public/jobs/{job_id}:
+    get:
+      summary: Poll only a public-link job; never exposes a private room
+      operationId: hitelPublicJobResult
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^job_[a-f0-9]{32}$'
+      responses:
+        "200":
+          description: Queued/running/completed/failed state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: {type: string}
+                  status: {type: string, enum: [queued, running, completed, failed]}
+                  stage: {type: string}
+                  result_text: {type: string, nullable: true}
+                  error: {type: string, nullable: true}
+                  created_at: {type: integer}
+                  updated_at: {type: integer}
+        "404": {description: Job is not a public-link job}
