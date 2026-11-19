@@ -102,7 +102,11 @@ def post_chat_uri(text: str, cid: str | None, api_url: str) -> tuple[str, str]:
         api_url, data=raw, method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=138) as response:
+    # A 138-second HTTP cutoff treated a still-thinking ChatGPT model as a
+    # failed submission. The GitHub worker's authenticated WebSocket heartbeat
+    # continues while this response is pending. Wait for the upstream
+    # completion/explicit error rather than inventing a failure on elapsed time.
+    with urllib.request.urlopen(request, timeout=None) as response:
         if response.status != 200:
             raise RuntimeError("WEB2API_HTTP_NOT_200")
         data = json.load(response)

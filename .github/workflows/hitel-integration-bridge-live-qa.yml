@@ -121,7 +121,34 @@ jobs:
           git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
           git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
           python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          # This is an actual, source-pinned Web2API config path. The old
+          # built-in request=120s and detector=90/120s prematurely failed
+          # valid long reasoning generations. Wait for verified end_turn or
+          # an explicit upstream failure; never fail simply after 150s.
+          # The GitHub Actions job lifetime remains the outer guard.
+          mkdir -p "$HOME/.chatgpt_web2api"
+          cat > "$HOME/.chatgpt_web2api/config.json" <<'W2A_WAIT_JSON'
+          {
+            "request_timeout": 14400,
+            "detector_reasoning_first_content_timeout_seconds": 14400,
+            "detector_reasoning_stream_idle_timeout_seconds": 14400,
+            "detector_default_first_content_timeout_seconds": 14400,
+            "detector_default_stream_idle_timeout_seconds": 14400,
+            "detector_hard_timeout_seconds": 14400
+          }
+          W2A_WAIT_JSON
           python3 -m pip install -q "$ROOT/original"
+          python3 - <<'W2A_WAIT_CHECK'
+          from chatgpt_web2api.config import Config
+          cfg = Config.load()
+          assert cfg.server.request_timeout >= 600, "UPSTREAM_HTTP_WAIT_BELOW_10_MIN"
+          assert cfg.chatgpt.detector_default_first_content_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_reasoning_first_content_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_default_stream_idle_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_reasoning_stream_idle_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_hard_timeout_seconds >= 600
+          print("PASS_CHATGPT_ORIGINAL_WEB2API_LONG_RUNNING_WAIT_CONFIG")
+          W2A_WAIT_CHECK
           chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
             >"$ROOT/web2api.log" 2>&1 &
           for i in $(seq 1 50); do
