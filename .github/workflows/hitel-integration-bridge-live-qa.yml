@@ -87,8 +87,22 @@ jobs:
             "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
             --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
           test -n "$RUN_ID"
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null
+          # GitHub's artifact ZIP gateway occasionally returns HTTP 503.
+          # Retry ONLY this read-only artifact download; never re-send a
+          # ChatGPT question or alter an account/profile.
+          for attempt in $(seq 1 8); do
+            if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null 2>&1; then
+              echo PASS_ENCRYPTED_PROFILE_ARTIFACT_DOWNLOADED
+              break
+            fi
+            if [[ "$attempt" == "8" ]]; then
+              echo FAIL_GITHUB_PROFILE_ARTIFACT_DOWNLOAD_503_OR_UNAVAILABLE
+              exit 1
+            fi
+            echo RETRY_ONLY_ARTIFACT_READ_ATTEMPT=$attempt
+            sleep 10
+          done
           test -s "$ROOT/download/registry.bin"
           test -s "$ROOT/download/account-0001.bin"
           python3 .github/scripts/w2a_profile_crypto.py restore \
