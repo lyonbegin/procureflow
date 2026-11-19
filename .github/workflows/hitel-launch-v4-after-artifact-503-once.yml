@@ -1,0 +1,22 @@
+name: HITEL launch one v4 worker after safe GitHub artifact retry fix
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-launch-v4-after-artifact-503-once.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  one-launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Launch existing manual-only signed worker exactly once
+        run: |
+          set -euo pipefail
+          status="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' --include | head -n 1)"
+          echo "WORKER_DISPATCH=$status"
+          [[ "$status" == *"204"* ]]
+          echo PASS_ONE_SIGNED_V4_WORKER_DISPATCH
