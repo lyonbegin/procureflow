@@ -1,0 +1,106 @@
+name: HITEL | A-shape and Scribd-20-shape ONE-SHOT isolated live contracts
+on:
+  push:
+    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    paths: [.github/workflows/hitel-two-contracts-synthetic-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: hitel-two-synthetic-contracts-20261119
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prompts with the actual A/Scribd source modules
+        run: |
+          git clone -q --depth 1 --branch feature/hitel-a-kg-recovery-20261119 \
+            https://github.com/lyonbegin/autonomous-investor-backend.git stock-a
+          git clone -q --depth 1 --branch feature/hitel-public-ai-batches-20261119 \
+            https://github.com/lyonbegin/hitel-scribd-runner.git scribd
+      - name: Exactly one synthetic A-shaped and one synthetic 20-title request
+        run: |
+          python3 - <<'PY'
+          import json,sys,time,urllib.request,urllib.error
+          from pathlib import Path
+          base="https://hitel-integration-api-production.up.railway.app"
+          sys.path.insert(0,str(Path("stock-a/research").resolve()))
+          import hitel_a_one_source as A
+          sys.path.insert(0,str(Path("scribd/tools/zocbo").resolve()))
+          import hitel_public_named_rooms_corpus as B
+          synthetic_A={"source_id":"SYNTHETIC_A_ONLY","group":"A",
+                      "title":"Synthetic educational example, no real asset",
+                      "description_preview":"A synthetic random coin flips rule, no finance or trade execution",
+                      "pine_source_status":"NOT_VERIFIED"}
+          synthetic_B=[{"번호":i,"문서 ID":"SYNTH_DOC_%03d"%i,
+                        "원문 제목":"중학교 1학년 1학기 수학 연습문제 테스트 "+str(i)}
+                       for i in range(1,21)]
+          suites=[
+              ("A", "HITEL-RECOVERY-CONTRACT-A-SYNTH-20261119",
+               "hitel-recovery-a-synth-20261119-unchanged",
+               A.discovery_prompt(synthetic_A),
+               lambda x: x.get("source_id")=="SYNTHETIC_A_ONLY" and isinstance(x.get("cases"),list)),
+              ("SCRIBD20", "HITEL-RECOVERY-CONTRACT-SCRIBD20-SYNTH-20261119",
+               "hitel-recovery-b-synth-20261119-unchanged",
+               B.title_prompt(synthetic_B),
+               lambda x: isinstance(x.get("rows"),list) and
+                 len(B.validated_rows(json.dumps(x,ensure_ascii=False),synthetic_B))==20),
+          ]
+          def req(path,payload=None):
+              raw=json.dumps(payload,ensure_ascii=False).encode() if payload is not None else None
+              request=urllib.request.Request(base+path,data=raw,
+                 headers={"Content-Type":"application/json"})
+              with urllib.request.urlopen(request,timeout=30) as resp:
+                  return resp.status,json.load(resp)
+          failures=[]
+          for kind,room,key,prompt,validate in suites:
+              print("START_SYNTHETIC_CONTRACT",kind,"prompt_len",len(prompt),flush=True)
+              available=False
+              for attempt in range(80):
+                  _,status=req("/integrations/v1/public/status")
+                  if status.get("worker_available_for_new_job"):
+                      available=True
+                      break
+                  time.sleep(3)
+              if not available:
+                  print("FAIL_WORKER_BUSY",kind,flush=True)
+                  failures.append(kind+":worker_unavailable")
+                  continue
+              try:
+                  sc,submitted=req("/integrations/v1/public/chat",{
+                    "room_name":room,"request_id":key,"text":prompt})
+                  assert sc==202 and submitted["accepted"] and submitted["job_id"]
+                  print("SUBMITTED_SYNTHETIC_ONCE",kind,submitted["job_id"],
+                        "replayed",submitted["replayed"],flush=True)
+                  jid=submitted["job_id"]
+                  state=None
+                  for n in range(95):
+                      _,state=req("/integrations/v1/public/jobs/"+jid)
+                      if state["status"] in ("completed","failed"):
+                          break
+                      time.sleep(3)
+                  if state["status"]=="failed":
+                      err=str(state.get("error") or "UNKNOWN")[:110]
+                      print("FAIL_SYNTHETIC_WEB2API",kind,err,flush=True)
+                      failures.append(kind+":"+err)
+                  elif state["status"]=="completed":
+                      reply=A.parse_json(state.get("result_text"))
+                      valid=validate(reply)
+                      print("SYNTHETIC_CONTRACT_REPLY",kind,"JSON_VALID",valid,
+                            "reply_chars",len(state.get("result_text") or ""),flush=True)
+                      if not valid:
+                          failures.append(kind+":invalid_contract_reply")
+                  else:
+                      print("FAIL_SYNTHETIC_STILL_PENDING",kind,jid,flush=True)
+                      failures.append(kind+":still_pending")
+              except Exception as e:
+                  # Only exception CLASS and suite, never response/chat content.
+                  print("FAIL_SYNTHETIC_EXCEPTION",kind,type(e).__name__,flush=True)
+                  failures.append(kind+":"+type(e).__name__)
+          if failures:
+              print("SYNTHETIC_CONTRACT_FAILURE_CLASSES",failures,flush=True)
+              raise SystemExit(1)
+          print("PASS_BOTH_ACTUAL_A_AND_SCRIBD20_RESPONSE_CONTRACTS_NO_BUSINESS_POST")
+          PY
