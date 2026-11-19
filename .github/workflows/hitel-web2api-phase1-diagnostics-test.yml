@@ -1,7 +1,7 @@
 name: HITEL | pinned Web2API phase-1 and 500 diagnosis regression
 on:
   push:
-    branches: [fix/hitel-web2api-phase1-500-diagnostics-20261119]
+    branches: [fix/hitel-ws-job-owned-direct-reply-20261119]
     paths:
       - .github/scripts/w2a_patch_vendor_dom.py
       - .github/scripts/safe_worker_error.py
@@ -46,5 +46,14 @@ jobs:
           assert '"code": type(exc).__name__' in api
           assert '"subcode":' in api and '"anchor_mode":' in api
           assert 'not new_conversation' in api
+          driver=Path('vendor/src/chatgpt_web2api/cdp_driver.py').read_text()
+          send=driver.split('    async def send_and_stream(',1)[1].split('    async def _fetch_text_for_turn(',1)[0]
+          assert 'WEB2API_CONVERSATION_ID_MISSING_AFTER_SEND' in send
+          assert 'WEB2API_ASSISTANT_REPLY_MISSING_AFTER_SEND' in send
+          assert 'self._fetch_text_for_turn(conv_id, turn_anchor)' not in send
+          assert 'TurnReconciliationError(' not in send
+          assert 'stream_until_complete(' in send
+          assert 'self._current_conv_id = conv_id' in send
+          print('PASS_CHATGPT_REPLY_DELIVERED_WITHOUT_REDUNDANT_CONTENT_RECONCILIATION')
           print('PASS_VENDOR_PINNED_PHASE1_AND_500_CLASS_PATCH')
           PY
