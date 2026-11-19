@@ -207,6 +207,24 @@ class RoomTabPool:
         finally:
             self.unpin(room_id)
 
+    async def navigate_existing(self, room_id: str, cdp_port: int,
+                                conversation_url: str) -> str:
+        """Verify the exact existing conversation BEFORE a follow-up send.
+
+        The room has already been pinned by execute_one. No other room's
+        tabs are touched, and no new ChatGPT message is emitted here.
+        """
+        if room_id not in self._busy_rooms:
+            raise TabIsolationError("ROOM_TAB_NOT_LOCKED")
+        if (not isinstance(conversation_url, str)
+                or not CONVERSATION_URL.fullmatch(conversation_url)):
+            raise TabIsolationError("UNVERIFIED_SAVED_CONVERSATION_URL")
+        await self.endpoint(room_id,cdp_port)
+        slot=self._rooms.get(room_id)
+        if slot is None:
+            raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
+        return await asyncio.to_thread(_navigate_owned_target,slot,conversation_url)
+
     def inspect(self) -> dict[str, tuple[int, int]]:
         # Internal diagnostics only. No room IDs or account identity in logs.
         return {key: (value.cdp_port, value.api_port)
