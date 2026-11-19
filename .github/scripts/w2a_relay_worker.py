@@ -120,7 +120,6 @@ def parse_web2api_response(response: dict[str, Any], target: str | None) -> tupl
         raise ValueError("WEB2API_ASSISTANT_REPLY_MISSING")
     if len(answer.encode("utf-8")) > MAX_REPLY_BYTES:
         raise ValueError("WEB2API_ASSISTANT_REPLY_TOO_LARGE")
-        raise ValueError("WEB2API_ASSISTANT_REPLY_MISSING")
     cid = response.get("conversation_id")
     if not isinstance(cid, str) or not CONVERSATION_ID.fullmatch(cid):
         raise ValueError("WEB2API_CONVERSATION_ID_MISSING")
@@ -134,7 +133,7 @@ def post_chat_uri(text: str, cid: str | None, api_url: str,
     trusted_legacy = api_url in (CHAT_API,CHAT_API_B)
     trusted_room = bool(
         internal_owned_room
-        and re.fullmatch(r"http://127\\.0\\.0\\.1:[1-9][0-9]{1,4}/v1/chat/completions",api_url)
+        and re.fullmatch(r"http://127\.0\.0\.1:[1-9][0-9]{1,4}/v1/chat/completions",api_url)
     )
     if not trusted_legacy and not trusted_room:
         raise ValueError("REFUSE_UNTRUSTED_CHAT_API")
