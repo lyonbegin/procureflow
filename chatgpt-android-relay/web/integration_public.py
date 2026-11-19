@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 import api_v1
 import worker_autostart
+import long_job_events
 
 router=APIRouter(prefix="/integrations/v1/public",tags=["HITEL public named rooms"])
 USER_ID="usr_browser_hitel_public_link"
@@ -51,6 +52,9 @@ with api_v1.connection() as db:
     )""")
     db.execute("""CREATE INDEX IF NOT EXISTS idx_hitel_public_named_room_id
                   ON hitel_public_named_rooms(room_id)""")
+
+
+long_job_events.initialize()
 
 
 class PublicRoom(BaseModel):
@@ -263,25 +267,87 @@ async def submit_public_chat(payload:PublicChat):
     }
 
 
-@router.get("/jobs/{job_id}")
-def read_public_result(job_id:str):
+@router.get("/jobs/{job_id}/result")
+def read_public_result_bytes(job_id:str, offset:int=0, limit:int=65536):
+    """Return immutable UTF-8 byte chunks as Base64, never re-query ChatGPT."""
     if not JOB_ID.fullmatch(job_id):
         raise HTTPException(404,"Unknown public job")
-    with api_v1.connection() as db:
-        row=db.execute("""SELECT j.id,j.room_id,r.title AS room_name,j.status,
-                      j.stage,j.result_text,j.error,j.created_at,j.updated_at
-                 FROM jobs j
-                 JOIN rooms r ON r.id=j.room_id AND r.user_id=j.user_id
-                 JOIN hitel_public_link_requests p ON p.job_id=j.id
-                 WHERE j.id=? AND j.user_id=? AND j.account_id IS NULL""",
-                 (job_id,USER_ID)).fetchone()
+    row=long_job_events.job_row(job_id)
     if row is None:
         raise HTTPException(404,"Unknown public job")
+    if row["status"]!="completed" or row["result_text"] is None:
+        raise HTTPException(409,"Final assistant reply not yet verified")
+    try:
+        chunk=long_job_events.result_slice(row["result_text"],offset,limit)
+    except ValueError as exc:
+        raise HTTPException(416,str(exc)) from exc
+    return {"job_id":job_id,"request_id":row["request_id"],"room_id":row["room_id"],
+            "content_encoding":"base64","byte_encoding":"utf-8",**chunk}
+
+
+@router.get("/jobs/{job_id}")
+def read_public_result(job_id:str):
+    """Read-only, observation-based state; GET never triggers a ChatGPT turn."""
+    if not JOB_ID.fullmatch(job_id):
+        raise HTTPException(404,"Unknown public job")
+    row=long_job_events.job_row(job_id)
+    if row is None:
+        raise HTTPException(404,"Unknown public job")
+    from app import (web2api_device, web2api_last_seen_monotonic,active_job_id)
+    connected=web2api_device is not None
+    heartbeat_age=(time.monotonic()-web2api_last_seen_monotonic
+                   if connected and web2api_last_seen_monotonic>0 else None)
+    heartbeat_recent=bool(heartbeat_age is not None and heartbeat_age<=75)
+    original_status=row["status"]
+    stage=row["stage"]
+    if stage=="server_restarted":
+        status="unknown"
+        error_code="SERVER_RESTARTED_DELIVERY_UNKNOWN"
+    elif stage=="connection_lost":
+        status="stalled"
+        error_code="WORKER_CONNECTION_LOST"
+    elif original_status=="running" and (not heartbeat_recent or active_job_id!=job_id):
+        status="stalled"
+        error_code="WORKER_NOT_ACTIVE_FOR_JOB"
+    elif original_status in ("queued","running","completed","failed","stalled","unknown"):
+        status=original_status
+        error_code=None
+    else:
+        status="unknown"
+        error_code="UNRECOGNIZED_STORED_STATUS"
+    if row["error_code"]:
+        error_code=row["error_code"]
+    if status=="failed" and not error_code:
+        error_code="WORKER_REPORTED_FAILURE"
+    result_ready=status=="completed" and row["result_text"] is not None
+    meta=long_job_events.result_metadata(row["result_text"]) if result_ready else {
+        "result_length_bytes":None,"result_sha256":None,
+        "result_json_valid":None,"result_json_complete":None,
+        "result_chunk_count":None}
+    send_confirmed=(bool(row["chatgpt_send_confirmed"])
+                    if row["chatgpt_send_confirmed"] is not None else
+                    True if result_ready and stage=="assistant_reply_stable" else None)
+    reply_observed=(bool(row["assistant_reply_observed"])
+                    if row["assistant_reply_observed"] is not None else
+                    True if result_ready else None)
     return {
-        "job_id":row["id"],"room_id":row["room_id"],
-        "room_name":row["room_name"],"status":row["status"],
-        "stage":row["stage"],
-        "result_text":row["result_text"] if row["status"]=="completed" else None,
-        "error":row["error"] if row["status"]=="failed" else None,
+        "job_id":job_id,"request_id":row["request_id"],
+        "room_id":row["room_id"],"room_name":row["room_name"],
+        "status":status,
+        "stage":("completed" if result_ready else
+                 row["event_stage"] if status=="running" and row["event_stage"]
+                 else stage),
+        "worker_connected":connected,
+        "worker_heartbeat_at":row["worker_heartbeat_at"],
+        "job_last_progress_at":row["job_last_progress_at"],
+        "chatgpt_send_confirmed":send_confirmed,
+        "assistant_reply_observed":reply_observed,
+        "result_ready":result_ready,
+        "result_url":"/integrations/v1/public/jobs/"+job_id+"/result" if result_ready else None,
         "created_at":row["created_at"],"updated_at":row["updated_at"],
+        "error_code":error_code,
+        "error_stage":(row["error_stage"] or stage) if error_code else None,
+        "error":row["error"] if original_status=="failed" else None,
+        "result_text":row["result_text"] if result_ready and meta["result_length_bytes"]<=65536 else None,
+        **meta,
     }
