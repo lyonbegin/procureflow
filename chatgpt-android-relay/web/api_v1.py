@@ -786,7 +786,7 @@ def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = Fa
         filters = [
             "status='queued'",
             "NOT EXISTS (SELECT 1 FROM jobs AS busy"
-            " WHERE busy.room_id=jobs.room_id AND busy.status='running')",
+            " WHERE busy.room_id=jobs.room_id AND busy.status IN ('running','unknown','stalled'))",
         ]
         args = []
         if not allow_account_bound:
