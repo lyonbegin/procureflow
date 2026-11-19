@@ -328,11 +328,12 @@ async def run(max_seconds: int = 1500) -> None:
 
                         async def execute_one(job):
                             jid,rid=job["id"],job["room_id"]
-                            await socket.send(json.dumps({
-                                "type":"job.received","job_id":jid,
-                                "room_id":rid,"stage":"web2api_received",
-                            }))
+                            pool.pin(rid)
                             try:
+                                await socket.send(json.dumps({
+                                    "type":"job.received","job_id":jid,
+                                    "room_id":rid,"stage":"web2api_received",
+                                }))
                                 result=await process_job(
                                     job,account_preflight=account_preflight,
                                     adapter_pool=pool)
@@ -355,6 +356,8 @@ async def run(max_seconds: int = 1500) -> None:
                                              "WEB2API_ADAPTER_HTTP_504"}
                                     or code.startswith("ROOM_TAB_DISCONNECTED")
                                 )
+                                if uncertain:
+                                    pool.quarantine(rid)
                                 await socket.send(json.dumps({
                                     "type":"job.uncertain" if uncertain else "job.error",
                                     "job_id":jid,"room_id":rid,
@@ -367,6 +370,7 @@ async def run(max_seconds: int = 1500) -> None:
                                 await socket.send(json.dumps(result,ensure_ascii=False))
                                 print("PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED",flush=True)
                             finally:
+                                pool.unpin(rid)
                                 active.pop(jid,None)
 
                         while time.monotonic() < deadline:
