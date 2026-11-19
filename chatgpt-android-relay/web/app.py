@@ -109,8 +109,9 @@ async def dispatch_next():
                         action=job["action"], user_id=job["user_id"], worker="web2api"))
                     asyncio.create_task(job_timeout(jid))
                 except Exception:
-                    api_v1.release_running_job(
-                        jid, "Web2API connection interrupted; delivery unknown; no retry")
+                    api_v1.update_job(
+                        jid,status="unknown",stage="worker_transport_interrupted",
+                        error="Web2API transport interrupted; delivery unconfirmed; no retry")
                     long_job_events.observe(
                         jid, "worker_transport_interrupted",
                         error_code="WORKER_CONNECTION_LOST", error_stage="dispatch")
@@ -494,8 +495,9 @@ async def socket(ws: WebSocket):
                 old_worker = web2api_device
                 web2api_device = ws
                 for jid in list(web2api_active_jobs):
-                    api_v1.release_running_job(
-                        jid, "Chrome worker session replaced; delivery unknown; no retry")
+                    api_v1.update_job(
+                        jid,status="unknown",stage="worker_replaced",
+                        error="Chrome worker replaced; delivery unconfirmed; no retry")
                     long_job_events.observe(jid, "worker_replaced",
                         error_code="WORKER_CONNECTION_LOST",error_stage="worker_replaced")
                     web2api_active_jobs.pop(jid, None)
@@ -817,8 +819,9 @@ async def socket(ws: WebSocket):
         elif role == "web2api" and web2api_device is ws:
             web2api_device = None
             for jid in list(web2api_active_jobs):
-                api_v1.release_running_job(
-                    jid,"GitHub Chrome disconnected; delivery unknown; no retry")
+                api_v1.update_job(
+                    jid,status="unknown",stage="connection_lost",
+                    error="GitHub Chrome disconnected; delivery unconfirmed; no retry")
                 long_job_events.observe(
                     jid,"worker_connection_lost",
                     error_code="WORKER_CONNECTION_LOST",error_stage="connection_lost")
