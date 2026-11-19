@@ -41,7 +41,7 @@ permissions:
 # Increment this group when the websocket/Chrome protocol is upgraded;
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
-  group: hitel-real-bridge-live-qa-direct-ws-job-reply-v11
+  group: hitel-real-bridge-live-qa-direct-ws-job-reply-v12
   cancel-in-progress: false
 
 jobs:
@@ -71,14 +71,20 @@ jobs:
         id: chrome
         with:
           chrome-version: stable
-          install-dependencies: true
+          install-dependencies: false
 
       - name: Restore pre-registered encrypted account 1
         run: |
           set -euo pipefail
           python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0 websockets==13.1
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          # GitHub ubuntu-24.04 image already provides Xvfb. Reinstalling
+          # unrelated Mesa/GBM packages made the previously signed Chrome
+          # worker fail whenever the Ubuntu mirror briefly timed out.
+          if ! command -v Xvfb >/dev/null 2>&1; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          fi
+          command -v Xvfb
           ROOT="$RUNNER_TEMP/w2a-check"
           mkdir -p "$ROOT/download"
           RUN_ID="$(gh api \
@@ -264,6 +270,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile qa/.github/scripts/w2a_worker_fallback.py
+          # Also run safely if setup-chrome failed before the main pip step.
+          python3 -m pip install -q websockets==13.1
           python3 qa/.github/scripts/w2a_worker_fallback.py
 
       - name: Sanitize and summarize actual transport evidence
