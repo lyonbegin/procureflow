@@ -273,7 +273,7 @@ async def public_integration_reference():
 
 @app.get("/integrations/openapi.yaml", include_in_schema=False)
 async def public_integration_openapi():
-    return FileResponse(ROOT / "static" / "integrations-openapi.yaml",
+    return FileResponse(ROOT / "static" / "integrations-public-openapi.yaml",
                         media_type="application/yaml",
                         headers={"X-Content-Type-Options":"nosniff"})
 
