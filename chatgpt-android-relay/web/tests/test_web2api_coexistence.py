@@ -38,7 +38,7 @@ class WorkerCoexistence(unittest.TestCase):
                 self.assertEqual(android.receive_json()["type"],"auth.ok")
                 with client.websocket_connect("/ws") as browser:
                     browser.send_json({"role":"web2api","deviceId":"web2api-main",
-                                       "oidc_token":"signed-simulation"})
+                                       "oidc_token":"signed-simulation","hitel_protocol_version":2})
                     self.assertEqual(browser.receive_json()["type"],"auth.ok")
                     health=client.get("/health").json()
                     self.assertTrue(health["deviceOnline"])
