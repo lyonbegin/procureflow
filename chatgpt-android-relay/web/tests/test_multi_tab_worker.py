@@ -1,5 +1,7 @@
 """Synthetic room-tab isolation contract; no logged-in Chrome or AI writes."""
 import asyncio
+import ast
+import tempfile
 import os
 import sys
 import unittest
@@ -14,6 +16,33 @@ ROOM_A="room_"+"a"*32
 ROOM_B="room_"+"b"*32
 ROOM_C="room_"+"c"*32
 ROOM_D="room_"+"d"*32
+
+class VendorEditorCompatibilityTest(unittest.TestCase):
+    def test_pinned_vendor_live_role_textbox_selector_patch(self):
+        # Extract the pure helper as AST to avoid installing account/browser
+        # dependencies merely for source patch testing.
+        worker=SCRIPT_DIR/"w2a_relay_worker.py"
+        ast_tree=ast.parse(worker.read_text(encoding="utf-8"))
+        fn=next(n for n in ast_tree.body if isinstance(n,ast.FunctionDef)
+                and n.name=="ensure_live_vendor_composer_selector")
+        scope={"Path":Path}
+        exec(compile(ast.Module(body=[fn],type_ignores=[]),str(worker),"exec"),scope)
+        patcher=scope[fn.name]
+        old='COMPOSER_SELECTOR = \\'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror\\''
+        with tempfile.TemporaryDirectory() as work:
+            path=Path(work)/"chatgpt_dom.py"
+            path.write_text(old+"\\n",encoding="utf-8")
+            patcher(path)
+            changed=path.read_text(encoding="utf-8")
+            self.assertIn('[role="textbox"][contenteditable]',changed)
+            self.assertNotIn('div[role="textbox"].ProseMirror\\'\\n',changed)
+            patcher(path)  # idempotent
+            self.assertEqual(path.read_text(encoding="utf-8"),changed)
+            path.write_text("COMPOSER_SELECTOR = 'unreviewed'\\n",encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"REFUSE_UNKNOWN"):
+                patcher(path)
+        print("PASS_VENDOR_LIVE_EDITOR_FALLBACK_PATCH_IDEMPOTENT_FAIL_CLOSED",flush=True)
+
 
 class FakeProcess:
     def __init__(self):
