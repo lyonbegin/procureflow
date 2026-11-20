@@ -91,6 +91,31 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/gptweb2api-direct" ./cmd/gptweb2api
           test -x "$RUNNER_TEMP/gptweb2api-direct"
           echo "PASS_BROWSERLESS_GO_GATEWAY_BUILD_AND_UPSTREAM_TESTS"
+      - name: Real Go binary HTTP loopback smoke without credentials or user traffic
+        run: |
+          set -euo pipefail
+          export GPTWEB_API_KEY=local-only-offline-qa-key
+          "$RUNNER_TEMP/gptweb2api-direct" >"$RUNNER_TEMP/gptweb2api-offline.log" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" = 30 ]; then echo FAIL_LOCAL_HTTP_BOOT; exit 1; fi
+            sleep 1
+          done
+          STATUS="$(curl -sS -o "$RUNNER_TEMP/readyz.json" -w '%{http_code}' http://127.0.0.1:8787/readyz)"
+          test "$STATUS" = 503
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'readyz.json'
+          obj=json.loads(p.read_text())
+          assert obj.get('ready') is False
+          assert obj.get('checks',{}).get('browser_transport_configured') is False
+          print('PASS_ACTUAL_BROWSERLESS_GO_HTTP_NO_CREDENTIAL_FAIL_CLOSED')
+          PY
       - name: Validate existing OAuth credentials only for manual readonly/serve
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'offline' }}
         env:
