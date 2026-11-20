@@ -235,12 +235,12 @@ async def browser():
                 if "Chat error:" not in line and "SendReadinessError:" not in line:
                     continue
                 msg=line.split("Chat error:",1)[-1] if "Chat error:" in line else line.split("SendReadinessError:",1)[-1]
-                msg=re.sub(r"https?://[^\\s]+","<URL>",msg)
+                msg=re.sub(r"https?://[^\s]+","<URL>",msg)
                 msg=re.sub(r"[A-Za-z0-9_.%+-]+@[A-Za-z0-9.-]+","<EMAIL>",msg)
                 msg=re.sub(r"room_[a-f0-9]{32}","<ROOM>",msg)
-                msg=re.sub(r"\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b","<CID>",msg,re.I)
+                msg=re.sub(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b","<CID>",msg,re.I)
                 msg=re.sub(r"HITEL_QA_[A-Z0-9_]+","<QA_TOKEN>",msg)
-                msg=re.sub(r"[^\\x20-\\x7e가-힣]","?",msg)
+                msg=re.sub(r"[^\x20-\x7e가-힣]","?",msg)
                 safe_errors.append(msg.strip()[:230])
         print("VENDOR_QA_SANITIZED_FAILURE_REASONS="+json.dumps(safe_errors[-8:],ensure_ascii=False),flush=True)
     try:
