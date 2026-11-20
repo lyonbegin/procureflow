@@ -34,6 +34,15 @@ jobs:
       - name: Both independent agents send 24 different questions over persistent WebSockets
         run: |
           python3 -m unittest discover -s tests -p 'test_hitel_agent_persistent_ws.py' -v
+      - name: Checkout current existing Web2API room-tab worker for regression only
+        uses: actions/checkout@v4
+        with:
+          ref: fix/hitel-room-tab-isolation-20261120
+          path: worker-qa
+      - name: Verify protected four-slot vendor boot + composer lifecycle
+        run: |
+          python3 -m pip install -q websockets==13.1
+          python3 -m unittest discover -s worker-qa/chatgpt-android-relay/web/tests -p 'test_multi_tab_worker.py' -v
       - name: Truthful scope
         if: always()
         run: |
