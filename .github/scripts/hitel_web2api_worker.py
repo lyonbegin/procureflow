@@ -202,7 +202,11 @@ def _safe_vendor_http_error(exc: urllib.error.HTTPError) -> str:
         code=""
         message=""
     message=message if isinstance(message,str) else ""
-    if "projection HTTP 429" in message or "rate limit" in message.lower():
+    if "projection HTTP 429" in message:
+        # Read-only transcript projection was throttled; this does not prove
+        # the ChatGPT message submission or the Pro plan was rate-limited.
+        suffix="CONVERSATION_READ_429"
+    elif "rate limit" in message.lower():
         suffix="UPSTREAM_RATE_LIMITED"
     elif "nav_displaced" in message:
         suffix="NAV_DISPLACED"
