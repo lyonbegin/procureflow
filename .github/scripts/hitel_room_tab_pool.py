@@ -243,6 +243,10 @@ class RoomTabPool:
                 raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
             target_id=await asyncio.to_thread(
                 _navigate_owned_target,slot,conversation_url)
+            # The vendor-owned tab may have been blank while the adapter
+            # process started. Require a real editable composer only AFTER
+            # navigating this exact owned target to the saved conversation.
+            await self._wait_composer(slot.api_port)
             self._protected_rooms.add(room_id)
             return target_id
         except TabIsolationError:
@@ -268,7 +272,9 @@ class RoomTabPool:
         slot=self._rooms.get(room_id)
         if slot is None:
             raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
-        return await asyncio.to_thread(_navigate_owned_target,slot,conversation_url)
+        target_id=await asyncio.to_thread(_navigate_owned_target,slot,conversation_url)
+        await self._wait_composer(slot.api_port)
+        return target_id
 
     def inspect(self) -> dict[str, tuple[int, int]]:
         # Internal diagnostics only. No room IDs or account identity in logs.
@@ -290,8 +296,8 @@ class RoomTabPool:
                     # The tab may still be generating an answer in Chrome.
                     # NEVER silently create a new tab and resend a question.
                     raise TabIsolationError("ROOM_TAB_PROCESS_EXITED_NO_RETRY")
-                if not await self._ready(existing.api_port):
-                    raise TabIsolationError("ROOM_TAB_DISCONNECTED_NO_RETRY")
+                if not await self._boot_ready(existing.api_port):
+                    raise TabIsolationError("ROOM_TAB_DRIVER_DISCONNECTED_NO_RETRY")
                 return existing.chat_endpoint
 
             if len(self._rooms) >= self.max_rooms:
@@ -334,13 +340,30 @@ class RoomTabPool:
             while time.monotonic() < deadline:
                 if process.returncode is not None:
                     raise TabIsolationError("ROOM_TAB_STARTUP_EXITED")
-                if await self._ready(port):
+                # Startup verifies only the CDP driver. An owned tab cannot
+                # be expected to display a ChatGPT composer BEFORE navigation
+                # to its saved room; the old check caused a 0/2 prewarm loop.
+                if await self._boot_ready(port):
                     return slot.chat_endpoint
                 await asyncio.sleep(1)
-            raise TabIsolationError("ROOM_TAB_NOT_READY_NO_FALLBACK")
+            raise TabIsolationError("ROOM_TAB_DRIVER_NOT_READY_NO_FALLBACK")
+
+    @staticmethod
+    async def _boot_ready(port: int) -> bool:
+        try:
+            data = await asyncio.to_thread(_health, port)
+        except (OSError, ValueError, KeyError):
+            return False
+        return (
+            isinstance(data, dict)
+            and data.get("chrome_running") is True
+            and data.get("driver_connected") is True
+            and data.get("status") in ("healthy", "starting")
+        )
 
     @staticmethod
     async def _ready(port: int) -> bool:
+        """Ready for a SEND, not merely a connected driver."""
         try:
             data = await asyncio.to_thread(_health, port)
         except (OSError, ValueError, KeyError):
@@ -352,6 +375,18 @@ class RoomTabPool:
             and data.get("composer_ready") is True
             and data.get("status") in ("healthy", "starting")
         )
+
+    async def _wait_composer(self, port: int) -> None:
+        """Fail-closed after navigation if the owned ChatGPT editor is absent.
+
+        Never retry a send or navigate another tab. No prompt text is logged.
+        """
+        deadline=time.monotonic()+50
+        while time.monotonic()<deadline:
+            if await self._ready(port):
+                return
+            await asyncio.sleep(1)
+        raise TabIsolationError("ROOM_OWNED_COMPOSER_NOT_READY_AFTER_NAVIGATION")
 
     async def close(self) -> None:
         async with self._lock:
