@@ -113,6 +113,56 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(any(p.stopped for p in created))
             await pool.close()
 
+    def test_owned_target_already_on_exact_conversation_never_reloads(self):
+        import io,json,tempfile
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_navigate_owned_target
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp);(home/".chatgpt_web2api").mkdir()
+            instance="hitel-room-synthetic-9222"; target="ABCDEF1234567890"
+            (home/".chatgpt_web2api"/"owned_tabs.json").write_text(
+                json.dumps({instance:{"target_id":target}}))
+            tab={"id":target,"type":"page","url":"https://chatgpt.com/c/"+"a"*32,
+                 "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
+            process=FakeProcess()
+            slot=RoomTab(ROOM_A,9222,18321,instance,process,0)
+            with patch("hitel_room_tab_pool.Path.home",return_value=home),\
+                 patch("hitel_room_tab_pool.urllib.request.urlopen",
+                       return_value=io.BytesIO(json.dumps([tab]).encode())) as urlopen,\
+                 patch("websockets.sync.client.connect",
+                       side_effect=AssertionError("MUST_NOT_NAVIGATE")):
+                self.assertEqual(
+                    _navigate_owned_target(slot,"https://chatgpt.com/c/"+"a"*32),target)
+                urlopen.assert_called_once()
+
+    def test_owned_target_wrong_conversation_navigates_exact_target_only(self):
+        import io,json,tempfile
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_navigate_owned_target
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp);(home/".chatgpt_web2api").mkdir()
+            instance="hitel-room-test-9222"; target="FEDCBA9876543210"
+            (home/".chatgpt_web2api"/"owned_tabs.json").write_text(
+                json.dumps({instance:{"target_id":target}}))
+            new_url="https://chatgpt.com/c/"+"a"*32
+            old={"id":target,"type":"page","url":"https://chatgpt.com/c/"+"b"*32,
+                 "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
+            new={**old,"url":new_url}
+            responses=iter([io.BytesIO(json.dumps([old]).encode()),
+                            io.BytesIO(json.dumps([new]).encode())])
+            socket=MagicMock()
+            socket.__enter__.return_value=socket
+            socket.recv.return_value=json.dumps({"id":41,"result":{"frameId":"frame"}})
+            slot=RoomTab(ROOM_A,9222,18322,instance,FakeProcess(),0)
+            with patch("hitel_room_tab_pool.Path.home",return_value=home),\
+                 patch("hitel_room_tab_pool.urllib.request.urlopen",side_effect=lambda *a,**k:next(responses)),\
+                 patch("websockets.sync.client.connect",return_value=socket) as conn:
+                self.assertEqual(_navigate_owned_target(slot,new_url),target)
+            conn.assert_called_once()
+            transmitted=json.loads(socket.send.call_args[0][0])
+            self.assertEqual(transmitted["method"],"Page.navigate")
+            self.assertEqual(transmitted["params"]["url"],new_url)
+
     async def test_health_must_confirm_real_usable_composer(self):
         healthy={"chrome_running":True,"driver_connected":True,"status":"healthy"}
         pool=RoomTabPool()
