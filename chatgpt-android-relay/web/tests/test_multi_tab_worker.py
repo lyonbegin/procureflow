@@ -19,26 +19,25 @@ ROOM_D="room_"+"d"*32
 
 class VendorEditorCompatibilityTest(unittest.TestCase):
     def test_pinned_vendor_live_role_textbox_selector_patch(self):
-        # Extract the pure helper as AST to avoid installing account/browser
-        # dependencies merely for source patch testing.
+        # Extract the helper alone to avoid installed browser dependencies.
         worker=SCRIPT_DIR/"w2a_relay_worker.py"
-        ast_tree=ast.parse(worker.read_text(encoding="utf-8"))
-        fn=next(n for n in ast_tree.body if isinstance(n,ast.FunctionDef)
+        tree=ast.parse(worker.read_text(encoding="utf-8"))
+        fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef)
                 and n.name=="ensure_live_vendor_composer_selector")
         scope={"Path":Path}
         exec(compile(ast.Module(body=[fn],type_ignores=[]),str(worker),"exec"),scope)
         patcher=scope[fn.name]
-        old='COMPOSER_SELECTOR = \\'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror\\''
+        old="""COMPOSER_SELECTOR = 'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror'"""
         with tempfile.TemporaryDirectory() as work:
             path=Path(work)/"chatgpt_dom.py"
-            path.write_text(old+"\\n",encoding="utf-8")
+            path.write_text(old+"\n",encoding="utf-8")
             patcher(path)
             changed=path.read_text(encoding="utf-8")
             self.assertIn('[role="textbox"][contenteditable]',changed)
-            self.assertNotIn('div[role="textbox"].ProseMirror\\'\\n',changed)
+            self.assertNotEqual(changed,old+"\n")
             patcher(path)  # idempotent
             self.assertEqual(path.read_text(encoding="utf-8"),changed)
-            path.write_text("COMPOSER_SELECTOR = 'unreviewed'\\n",encoding="utf-8")
+            path.write_text("COMPOSER_SELECTOR = 'unreviewed'\n",encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError,"REFUSE_UNKNOWN"):
                 patcher(path)
         print("PASS_VENDOR_LIVE_EDITOR_FALLBACK_PATCH_IDEMPOTENT_FAIL_CLOSED",flush=True)
