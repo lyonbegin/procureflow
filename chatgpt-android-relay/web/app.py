@@ -66,7 +66,7 @@ active_job_transport: str | None = None
 # Internal multi-tab dispatch: each in-flight Web2API request belongs to ONE room.
 # The native Android device retains its independent legacy active_job_id.
 web2api_active_jobs: dict[str, str] = {}  # job_id -> room_id
-WEB2API_MAX_ACTIVE = 3
+WEB2API_MAX_ACTIVE = 4
 # Cutover protects all old queued jobs from accidental replay by the v4 worker.
 WEB2API_V4_CUTOVER_CREATED_AT = 1795104560000
 # Preserve all pre-v4 jobs and prior chat records; never replay a stalled
