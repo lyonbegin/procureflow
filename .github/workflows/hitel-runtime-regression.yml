@@ -25,6 +25,7 @@ on:
       - "tools/hitel_chat.py"
       - "tests/test_hitel*"
       - ".github/workflows/hitel-runtime-regression.yml"
+      - ".github/workflows/hitel-integration-bridge-live-qa.yml"
   workflow_dispatch:
 
 permissions:
