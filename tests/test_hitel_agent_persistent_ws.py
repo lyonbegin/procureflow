@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import WebSocketDisconnect
+from fastapi import WebSocketDisconnect, HTTPException
 
 WEB=Path(__file__).resolve().parents[1]/"chatgpt-android-relay"/"web"
 sys.path.insert(0,str(WEB))
@@ -150,6 +150,7 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
         self.active=[]
         self.patchers=[
             patch.object(stream,"_open_public_room_once",self.jobs.open_room),
+            patch.object(stream,"_existing_worker_preflight",lambda: None),
             patch.object(public,"submit_public_chat",self.jobs.submit,create=True),
             patch.object(public,"read_public_result",self.jobs.read,create=True),
             patch.object(public,"read_public_result_bytes",self.jobs.bytes,create=True),
@@ -319,6 +320,60 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(got_done)
         self.assertEqual(len(self.jobs.jobs),1)
         print("PASS_WS_AGENT_FLOOD_IS_BLOCKED_WHILE_EXISTING_JOB_PENDING",flush=True)
+
+
+    async def test_worker_offline_fails_before_any_submission_and_reports_503(self):
+        a,ar=await self.connect("AGENT_A")
+        req="HI_WS_OFFLINE_PREFLIGHT_01"
+        with patch.object(stream,"_existing_worker_preflight",
+                          side_effect=HTTPException(status_code=503,detail="WORKER_NOT_CONNECTED")):
+            await a.emit({"type":"chat.send","room_id":ar,"seq":1,"request_id":req,
+                          "text":"do not send"})
+            fail=await a.receive()
+        self.assertEqual(fail["type"],"request.error")
+        self.assertEqual(fail["http_status"],503)
+        self.assertEqual(fail["error_code"],"WORKER_NOT_CONNECTED")
+        self.assertEqual(fail["room_id"],ar)
+        self.assertEqual(fail["request_id"],req)
+        self.assertEqual(len(self.jobs.jobs),0)
+        print("PASS_OFFLINE_WORKER_REFUSED_BEFORE_ANY_JOB_OR_NEW_WORKFLOW",flush=True)
+
+    async def test_409_is_not_hidden_as_httpexception_and_never_submits(self):
+        a,ar=await self.connect("AGENT_A")
+        req="HI_WS_CONFLICT_PREFLIGHT_01"
+        async def conflict(_):
+            raise HTTPException(status_code=409,detail="different room")
+        with patch.object(public,"submit_public_chat",conflict,create=True):
+            await a.emit({"type":"chat.send","room_id":ar,"seq":1,
+                          "request_id":req,"text":"do not send"})
+            failed=await a.receive()
+        self.assertEqual(failed["type"],"request.error")
+        self.assertEqual(failed["http_status"],409)
+        self.assertEqual(failed["error_code"],"ROOM_OR_REQUEST_CONFLICT")
+        self.assertEqual(len(self.jobs.jobs),0)
+        print("PASS_HTTP_409_TYPED_CONFLICT_WITHOUT_LEAKING_MESSAGE_TEXT",flush=True)
+
+    async def test_job_notifications_are_exact_job_id_scoped(self):
+        a=asyncio.Event()
+        b=asyncio.Event()
+        jid_a="job_"+"a"*32
+        jid_b="job_"+"b"*32
+        stream._JOB_NOTIFIERS[jid_a]={a}
+        stream._JOB_NOTIFIERS[jid_b]={b}
+        try:
+            stream.notify_job_changed(jid_a)
+            self.assertTrue(a.is_set())
+            self.assertFalse(b.is_set())
+            a.clear()
+            stream.notify_job_changed("job_"+"c"*32)
+            self.assertFalse(a.is_set())
+            self.assertFalse(b.is_set())
+            stream.notify_job_changed(jid_b)
+            self.assertTrue(b.is_set())
+        finally:
+            stream._JOB_NOTIFIERS.pop(jid_a,None)
+            stream._JOB_NOTIFIERS.pop(jid_b,None)
+        print("PASS_JOB_EVENT_NOTIFICATIONS_DELIVER_ONLY_TO_OWNING_AGENT",flush=True)
 
     async def test_scope_validation_rejects_other_job_id(self):
         with self.assertRaisesRegex(ValueError,"REPLY_ROOM_REQUEST_JOB_MISMATCH"):
