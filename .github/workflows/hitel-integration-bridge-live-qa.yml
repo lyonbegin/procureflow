@@ -3,7 +3,8 @@ name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 # Start the consolidated runtime from this repository's default branch.
 # Reuse the existing registered account and signed relay; no schedule.
 on:
-  # Updating this entry point starts one authorized four-hour session.
+  # Updating this entry point starts one queued session with the latest source.
+# Existing in-flight requests are allowed to finish before worker replacement.
   push:
     branches: [main]
     paths:
@@ -60,17 +61,24 @@ jobs:
       PYTHONUNBUFFERED: "1"
       W2A_WORKER_SECONDS: ${{ github.event_name == 'push' && '14400' || inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
     steps:
-      - name: Refuse to start a worker when existing ChatGPT jobs remain active
+      - name: Wait for existing ChatGPT jobs to finish before switching worker
         run: |
           python3 - <<'PY'
-          import json,urllib.request
+          import json,time,urllib.request
           url="https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status"
-          with urllib.request.urlopen(url,timeout=15) as response:
-              status=json.load(response)
-          active=status.get("worker_active_jobs_count")
-          if not isinstance(active,int) or isinstance(active,bool) or active!=0:
-              raise SystemExit("REFUSE_REPLACE_WORKER_WITH_ACTIVE_OR_UNVERIFIED_JOBS")
-          print("PASS_EXISTING_WORKER_NO_ACTIVE_JOBS_SAFE_TO_REPLACE")
+          # No job is interrupted to install the new room-capacity fix.
+          # This probe does not create a request or restart another user's tab.
+          while True:
+              with urllib.request.urlopen(url,timeout=15) as response:
+                  status=json.load(response)
+              active=status.get("worker_active_jobs_count")
+              if not isinstance(active,int) or isinstance(active,bool):
+                  raise SystemExit("REFUSE_REPLACE_WORKER_WITH_UNKNOWN_ACTIVE_COUNT")
+              if active==0:
+                  print("PASS_EXISTING_WORKER_NO_ACTIVE_JOBS_SAFE_TO_REPLACE",flush=True)
+                  break
+              print("WAIT_EXISTING_JOBS_BEFORE_WORKER_REPLACEMENT",active,flush=True)
+              time.sleep(15)
           PY
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
