@@ -62,6 +62,15 @@ source = replace_once(
 api.write_text(source, encoding="utf-8")
 
 source = dom.read_text("utf-8")
+# 2026-11-20 LIVE CDP: both existing rooms have a visible editable
+# role=textbox but neither ID prompt-textarea nor class ProseMirror.
+# The original selector rejects the real editor; preserve all safety filters.
+source = replace_once(
+    source,
+    """COMPOSER_SELECTOR = 'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror'""",
+    """COMPOSER_SELECTOR = 'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror, [role="textbox"][contenteditable="true"]'""",
+    "OWNED_VISIBLE_CONTENTEDITABLE_TEXTBOX",
+)
 # A hidden/disabled stale ProseMirror node is not a usable editor. A health
 # signal must reflect the live editor, not merely a CSS selector match.
 source = replace_once(
