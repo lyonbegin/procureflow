@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Any
+from pathlib import Path
 
 import websockets
 # The worker is also loaded with importlib.spec_from_file_location in existing
@@ -48,6 +49,37 @@ MAX_WORKER_TABS = 4
 # Bounded socket read, never an unbounded call that freezes worker dispatch.
 UPSTREAM_SOCKET_TIMEOUT = max(60,min(14000,int(os.environ.get("W2A_REPLY_SOCKET_TIMEOUT","13800"))))
 MAX_REPLY_BYTES = 2000000
+
+
+
+def ensure_live_vendor_composer_selector(dom_path: str | Path | None = None) -> None:
+    """Repair only the pinned vendor's stale editor selector BEFORE creating tabs.
+
+    The rerun of an older GitHub job checks out an immutable historic main
+    commit; therefore it does NOT see the updated source-pinned patch script.
+    Fix the installed ephemeral original Web2API at this worker startup,
+    without changing login, authentication, messages, tabs or send retries.
+    Actual live DOM diagnostics: owned tab E1 R1 P0.
+    """
+    if dom_path is None:
+        import importlib.util
+        location=importlib.util.find_spec("chatgpt_web2api.chatgpt_dom")
+        if location is None or location.origin is None:
+            raise RuntimeError("PINNED_WEB2API_DOM_MODULE_NOT_FOUND")
+        dom_path=location.origin
+    path=Path(dom_path)
+    if path.name!="chatgpt_dom.py" or not path.is_file():
+        raise RuntimeError("PINNED_WEB2API_DOM_PATH_INVALID")
+    original=path.read_text(encoding="utf-8")
+    old='COMPOSER_SELECTOR = \'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror\''
+    new='COMPOSER_SELECTOR = \'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror, [role="textbox"][contenteditable]\''
+    if original.count(new)==1 and original.count(old)==0:
+        print("PASS_PINNED_VENDOR_EDITOR_SELECTOR_ALREADY_COMPATIBLE",flush=True)
+        return
+    if original.count(old)!=1 or original.count(new)!=0:
+        raise RuntimeError("REFUSE_UNKNOWN_WEB2API_COMPOSER_SELECTOR_SOURCE")
+    path.write_text(original.replace(old,new,1),encoding="utf-8")
+    print("PASS_PINNED_VENDOR_VISIBLE_ROLE_TEXTBOX_SELECTOR_FIXED",flush=True)
 
 
 def get_oidc_token() -> str:
@@ -560,6 +592,9 @@ async def run(max_seconds: int = 1500) -> None:
 
 
 if __name__ == "__main__":
+    # Must run after the pinned vendor is pip-installed, before the first
+    # room-owned vendor subprocess is launched.
+    ensure_live_vendor_composer_selector()
     duration = int(os.environ.get("W2A_WORKER_SECONDS", "600"))
     try:
         asyncio.run(run(max_seconds=max(60, min(14400, duration))))
