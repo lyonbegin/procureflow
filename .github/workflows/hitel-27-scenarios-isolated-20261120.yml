@@ -4,6 +4,9 @@ name: HITEL 27 scenarios isolated browser QA 20261120
 # Disabled automatic push execution after actual ChatGPT 429 rate limit.
 # Never run again without explicit user-directed dispatch.
 on:
+  push:
+    paths:
+      - .github/workflows/hitel-27-scenarios-isolated-20261120.yml
   workflow_dispatch:
 
 permissions:
@@ -16,6 +19,8 @@ concurrency:
 
 jobs:
   scenarios:
+    # One isolated live run by exact commit message; later disable push again.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'qa(hitel): isolated exact composer six-turn smoke' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
