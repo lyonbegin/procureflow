@@ -173,6 +173,13 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
         current=str(owned_tab().get("url",""))
         if _same_conversation_route(current,conversation_url):
             return target_id
+        # CDP /json/list can briefly omit a URL while Page.navigate commits.
+        # Only the exactly-empty URL is treated as a bounded transition.
+        if not current.strip():
+            if attempt>=8:
+                raise TabIsolationError("ROOM_PREWARM_EMPTY_URL_STUCK_AFTER_NAVIGATION")
+            time.sleep(0.5)
+            continue
         observed=urlsplit(current)
         if observed.scheme=="about" and observed.path=="blank":
             time.sleep(0.5)
@@ -200,8 +207,14 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
                 raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_HTTPS_HOST")
             if observed.scheme=="http":
                 raise TabIsolationError("ROOM_PREWARM_INSECURE_HTTP_HOST")
-            if observed.scheme=="" or observed.hostname is None:
-                raise TabIsolationError("ROOM_PREWARM_NO_HOST_AFTER_NAVIGATION")
+            if observed.scheme=="about":
+                raise TabIsolationError("ROOM_PREWARM_UNKNOWN_ABOUT_PAGE")
+            if observed.scheme=="":
+                raise TabIsolationError("ROOM_PREWARM_MALFORMED_URL_AFTER_NAVIGATION")
+            if observed.scheme in ("blob","javascript","file"):
+                raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_LOCAL_SCHEME")
+            if observed.hostname is None:
+                raise TabIsolationError("ROOM_PREWARM_UNKNOWN_NO_HOST_SCHEME")
             raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_BROWSER_SCHEME")
         if observed.path.rstrip("/") in ("/auth/login","/login"):
             raise TabIsolationError("ROOM_PREWARM_CHATGPT_LOGIN_REDIRECT")
