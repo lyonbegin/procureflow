@@ -28,10 +28,10 @@ source = api.read_text("utf-8")
 # Preserve original role-labeled behavior for actual multi-message SDK callers.
 source = replace_once(
     source,
-    '        full_text = prefix + "\\n".join(conversation_lines)\\n',
-    '        full_text = prefix + "\\n".join(conversation_lines)\\n'
-    '        if len(messages) == 1 and user_msg_count == 1 and not system_parts:\\n'
-    '            full_text = conversation_lines[0][len("[User]\\n"):]\\n',
+    '        full_text = prefix + "\\n".join(conversation_lines)',
+    '        full_text = prefix + "\\n".join(conversation_lines)' + chr(10) +
+    '        if len(messages) == 1 and user_msg_count == 1 and not system_parts:' + chr(10) +
+    '            full_text = conversation_lines[0][len("[User]\\n"):]',
     "SINGLE_USER_TEXT_EXACT",
 )
 api.write_text(source, encoding="utf-8")
