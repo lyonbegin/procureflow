@@ -89,6 +89,9 @@ jobs:
           assert "backend_observation_key" in detector
           assert "time.monotonic() - last_backend_check > 3.0" not in detector
           assert "self._completion.dom_completion_verified" in driver
+          api=(src/"api_server.py").read_text("utf-8")
+          assert "full_text = await _send_and_collect()  # no automatic resend" in api
+          assert "full_text = await retry_on_rate_limit(self._driver, _send_and_collect)" not in api
 
           class CompletedDomDriver:
               _current_conv_id = "12345678-1234-1234-1234-123456789abc"
