@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - .github/workflows/hitel-27-scenarios-isolated-20261120.yml
+      - .github/scripts/hitel_27_scenario_probe_20261120.py
   workflow_dispatch:
 
 permissions:
