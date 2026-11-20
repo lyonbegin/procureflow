@@ -43,6 +43,33 @@ jobs:
         run: |
           python3 -m pip install -q websockets==13.1
           python3 -m unittest discover -s worker-qa/chatgpt-android-relay/web/tests -p 'test_multi_tab_worker.py' -v
+      - name: Read exact safe reasons for previous two REAL ChatGPT failures without sending again
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,re
+          base="https://hitel-integration-api-production.up.railway.app/integrations/v1/public"
+          for agent in ("A","B"):
+              request_id=f"HI_WS_REAL_44744688954_{agent}_1"
+              req=urllib.request.Request(base+"/requests/"+request_id,headers={"Accept":"application/json"})
+              try:
+                  with urllib.request.urlopen(req,timeout=16) as resp:
+                      mapping=json.load(resp)
+                  job_id=mapping["job_id"]
+                  with urllib.request.urlopen(base+"/jobs/"+job_id,timeout=16) as resp:
+                      job=json.load(resp)
+                  def clean(v):
+                      value=str(v or "")[:120]
+                      return value if re.fullmatch(r"[A-Za-z0-9_.:-]{0,120}",value) else "REDACTED_NON_CODE"
+                  print("HITEL_REAL_FAILURE_DIAG",agent,
+                        "job="+clean(job_id),
+                        "status="+clean(job.get("status")),
+                        "stage="+clean(job.get("stage")),
+                        "error_code="+clean(job.get("error_code")),
+                        "safe_error_reason="+clean(job.get("error")),
+                        flush=True)
+              except Exception as exc:
+                  print("HITEL_REAL_FAILURE_DIAG_FETCH_ERROR",agent,type(exc).__name__,flush=True)
+          PY
       - name: Truthful scope
         if: always()
         run: |
