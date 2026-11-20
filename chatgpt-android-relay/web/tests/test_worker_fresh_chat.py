@@ -115,6 +115,9 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         self.assertEqual(
             worker._safe_vendor_http_error(make_error("Send not acknowledged")),
             "WEB2API_ADAPTER_HTTP_500_SEND_NOT_ACKNOWLEDGED")
+        self.assertEqual(
+            worker._safe_vendor_http_error(make_error("Turn reconciliation failed: projection HTTP 429")),
+            "WEB2API_ADAPTER_HTTP_500_UPSTREAM_RATE_LIMITED")
 
     def test_existing_valid_json_unmodified(self):
         raw='{"rows":[{"id":1}]}'
