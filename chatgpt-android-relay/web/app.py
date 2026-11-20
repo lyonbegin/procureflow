@@ -53,7 +53,8 @@ ALLOWED = {"chat.stop", "ui.snapshot", "ui.back"}
 ROOM_SCOPED_ONLY = {"chat.send", "chat.new"}
 consoles: set[WebSocket] = set()
 device: WebSocket | None = None  # existing native Android, unchanged
-web2api_device: WebSocket | None = None  # separate GitHub Chrome runner
+web2api_device: WebSocket | None = None  # signed GitHub HTTP or legacy Chrome worker
+web2api_transport_mode = "none"  # direct_http | chrome | none
 web2api_last_seen_monotonic: float = 0.0
 worker_watch_task: asyncio.Task | None = None
 pending: dict[str, dict[str, Any]] = {}
@@ -465,7 +466,7 @@ async def demo_start(request: Request):
 @app.websocket("/ws")
 async def socket(ws: WebSocket):
     global device, web2api_device, web2api_last_seen_monotonic, active_job_id, active_job_transport
-    global worker_bootstrap_ready
+    global worker_bootstrap_ready, web2api_transport_mode
     await ws.accept()
     role = ""
     actions_worker = False
@@ -496,6 +497,10 @@ async def socket(ws: WebSocket):
             await ws.close(code=1008)
             return
         actions_worker = valid_actions
+        if role == "web2api" and auth.get("transport", "chrome") not in ("direct_http", "chrome"):
+            await transmit(ws,event("auth.error",reason="UNSUPPORTED_WEB2API_TRANSPORT"))
+            await ws.close(code=1008)
+            return
         if role == "web2api" and valid_actions and auth.get("hitel_protocol_version") != 4:
             # Old workers have a single blocking Web2API driver and cannot
             # honor concurrent room-affine ownership. Fail closed: never send
@@ -539,7 +544,7 @@ async def socket(ws: WebSocket):
                 for jid in list(web2api_active_jobs):
                     api_v1.update_job(
                         jid,status="unknown",stage="worker_replaced",
-                        error="Chrome worker replaced; delivery unconfirmed; no retry")
+                        error="Web2API worker replaced; delivery unconfirmed; no retry")
                     long_job_events.observe(jid, "worker_replaced",
                         error_code="WORKER_CONNECTION_LOST",error_stage="worker_replaced")
                     web2api_active_jobs.pop(jid, None)
@@ -548,15 +553,20 @@ async def socket(ws: WebSocket):
                 web2api_device = ws
             worker_bootstrap_ready=False
             worker_prewarm_targets.clear()
+            web2api_transport_mode=auth.get("transport","chrome")
             web2api_last_seen_monotonic=time.monotonic()
             worker_autostart.worker_connected()
-            print("[relay] GitHub Chrome worker authenticated", flush=True)
-            await transmit(ws, event("auth.ok", role="web2api"))
+            print("[relay] GitHub "+web2api_transport_mode+" worker authenticated", flush=True)
+            await transmit(ws,event("auth.ok",role="web2api",transport=web2api_transport_mode))
             warm=linked_rooms_for_authenticated_worker()
-            await transmit(ws,event("room.bootstrap",rooms=warm))
-            print("[relay] requested signed Chrome prewarm for "+str(len(warm))+
-                  " verified existing rooms",flush=True)
-            await broadcast(event("web2api.status", online=True, worker="github-chrome"))
+            # Direct HTTP verifies each saved conversation via authenticated
+            # read-only GET. Legacy Chrome still verifies its actual CDP tab.
+            await transmit(ws,event("room.bootstrap",rooms=warm,
+                                    transport=web2api_transport_mode))
+            print("[relay] requested signed "+web2api_transport_mode+
+                  " room bootstrap for "+str(len(warm))+" saved rooms",flush=True)
+            await broadcast(event("web2api.status",online=True,
+                                  worker="github-"+web2api_transport_mode))
         else:
             consoles.add(ws)
             print("[relay] Web console authenticated", flush=True)
@@ -586,19 +596,29 @@ async def socket(ws: WebSocket):
                         for info in received:
                             if not isinstance(info,dict):
                                 continue
-                            rid,tid=info.get("room_id"),info.get("target_id")
-                            if (rid in expected and isinstance(tid,str)
-                                and 8<=len(tid)<=100):
+                            rid=info.get("room_id")
+                            if web2api_transport_mode=="direct_http":
+                                tid=info.get("transport_id")
+                                # An OIDC-signed worker attests a read-only
+                                # authenticated upstream conversation GET.
+                                valid=isinstance(tid,str) and bool(
+                                    re.fullmatch(r"direct-http-[a-f0-9]{28}",tid))
+                            else:
+                                tid=info.get("target_id")
+                                valid=isinstance(tid,str) and 8<=len(tid)<=100
+                            if rid in expected and valid:
                                 ready[rid]=tid
-                    # A lone browser heartbeat cannot be mistaken for two
-                    # independently prewarmed and navigated conversation tabs.
+                    # Every existing room needs a different verified HTTP
+                    # conversation binding or, for legacy, a separate CDP tab.
+                    # One worker heartbeat alone never authorizes dispatch.
                     worker_prewarm_targets.clear()
                     worker_prewarm_targets.update(ready)
                     worker_bootstrap_ready=(bool(expected)
                         and expected==set(ready)
                         and len(set(ready.values()))==len(ready))
-                    print("[relay] signed room-tabs prewarm verified="
-                        +str(len(ready))+"/"+str(len(expected)),flush=True)
+                    print("[relay] signed "+web2api_transport_mode+
+                          " room-binding preflight verified="+
+                          str(len(ready))+"/"+str(len(expected)),flush=True)
                     if worker_bootstrap_ready:
                         await dispatch_next()
                     continue
@@ -890,11 +910,12 @@ async def socket(ws: WebSocket):
         elif role == "web2api" and web2api_device is ws:
             worker_bootstrap_ready=False
             worker_prewarm_targets.clear()
+            web2api_transport_mode="none"
             web2api_device = None
             for jid in list(web2api_active_jobs):
                 api_v1.update_job(
                     jid,status="unknown",stage="connection_lost",
-                    error="GitHub Chrome disconnected; delivery unconfirmed; no retry")
+                    error="GitHub Web2API worker disconnected; delivery unconfirmed; no retry")
                 long_job_events.observe(
                     jid,"worker_connection_lost",
                     error_code="WORKER_CONNECTION_LOST",error_stage="connection_lost")
