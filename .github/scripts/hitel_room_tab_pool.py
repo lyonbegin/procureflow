@@ -177,10 +177,32 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
         if observed.scheme=="about" and observed.path=="blank":
             time.sleep(0.5)
             continue
+        # During a real Chrome target navigation, a new-tab shell can
+        # briefly surface in /json/list. Allow only these exact internal
+        # transient pages, and only for the first four seconds. Every other
+        # foreign page fails closed with a redacted, finite error code.
+        if (observed.scheme=="chrome" and observed.hostname=="newtab"
+                or observed.scheme=="chrome-search" and observed.hostname=="local-ntp"):
+            if attempt>=8:
+                raise TabIsolationError("ROOM_PREWARM_INTERNAL_NEWTAB_STUCK")
+            time.sleep(0.5)
+            continue
+        if observed.scheme=="chrome-error":
+            raise TabIsolationError("ROOM_PREWARM_CHROME_NETWORK_ERROR_PAGE")
+        if observed.scheme=="data":
+            raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_DATA_PAGE")
+        if observed.scheme=="chrome-extension":
+            raise TabIsolationError("ROOM_PREWARM_EXTENSION_PAGE")
         if observed.hostname=="auth.openai.com":
             raise TabIsolationError("ROOM_PREWARM_LOGIN_REDIRECT")
         if observed.hostname!="chatgpt.com":
-            raise TabIsolationError("ROOM_PREWARM_FOREIGN_HOST_AFTER_NAVIGATION")
+            if observed.scheme=="https":
+                raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_HTTPS_HOST")
+            if observed.scheme=="http":
+                raise TabIsolationError("ROOM_PREWARM_INSECURE_HTTP_HOST")
+            if observed.scheme=="" or observed.hostname is None:
+                raise TabIsolationError("ROOM_PREWARM_NO_HOST_AFTER_NAVIGATION")
+            raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_BROWSER_SCHEME")
         if observed.path.rstrip("/") in ("/auth/login","/login"):
             raise TabIsolationError("ROOM_PREWARM_CHATGPT_LOGIN_REDIRECT")
         if observed.path.rstrip("/") in ("","/"):
