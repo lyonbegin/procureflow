@@ -160,8 +160,7 @@ jobs:
                                   "이 방의 고유 암기어는 "+nonce+"입니다. 다음 질문에 기억해서 답하십시오. "
                                   "지금은 정확히 "+marker+" 만 답하십시오.")
                       elif seq%2==0:
-                          prompt=("이 방의 첫 질문에서 제시한 고유 암기어와 "+marker+
-                                  "를 이 순서대로 공백 한 칸을 넣어 출력하십시오. 다른 방은 참조하지 마십시오.")
+                          prompt="Recall this room's first secret. Output "+marker+" only."
                       else:
                           prompt="다른 말 없이 정확히 "+marker+" 만 답하십시오."
                       await ws.send(json.dumps({"type":"chat.send","room_id":rid,"seq":seq,
