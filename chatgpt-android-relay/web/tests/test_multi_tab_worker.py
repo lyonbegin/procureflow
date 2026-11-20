@@ -408,6 +408,27 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(forbidden,expression)
         print("PASS_OWNED_CDP_EDITOR_DIAG_SAFE_BOOLEAN_COUNTS_NO_CONTENT",flush=True)
 
+    async def test_exact_owned_cdp_visible_textbox_overrides_stale_vendor_health(self):
+        from hitel_room_tab_pool import RoomTab
+        pool=RoomTabPool(max_rooms=2)
+        owned=RoomTab(ROOM_A,9222,19001,"known-owned",FakeProcess(),0)
+        healthy={"chrome_running":True,"driver_connected":True,
+                 "composer_ready":False,"status":"healthy"}
+        with patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=False), \
+             patch("hitel_room_tab_pool._health",return_value=healthy), \
+             patch("hitel_room_tab_pool._owned_editor_diagnostic",
+                   return_value="DOM_B1_E1_T0_R1_P0_H1_C1_SC"):
+            await pool._wait_composer(19001,timeout_s=0,
+                                      slot=owned,target_id="a"*32)
+        with patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=False), \
+             patch("hitel_room_tab_pool._health",return_value=healthy), \
+             patch("hitel_room_tab_pool._owned_editor_diagnostic",
+                   return_value="DOM_B1_E1_T0_R1_P0_H0_C0_SC"):
+            with self.assertRaisesRegex(TabIsolationError,"GUARD_FAILED"):
+                await pool._wait_composer(19001,timeout_s=0,
+                                          slot=owned,target_id="a"*32)
+        print("PASS_EXACT_OWNED_VISIBLE_EDITOR_OVERRIDES_STALE_HEALTH_ONLY",flush=True)
+
     async def test_composer_failure_reports_only_safe_health_flags(self):
         pool=RoomTabPool()
         data={"status":"degraded","chrome_running":True,
