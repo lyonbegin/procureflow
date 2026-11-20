@@ -107,6 +107,7 @@ async def run(transport: DirectWeb2API, *, seconds: int = 10800) -> None:
                 "deviceId": "web2api-main",
                 "oidc_token": token,
                 "hitel_protocol_version": 4,
+                "transport": "direct_http",
                 "max_concurrent_jobs": MAX_CONCURRENT
             }))
             response = json.loads(await asyncio.wait_for(socket.recv(), 25))
@@ -183,7 +184,12 @@ async def run(transport: DirectWeb2API, *, seconds: int = 10800) -> None:
                             try:
                                 # Read-only HTTP! No chat question is sent here.
                                 handle = await asyncio.to_thread(transport.bootstrap,rid,route)
-                                ready.append({"room_id":rid,"target_id":handle})
+                                # transport_id is the new protocol field.
+                                # target_id remains a temporary v4 compatibility
+                                # alias and is NOT a CDP/Chrome target.
+                                ready.append({"room_id":rid,
+                                              "transport_id":handle,
+                                              "target_id":handle})
                             except DirectError as exc:
                                 print("DIRECT_HTTP_BOOTSTRAP_FAILED_"+exc.code,flush=True)
                         await socket.send(json.dumps({
