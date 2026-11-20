@@ -14,6 +14,7 @@ import web_chat
 import chatgpt_accounts
 import integration_api
 import integration_public
+import integration_agent_stream
 import long_job_events
 import file_scenario_api
 import bridge_qa_api
@@ -37,6 +38,7 @@ app.include_router(chatgpt_accounts.router)
 app.include_router(integration_api.browser_router)
 app.include_router(integration_api.router)
 app.include_router(integration_public.router)
+app.include_router(integration_agent_stream.router)
 app.include_router(file_scenario_api.router)
 app.include_router(bridge_qa_api.router)
 app.include_router(integration_pairing.browser_router)
