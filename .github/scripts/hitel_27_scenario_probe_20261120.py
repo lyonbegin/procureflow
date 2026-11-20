@@ -144,11 +144,67 @@ async def browser():
     from playwright.sync_api import sync_playwright
     def find_target(registry,instance):
         return registry[instance]["target_id"]
+    # QA-only subprocess diagnostics: capture the local vendor logs on this
+    # disposable GitHub VM. Never publish raw text, tokens, or conversation IDs.
+    _orig_spawn=asyncio.create_subprocess_exec
+    async def _qa_spawn(*args,**kwargs):
+        safe_port=str(args[2]) if len(args)>2 and str(args[2]).isdigit() else "unknown"
+        logfile=open(ROOT/("vendor-"+safe_port+".log"),"wb")
+        try:
+            kwargs["stdout"]=logfile
+            kwargs["stderr"]=asyncio.subprocess.STDOUT
+            return await _orig_spawn(*args,**kwargs)
+        finally:
+            logfile.close()
+    asyncio.create_subprocess_exec=_qa_spawn
     pool=RoomTabPool(max_rooms=3)
     ra="room_"+uuid.uuid4().hex;rs="room_"+uuid.uuid4().hex
     seed=os.getenv("GITHUB_RUN_ID","QA")
     ids={ra:"A",rs:"S"}
     sessions={}
+    def cdp_probe(rid):
+        with sync_playwright() as pw:
+            chrome=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=12000)
+            owned=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
+            target=owned[pool._rooms[rid].instance_id]["target_id"]
+            for ctx in chrome.contexts:
+                for page in ctx.pages:
+                    cdp=ctx.new_cdp_session(page)
+                    try:
+                        tid=cdp.send("Target.getTargetInfo")["targetInfo"]["targetId"]
+                    finally:
+                        cdp.detach()
+                    if tid!=target:continue
+                    return page.evaluate("""() => {
+                      let nodes=[...document.querySelectorAll('div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror')];
+                      let fb=[...document.querySelectorAll('textarea#prompt-textarea')];
+                      let visible=e=>!!(e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden');
+                      return {
+                        route: location.pathname.startsWith('/c/'),
+                        readyState: document.readyState,
+                        named_textboxes: nodes.length,
+                        named_visible: nodes.filter(visible).length,
+                        named_editable: nodes.filter(e=>visible(e)&&e.isContentEditable).length,
+                        fallback_count: fb.length,
+                        fallback_visible: fb.filter(visible).length,
+                        form_count: document.querySelectorAll('form').length,
+                        submit_button_count: document.querySelectorAll('button[type="submit"]').length,
+                        app_has_nav: !!document.querySelector('nav')
+                      };
+                    }""")
+        return {"error":"NO_OWNED_TARGET"}
+    def safe_vendor_error_kinds():
+        patterns=("No composer found","Navigation to","send_baseline_unavailable",
+                  "Send not acknowledged","send-readiness not established","CDP disconnected",
+                  "Page ready","Cannot establish","does not match",
+                  "SendReadinessError","CDPJSError","Chat error:")
+        summary={}
+        for log in ROOT.glob("vendor-*.log"):
+            content=log.read_text("utf-8",errors="replace")
+            for token in patterns:
+                if token.lower() in content.lower():
+                    summary[token]=summary.get(token,0)+content.lower().count(token.lower())
+        print("VENDOR_QA_SAFE_ERROR_CATEGORIES="+json.dumps(summary,sort_keys=True),flush=True)
     try:
         ea,es=await asyncio.gather(pool.endpoint(ra,9222),pool.endpoint(rs,9222))
         reg=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
@@ -176,6 +232,11 @@ async def browser():
         for rid in (ra,rs):
             target=sessions[rid]
             await pool.prewarm(rid,9222,f"https://chatgpt.com/c/{target}")
+            try:
+                print("REAL_CHROME_POST_FIRST_TURN_DOM_"+ids[rid]+"="+json.dumps(
+                    await asyncio.to_thread(cdp_probe,rid),sort_keys=True),flush=True)
+            except Exception as e:
+                print("REAL_CHROME_DOM_PROBE_ERROR_"+ids[rid]+"="+type(e).__name__,flush=True)
         # S2: exact 20 synthetic source titles, never a user's research dataset.
         synthetic=[{"no":i,"id":f"SIM{i:03d}","title":f"중학교 {1+(i%3)}학년 수학 가상 교재 {i}"} for i in range(1,21)]
         prompt="실제 서비스 연동을 시험하는 합성 가상 제목 20개입니다. 원본 사용자 자료가 아닙니다. 반드시 JSON 객체 하나만 출력하십시오. 구조는 "+'{"rows":[{"no":1,"id":"SIM001","school":"중등","grade":"1","semester":"1","subject":"수학","edition":"해당없음","download":"대상","reason":"중학교 수학 가상 교재"}]}'+" 와 같으며 전체 20개 모든 no/id를 정확히 포함하십시오. 제목에 따라 grade를 판단하십시오. "+json.dumps(synthetic,ensure_ascii=False)
@@ -234,6 +295,14 @@ async def browser():
         report("C04","FAIL" if false_positive and not is_visible else "PASS",f"real_tab_editors_visible={count}; hidden_textarea_wrongly_accepted={false_positive}; scratch_visible={is_visible}","real_chrome")
     except Exception as e:
         print("REAL_CHROME_QA_EXCEPTION="+type(e).__name__+":"+str(e)[:300],flush=True)
+        try:
+            for rid in (ra,rs):
+                if rid in pool._rooms:
+                    print("REAL_CHROME_FAILURE_DOM_"+ids[rid]+"="+json.dumps(
+                        await asyncio.to_thread(cdp_probe,rid),sort_keys=True),flush=True)
+        except Exception as probe_error:
+            print("REAL_CHROME_FAILURE_PROBE_ERROR="+type(probe_error).__name__,flush=True)
+        safe_vendor_error_kinds()
         for key in ("C01","C02","C03","C04","A05","S02","S06","S07"):
             if key not in results or results[key]["status"]=="미검증":
                 report(key,"FAIL",type(e).__name__+":"+str(e)[:150],"real_chrome")
