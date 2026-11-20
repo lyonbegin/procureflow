@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 35
     env:
       GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
       DISPLAY: ":99"
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: ".github/scripts:qa/.github/scripts"
