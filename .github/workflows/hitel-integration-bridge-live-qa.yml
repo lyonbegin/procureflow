@@ -342,3 +342,5 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+
+# STOCKTV 2026-11-21: queue one existing main Web2API worker after prior runner exits; no active job preemption.
