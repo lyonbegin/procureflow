@@ -1,0 +1,160 @@
+name: HITEL browserless Web2API direct HTTP build and safety QA
+
+# Automatic branch builds are offline only. No Chrome, CDP or UI sends.
+on:
+  push:
+    branches:
+      - feature/hitel-browserless-web2api-20261120
+    paths:
+      - .github/workflows/hitel-browserless-web2api-20261120.yml
+      - .github/scripts/hitel_direct_http_transport.py
+      - .github/scripts/hitel_direct_web2api_worker.py
+      - tests/test_hitel_direct_web2api.py
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'offline (no ChatGPT), readonly (credentials), serve (signed worker)'
+        type: choice
+        default: offline
+        options:
+          - offline
+          - readonly
+          - serve
+      allow_production:
+        description: 'To serve, type RELEASE_DIRECT_HTTP after all live tests pass'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hitel-browserless-direct-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  browserless:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 215
+    env:
+      PINNED_GPTWEB2API_SHA: 985f4f45a49fbfdb2f8524686ab25759fd5195bb
+      GPTWEB_TRANSPORT_MODE: direct
+      GPTWEB_BROWSER_RELAY_URL: ''
+      GPTWEB_LISTEN: '127.0.0.1:8787'
+      HITEL_DIRECT_ENABLE_PRODUCTION: '0'
+      HITEL_DIRECT_CREDENTIALS_JSON_B64: ${{ secrets.HITEL_DIRECT_CREDENTIALS_JSON_B64 }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Security gate - no browser and no metered API
+        run: |
+          set -euo pipefail
+          test "$GPTWEB_TRANSPORT_MODE" = direct
+          test -z "$GPTWEB_BROWSER_RELAY_URL"
+          python3 - <<'PY'
+          from pathlib import Path
+          source='\n'.join(Path(p).read_text('utf-8') for p in (
+            '.github/scripts/hitel_direct_http_transport.py',
+            '.github/scripts/hitel_direct_web2api_worker.py'))
+          banned=['import playwright','import selenium','import hitel_room_tab_pool',
+                  'click_send(', 'type_message(', 'connect_over_cdp(',
+                  'api.openai.com', 'subprocess.Popen(', 'os.system(']
+          for item in banned:
+              assert item not in source, item
+          print('PASS_BROWSERLESS_NO_CHROME_NO_OPENAI_METERED_API')
+          PY
+      - name: Offline Python contract tests
+        run: |
+          python3 -m pip install -q websockets==13.1
+          python3 -m unittest discover -s tests -p 'test_hitel_direct_web2api.py' -v
+      - name: Checkout and pin actual Go browserless Web2API source
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none https://github.com/5yu4n/gptweb2api.git "$RUNNER_TEMP/gptweb2api"
+          git -C "$RUNNER_TEMP/gptweb2api" checkout -q "$PINNED_GPTWEB2API_SHA"
+          test "$(git -C "$RUNNER_TEMP/gptweb2api" rev-parse HEAD)" = "$PINNED_GPTWEB2API_SHA"
+          test -f "$RUNNER_TEMP/gptweb2api/LICENSE"
+          echo "PASS_REVIEWED_GO_SOURCE_AT_IMMUTABLE_PIN"
+      - name: Upstream Go tests and binary build without Chrome
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/gptweb2api"
+          go test ./internal/config ./internal/chatgpt ./internal/openai
+          go build -trimpath -o "$RUNNER_TEMP/gptweb2api-direct" ./cmd/gptweb2api
+          test -x "$RUNNER_TEMP/gptweb2api-direct"
+          echo "PASS_BROWSERLESS_GO_GATEWAY_BUILD_AND_UPSTREAM_TESTS"
+      - name: Validate existing OAuth credentials only for manual readonly/serve
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'offline' }}
+        env:
+          SELECTED_MODE: ${{ inputs.mode }}
+          SELECTED_RELEASE: ${{ inputs.allow_production }}
+        run: |
+          set -euo pipefail
+          if [[ "$SELECTED_MODE" = serve && "$SELECTED_RELEASE" != RELEASE_DIRECT_HTTP ]]; then
+            echo "REFUSE_UNAPPROVED_PRODUCTION_CUTOVER"
+            exit 1
+          fi
+          if [[ -z "$HITEL_DIRECT_CREDENTIALS_JSON_B64" ]]; then
+            echo "BLOCKED_NO_EXISTING_CODEX_OAUTH_CREDENTIAL_SECRET"
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$RUNNER_TEMP/hitel-credentials"
+          printf '%s' "$HITEL_DIRECT_CREDENTIALS_JSON_B64" | base64 --decode >"$RUNNER_TEMP/hitel-credentials/auth.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'hitel-credentials/auth.json'
+          d=json.loads(p.read_text('utf-8'))
+          tokens=d.get('tokens',d)
+          assert isinstance(tokens,dict) and isinstance(tokens.get('access_token'),str) and tokens['access_token']
+          print('PASS_CREDENTIAL_FILE_FORMAT_WITHOUT_LOGGING_TOKENS')
+          PY
+          KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEY"
+          echo "GPTWEB_API_KEY=$KEY" >> "$GITHUB_ENV"
+          echo "GPTWEB_OAUTH_TOKEN_FILE=$RUNNER_TEMP/hitel-credentials/auth.json" >> "$GITHUB_ENV"
+      - name: Start loopback gateway and read-only auth probe
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'offline' }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gptweb2api-direct" >"$RUNNER_TEMP/hitel-gptweb2api.log" 2>&1 &
+          for i in $(seq 1 35); do
+            if curl -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1; then
+              echo "PASS_LOCAL_DIRECT_HTTP_GATEWAY_ALIVE"
+              break
+            fi
+            if [ "$i" -eq 35 ]; then echo "FAIL_DIRECT_GATEWAY_UNAVAILABLE"; exit 1; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'.github/scripts')
+          from hitel_direct_http_transport import DirectWeb2API
+          DirectWeb2API(oauth_file=os.environ['GPTWEB_OAUTH_TOKEN_FILE'],
+                        api_key=os.environ['GPTWEB_API_KEY']).ready()
+          print('PASS_AUTHENTICATED_DIRECT_READONLY_READY')
+          PY
+      - name: Signed browserless worker (manual promotion only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'serve' }}
+        env:
+          HITEL_DIRECT_ENABLE_PRODUCTION: '1'
+          HITEL_DIRECT_RUN_SECONDS: '10800'
+        run: |
+          test "${{ inputs.allow_production }}" = RELEASE_DIRECT_HTTP
+          python3 .github/scripts/hitel_direct_web2api_worker.py
+      - name: Truthful summary
+        if: always()
+        run: |
+          echo "## Browserless Web2API qualification" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pinned upstream: $PINNED_GPTWEB2API_SHA; direct transport only." >> "$GITHUB_STEP_SUMMARY"
+          echo "Push events are offline tests only, never ChatGPT submissions." >> "$GITHUB_STEP_SUMMARY"
+          echo "Live ChatGPT continuation and inherited room binding remain unverified until credentials and end-to-end tests." >> "$GITHUB_STEP_SUMMARY"
