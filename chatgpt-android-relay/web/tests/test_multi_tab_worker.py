@@ -49,6 +49,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         pool=RoomTabPool(max_rooms=3)
         with patch("hitel_room_tab_pool._available_port",side_effect=lambda:next(ports)),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
              patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
             first,second=await asyncio.gather(
                 pool.endpoint(ROOM_A,9222),pool.endpoint(ROOM_B,9222))
@@ -76,6 +77,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         pool=RoomTabPool(max_rooms=2)
         with patch("hitel_room_tab_pool._available_port",side_effect=[18321,18322,18323]),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
              patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
             pool.pin(ROOM_A);pool.pin(ROOM_B)
             await pool.endpoint(ROOM_A,9222)
@@ -103,6 +105,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         with patch("hitel_room_tab_pool._available_port",side_effect=[18701,18702,18703]),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch("hitel_room_tab_pool._navigate_owned_target",return_value="owned-cdp-target"),\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
              patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
             await pool.prewarm(ROOM_A,9222,"https://chatgpt.com/c/"+"a"*32)
             await pool.prewarm(ROOM_B,9222,"https://chatgpt.com/c/"+"b"*32)
@@ -173,6 +176,59 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         with patch("hitel_room_tab_pool._health",return_value={**healthy,"composer_ready":True}):
             self.assertTrue(await pool._ready(18080))
 
+    async def test_real_startup_lifecycle_navigates_before_requiring_composer(self):
+        import hitel_room_tab_pool as module
+        launched=[]
+        async def spawn(*a,**k):
+            p=FakeProcess();launched.append(p);return p
+        phase={"navigated":False}
+        def navigate(slot,url):
+            self.assertTrue(phase["started"])
+            phase["navigated"]=True
+            return "owned-target-after-cdp-navigation"
+        async def startup(port):
+            phase["started"]=True
+            return True
+        async def composer(port):
+            self.assertTrue(phase["navigated"],
+                            "composer must be checked AFTER room navigation")
+            return True
+        pool=RoomTabPool(max_rooms=4)
+        with patch("hitel_room_tab_pool._available_port",return_value=18401),\
+             patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch("hitel_room_tab_pool._navigate_owned_target",side_effect=navigate),\
+             patch.object(RoomTabPool,"_boot_ready",side_effect=startup),\
+             patch.object(RoomTabPool,"_ready",side_effect=composer):
+            tid=await pool.prewarm(ROOM_A,9222,"https://chatgpt.com/c/"+"a"*32)
+            self.assertEqual(tid,"owned-target-after-cdp-navigation")
+            self.assertTrue(phase["navigated"])
+            self.assertEqual(pool._protected_rooms,{ROOM_A})
+            await pool.close()
+        print("PASS_PHASED_BOOTSTRAP_NAVIGATES_BEFORE_COMPOSER_HEALTH",flush=True)
+
+    async def test_four_slots_preserve_two_research_and_two_qa_rooms(self):
+        launched=[]
+        async def spawn(*a,**k):
+            p=FakeProcess();launched.append(p);return p
+        pool=RoomTabPool(max_rooms=4)
+        with patch("hitel_room_tab_pool._available_port",
+                   side_effect=[18501,18502,18503,18504,18505]),\
+             patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch("hitel_room_tab_pool._navigate_owned_target",
+                   return_value="owned-verified-target"),\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
+             patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
+            await pool.prewarm(ROOM_A,9222,"https://chatgpt.com/c/"+"a"*32)
+            await pool.prewarm(ROOM_B,9222,"https://chatgpt.com/c/"+"b"*32)
+            c,d=await asyncio.gather(
+                pool.endpoint(ROOM_C,9222),pool.endpoint(ROOM_D,9222))
+            self.assertNotEqual(c,d)
+            self.assertEqual(len(pool._rooms),4)
+            self.assertEqual(pool._protected_rooms,{ROOM_A,ROOM_B})
+            self.assertEqual(sum(int(x.stopped) for x in launched),0)
+            await pool.close()
+        print("PASS_FOUR_INDEPENDENT_TABS_TWO_PROTECTED_RESEARCH_PLUS_TWO_QA",flush=True)
+
     async def test_account_change_and_stale_driver_fail_closed(self):
         launched=[]
         async def spawn(*a,**k):
@@ -180,6 +236,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         pool=RoomTabPool(max_rooms=2)
         with patch("hitel_room_tab_pool._available_port",return_value=18331),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
              patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
             await pool.endpoint(ROOM_A,9222)
             with self.assertRaisesRegex(TabIsolationError,"ACCOUNT_CHANGED"):
