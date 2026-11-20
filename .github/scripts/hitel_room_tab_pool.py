@@ -28,7 +28,6 @@ from typing import Any
 
 ROOM_PATTERN = re.compile(r"^room_[a-f0-9]{32}$")
 CHROME_PORTS = frozenset((9222, 9223))
-MAX_ROOMS = 4
 STARTUP_SECONDS = 65
 
 
@@ -334,13 +333,53 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
     raise TabIsolationError("ROOM_PREWARM_EXPECTED_CONVERSATION_NOT_REACHED")
 
 
+def _close_verified_owned_target(slot: RoomTab, conversation_url: str) -> bool:
+    """Close ONLY the exact verified vendor-owned Chrome tab after DB commit.
+
+    Never inspect or close arbitrary browser tabs; a missing registry, mismatched
+    conversation, or failed CDP probe leaves the original tab intact.
+    """
+    if not isinstance(conversation_url, str) or not CONVERSATION_URL.fullmatch(
+            conversation_url):
+        return False
+    try:
+        registry = Path.home() / ".chatgpt_web2api" / "owned_tabs.json"
+        data = json.loads(registry.read_text(encoding="utf-8"))
+        info = data.get(slot.instance_id, {})
+        target_id = info.get("target_id") if isinstance(info, dict) else None
+        if not isinstance(target_id, str) or not re.fullmatch(
+                r"[A-Za-z0-9_-]{8,128}", target_id):
+            return False
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{slot.cdp_port}/json/list", timeout=5) as rsp:
+            tabs = json.load(rsp)
+        matching = [tab for tab in tabs if isinstance(tab, dict)
+                    and tab.get("id") == target_id and tab.get("type") == "page"]
+        if len(matching) != 1:
+            return False
+        tab = matching[0]
+        uri = tab.get("webSocketDebuggerUrl")
+        address = urlsplit(uri) if isinstance(uri, str) else None
+        if (address is None or address.scheme != "ws"
+                or address.hostname not in ("127.0.0.1", "localhost")
+                or address.port != slot.cdp_port
+                or address.path != "/devtools/page/" + target_id):
+            return False
+        live_url = _live_owned_target_url(uri)
+        if not live_url or not _same_conversation_route(
+                live_url, conversation_url):
+            return False
+        close_url = f"http://127.0.0.1:{slot.cdp_port}/json/close/{target_id}"
+        with urllib.request.urlopen(close_url, timeout=5) as rsp:
+            return rsp.status == 200
+    except (OSError, TimeoutError, ValueError, TypeError, KeyError):
+        return False
+
+
 class RoomTabPool:
     """Bounded room-affine local vendor processes, never a shared DOM tab."""
 
-    def __init__(self, max_rooms: int = 3) -> None:
-        if not 1 <= max_rooms <= MAX_ROOMS:
-            raise ValueError("ROOM_TAB_CAPACITY_INVALID")
-        self.max_rooms = max_rooms
+    def __init__(self) -> None:
         self._rooms: dict[str, RoomTab] = {}
         self._busy_rooms: set[str] = set()
         self._uncertain_rooms: set[str] = set()
@@ -360,27 +399,6 @@ class RoomTabPool:
         # A ChatGPT send may have succeeded despite the lost HTTP response.
         # Never replace its tab automatically; preserve for read-only review.
         self._uncertain_rooms.add(room_id)
-
-    async def _evict_one_idle(self) -> bool:
-        """Only an idle, confirmed-safe tab may be reclaimed for another room."""
-        candidates = sorted(
-            (item for key,item in self._rooms.items()
-             if key not in self._busy_rooms and key not in self._uncertain_rooms
-             and key not in self._protected_rooms),
-            key=lambda item:item.assigned_at,
-        )
-        if not candidates:
-            return False
-        victim=candidates[0]
-        if victim.process.returncode is None:
-            victim.process.terminate()
-            try:
-                await asyncio.wait_for(victim.process.wait(),timeout=5)
-            except asyncio.TimeoutError:
-                victim.process.kill()
-                await victim.process.wait()
-        self._rooms.pop(victim.room_id,None)
-        return True
 
     async def prewarm(self, room_id: str, cdp_port: int,
                       conversation_url: str) -> str:
@@ -453,10 +471,6 @@ class RoomTabPool:
                 if not await self._boot_ready(existing.api_port):
                     raise TabIsolationError("ROOM_TAB_DRIVER_DISCONNECTED_NO_RETRY")
                 return existing.chat_endpoint
-
-            if len(self._rooms) >= self.max_rooms:
-                if not await self._evict_one_idle():
-                    raise TabIsolationError("ROOM_TAB_CAPACITY_EXCEEDED")
 
             port = _available_port()
             instance_id = (
@@ -578,11 +592,38 @@ class RoomTabPool:
                 return
         raise TabIsolationError("ROOM_OWNED_COMPOSER_GUARD_FAILED_"+flags)
 
+    async def release_verified(self, room_id: str, conversation_url: str) -> bool:
+        """Retire only an idle, server-committed, non-protected room's own CDP tab.
+
+        The Railway server must acknowledge durable result storage BEFORE this
+        method is called. Without the acknowledgment, keep the tab untouched.
+        """
+        async with self._lock:
+            slot = self._rooms.get(room_id)
+            if (slot is None or room_id in self._busy_rooms
+                    or room_id in self._uncertain_rooms
+                    or room_id in self._protected_rooms):
+                return False
+            if not await asyncio.to_thread(
+                    _close_verified_owned_target, slot, conversation_url):
+                return False
+            if slot.process.returncode is None:
+                slot.process.terminate()
+                try:
+                    await asyncio.wait_for(slot.process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    slot.process.kill()
+                    await slot.process.wait()
+            self._rooms.pop(room_id, None)
+            return True
+
     async def close(self) -> None:
         async with self._lock:
             procs = list(self._rooms.values())
             self._rooms.clear()
             self._protected_rooms.clear()
+            self._busy_rooms.clear()
+            self._uncertain_rooms.clear()
         for item in procs:
             if item.process.returncode is None:
                 item.process.terminate()

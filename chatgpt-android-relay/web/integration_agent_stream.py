@@ -53,8 +53,7 @@ def _existing_worker_preflight() -> None:
     No worker bootstrap, background GitHub Action, login or credential creation.
     """
     from app import (web2api_device, worker_bootstrap_ready,
-                     web2api_last_seen_monotonic, web2api_active_jobs,
-                     WEB2API_MAX_ACTIVE)
+                     web2api_last_seen_monotonic)
     if web2api_device is None:
         raise HTTPException(status_code=503,detail="WORKER_NOT_CONNECTED")
     if not worker_bootstrap_ready:
@@ -62,15 +61,12 @@ def _existing_worker_preflight() -> None:
     if (web2api_last_seen_monotonic <= 0 or
             time.monotonic()-web2api_last_seen_monotonic > 75):
         raise HTTPException(status_code=503,detail="WORKER_HEARTBEAT_STALE")
-    if len(web2api_active_jobs)>=WEB2API_MAX_ACTIVE:
-        raise HTTPException(status_code=503,detail="WORKER_CAPACITY_EXHAUSTED")
 
 def _http_failure_code(exc: HTTPException) -> str:
     """Only allow finite known status/reason codes in public responses."""
     detail=exc.detail if isinstance(exc.detail,str) else ""
     allowed={
         "WORKER_NOT_CONNECTED","WORKER_NOT_BOOTSTRAPPED","WORKER_HEARTBEAT_STALE",
-        "WORKER_CAPACITY_EXHAUSTED",
     }
     if detail in allowed:
         return detail

@@ -45,7 +45,6 @@ CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
 CHAT_API_B = "http://127.0.0.1:18081/v1/chat/completions"
 CONVERSATION_ID = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MAX_TEXT = 24000
-MAX_WORKER_TABS = 4
 # Bounded socket read, never an unbounded call that freezes worker dispatch.
 UPSTREAM_SOCKET_TIMEOUT = max(60,min(14000,int(os.environ.get("W2A_REPLY_SOCKET_TIMEOUT","13800"))))
 MAX_REPLY_BYTES = 2000000
@@ -402,11 +401,13 @@ async def run(max_seconds: int = 1500) -> None:
     attempts = 0
     authenticated_once = False
     seen_jobs: set[str] = set()
-    pool = RoomTabPool(MAX_WORKER_TABS)
+    pool = RoomTabPool()
     try:
         while time.monotonic() < deadline:
             attempts += 1
             active: dict[str, asyncio.Task] = {}
+            verified_candidates: dict[str, tuple[str, str]] = {}
+            acknowledged_results: set[str] = {}
             preflight_waiters: dict[str, asyncio.Future] = {}
             try:
                 token = await asyncio.to_thread(get_oidc_token)
@@ -418,7 +419,6 @@ async def run(max_seconds: int = 1500) -> None:
                         "role":"web2api","deviceId":"web2api-main",
                         "oidc_token":token,
                         "hitel_protocol_version":4,
-                        "max_concurrent_jobs":MAX_WORKER_TABS,
                     }))
                     first = json.loads(await asyncio.wait_for(socket.recv(),timeout=20))
                     if first.get("type")!="auth.ok":
@@ -487,11 +487,18 @@ async def run(max_seconds: int = 1500) -> None:
                                 print("RELAY_ROOM_JOB_"+(
                                     "UNCERTAIN_" if uncertain else "ERROR_")+code,flush=True)
                             else:
+                                # Only an actual server-side DB commit permits retirement.
+                                verified_candidates[jid] = (rid, result["chatgpt_url"])
                                 await socket.send(json.dumps(result,ensure_ascii=False))
                                 print("PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED",flush=True)
                             finally:
                                 pool.unpin(rid)
                                 active.pop(jid,None)
+                                if jid in acknowledged_results:
+                                    acknowledged_results.discard(jid)
+                                    committed = verified_candidates.pop(jid,None)
+                                    if committed:
+                                        await pool.release_verified(*committed)
 
                         while time.monotonic() < deadline:
                             raw=await asyncio.wait_for(
@@ -505,7 +512,7 @@ async def run(max_seconds: int = 1500) -> None:
                                 # WITHOUT typing, clicking Send, or adding a new turn.
                                 rooms=item.get("rooms",[])
                                 ready=[]
-                                if isinstance(rooms,list) and len(rooms)<=MAX_WORKER_TABS:
+                                if isinstance(rooms,list):
                                     for info in rooms:
                                         if not isinstance(info,dict):
                                             continue
@@ -529,6 +536,17 @@ async def run(max_seconds: int = 1500) -> None:
                                       if isinstance(rooms,list) else
                                       "FAIL_INVALID_ROOM_TAB_BOOTSTRAP",flush=True)
                                 continue
+                            if typ=="job.committed":
+                                jid = item.get("job_id")
+                                committed = verified_candidates.get(jid)
+                                if (committed is not None
+                                        and item.get("room_id")==committed[0]
+                                        and item.get("verified") is True):
+                                    acknowledged_results.add(jid)
+                                    if jid not in active:
+                                        acknowledged_results.discard(jid)
+                                        await pool.release_verified(*verified_candidates.pop(jid))
+                                continue
                             if typ=="ping":
                                 await socket.send(json.dumps({"type":"pong"}))
                                 continue
@@ -548,14 +566,6 @@ async def run(max_seconds: int = 1500) -> None:
                                 continue
                             if jid in seen_jobs:
                                 print("REFUSE_DUPLICATE_RELAY_JOB",flush=True)
-                                continue
-                            # This is a capacity guard, not a hidden backlog.
-                            if len(active)>=MAX_WORKER_TABS:
-                                await socket.send(json.dumps({
-                                    "type":"job.error","job_id":jid,
-                                    "room_id":rid,"stage":"capacity_mismatch",
-                                    "reason":"WORKER_TAB_CAPACITY_EXCEEDED",
-                                }))
                                 continue
                             if any(
                                 task.get_name()==rid for task in active.values()
