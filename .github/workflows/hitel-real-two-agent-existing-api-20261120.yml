@@ -1,0 +1,229 @@
+name: HITEL real ChatGPT two agents concurrent Web2API end-to-end
+
+# This is REAL traffic to the EXISTING Railway -> EXISTING Web2API worker -> ChatGPT.
+# NO new Chrome process, account login, credentials, secrets, server or deployment.
+# This tests the current deployed worker, which may itself use legacy Chrome.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-real-two-agent-existing-api-20261120.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hitel-real-existing-worker-dual-e2e
+  cancel-in-progress: false
+
+jobs:
+  actual-chatgpt-both:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Submit independently interleaved real messages and verify both ChatGPT replies
+        run: |
+          set -euo pipefail
+          mkdir -p hitel-real-two-agent
+          python3 - <<'PY'
+          import base64, concurrent.futures, hashlib, json, os, re, threading, time, urllib.error, urllib.request
+          from pathlib import Path
+
+          BASE="https://hitel-integration-api-production.up.railway.app"
+          PREFIX="/integrations/v1/public"
+          RUN=os.environ["GITHUB_RUN_ID"]
+          OUT=Path("hitel-real-two-agent")
+          COUNT=6
+          started=time.monotonic()
+          all_results={"real_chatgpt":False,"mode":"deployed-existing-Web2API",
+                       "current_worker_may_use_chrome":True,
+                       "no_new_login_or_secrets":True,"run_id":RUN,
+                       "per_agent":{ "A":[], "B":[]}}
+          event_lock=threading.RLock()
+          barrier=threading.Barrier(2,timeout=30)
+          stop=threading.Event()
+          EXCEPTIONS=[]
+          ROOMS={}
+          NONCES={"A":"ALPHA"+RUN[-7:],"B":"BRAVO"+RUN[-7:]}
+
+          def save():
+              (OUT/"verification.json").write_text(json.dumps(all_results,ensure_ascii=False,indent=2),
+                  encoding="utf-8")
+
+          def get(path,timeout=18):
+              request=urllib.request.Request(BASE+PREFIX+path,headers={"Accept":"application/json","User-Agent":"HITEL-Real-2Agents-E2E"})
+              with urllib.request.urlopen(request,timeout=timeout) as r:
+                  return json.load(r)
+
+          def post(path,payload,timeout=20):
+              data=json.dumps(payload,ensure_ascii=False).encode("utf-8")
+              request=urllib.request.Request(BASE+PREFIX+path,data=data,method="POST",
+                  headers={"Content-Type":"application/json","Accept":"application/json",
+                           "User-Agent":"HITEL-Real-2Agents-E2E"})
+              with urllib.request.urlopen(request,timeout=timeout) as r:
+                  return r.status,json.load(r)
+
+          def fetch_reply(job):
+              total=job.get("result_length_bytes")
+              sha=job.get("result_sha256")
+              if not isinstance(total,int) or total<1 or total>100000:
+                  raise RuntimeError("REAL_REPLY_BYTES_MISSING_OR_TOO_LARGE")
+              if not isinstance(sha,str) or len(sha)!=64:
+                  raise RuntimeError("REAL_REPLY_SHA_MISSING")
+              acc=bytearray()
+              while len(acc)<total:
+                  p=get("/jobs/"+job["job_id"]+"/result?offset="+str(len(acc))+"&limit=65536")
+                  if p.get("job_id")!=job["job_id"] or p.get("result_sha256")!=sha:
+                      raise RuntimeError("REAL_REPLY_JOB_OR_SHA_MISMATCH")
+                  chunk=base64.b64decode(p["content_base64"],validate=True)
+                  if not chunk or len(chunk)!=p["bytes_returned"]:
+                      raise RuntimeError("REAL_REPLY_CHUNK_MISMATCH")
+                  acc.extend(chunk)
+              if len(acc)!=total or hashlib.sha256(acc).hexdigest()!=sha:
+                  raise RuntimeError("REAL_REPLY_SHA256_MISMATCH")
+              return bytes(acc).decode("utf-8")
+
+          def run_agent(label):
+              roomid=ROOMS[label]
+              nonce=NONCES[label]
+              other=NONCES["B" if label=="A" else "A"]
+              for turn in range(1,COUNT+1):
+                  if stop.is_set():return
+                  if turn==1: barrier.wait()
+                  marker=f"HITEL_{label}_{RUN}_{turn:02d}"
+                  if turn==1:
+                      prompt=(f"두 개 독립 대화방 실제 송수신 시험입니다. 이 대화방의 비밀 구분어는 {nonce} 입니다. "+
+                              f"앞으로도 기억해 주십시오. 지금은 다른 말 없이 정확히 {marker} 라고만 답변해 주십시오.")
+                  elif turn%2==0:
+                      prompt=(f"이 대화방 첫 번째 질문의 구분어를 기억하고 계십니까? "+
+                              f"구분어와 {marker} 를 이 순서대로 공백 하나로 구분하여 출력해 주십시오. "+
+                              "다른 방의 내용은 참고하지 마십시오.")
+                  else:
+                      prompt=(f"독립적인 두 에이전트 중 {label} 의 세션 시험입니다. "+
+                              f"다른 말 없이 정확히 {marker} 만 출력해 주십시오.")
+                  reqid="HTL2REAL_"+RUN+"_"+label+"_"+f"{turn:02d}"
+                  try:
+                      try:
+                          already=get("/requests/"+reqid)
+                          jid=already["job_id"]
+                          if already.get("room_id")!=roomid:
+                              raise RuntimeError("REQUEST_REPLAY_ROOM_MISMATCH")
+                          replay=True
+                      except urllib.error.HTTPError as err:
+                          if err.code!=404:raise
+                          code,accepted=post("/chat",{"room_id":roomid,"request_id":reqid,"text":prompt})
+                          if code!=202 or accepted.get("job_id") is None:
+                              raise RuntimeError("REAL_JOB_NOT_ACCEPTED")
+                          if accepted.get("room_id")!=roomid or accepted.get("request_id")!=reqid:
+                              raise RuntimeError("REAL_JOB_REQUEST_SCOPE_MISMATCH")
+                          jid=accepted["job_id"]
+                          replay=False
+                      print(f"REAL_AGENT_{label}_TURN_{turn}_HTTP_SUBMITTED_REPLAY={replay}",flush=True)
+                      deadline=time.monotonic()+330
+                      progress=[]
+                      while time.monotonic()<deadline:
+                          job=get("/jobs/"+jid)
+                          if job.get("room_id")!=roomid or job.get("request_id")!=reqid:
+                              raise RuntimeError("REAL_REPLY_ROUTED_TO_WRONG_ROOM")
+                          state=job.get("status")
+                          if not progress or progress[-1]!=state:
+                              progress.append(state)
+                              print(f"REAL_AGENT_{label}_TURN_{turn}_STATUS={state}_STAGE={job.get('stage')}",flush=True)
+                          if state in ("failed","unknown","stalled"):
+                              raise RuntimeError("REAL_JOB_"+state.upper()+"_"+str(job.get("error_code"))[:80])
+                          if state=="completed":
+                              if not job.get("result_ready") or job.get("assistant_reply_observed") is not True:
+                                  raise RuntimeError("REAL_JOB_COMPLETE_WITHOUT_AI_REPLY")
+                              answer=fetch_reply(job).strip()
+                              if other in answer:raise RuntimeError("CROSS_ROOM_NONCE_LEAK")
+                              if answer.count(marker)!=1:raise RuntimeError("REAL_REPLY_EXPECTED_MARKER_MISMATCH")
+                              if turn%2==0 and nonce not in answer:
+                                  raise RuntimeError("REAL_REPLY_LOST_SAME_ROOM_HISTORY")
+                              data={"seq":turn,"room_id":roomid,"job_id":jid,
+                                    "request_id":reqid,"expected_marker":marker,
+                                    "actual_answer":answer,"nonce_recall":turn%2==0,
+                                    "status":"verified","steps":progress,
+                                    "chatgpt_send_confirmed":job.get("chatgpt_send_confirmed"),
+                                    "assistant_reply_observed":True}
+                              with event_lock:
+                                  all_results["per_agent"][label].append(data)
+                                  save()
+                              print(f"PASS_REAL_CHATGPT_AGENT_{label}_TURN_{turn}_ANSWER_AND_ROOM_VERIFIED",flush=True)
+                              break
+                          time.sleep(8)
+                      else:
+                          raise RuntimeError("REAL_JOB_WAIT_EXCEEDED_330_SECONDS_NO_RETRY")
+                  except Exception as ex:
+                      with event_lock:
+                          all_results["per_agent"][label].append({
+                              "seq":turn,"room_id":roomid,"request_id":reqid,
+                              "status":"error","error_class":type(ex).__name__,
+                              "error_category":str(ex)[:130]})
+                          EXCEPTIONS.append((label,turn,type(ex).__name__,str(ex)[:100]))
+                          save()
+                      stop.set()
+                      print(f"FAIL_REAL_AGENT_{label}_TURN_{turn}_ERROR={type(ex).__name__}",flush=True)
+                      return
+
+          try:
+              current=get("/status")
+              save()
+              if (current.get("worker_connected") is not True
+                  or current.get("worker_heartbeat_recent") is not True
+                  or current.get("worker_bootstrap_ready") is not True
+                  or current.get("prewarmed_room_count")!=2):
+                  raise RuntimeError("REAL_WEB2API_WORKER_NOT_READY")
+              if current.get("worker_active_jobs_count")!=0:
+                  raise RuntimeError("REAL_WEB2API_BUSY_EXISTING_RESEARCH_NOT_INTERRUPTED")
+              print("PASS_EXISTING_RAILWAY_WEB2API_WORKER_ONLINE_WITH_TWO_VERIFIED_ROOM_TARGETS",flush=True)
+              existing=get("/rooms").get("rooms",[])
+              research={
+                  "STOCK-KG-A-RESEARCH-20261119-R3":"room_e43054eed81d46fba991b946ede92d1b",
+                  "HITEL-SCRIBD-18109-TITLE-CLASSIFY-G003":"room_e31b6755688748f6a9ddb5a0f6b3cdaf",
+              }
+              before={x.get("room_name"):x.get("room_id") for x in existing}
+              if any(before.get(name)!=rid for name,rid in research.items()):
+                  raise RuntimeError("RESEARCH_ROOM_MAPPING_NOT_VERIFIED")
+              for label in ("A","B"):
+                  name=f"HITEL-2AGENT-REAL-{RUN}-{label}"
+                  code,room=post("/rooms",{"name":name,"create_new":False})
+                  if code not in (200,201) or not re.fullmatch(r"room_[0-9a-f]{32}",room.get("room_id","")):
+                      raise RuntimeError("REAL_QA_ROOM_CREATE_FAILED")
+                  ROOMS[label]=room["room_id"]
+              if ROOMS["A"]==ROOMS["B"]:
+                  raise RuntimeError("TWO_QA_ROOMS_SAME_IDENTIFIER")
+              with event_lock:save()
+              with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                  futures=[executor.submit(run_agent,label) for label in ("A","B")]
+                  for f in futures:f.result(timeout=COUNT*355)
+              after={x.get("room_name"):x.get("room_id") for x in get("/rooms").get("rooms",[])}
+              if any(after.get(name)!=rid for name,rid in research.items()):
+                  raise RuntimeError("RESEARCH_ROOM_MAPPING_CHANGED")
+              for label in ("A","B"):
+                  row=next((x for x in get("/rooms")["rooms"] if x["room_id"]==ROOMS[label]),None)
+                  if not row or row.get("conversation_linked") is not True:
+                      raise RuntimeError("LIVE_CHATGPT_QA_CONVERSATION_NOT_LINKED_"+label)
+              successes=sum(1 for a in ("A","B") for item in all_results["per_agent"][a]
+                            if item.get("status")=="verified")
+              all_results["real_chatgpt"]=not EXCEPTIONS and successes==COUNT*2
+              all_results["verified_turns"]=successes
+              all_results["elapsed_seconds"]=round(time.monotonic()-started,2)
+              save()
+              if not all_results["real_chatgpt"]:
+                  raise RuntimeError("REAL_TWO_AGENT_E2E_NOT_FULLY_PASSED")
+              print(f"PASS_REAL_TWO_AGENT_CHATGPT_WEB2API_E2E={COUNT*2}_DISTINCT_ROOMS",flush=True)
+          except Exception as exc:
+              with event_lock:
+                  all_results["failure"]=str(exc)[:180]
+                  all_results["elapsed_seconds"]=round(time.monotonic()-started,2)
+                  save()
+              raise
+          PY
+      - name: Preserve request/response evidence, even on failure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hitel-real-two-agent-existing-api-e2e
+          path: hitel-real-two-agent/
+          retention-days: 10
