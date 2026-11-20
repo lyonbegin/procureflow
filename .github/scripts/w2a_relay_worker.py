@@ -73,6 +73,13 @@ def ensure_live_vendor_composer_selector(dom_path: str | Path | None = None) -> 
     original=path.read_text(encoding="utf-8")
     old='COMPOSER_SELECTOR = \'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror\''
     new='COMPOSER_SELECTOR = \'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror, [role="textbox"][contenteditable]\''
+    # Current pinned source patch uses the exact attribute-value variant.
+    # Both selectors identify visible editable nodes; the downstream DOM
+    # probe still requires connected+visible+editable before any send.
+    pinned_new='COMPOSER_SELECTOR = \'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror, [role="textbox"][contenteditable="true"]\''
+    if original.count(pinned_new)==1 and original.count(old)==0:
+        print("PASS_PINNED_VENDOR_CURRENT_SELECTOR_ALREADY_COMPATIBLE",flush=True)
+        return
     if original.count(new)==1 and original.count(old)==0:
         print("PASS_PINNED_VENDOR_EDITOR_SELECTOR_ALREADY_COMPATIBLE",flush=True)
         return
