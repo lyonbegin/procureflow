@@ -44,7 +44,7 @@ CHAT_API = "http://127.0.0.1:18080/v1/chat/completions"
 CHAT_API_B = "http://127.0.0.1:18081/v1/chat/completions"
 CONVERSATION_ID = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MAX_TEXT = 24000
-MAX_WORKER_TABS = 3
+MAX_WORKER_TABS = 4
 # Bounded socket read, never an unbounded call that freezes worker dispatch.
 UPSTREAM_SOCKET_TIMEOUT = max(60,min(14000,int(os.environ.get("W2A_REPLY_SOCKET_TIMEOUT","13800"))))
 MAX_REPLY_BYTES = 2000000
