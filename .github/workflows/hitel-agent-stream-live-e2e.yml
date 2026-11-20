@@ -1,0 +1,170 @@
+name: HITEL live dual-agent persistent WebSocket to existing ChatGPT Web2API
+
+# LIVE test on deployed existing Railway hub. No new login, secrets, Codex,
+# Chrome process, or Railway service. Only dedicated new PUBLIC QA rooms.
+on:
+  push:
+    branches:
+      - fix/hitel-agent-persistent-ws-routing-20261120
+    paths:
+      - .github/workflows/hitel-agent-stream-live-e2e.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hitel-persistent-ws-two-agents-live
+  cancel-in-progress: false
+
+jobs:
+  live-dual-socket:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python3 -m pip install -q websockets==13.1
+      - name: Verify two durable agent sockets, independent ChatGPT replies and follow-up turns
+        run: |
+          mkdir -p hitel-live-ws
+          python3 - <<'PY'
+          import asyncio,base64,hashlib,json,os,time,uuid
+          from pathlib import Path
+          import websockets
+
+          WS="wss://hitel-integration-api-production.up.railway.app/integrations/v1/public/stream"
+          RUN=str(os.environ["GITHUB_RUN_ID"])
+          QA="WSLIVE_"+RUN
+          OUT=Path("hitel-live-ws/result.json")
+          results={"mode":"REAL_EXISTING_HITEL_RELAY_WEB2API_CHATGPT",
+                   "connection":"agent WebSocket to Railway WebSocket to signed Web2API worker",
+                   "note":"upstream original Web2API still uses a Chrome-backed adapter",
+                   "new_credentials":False,"new_services":False,
+                   "agent_A":[],"agent_B":[],"pass":False}
+          def save():OUT.write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding="utf8")
+
+          async def recv(ws,timeout=200):
+              return json.loads(await asyncio.wait_for(ws.recv(),timeout=timeout))
+
+          async def agent(label):
+              out=results["agent_"+label]
+              other="B" if label=="A" else "A"
+              name="HITEL-WS-LIVE-"+RUN+"-"+label
+              async with websockets.connect(WS,ping_interval=20,ping_timeout=20,
+                                           close_timeout=5,max_size=4*1024*1024) as ws:
+                  ready=await recv(ws,30)
+                  if ready.get("type")!="session.ready":
+                      raise RuntimeError("PERSISTENT_WS_NOT_READY")
+                  await ws.send(json.dumps({"type":"room.open","room_name":name}))
+                  bound=await recv(ws,20)
+                  if bound.get("type")!="room.bound" or not bound.get("room_id","").startswith("room_"):
+                      raise RuntimeError("WS_ROOM_OPEN_UNVERIFIED")
+                  rid=bound["room_id"]
+                  print("PASS_WS_AGENT_"+label+"_SOCKET_READY_AND_ROOM_BOUND",flush=True)
+                  nonce=QA+"_"+label
+                  for seq in range(1,5):
+                      marker=nonce+"_TURN_"+str(seq)
+                      req="HI_WS_REAL_"+RUN+"_"+label+"_"+str(seq)
+                      if seq==1:
+                          prompt=("서로 다른 두 에이전트의 지속 소켓 검증입니다. "
+                                  "이 방의 고유 암기어는 "+nonce+"입니다. 다음 질문에 기억해서 답하십시오. "
+                                  "지금은 정확히 "+marker+" 만 답하십시오.")
+                      elif seq%2==0:
+                          prompt=("이 방의 첫 질문에서 제시한 고유 암기어와 "+marker+
+                                  "를 이 순서대로 공백 한 칸을 넣어 출력하십시오. 다른 방은 참조하지 마십시오.")
+                      else:
+                          prompt="다른 말 없이 정확히 "+marker+" 만 답하십시오."
+                      await ws.send(json.dumps({"type":"chat.send","room_id":rid,"seq":seq,
+                                                "request_id":req,"text":prompt},ensure_ascii=False))
+                      accepted=await recv(ws,30)
+                      if accepted.get("type")!="job.accepted":
+                          raise RuntimeError("WS_JOB_ACK_MISSING_"+str(accepted.get("error_code")))
+                      jid=accepted["job_id"]
+                      if (accepted.get("room_id")!=rid or accepted.get("request_id")!=req or
+                              accepted.get("seq")!=seq):
+                          raise RuntimeError("WS_ACK_DELIVERED_TO_WRONG_AGENT")
+                      pieces=[]
+                      deadline=time.monotonic()+240
+                      while time.monotonic()<deadline:
+                          p=await recv(ws,min(120,max(1,deadline-time.monotonic())))
+                          if (p.get("room_id")!=rid or p.get("job_id")!=jid or
+                                  p.get("request_id")!=req or p.get("seq")!=seq):
+                              raise RuntimeError("CROSS_AGENT_WS_MESSAGE_SCOPE_MISMATCH")
+                          typ=p.get("type")
+                          if typ=="job.progress":
+                              print(f"WS_AGENT_{label}_TURN_{seq}_STATUS={p.get('status')}",flush=True)
+                              continue
+                          if typ=="reply.chunk":
+                              pieces.append((p["offset"],base64.b64decode(p["data_base64"],validate=True)))
+                              continue
+                          if typ=="reply.unverified":
+                              out.append({"seq":seq,"room_id":rid,"job_id":jid,
+                                          "result":"UNVERIFIED","error_code":p.get("error_code"),
+                                          "state":p.get("status"),"no_retry":True})
+                              save()
+                              print(f"FAIL_WS_AGENT_{label}_TURN_{seq}_{p.get('error_code')}",flush=True)
+                              return
+                          if typ=="reply.done":
+                              data=bytearray()
+                              for offset,chunk in pieces:
+                                  if offset!=len(data):raise RuntimeError("CHUNK_SEQUENCE_BROKEN")
+                                  data.extend(chunk)
+                              if hashlib.sha256(data).hexdigest()!=p["sha256"]:
+                                  raise RuntimeError("REPLY_SHA256_MISMATCH")
+                              answer=data.decode("utf8")
+                              if marker not in answer or (seq%2==0 and nonce not in answer):
+                                  raise RuntimeError("CHATGPT_REPLY_OR_ROOM_HISTORY_MISMATCH")
+                              if QA+"_"+other in answer:
+                                  raise RuntimeError("CROSS_AGENT_SECRET_MIXED")
+                              out.append({"seq":seq,"room_id":rid,"job_id":jid,
+                                          "result":"VERIFIED","reply_sha256":p["sha256"],
+                                          "correct_marker":True,"correct_room_history":True})
+                              save()
+                              print(f"PASS_REAL_WS_AGENT_{label}_TURN_{seq}_AI_REPLY_SHA256_AND_ROUTE",flush=True)
+                              break
+                          raise RuntimeError("UNEXPECTED_WS_EVENT_"+str(typ))
+                      else:
+                          out.append({"seq":seq,"room_id":rid,"job_id":jid,"result":"TIMEOUT_NO_RETRY"})
+                          save()
+                          return
+
+          async def run():
+              # If Railway deployment is still building, retry only the
+              # WEBSOCKET HANDSHAKE. Never retry a ChatGPT send.
+              async def verify_ws():
+                  async with websockets.connect(WS,open_timeout=15) as ws:
+                      p=await recv(ws,20)
+                      if p.get("type")!="session.ready":raise RuntimeError("NOT_NEW_WS_BUILD")
+              for attempt in range(40):
+                  try:
+                      await verify_ws()
+                      break
+                  except Exception:
+                      if attempt==39:raise RuntimeError("NEW_WEBSOCKET_ROUTE_NOT_DEPLOYED")
+                      await asyncio.sleep(4)
+              await asyncio.gather(agent("A"),agent("B"))
+
+          try:
+              asyncio.run(run())
+              successful=sum(1 for label in ("A","B") for v in results["agent_"+label]
+                             if v.get("result")=="VERIFIED")
+              results["verified_turns"]=successful
+              results["pass"]=(successful==8 and len(results["agent_A"])==4 and len(results["agent_B"])==4)
+              save()
+              if not results["pass"]:
+                  raise RuntimeError("LIVE_DUAL_AGENT_PERSISTENT_WS_NOT_FULLY_VERIFIED")
+              print("PASS_TWO_LIVE_PERSISTENT_AGENT_SOCKETS_CHATGPT_8_MESSAGES_NO_CROSSTALK",flush=True)
+          except Exception as exc:
+              results["failure_class"]=type(exc).__name__
+              results["failure_category"]=str(exc)[:160]
+              save()
+              raise
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hitel-agent-stream-live-e2e
+          path: hitel-live-ws/
+          retention-days: 10
