@@ -1,0 +1,56 @@
+name: HITEL one-time read-only exact JSON diagnosis
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-once-readonly-json-diagnosis-20261120.yml]
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect already-completed isolated QA response without printing private content
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, urllib.request
+          from urllib.parse import urlencode
+          base="https://hitel-integration-api-production.up.railway.app"
+          job="job_638623d766bf40c181865254e769a489"
+          def get(path):
+              with urllib.request.urlopen(base+path,timeout=20) as r:
+                  return json.load(r)
+          x=get("/integrations/v1/public/jobs/"+job)
+          print("JOB_STATUS",x.get("status"),"RESULT_READY",x.get("result_ready"),
+                "JSON_COMPLETE",x.get("result_json_complete"),"LENGTH",x.get("result_length_bytes"))
+          assert x.get("status")=="completed" and x.get("result_ready") is True
+          raw=bytearray()
+          while len(raw)<x["result_length_bytes"]:
+              part=get("/integrations/v1/public/jobs/"+job+"/result?"+urlencode({"offset":len(raw),"limit":65536}))
+              raw.extend(base64.b64decode(part["content_base64"],validate=True))
+          assert len(raw)==x["result_length_bytes"]
+          assert hashlib.sha256(raw).hexdigest()==x["result_sha256"]
+          text=bytes(raw).decode("utf-8")
+          clean=text.strip()
+          expected='{"hitel_v4_postfix":"OK"}'
+          print("RAW_SHA_AND_LENGTH_VERIFIED",True)
+          print("EXACT_EXPECTED",clean==expected)
+          print("EXACT_EXPECTED_SUBSTRING",expected in clean)
+          print("RAW_JSON_STARTS",clean.startswith(("{","[")))
+          print("MARKDOWN_CODE_FENCE",clean.startswith(""+""+""))
+          print("FIRST_CHAR_CLASS","brace" if clean.startswith("{") else "bracket" if clean.startswith("[") else "backtick" if clean.startswith(chr(96)) else "other")
+          try:
+              head,end=json.JSONDecoder().raw_decode(clean)
+              tail=clean[end:].strip()
+              print("PARSE_FIRST_JSON_OK",True)
+              print("PARSED_TYPE",type(head).__name__)
+              print("PARSED_EXPECTED",head=={"hitel_v4_postfix":"OK"})
+              print("TAIL_LENGTH",len(tail))
+              print("TAIL_EQUALS_HEAD_SUFFIX",bool(tail and clean[:end].endswith(tail)))
+              print("TAIL_HAS_CLOSING_BRACE",bool(tail and tail.endswith(("}","]"))))
+              print("TAIL_BEGINS_NEW_JSON",tail.startswith(("{","[")))
+          except (ValueError,TypeError) as exc:
+              print("PARSE_FIRST_JSON_OK",False)
+              print("JSON_EXCEPTION_TYPE",type(exc).__name__)
+          print("PASS_READ_ONLY_QA_RESULT_CLASSIFIED")
+          PY
