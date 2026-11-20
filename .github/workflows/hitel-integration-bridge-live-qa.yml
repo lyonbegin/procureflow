@@ -191,6 +191,17 @@ jobs:
             "detector_hard_timeout_seconds": 14400
           }
           W2A_WAIT_JSON
+          # Assert the exact runnable source contains the confirmed live
+          # ChatGPT role=textbox composer selector after both pinned patches.
+          python3 - <<'W2A_SELECTOR_CHECK'
+          from pathlib import Path
+          import os
+          p=Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/chatgpt_dom.py"
+          source=p.read_text("utf-8")
+          if source.count('[role="textbox"][contenteditable="true"]')!=1:
+              raise SystemExit("FAIL_RUNTIME_EDITOR_SELECTOR_NOT_INSTALLED")
+          print("PASS_CURRENT_LIVE_EDITOR_SELECTOR_PRESENT_IN_INSTALLED_VENDOR_SOURCE")
+          W2A_SELECTOR_CHECK
           python3 -m pip install -q "$ROOT/original"
           python3 - <<'W2A_WAIT_CHECK'
           from chatgpt_web2api.config import Config
@@ -233,6 +244,12 @@ jobs:
             >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
           echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
           for i in $(seq 1 210); do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/bridge-worker.pid")" 2>/dev/null; then
+              grep -E 'REFUSE_|FAIL_|PASS_PINNED_VENDOR_|Traceback|RuntimeError' \
+                "$RUNNER_TEMP/bridge-worker.log" | tail -n 20 || true
+              echo FAIL_SIGNED_WORKER_PROCESS_EXITED_BEFORE_PREWARM
+              exit 1
+            fi
             if grep -q 'PASS_AUTHENTICATED_ROOM_TAB_PREWARM=2/2' \
               "$RUNNER_TEMP/bridge-worker.log"; then
               STATE="$(curl --max-time 6 -fsS \
