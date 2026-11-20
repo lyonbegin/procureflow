@@ -361,11 +361,10 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
               "driver_connected":True,"composer_ready":False,
               "last_error":"PRIVATE_DO_NOT_LOG_OR_REPEAT",
               "chatgpt_url":"https://chatgpt.com/c/PRIVATE"}
-        with patch("hitel_room_tab_pool.time.monotonic",side_effect=[0.0,51.0]),\
-             patch("hitel_room_tab_pool._health",return_value=data):
+        with patch("hitel_room_tab_pool._health",return_value=data):
             with self.assertRaisesRegex(TabIsolationError,
                                         "ROOM_OWNED_COMPOSER_GUARD_FAILED_C1_D1_E0_SD") as cm:
-                await pool._wait_composer(19001)
+                await pool._wait_composer(19001,timeout_s=0)
         self.assertNotIn("PRIVATE",str(cm.exception))
         print("PASS_COMPOSER_HEALTH_FAILURE_SAFE_FLAGS_NO_SECRET_OR_URL",flush=True)
 
