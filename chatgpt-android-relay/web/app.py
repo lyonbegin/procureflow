@@ -210,6 +210,7 @@ async def job_timeout(job_id: str):
     if changed and (active_job_id == job_id or job_id in web2api_active_jobs):
         await broadcast(event("job.progress", job_id=job_id,
                               stage="waiting_for_verified_reply"))
+        integration_agent_stream.notify_job_changed(job_id)
 
 
 async def notify_new_job():
@@ -695,6 +696,7 @@ async def socket(ws: WebSocket):
                                 error_code=reason,error_stage="upstream_delivery_unknown")
                             web2api_active_jobs.pop(jid,None)
                             preflight_jobs.discard(jid)
+                            integration_agent_stream.notify_job_changed(jid)
                             await dispatch_next()
                             continue
                         if kind in {"job.received", "job.progress"}:
@@ -704,6 +706,7 @@ async def socket(ws: WebSocket):
                                 long_job_events.observe(
                                     jid,"worker_received" if kind=="job.received" else stage)
                             await broadcast(event(kind, job_id=jid, stage=stage))
+                            integration_agent_stream.notify_job_changed(jid)
                         else:
                             # Never trust a device-reported room_id as the target
                             # for a job. Bind successful acknowledgements to the
@@ -840,6 +843,10 @@ async def socket(ws: WebSocket):
                                                   stage=stage, result_text=output,
                                                   reason=None if good else reason))
                             print(f"[relay-v1] job={jid[:12]} verified={good} stage={stage}",flush=True)
+                            # Wake only subscribers for this validated job.
+                            # Agent sockets still read signed results from DB
+                            # and reject any room/request/job mismatch.
+                            integration_agent_stream.notify_job_changed(jid)
                             preflight_jobs.discard(jid)
                             if role == "web2api":
                                 web2api_active_jobs.pop(jid, None)
