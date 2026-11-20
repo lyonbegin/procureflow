@@ -197,7 +197,20 @@ async def run(transport: DirectWeb2API, *, seconds: int = 10800) -> None:
                         continue
                     try:
                         jid, rid, _, _ = _job_contract(job)
-                    except DirectError:
+                    except DirectError as exc:
+                        # Never silently discard a well-formed job. Otherwise
+                        # Railway would leave it RUNNING forever and block
+                        # subsequent messages in the same room.
+                        bad_jid, bad_rid = job.get("id"), job.get("room_id")
+                        if (isinstance(bad_jid, str) and JOB_RE.fullmatch(bad_jid)
+                                and isinstance(bad_rid, str) and ROOM_RE.fullmatch(bad_rid)):
+                            await socket.send(json.dumps({
+                                "type":"job.error",
+                                "job_id":bad_jid,
+                                "room_id":bad_rid,
+                                "stage":"direct_preflight_failed",
+                                "reason":exc.code,
+                            }))
                         continue
                     if jid in seen:
                         print("DIRECT_HTTP_DUPLICATE_JOB_REFUSED",flush=True)
