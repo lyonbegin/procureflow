@@ -166,8 +166,14 @@ def _safe_vendor_http_error(exc: urllib.error.HTTPError) -> str:
     message=message if isinstance(message,str) else ""
     if "nav_displaced" in message:
         suffix="NAV_DISPLACED"
+    elif "Composer text verification failed after retry" in message:
+        suffix="COMPOSER_TEXT_MISMATCH"
+    elif "No visible, editable composer" in message or "No composer found" in message:
+        suffix="COMPOSER_NOT_FOUND"
+    elif "Send not acknowledged" in message:
+        suffix="SEND_NOT_ACKNOWLEDGED"
     elif "composer" in message.lower():
-        suffix="COMPOSER_UNAVAILABLE"
+        suffix="COMPOSER_OTHER"
     elif "stage:" in message and "url" in message.lower():
         suffix="NAV_URL_MISMATCH"
     elif "Navigation to " in message:
