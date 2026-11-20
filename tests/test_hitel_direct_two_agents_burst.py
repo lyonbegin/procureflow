@@ -10,7 +10,6 @@ import hashlib
 import json
 import re
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -147,10 +146,6 @@ class Handler(BaseHTTPRequestHandler):
 
 class MultiAgentStress(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        p=Path(self.temp.name)/"auth.json"
-        p.write_text('{"tokens":{"access_token":"offline-placeholder-never-used"}}')
         self.state=ScenarioState()
         self.server=ThreadingHTTPServer(("127.0.0.1",8787),Handler)
         self.server.qa_state=self.state
@@ -159,7 +154,7 @@ class MultiAgentStress(unittest.TestCase):
         thread.start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
-        self.client=DirectWeb2API(oauth_file=str(p),api_key="qa-loopback-only-test-key")
+        self.client=DirectWeb2API(api_key="qa-loopback-only-test-key")
         self.client.ready()
 
     @staticmethod
