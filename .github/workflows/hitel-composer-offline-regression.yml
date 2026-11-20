@@ -1,0 +1,33 @@
+name: HITEL composer repair offline regression (no ChatGPT requests)
+on:
+  push:
+    paths:
+      - .github/workflows/hitel-composer-offline-regression.yml
+      - .github/scripts/w2a_patch_vendor_composer_20261120.py
+      - .github/scripts/test_hitel_vendor_composer_20261120.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Checkout exact vendor and apply existing plus repaired patches
+        run: |
+          set -euo pipefail
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git /tmp/hitel-original
+          git -C /tmp/hitel-original checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py /tmp/hitel-original
+          python3 .github/scripts/w2a_patch_vendor_composer_20261120.py /tmp/hitel-original
+          python3 -m compileall -q /tmp/hitel-original/src/chatgpt_web2api
+          python3 -m pip install -q /tmp/hitel-original
+      - name: Execute real patched Python methods with synthetic editor states
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/test_hitel_vendor_composer_20261120.py /tmp/hitel-original
+          echo "PASS_OFFLINE_ONLY_NOT_A_LIVE_CHROME_SUCCESS"
