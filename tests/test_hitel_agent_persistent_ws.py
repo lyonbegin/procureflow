@@ -338,6 +338,37 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.jobs.jobs),0)
         print("PASS_OFFLINE_WORKER_REFUSED_BEFORE_ANY_JOB_OR_NEW_WORKFLOW",flush=True)
 
+    async def test_real_worker_preflight_checks_socket_heartbeat_and_capacity(self):
+        import time
+        from unittest.mock import patch as p
+        app_stub=types.ModuleType("app")
+        app_stub.web2api_device=None
+        app_stub.worker_bootstrap_ready=False
+        app_stub.web2api_last_seen_monotonic=0.0
+        app_stub.web2api_active_jobs={}
+        app_stub.WEB2API_MAX_ACTIVE=3
+        with p.dict(sys.modules,{"app":app_stub}):
+            with self.assertRaises(HTTPException) as first:
+                stream._existing_worker_preflight()
+            self.assertEqual(first.exception.status_code,503)
+            self.assertEqual(first.exception.detail,"WORKER_NOT_CONNECTED")
+            app_stub.web2api_device=object()
+            with self.assertRaises(HTTPException) as second:
+                stream._existing_worker_preflight()
+            self.assertEqual(second.exception.detail,"WORKER_NOT_BOOTSTRAPPED")
+            app_stub.worker_bootstrap_ready=True
+            with self.assertRaises(HTTPException) as third:
+                stream._existing_worker_preflight()
+            self.assertEqual(third.exception.detail,"WORKER_HEARTBEAT_STALE")
+            app_stub.web2api_last_seen_monotonic=time.monotonic()
+            app_stub.web2api_active_jobs={"j1":"room_a","j2":"room_b","j3":"room_c"}
+            with self.assertRaises(HTTPException) as fourth:
+                stream._existing_worker_preflight()
+            self.assertEqual(fourth.exception.detail,"WORKER_CAPACITY_EXHAUSTED")
+            app_stub.web2api_active_jobs={"j1":"room_a"}
+            stream._existing_worker_preflight()
+        print("PASS_ACTUAL_WORKER_GATES_DISCONNECTED_PREWARM_HEARTBEAT_CAPACITY",flush=True)
+
     async def test_409_is_not_hidden_as_httpexception_and_never_submits(self):
         a,ar=await self.connect("AGENT_A")
         req="HI_WS_CONFLICT_PREFLIGHT_01"
