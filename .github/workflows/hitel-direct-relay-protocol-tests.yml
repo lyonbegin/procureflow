@@ -1,0 +1,35 @@
+name: HITEL direct HTTP Railway protocol tests (offline only)
+
+on:
+  push:
+    branches:
+      - feature/hitel-browserless-relay-api-20261120
+    paths:
+      - .github/workflows/hitel-direct-relay-protocol-tests.yml
+      - chatgpt-android-relay/web/app.py
+      - chatgpt-android-relay/web/integration_public.py
+      - tests/test_hitel_direct_relay_protocol.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile production server source without starting server
+        run: |
+          python3 -m py_compile chatgpt-android-relay/web/app.py
+          python3 -m py_compile chatgpt-android-relay/web/integration_public.py
+      - name: Offline transport identity and existing room invariants
+        run: |
+          python3 -m unittest discover -s tests -p 'test_hitel_direct_relay_protocol.py' -v
+      - name: Confirm no Railway deployment invoked
+        run: |
+          echo 'PASS_DIRECT_RELAY_OFFLINE_VALIDATION_ONLY_NO_DEPLOY_NO_SEND'
