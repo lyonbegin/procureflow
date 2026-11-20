@@ -164,7 +164,9 @@ def _safe_vendor_http_error(exc: urllib.error.HTTPError) -> str:
         code=""
         message=""
     message=message if isinstance(message,str) else ""
-    if "nav_displaced" in message:
+    if "projection HTTP 429" in message or "rate limit" in message.lower():
+        suffix="UPSTREAM_RATE_LIMITED"
+    elif "nav_displaced" in message:
         suffix="NAV_DISPLACED"
     elif "Composer text verification failed after retry" in message:
         suffix="COMPOSER_TEXT_MISMATCH"
