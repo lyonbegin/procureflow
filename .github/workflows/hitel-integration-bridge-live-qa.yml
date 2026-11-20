@@ -173,6 +173,15 @@ jobs:
           assert 'await self._driver.ensure_current_conversation(conversation_id)' in source, "VENDOR_NO_RELOAD_PATCH_MISSING"
           assert 'self._driver._current_conv_id = conversation_id' in source, "VENDOR_ROOM_BINDING_PATCH_MISSING"
           print("PASS_PINNED_VENDOR_CURRENT_PATCH_VERIFIED")
+          detector=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/completion_detector.py").read_text()
+          assert "DOM_VERIFIED_NEW_ASSISTANT_COMPLETED" in detector, "WEB2API_DOM_PROOF_PATCH_MISSING"
+          assert "backend_observation_key" in detector, "WEB2API_PROJECTION_POLL_PATCH_MISSING"
+          assert "time.monotonic() - last_backend_check > 3.0" not in detector, "WEB2API_PROJECTION_READ_STORM_NOT_REMOVED"
+          assert "and not has_action" in detector, "WEB2API_DOM_ACTION_READ_SUPPRESSION_MISSING"
+          driver=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/cdp_driver.py").read_text()
+          assert "self._completion.dom_completion_verified" in driver, "WEB2API_REDUNDANT_RECONCILIATION_NOT_REMOVED"
+          assert "full_text = await _send_and_collect()  # no automatic resend" in source, "WEB2API_SEND_REPLAY_NOT_DISABLED"
+          print("PASS_INSTALLED_WEB2API_DOM_PROJECTION_READ_FIX_NO_CHAT_SEND_RETRY")
           PY
           # This is an actual, source-pinned Web2API config path. The old
           # built-in request=120s and detector=90/120s prematurely failed
