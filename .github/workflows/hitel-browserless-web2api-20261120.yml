@@ -34,10 +34,9 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          paths=[Path('.github/scripts/hitel_direct_http_transport.py'),
-                 Path('tests/test_hitel_direct_web2api.py'),
-                 Path('tests/test_hitel_direct_two_agents_burst.py')]
-          source='\n'.join(p.read_text('utf-8').lower() for p in paths)
+          # The tests intentionally contain forbidden tokens as string
+          # assertions. Inspect only runtime source to avoid false positives.
+          source=Path('.github/scripts/hitel_direct_http_transport.py').read_text('utf-8').lower()
           for term in ('import playwright','import selenium','connect_over_cdp(',
                        'subprocess.popen(', 'api.openai.com',
                        'secrets.', 'auth.json', 'oauth_file', '_load_credential(',
