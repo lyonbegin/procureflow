@@ -14,6 +14,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/hitel-room-tab-isolation-20261120
+          path: qa
+      - uses: actions/checkout@v4
+        with:
+          repository: lyonbegin/hitel-scribd-runner
+          ref: feature/hitel-public-ai-batches-20261119
+          path: scribd
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -31,3 +40,11 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/test_hitel_vendor_composer_20261120.py /tmp/hitel-original
           echo "PASS_OFFLINE_ONLY_NOT_A_LIVE_CHROME_SUCCESS"
+      - name: Validate per-room tab preservation, strict health and error codes
+        run: |
+          set -euo pipefail
+          PYTHONPATH=qa/.github/scripts python3 -m unittest discover -s qa/chatgpt-android-relay/web/tests -p 'test_multi_tab_worker.py' -v
+      - name: Validate Scribd verified chunk retrieval and no-result corruption
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scribd/tools/zocbo python3 -m unittest discover -s scribd/tools/zocbo -p 'test_hitel_result_reader_20261120.py' -v
