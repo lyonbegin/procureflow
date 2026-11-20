@@ -9,6 +9,7 @@ on:
       - ".github/scripts/hitel_room_tab_pool.py"
       - ".github/scripts/safe_worker_error.py"
       - ".github/scripts/test_safe_worker_error.py"
+      - ".github/scripts/w2a_patch_vendor_dom.py"
       - ".github/scripts/w2a_worker_fallback.py"
       - ".github/scripts/w2a_account_runtime.py"
       - ".github/workflows/hitel-runtime-regression.yml"
@@ -20,6 +21,7 @@ on:
     paths:
       - "chatgpt-android-relay/**"
       - ".github/scripts/hitel*"
+      - ".github/scripts/w2a_patch_vendor_dom.py"
       - "tools/hitel_chat.py"
       - "tests/test_hitel*"
       - ".github/workflows/hitel-runtime-regression.yml"
@@ -60,6 +62,71 @@ jobs:
           ast.parse(source)
           assert '"hitel_protocol_version":4' in source
           print('PASS_SINGLE_CHECKOUT_MAIN_RUNTIME_NO_ACTIVE_WORKER_CANCELLATION')
+          PY
+      - name: Verify source-pinned Web2API projection fix without sending ChatGPT messages
+        run: |
+          set -euo pipefail
+          ROOT="$(mktemp -d)"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/vendor"
+          git -C "$ROOT/vendor" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/vendor"
+          python3 .github/scripts/w2a_patch_vendor_composer_20261120.py "$ROOT/vendor"
+          python3 -m compileall -q "$ROOT/vendor/src/chatgpt_web2api"
+          python3 -m venv "$ROOT/venv"
+          "$ROOT/venv/bin/python" -m pip install -q "$ROOT/vendor"
+          VENDOR_SOURCE="$ROOT/vendor" "$ROOT/venv/bin/python" - <<'PY'
+          import asyncio
+          import json
+          import os
+          from pathlib import Path
+          from chatgpt_web2api.completion_detector import CompletionDetector
+
+          src=Path(os.environ["VENDOR_SOURCE"])/"src"/"chatgpt_web2api"
+          detector=(src/"completion_detector.py").read_text("utf-8")
+          driver=(src/"cdp_driver.py").read_text("utf-8")
+          assert "self.dom_completion_verified = True" in detector
+          assert "assistant_count > initial_count" in detector
+          assert "backend_observation_key" in detector
+          assert "time.monotonic() - last_backend_check > 3.0" not in detector
+          assert "self._completion.dom_completion_verified" in driver
+          api=(src/"api_server.py").read_text("utf-8")
+          assert "full_text = await _send_and_collect()  # no automatic resend" in api
+          assert "full_text = await retry_on_rate_limit(self._driver, _send_and_collect)" not in api
+
+          class CompletedDomDriver:
+              _current_conv_id = "12345678-1234-1234-1234-123456789abc"
+              backend_queries = 0
+              def __init__(self,markdown):
+                  self.markdown=markdown
+              async def _js_strict(self, js):
+                  if "document.body" in js:
+                      return json.dumps({"text":""})
+                  if "var msgs" in js:
+                      return json.dumps({"text":"verified assistant answer",
+                          "md_text":self.markdown,
+                          "html_len":200,"child_count":1,
+                          "assistant_count":1,"stop_active":False,
+                          "has_action":True,"is_thinking":False})
+                  if "querySelectorAll" in js:
+                      return "1"
+                  raise AssertionError("unexpected read")
+              async def _fetch_end_turn_for_turn(self,*args,**kwargs):
+                  self.backend_queries+=1
+                  raise AssertionError("COMPLETE_DOM_MUST_NOT_POLL_BACKEND")
+
+          async def check():
+              for markdown in ("verified assistant answer",""):
+                  owner=CompletedDomDriver(markdown)
+                  detector=CompletionDetector(owner)
+                  chunks=[]
+                  async for ch in detector.stream_until_complete(
+                          initial_count=0,timeout=6,turn_anchor=object()):
+                      chunks.append(ch.delta)
+                  assert "".join(chunks)=="verified assistant answer",chunks
+                  assert detector.dom_completion_verified is True
+                  assert owner.backend_queries==0
+          asyncio.run(check())
+          print("PASS_WEB2API_DOM_VERIFIED_NEW_TURN_ZERO_PROJECTION_POLLS")
           PY
       - name: Verify safe worker error classification
         run: python3 -m unittest discover -s .github/scripts -p test_safe_worker_error.py -v
