@@ -37,6 +37,17 @@ source = replace_once(
 api.write_text(source, encoding="utf-8")
 
 source = dom.read_text("utf-8")
+# A hidden/disabled stale ProseMirror node is not a usable editor. A health
+# signal must reflect the live editor, not merely a CSS selector match.
+source = replace_once(
+    source,
+    '''                f"    ready: !!document.querySelector('{COMPOSER_SELECTOR}')"
+                f"         || !!document.querySelector('{COMPOSER_FALLBACK_SELECTOR}')"
+''',
+    '''                f"    ready: Array.from(document.querySelectorAll('{COMPOSER_SELECTOR}, {COMPOSER_FALLBACK_SELECTOR}')).some(e=>e.isConnected && e.getClientRects().length>0 && !e.disabled && !e.closest('[aria-hidden=true],[inert]') && (e.isContentEditable || e.tagName==='TEXTAREA'))"
+''',
+    "READINESS_REQUIRES_VISIBLE_EDITABLE",
+)
 # The old querySelector picked the FIRST matching editor, which may be a hidden
 # or stale ProseMirror node after the first ChatGPT turn. Always select a live,
 # visible, editable composer and prefer its focused instance on verification.
@@ -144,6 +155,23 @@ source = replace_once(
                 "  if (el) {"
 ''',
     "RETRY_CLEAR_FOCUSED_EDITOR",
+)
+# Do not place raw user question text into vendor diagnostic logs.
+source = replace_once(
+    source,
+    '''                    f"Composer text verification failed after retry; expected {text[:60]!r}"
+''',
+    '''                    "Composer text verification failed after retry"
+''',
+    "NO_PROMPT_IN_COMPOSER_EXCEPTION",
+)
+source = replace_once(
+    source,
+    '''        logger.info("Typed: %s", text[:80])
+''',
+    '''        logger.info("Composer typed, characters=%d", len(text))
+''',
+    "NO_PROMPT_IN_TYPED_LOG",
 )
 dom.write_text(source, encoding="utf-8")
 print("PASS_PINNED_VENDOR_SINGLE_USER_EXACT_TEXT", flush=True)
