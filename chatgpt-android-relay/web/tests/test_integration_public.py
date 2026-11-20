@@ -59,7 +59,7 @@ class PublicNoLoginContract(unittest.TestCase):
         self.assertFalse(p.json()["new_conversation_per_question"])
         self.assertTrue(p.json()["same_room_name_reuses_conversation"])
 
-    def test_worker_busy_and_heartbeat_are_distinct_from_connection(self):
+    def test_worker_heartbeat_and_job_count_do_not_impose_capacity(self):
         # Simulate state only; no real worker, GitHub Actions or ChatGPT send.
         app.web2api_device=object()
         app.web2api_last_seen_monotonic=time.monotonic()
@@ -67,15 +67,16 @@ class PublicNoLoginContract(unittest.TestCase):
         self.assertFalse(self.client.get("/integrations/v1/public/status").json()
                          ["worker_available_for_new_job"])
         app.worker_bootstrap_ready=True
-        for i in range(app.WEB2API_MAX_ACTIVE):
+        for i in range(6):
             app.web2api_active_jobs["job_synthetic_do_not_expose_"+str(i)] = "room_"+str(i)
         state=self.client.get("/integrations/v1/public/status").json()
         self.assertTrue(state["worker_connected"])
         self.assertTrue(state["worker_heartbeat_recent"])
-        self.assertTrue(state["worker_busy"])
-        self.assertFalse(state["worker_available_for_new_job"])
+        self.assertFalse(state["worker_busy"])
+        self.assertTrue(state["worker_available_for_new_job"])
+        self.assertNotIn("worker_capacity",state)
         self.assertNotIn("job_synthetic_do_not_expose",str(state))
-        self.assertEqual(state["worker_active_jobs_count"],app.WEB2API_MAX_ACTIVE)
+        self.assertEqual(state["worker_active_jobs_count"],6)
         app.web2api_active_jobs.clear()
         state=self.client.get("/integrations/v1/public/status").json()
         self.assertTrue(state["worker_available_for_new_job"])
