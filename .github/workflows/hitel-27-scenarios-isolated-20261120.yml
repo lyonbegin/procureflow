@@ -47,6 +47,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Retrieve exact current Scribd runner workflow for cross-branch contract check
+        run: |
+          mkdir -p scribd/.github/workflows
+          curl -fsSL --retry 3 --max-time 25 \
+            "https://raw.githubusercontent.com/lyonbegin/hitel-scribd-runner/main/.github/workflows/hitel-public-ai-corpus.yml" \
+            -o scribd/.github/workflows/hitel-public-ai-corpus.yml
+          test -s scribd/.github/workflows/hitel-public-ai-corpus.yml
       - name: Execute 27-source/transport contracts, record every case separately
         run: |
           python3 .github/scripts/hitel_27_scenario_probe_20261120.py contracts
