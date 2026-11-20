@@ -1,4 +1,4 @@
-name: HITEL launch one v4 worker for isolated smoke after verification
+name: HITEL launch one v4 worker for continuing Scribd classifications
 on:
   push:
     branches: [main]
@@ -16,8 +16,9 @@ jobs:
       - name: Launch existing manual-only signed worker exactly once
         run: |
           set -euo pipefail
-          status="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=30' -f 'inputs[pairing_code]=' --include | head -n 1)"
+          status="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' --include | head -n 1)"
           echo "WORKER_DISPATCH=$status"
           [[ "$status" == *"204"* ]]
           echo PASS_ONE_SIGNED_V4_WORKER_DISPATCH
 # 2026-11-20: single user-requested 30-minute v4 live smoke; no recurring schedule, no old corpus resubmission.
+# 2026-11-20: user-approved one-time 240-minute worker to resume prior 621+ classification; no cron, no duplicate Chrome worker.
