@@ -1,34 +1,30 @@
 #!/usr/bin/env python3
-"""HITEL browserless ChatGPT Web2API transport.
+"""HITEL local-only HTTP two-agent test transport.
 
-No Chrome, CDP, Playwright, DOM, direct UI clicks, or OpenAI metered API.
-This module communicates ONLY with a loopback-pinned gptweb2api HTTP gateway
-and reads conversation state via authenticated HTTPS GET to chatgpt.com.
+STRICT TEST SCOPE: no Chrome, account login, OAuth, Codex, GitHub secrets,
+external ChatGPT calls, or live room modifications. All requests go to an
+in-process loopback test gateway. Do not report PASS as real ChatGPT success.
 
-Safety contract: a POST is attempted once per job; an uncertain outcome is
-NEVER resent. The caller must establish current conversation parent before
-sending. The existing A/Scribd research rooms are read-only until promoted.
+Safety contract: no duplicate send, shared-room concurrency, or cross-room
+state. An optional in-memory parent_lookup callback supplies test fixture
+parents only; existing real ChatGPT rooms are NOT accessible.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import ssl
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOM_RE = re.compile(r"^room_[a-f0-9]{32}$")
 CID_RE = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 MESSAGE_RE = re.compile(r"^[a-zA-Z0-9_-]{8,128}$")
 BASE = "http://127.0.0.1:8787"
-WEB_HOST = "https://chatgpt.com"
 MAX_ANSWER_BYTES = 2_000_000
 MAX_PROMPT_LENGTH = 24000
 
@@ -79,26 +75,6 @@ def conversation_from_url(url: str) -> str:
     if not CID_RE.fullmatch(cid):
         raise DirectError("DIRECT_CONVERSATION_ID_INVALID")
     return cid
-
-
-def _load_credential(path: str) -> tuple[str, str | None]:
-    p = Path(path)
-    if not p.is_file():
-        raise DirectError("DIRECT_OAUTH_FILE_MISSING")
-    try:
-        payload = json.loads(p.read_text("utf-8"))
-        tokens = payload.get("tokens")
-        if not isinstance(tokens, dict):
-            tokens = payload
-        token = tokens.get("access_token") or payload.get("access_token")
-        account = tokens.get("account_id") or payload.get("account_id")
-    except (OSError, UnicodeError, ValueError, AttributeError):
-        raise DirectError("DIRECT_OAUTH_FILE_INVALID") from None
-    if not isinstance(token, str) or not token or len(token) > 8000:
-        raise DirectError("DIRECT_OAUTH_TOKEN_UNAVAILABLE")
-    if account is not None and (not isinstance(account, str) or len(account) > 250):
-        raise DirectError("DIRECT_ACCOUNT_ID_INVALID")
-    return token, account
 
 
 def _http_json(url: str, *, method: str, headers: dict[str, str],
@@ -156,12 +132,13 @@ def _current_parent(mapping: dict, current: str) -> str:
 
 
 class DirectWeb2API:
-    def __init__(self, *, oauth_file: str, api_key: str,
-                 gateway_url: str = BASE, timeout: int = 1500):
+    def __init__(self, *, api_key: str = "qa-loopback-only-test-key",
+                 gateway_url: str = BASE, timeout: int = 1500,
+                 parent_lookup: Callable[[str], str] | None = None):
         self._base = validate_gateway_url(gateway_url)
-        self._oauth_file = oauth_file
+        self._parent_lookup = parent_lookup
         if not isinstance(api_key, str) or len(api_key) < 16:
-            raise DirectError("DIRECT_LOCAL_GATEWAY_KEY_MISSING")
+            raise DirectError("DIRECT_LOCAL_TEST_GATEWAY_KEY_INVALID")
         self._api_key = api_key
         self._timeout = max(30, min(3600, int(timeout)))
         self._lock = threading.RLock()
@@ -174,15 +151,11 @@ class DirectWeb2API:
                 "Content-Type": "application/json", "Accept": "application/json"}
 
     def ready(self) -> None:
-        # /readyz alone checks credential CONFIGURATION, not a valid LIVE
-        # account. Require the browserless requirements provider to be enabled
-        # and a real model catalog response from the upstream ChatGPT account.
+        # These are local test gateway probes, NOT live account verification.
         document, _ = _http_json(self._base + "/readyz", method="GET",
                                  headers=self._gateway_headers(), timeout=20)
         checks = document.get("checks")
         if (document.get("ready") is not True or not isinstance(checks, dict)
-                or checks.get("chatgpt_auth_configured") is not True
-                or checks.get("requirements_provider_configured") is not True
                 or checks.get("browser_transport_configured") is not False):
             raise DirectError("DIRECT_GATEWAY_NOT_AUTHENTICATED_READY")
         models, _ = _http_json(self._base + "/v1/models", method="GET",
@@ -193,22 +166,16 @@ class DirectWeb2API:
                 and item["id"] for item in catalog):
             raise DirectError("DIRECT_LIVE_MODEL_CATALOG_UNVERIFIED")
 
-    def account_id(self) -> str | None:
-        return _load_credential(self._oauth_file)[1]
-
     def fetch_remote_parent(self, cid: str) -> str:
+        # Test-only in-memory fixture. No remote account credentials or GET.
         if not CID_RE.fullmatch(cid):
             raise DirectError("DIRECT_CONVERSATION_ID_INVALID")
-        token, account = _load_credential(self._oauth_file)
-        headers = {"Authorization": "Bearer " + token,
-                   "Accept": "application/json"}
-        if account:
-            headers["ChatGPT-Account-ID"] = account
-        url = WEB_HOST + "/backend-api/conversation/" + urllib.parse.quote(cid, safe="")
-        document, _ = _http_json(url, method="GET", headers=headers, timeout=40)
-        if document.get("conversation_id") not in (None, cid):
-            raise DirectError("DIRECT_REMOTE_CONVERSATION_ID_MISMATCH")
-        return _current_parent(document.get("mapping"), document.get("current_node"))
+        if self._parent_lookup is None:
+            raise DirectError("DIRECT_TEST_PARENT_LOOKUP_NOT_PROVIDED")
+        parent = self._parent_lookup(cid)
+        if not isinstance(parent, str) or not MESSAGE_RE.fullmatch(parent):
+            raise DirectError("DIRECT_TEST_PARENT_INVALID")
+        return parent
 
     def bootstrap(self, room_id: str, conversation_url: str) -> str:
         if not ROOM_RE.fullmatch(room_id):
