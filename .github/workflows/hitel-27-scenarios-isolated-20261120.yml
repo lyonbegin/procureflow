@@ -117,6 +117,7 @@ jobs:
           git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
           git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
           python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 .github/scripts/hitel_qa_vendor_visible_composer_patch_20261120.py "$ROOT/original"
           mkdir -p "$HOME/.chatgpt_web2api"
           cat > "$HOME/.chatgpt_web2api/config.json" <<'CONFIG'
           {
