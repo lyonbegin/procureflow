@@ -165,16 +165,15 @@ async def browser():
     def cdp_probe(rid):
         with sync_playwright() as pw:
             chrome=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=12000)
-            owned=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
-            target=owned[pool._rooms[rid].instance_id]["target_id"]
+            # Exact QA conversation route identifies the page without
+            # opening an extra page-level CDP Target session. Playwright's
+            # Target.getTargetInfo on this external-owned target raises
+            # AssertionError on the current Chrome build.
+            cid=sessions.get(rid,"")
             for ctx in chrome.contexts:
                 for page in ctx.pages:
-                    cdp=ctx.new_cdp_session(page)
-                    try:
-                        tid=cdp.send("Target.getTargetInfo")["targetInfo"]["targetId"]
-                    finally:
-                        cdp.detach()
-                    if tid!=target:continue
+                    if not cid or page.url.split("?",1)[0].rstrip("/") != "https://chatgpt.com/c/"+cid:
+                        continue
                     return page.evaluate("""() => {
                       let nodes=[...document.querySelectorAll('div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror')];
                       let fb=[...document.querySelectorAll('textarea#prompt-textarea')];
