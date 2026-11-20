@@ -97,6 +97,18 @@ def discard_verified_duplicate_json_tail(answer: str) -> str:
     except (ValueError,TypeError):
         return answer
     tail=clean[end:].strip()
+    # 2026-11-20 live browser proof: a complete JSON response was followed
+    # by an exact duplicate suffix and an HTML closing tag from the DIL DOM.
+    # The old suffix-only rule missed this shape (and published invalid JSON).
+    # Remove ONLY a verified, >=6-character identical suffix plus a closing
+    # tag, never arbitrary prose, an independent JSON object, or HTML content.
+    markup_tail=re.fullmatch(r"(.{6,})</[A-Za-z][A-Za-z0-9-]{0,31}>",
+                             tail,flags=re.DOTALL)
+    if markup_tail:
+        duplicate=markup_tail.group(1)
+        if ("<" not in duplicate and ">" not in duplicate
+                and len(duplicate)<end and clean[:end].endswith(duplicate)):
+            return clean[:end]
     if not tail or tail.startswith(("{","[")):
         return answer
     # Real browser DOM sometimes appends an exact short suffix fragment:

@@ -81,6 +81,22 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         self.assertEqual(json.loads(normalized),record)
         self.assertEqual(normalized,original)
 
+    def test_live_json_suffix_plus_html_close_tag_is_removed(self):
+        # Exact DIL duplicate-markup shape observed in one completed QA reply.
+        original='{"hitel_v4_postfix":"OK"}'
+        corrupt=original+'x":"OK"}</strong>'
+        self.assertEqual(worker.discard_verified_duplicate_json_tail(corrupt),original)
+        self.assertEqual(json.loads(worker.discard_verified_duplicate_json_tail(corrupt)),
+                         {"hitel_v4_postfix":"OK"})
+
+    def test_unrelated_html_or_nonmatching_suffix_is_never_removed(self):
+        original='{"hitel_v4_postfix":"OK"}'
+        for suffix in ('Other content</strong>', 'z":"OK"}</strong>',
+                       '<strong>legitimate note</strong>',
+                       'x":"OK"} following explanation', '{"other":"JSON"}'):
+            self.assertEqual(worker.discard_verified_duplicate_json_tail(original+suffix),
+                             original+suffix)
+
     def test_legitimate_post_json_explanation_is_not_discarded(self):
         raw='{"rows":[{"id":"A123","title":"example"}]}\n설명: 데이터는 참고용입니다.'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
