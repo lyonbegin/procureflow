@@ -163,21 +163,36 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
     except (OSError,TimeoutError,ValueError,KeyError) as exc:
         raise TabIsolationError("ROOM_OWNED_TARGET_CDP_NAVIGATION_FAILED") from exc
 
-    for _ in range(40):
+    # Page.navigate acknowledges the command BEFORE Chrome's /json/list
+    # reflects the destination. During that brief gap a new owned target may
+    # still report about:blank (no host) or its previous ChatGPT route.
+    # These are transitional states, not evidence of login or a foreign site.
+    # Never treat an actual auth redirect as transitional or navigate a foreign
+    # target. The expected target ID remains immutable throughout.
+    for attempt in range(40):
         current=str(owned_tab().get("url",""))
         if _same_conversation_route(current,conversation_url):
             return target_id
         observed=urlsplit(current)
+        if observed.scheme=="about" and observed.path=="blank":
+            time.sleep(0.5)
+            continue
+        if observed.hostname=="auth.openai.com":
+            raise TabIsolationError("ROOM_PREWARM_LOGIN_REDIRECT")
         if observed.hostname!="chatgpt.com":
-            raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
-        if observed.path.rstrip("/") in ("","/","/auth/login","/login"):
-            # Allow client-side navigation to settle, without submitting text.
+            raise TabIsolationError("ROOM_PREWARM_FOREIGN_HOST_AFTER_NAVIGATION")
+        if observed.path.rstrip("/") in ("/auth/login","/login"):
+            raise TabIsolationError("ROOM_PREWARM_CHATGPT_LOGIN_REDIRECT")
+        if observed.path.rstrip("/") in ("","/"):
             time.sleep(0.5)
             continue
         if observed.path.startswith(("/c/","/c2/","/uc/")):
-            raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
+            if attempt>=8:
+                raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
+            time.sleep(0.5)
+            continue
         time.sleep(0.5)
-    raise TabIsolationError("ROOM_PREWARM_HOME_OR_LOGIN_REDIRECT")
+    raise TabIsolationError("ROOM_PREWARM_EXPECTED_CONVERSATION_NOT_REACHED")
 
 
 class RoomTabPool:
