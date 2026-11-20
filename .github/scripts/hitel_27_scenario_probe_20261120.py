@@ -68,7 +68,7 @@ def contracts():
     report("C01","미검증","독립 Chrome 실제 탭 검증은 browser 단계 수행","browser")
     report("C02","미검증","실제 연속 3회 질문은 browser 단계 수행","browser")
     report("C03","미검증","실제 병렬 2방 전송은 browser 단계 수행","browser")
-    check("C04",lambda:(("composer_present" in pool or "send_ready" in pool) and "healthy" not in pool.split("async def _ready(port: int) -> bool:")[-1][:350],"현재 _ready는 Chrome/driver/healthy만 확인하며 입력창 검증 없음"))
+    check("C04",lambda:("composer_ready" in pool and "composer_ready" in load(root/".github/scripts/w2a_patch_vendor_composer_20261120.py"),"실제 편집 가능한 입력창을 vendor/worker 준비 조건으로 확인"),"code")
     check("C05",lambda:("job.uncertain" in worker and "upstream_delivery_unknown" in app and "unknown" not in public[public.index('def submit_public_chat'):public.index('@router.get("/requests/')],"중복전송 회피는 있으나 unknown/stalled 고착 후 자동 회복 보장 없음"))
     check("A01",lambda:("ONLY_CONFIRMED_A_PILOT_0LJUxO7T" in recovery,"단일 원본 제한은 존재하나 실제 연구 요청의 검증 완료를 의미하지 않음"),"code")
     check("A02",lambda:("pine_source_status" in recovery and "NOT_VERIFIED" in recovery,"Pine 원문 미확보시 NOT_VERIFIED로 보존"),"code")
@@ -116,7 +116,7 @@ def contracts():
         out=mod.validated_rows(content,batch)
         return len(out)==20 and out[0]["no"]==21,"현재 batch와 이전 batch JSON 구분"
     check("S04",check_s04,"unit")
-    check("S05",lambda:('"/result"' in scribd or "'/result'" in scribd,"현재 분류기는 /jobs/{id}/result 경로를 호출하지 않음: 65536바이트 초과시 결과 누락"),"code")
+    check("S05",lambda:("def read_completed_result" in scribd and '"/result?offset="' in scribd,"결과 바이트 오프셋·해시 검증을 통해 전체 회수"),"code")
     report("S06","미검증","독립 QA Chrome에서 2회 연속 같은 분류방 전송 예정","browser")
     report("S07","미검증","독립 QA Chrome에서 두 개의 별도 탭 ID 검증 예정","browser")
     def check_s08():
@@ -163,35 +163,52 @@ async def browser():
     ids={ra:"A",rs:"S"}
     sessions={}
     def cdp_probe(rid):
-        with sync_playwright() as pw:
-            chrome=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=12000)
-            # Exact QA conversation route identifies the page without
-            # opening an extra page-level CDP Target session. Playwright's
-            # Target.getTargetInfo on this external-owned target raises
-            # AssertionError on the current Chrome build.
-            cid=sessions.get(rid,"")
-            for ctx in chrome.contexts:
-                for page in ctx.pages:
-                    if not cid or page.url.split("?",1)[0].rstrip("/") != "https://chatgpt.com/c/"+cid:
-                        continue
-                    return page.evaluate("""() => {
-                      let nodes=[...document.querySelectorAll('div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror')];
-                      let fb=[...document.querySelectorAll('textarea#prompt-textarea')];
-                      let visible=e=>!!(e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden');
-                      return {
-                        route: location.pathname.startsWith('/c/'),
-                        readyState: document.readyState,
-                        named_textboxes: nodes.length,
-                        named_visible: nodes.filter(visible).length,
-                        named_editable: nodes.filter(e=>visible(e)&&e.isContentEditable).length,
-                        fallback_count: fb.length,
-                        fallback_visible: fb.filter(visible).length,
-                        form_count: document.querySelectorAll('form').length,
-                        submit_button_count: document.querySelectorAll('button[type="submit"]').length,
-                        app_has_nav: !!document.querySelector('nav')
-                      };
-                    }""")
-        return {"error":"NO_OWNED_TARGET"}
+        """Read only metadata from exact owned Chrome tab, not its messages."""
+        from websockets.sync.client import connect
+        owned=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
+        target=owned[pool._rooms[rid].instance_id]["target_id"]
+        with urllib.request.urlopen("http://127.0.0.1:9222/json/list",timeout=5) as req:
+            tabs=json.load(req)
+        matches=[tab for tab in tabs if tab.get("id")==target]
+        if len(matches)!=1:
+            raise RuntimeError("OWNED_TARGET_NOT_IN_CHROME")
+        javascript="""(function(){
+          const nodes=[...document.querySelectorAll('div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror')];
+          const fb=[...document.querySelectorAll('textarea#prompt-textarea')];
+          const usable=e=>!!(e.isConnected && e.getClientRects().length>0 && !e.disabled &&
+               !e.closest('[aria-hidden=true],[inert]') &&
+               getComputedStyle(e).visibility!=='hidden' &&
+               (e.isContentEditable || e.tagName==='TEXTAREA'));
+          const scratch=document.createElement('textarea');
+          scratch.id='prompt-textarea';scratch.style.display='none';
+          document.body.appendChild(scratch);
+          let hidden_rejected=!usable(scratch);
+          scratch.remove();
+          return JSON.stringify({
+             route: location.pathname.startsWith('/c/'),
+             readyState: document.readyState,
+             named_textboxes:nodes.length,
+             named_visible:nodes.filter(usable).length,
+             named_editable:nodes.filter(e=>usable(e)&&e.isContentEditable).length,
+             fallback_count:fb.length,
+             fallback_visible:fb.filter(usable).length,
+             hidden_editor_rejected:hidden_rejected,
+             active_editor_usable:usable(document.activeElement),
+             reply_generating:!!document.querySelector('[data-testid="stop-button"]'),
+             user_nodes:document.querySelectorAll('[data-message-author-role="user"],div[class*="bg-user-message"]').length
+          });
+        })()"""
+        with connect(matches[0]["webSocketDebuggerUrl"],open_timeout=9,close_timeout=3,max_size=120000) as sock:
+            sock.send(json.dumps({"id":17,"method":"Runtime.evaluate",
+                 "params":{"expression":javascript,"returnByValue":True}}))
+            for _ in range(30):
+                packet=json.loads(sock.recv(timeout=9))
+                if packet.get("id")!=17:continue
+                if packet.get("error") or packet.get("result",{}).get("exceptionDetails"):
+                    raise RuntimeError("OWNED_TARGET_DOM_EVALUATION_ERROR")
+                value=packet["result"]["result"]["value"]
+                return json.loads(value)
+        raise RuntimeError("OWNED_TARGET_DOM_PROBE_TIMEOUT")
     def safe_vendor_error_kinds():
         patterns=("No composer found","Navigation to","send_baseline_unavailable",
                   "Send not acknowledged","send-readiness not established","CDP disconnected",
@@ -312,30 +329,13 @@ async def browser():
         report("A05","PASS" if good_a else "FAIL","합성 A 연구방 3연속 회신 및 동일 cid 유지; 실원본 연구 아님","real_chrome")
         report("S06","PASS" if good_s and "S02" in results and results["S02"]["status"]=="PASS" else "FAIL","Scribd 합성 20건 후 같은 방 후속 전송 완료","real_chrome")
         # Visibility probe on real tab, then negative-control on separate throwaway page.
-        def dom_probe():
-            with sync_playwright() as pw:
-                browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=15000)
-                ctx=browser.contexts[0]
-                pages=list(ctx.pages)
-                live_count=0
-                for page in pages:
-                    if page.url.startswith(("https://chatgpt.com/c/","https://chatgpt.com/")):
-                        try:
-                            textbox=page.locator('div[role="textbox"].ProseMirror, div[role="textbox"]#prompt-textarea')
-                            if textbox.count() and textbox.first.is_visible() and textbox.first.is_enabled():
-                                live_count+=1
-                        except Exception:pass
-                scratch=ctx.new_page()
-                try:
-                    scratch.goto("about:blank")
-                    scratch.set_content('<html><body><textarea id="prompt-textarea" style="display:none"></textarea></body></html>')
-                    false_positive=scratch.evaluate('Boolean(document.querySelector(\'div[role="textbox"]#prompt-textarea, div[role="textbox"].ProseMirror\') || document.querySelector(\'textarea#prompt-textarea\'))')
-                    visible=scratch.locator('textarea#prompt-textarea').is_visible()
-                finally:
-                    scratch.close()
-                return live_count,false_positive,visible
-        count,false_positive,is_visible=await asyncio.to_thread(dom_probe)
-        report("C04","FAIL" if false_positive and not is_visible else "PASS",f"real_tab_editors_visible={count}; hidden_textarea_wrongly_accepted={false_positive}; scratch_visible={is_visible}","real_chrome")
+        states=[await asyncio.to_thread(cdp_probe,rid) for rid in (ra,rs)]
+        all_ready=all(x.get("route") is True and x.get("hidden_editor_rejected") is True and
+                      (x.get("named_visible",0)+x.get("fallback_visible",0))>=1 for x in states)
+        report("C04","PASS" if all_ready else "FAIL",
+               "both_exact_owned_tabs_have_visible_editable_composer="+str(all_ready)+
+               " hidden_control_rejected="+str(all(x.get("hidden_editor_rejected") for x in states)),
+               "real_chrome")
     except Exception as e:
         import traceback
         stack=[(Path(t.filename).name,t.lineno,t.name) for t in traceback.extract_tb(e.__traceback__)]
