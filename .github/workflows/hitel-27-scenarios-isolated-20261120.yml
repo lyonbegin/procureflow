@@ -1,0 +1,157 @@
+name: HITEL 27 scenarios isolated browser QA 20261120
+
+# One-off QA only: does not connect to Railway WebSocket, does not write A/Scribd research rooms.
+on:
+  push:
+    paths:
+      - .github/workflows/hitel-27-scenarios-isolated-20261120.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hitel-27-scenarios-isolated-qa-20261120
+  cancel-in-progress: false
+
+jobs:
+  scenarios:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DISPLAY: ":99"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ".github/scripts:qa/.github/scripts"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/hitel-room-tab-isolation-20261120
+          path: qa
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/hitel-integrations-api-20261118
+          path: source-api
+      - uses: actions/checkout@v4
+        with:
+          repository: lyonbegin/hitel-scribd-runner
+          ref: feature/hitel-public-ai-batches-20261119
+          path: scribd
+      - uses: actions/checkout@v4
+        with:
+          repository: lyonbegin/autonomous-investor-backend
+          ref: feature/hitel-a-kg-recovery-20261119
+          path: stock
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Execute 27-source/transport contracts, record every case separately
+        run: |
+          python3 .github/scripts/hitel_27_scenario_probe_20261120.py contracts
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: false
+      - name: Restore encrypted existing login to an isolated GitHub VM, never Railway
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0 websockets==13.1
+          if ! command -v Xvfb >/dev/null 2>&1; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          fi
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT/download"
+          RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
+          test -n "$RUN_ID"
+          for attempt in $(seq 1 6); do
+            if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null 2>&1; then
+              echo PASS_ISOLATED_ENCRYPTED_PROFILE_DOWNLOADED
+              break
+            fi
+            if [[ "$attempt" == "6" ]]; then
+              echo FAIL_PROFILE_ARCHIVE_UNAVAILABLE
+              exit 1
+            fi
+            sleep 8
+          done
+          test -s "$ROOT/download/account-0001.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore "$ROOT/download/account-0001.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+      - name: Launch isolated authenticated Chrome and original patched Web2API
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_ISOLATED_REAL_CHROME_CDP_READY
+              break
+            fi
+            if [ "$i" -eq 45 ]; then echo FAIL_ISOLATED_CHROME_CDP_START; exit 1; fi
+            sleep 2
+          done
+          python3 .github/scripts/w2a_verify_saved_registry.py
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          mkdir -p "$HOME/.chatgpt_web2api"
+          cat > "$HOME/.chatgpt_web2api/config.json" <<'CONFIG'
+          {
+            "request_timeout": 1500,
+            "tab_mode": "owned",
+            "parallel_tabs": true,
+            "detector_reasoning_first_content_timeout_seconds": 900,
+            "detector_reasoning_stream_idle_timeout_seconds": 900,
+            "detector_default_first_content_timeout_seconds": 900,
+            "detector_default_stream_idle_timeout_seconds": 900,
+            "detector_hard_timeout_seconds": 1500
+          }
+          CONFIG
+          python3 -m pip install -q "$ROOT/original"
+          echo PASS_ISOLATED_VENDOR_INSTALLED
+      - name: Execute real six-turn two-tab QA with 20 synthetic Scribd titles
+        timeout-minutes: 23
+        run: |
+          python3 .github/scripts/hitel_27_scenario_probe_20261120.py browser
+      - name: Summarize exact 27-case status, no generic success claim
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"hitel-scenarios/results.json"
+          if not p.exists():
+              print("FAIL_NO_SCENARIO_REPORT")
+              raise SystemExit(1)
+          r=json.loads(p.read_text("utf-8"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write("## HITEL 27 independent scenarios (not a production release)\n")
+              for key in sorted(r):
+                  v=r[key]
+                  f.write(f"- {key}: **{v['status']}** ({v['layer']}) — {v['evidence']}\n")
+          counts={x:sum(v["status"]==x for v in r.values()) for x in ("PASS","FAIL","미검증")}
+          print("SCENARIO_COUNT="+str(len(r))+" COUNTS="+json.dumps(counts,ensure_ascii=False),flush=True)
+          assert len(r)==27, "ONE_OR_MORE_CASES_NOT_RECORDED"
+          if counts["FAIL"] or counts["미검증"]:
+              print("NOT_READY_FOR_REAL_RESEARCH",flush=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hitel-27-scenarios-isolated-qa-report
+          path: ${{ runner.temp }}/hitel-scenarios/results.json
+          retention-days: 30
+          if-no-files-found: warn
