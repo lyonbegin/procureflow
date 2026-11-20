@@ -16,7 +16,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import ValidationError
 
 import api_v1
@@ -32,6 +32,57 @@ POLL_SECONDS=1.0
 END_STATES={"completed","failed","unknown","stalled"}
 MAX_OBSERVE_SECONDS=15000
 MAX_WS_IDLE_SECONDS=15000
+# In-process event subscription is keyed by the existing immutable job ID.
+# No new socket or service is introduced; DB read remains authoritative.
+JOB_NOTIFY_FALLBACK_SECONDS=15
+_JOB_NOTIFIERS: dict[str,set[asyncio.Event]]={}
+
+def notify_job_changed(job_id: str) -> None:
+    """Wake only the waiting agent whose verified job_id changed.
+
+    Called on the SAME running FastAPI event loop by the existing signed
+    worker WebSocket. This callback never carries an assistant answer or
+    affects any other room; the observer checks DB room/request/job scope.
+    """
+    for signal in tuple(_JOB_NOTIFIERS.get(job_id, ())):
+        signal.set()
+
+def _existing_worker_preflight() -> None:
+    """Public test sends require an actually connected and ready existing worker.
+
+    No worker bootstrap, background GitHub Action, login or credential creation.
+    """
+    from app import (web2api_device, worker_bootstrap_ready,
+                     web2api_last_seen_monotonic, web2api_active_jobs,
+                     WEB2API_MAX_ACTIVE)
+    if web2api_device is None:
+        raise HTTPException(status_code=503,detail="WORKER_NOT_CONNECTED")
+    if not worker_bootstrap_ready:
+        raise HTTPException(status_code=503,detail="WORKER_NOT_BOOTSTRAPPED")
+    if (web2api_last_seen_monotonic <= 0 or
+            time.monotonic()-web2api_last_seen_monotonic > 75):
+        raise HTTPException(status_code=503,detail="WORKER_HEARTBEAT_STALE")
+    if len(web2api_active_jobs)>=WEB2API_MAX_ACTIVE:
+        raise HTTPException(status_code=503,detail="WORKER_CAPACITY_EXHAUSTED")
+
+def _http_failure_code(exc: HTTPException) -> str:
+    """Only allow finite known status/reason codes in public responses."""
+    detail=exc.detail if isinstance(exc.detail,str) else ""
+    allowed={
+        "WORKER_NOT_CONNECTED","WORKER_NOT_BOOTSTRAPPED","WORKER_HEARTBEAT_STALE",
+        "WORKER_CAPACITY_EXHAUSTED",
+    }
+    if detail in allowed:
+        return detail
+    if exc.status_code==409:
+        return "ROOM_OR_REQUEST_CONFLICT"
+    if exc.status_code==503:
+        return "CHATGPT_WORKER_UNAVAILABLE"
+    if exc.status_code==404:
+        return "PUBLIC_TEST_ROOM_NOT_FOUND"
+    if exc.status_code==422:
+        return "VALIDATION_FAILED"
+    return "PUBLIC_CHAT_HTTP_"+str(exc.status_code)
 
 
 def _job_scope(job: dict[str,Any], *, room_id:str, request_id:str, job_id:str) -> None:
@@ -106,8 +157,13 @@ async def _follow_existing_job(send, *, room_id:str, request_id:str, job_id:str,
     """Observe Railway's *existing* job; NEVER submit or retry a ChatGPT turn."""
     started=time.monotonic()
     prior=None
+    changed=asyncio.Event()
+    _JOB_NOTIFIERS.setdefault(job_id,set()).add(changed)
     try:
         while time.monotonic()-started < MAX_OBSERVE_SECONDS:
+            # Clear BEFORE the DB read: notifications arriving during the
+            # read are not lost. Completion is verified against DB state.
+            changed.clear()
             job=await asyncio.to_thread(existing.read_public_result,job_id)
             _job_scope(job,room_id=room_id,request_id=request_id,job_id=job_id)
             stage=(job.get("status"),job.get("stage"),job.get("error_code"))
@@ -129,7 +185,12 @@ async def _follow_existing_job(send, *, room_id:str, request_id:str, job_id:str,
                             "error_code":job.get("error_code"),
                             "never_auto_retry":True})
                 return
-            await asyncio.sleep(POLL_SECONDS)
+            try:
+                await asyncio.wait_for(changed.wait(),timeout=JOB_NOTIFY_FALLBACK_SECONDS)
+            except asyncio.TimeoutError:
+                # Recovery fallback if the relay restarted or a notification
+                # arrived before the subscriber registered.
+                continue
         await send({"type":"reply.unverified","session_id":session_id,
                     "room_id":room_id,"request_id":request_id,"job_id":job_id,
                     "seq":seq,"status":"timeout","error_code":"RESULT_NOT_OBSERVED",
@@ -142,6 +203,12 @@ async def _follow_existing_job(send, *, room_id:str, request_id:str, job_id:str,
                     "room_id":room_id,"request_id":request_id,"job_id":job_id,
                     "seq":seq,"status":"unknown","error_code":type(exc).__name__,
                     "never_auto_retry":True})
+    finally:
+        waiting=_JOB_NOTIFIERS.get(job_id)
+        if waiting is not None:
+            waiting.discard(changed)
+            if not waiting:
+                _JOB_NOTIFIERS.pop(job_id,None)
 
 
 @router.websocket("/stream")
@@ -236,13 +303,26 @@ async def agent_stream(ws: WebSocket):
                 # Existing POST handler's DB transaction enforces idempotency,
                 # one unfinished request/room, and explicit fixed room routing.
                 try:
+                    # Never automatically launch a GitHub workflow from the
+                    # public test socket. An already-running, independently
+                    # authenticated worker must be genuinely ready.
+                    _existing_worker_preflight()
                     accepted=await existing.submit_public_chat(
                         existing.PublicChat(text=text,request_id=request_id,room_id=bound_room))
                     job_id=accepted["job_id"]
                     if accepted["room_id"]!=bound_room or accepted["request_id"]!=request_id:
                         raise ValueError("SERVER_ACCEPTANCE_ROUTE_MISMATCH")
+                except HTTPException as exc:
+                    await send({"type":"request.error",
+                                "error_code":_http_failure_code(exc),
+                                "http_status":exc.status_code,
+                                "room_id":bound_room,
+                                "request_id":request_id,"seq":seq})
+                    continue
                 except Exception as exc:
-                    await send({"type":"request.error","error_code":type(exc).__name__,
+                    await send({"type":"request.error",
+                                "error_code":type(exc).__name__,
+                                "room_id":bound_room,
                                 "request_id":request_id,"seq":seq})
                     continue
             else:
