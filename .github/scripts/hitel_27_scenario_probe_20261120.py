@@ -217,7 +217,7 @@ async def browser():
         for log in ROOT.glob("vendor-*.log"):
             for line in log.read_text("utf-8",errors="replace").splitlines():
                 if "Selector drift diagnostic" not in line:continue
-                match=re.search(r"(\\{[^{}]*\\})\\s*$",line)
+                match=re.search(r"([{][^{}]*[}])\s*$",line)
                 if not match:
                     safe.append({"diagnostic":"missing_json"})
                     continue
