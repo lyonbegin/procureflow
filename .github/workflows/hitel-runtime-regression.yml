@@ -1,0 +1,77 @@
+name: HITEL consolidated runtime regression
+
+on:
+  push:
+    branches: [main, fix/hitel-web2api-finalize-20261120]
+    paths:
+      - "chatgpt-android-relay/**"
+      - ".github/scripts/hitel_web2api_worker.py"
+      - ".github/scripts/hitel_room_tab_pool.py"
+      - ".github/scripts/safe_worker_error.py"
+      - ".github/scripts/test_safe_worker_error.py"
+      - ".github/scripts/w2a_worker_fallback.py"
+      - ".github/scripts/w2a_account_runtime.py"
+      - ".github/workflows/hitel-runtime-regression.yml"
+      - ".github/workflows/hitel-integration-bridge-live-qa.yml"
+      - "tools/hitel_chat.py"
+      - "tests/test_hitel*"
+      - "docs/HITEL_WEB2API*"
+  pull_request:
+    paths:
+      - "chatgpt-android-relay/**"
+      - ".github/scripts/hitel*"
+      - "tools/hitel_chat.py"
+      - "tests/test_hitel*"
+      - ".github/workflows/hitel-runtime-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hitel-consolidated-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime and test dependencies
+        run: python3 -m pip install -q -r chatgpt-android-relay/web/requirements.txt websockets==13.1 pyyaml
+      - name: Validate consolidated source and worker entry point
+        run: |
+          python3 -m compileall -q chatgpt-android-relay/web .github/scripts tools/hitel_chat.py
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          import yaml
+          path=Path('.github/workflows/hitel-integration-bridge-live-qa.yml')
+          doc=yaml.safe_load(path.read_text())
+          assert doc['concurrency']['cancel-in-progress'] is False
+          assert 'qa/' not in path.read_text()
+          assert 'ref: fix/' not in path.read_text()
+          assert 'hitel_web2api_worker.py' in path.read_text()
+          source=Path('.github/scripts/hitel_web2api_worker.py').read_text()
+          ast.parse(source)
+          assert '"hitel_protocol_version":4' in source
+          print('PASS_SINGLE_CHECKOUT_MAIN_RUNTIME_NO_ACTIVE_WORKER_CANCELLATION')
+          PY
+      - name: Verify safe worker error classification
+        run: python3 -m unittest discover -s .github/scripts -p test_safe_worker_error.py -v
+      - name: Verify two durable agent sockets, cross-room isolation and read-only resume
+        run: python3 -m unittest discover -s tests -p test_hitel_agent_persistent_ws.py -v
+      - name: Verify reusable client checkpoint, SHA-256, byte offsets and resume without reposting
+        run: python3 -m unittest discover -s tests -p test_hitel_chat_client.py -v
+      - name: Verify API, worker and tab contracts without external ChatGPT sends
+        env:
+          PUBLIC_SMOKE_ONLY: "1"
+          WEB_SESSION_SIGNING_KEY: "test-only-non-secret-signing-key-in-github-ci-20261118"
+        run: |
+          for suite in test_integrations_api test_file_scenario_api test_integration_pairing test_worker_autostart test_integration_public test_multi_room_dispatch test_multi_tab_worker test_long_job_status test_worker_fresh_chat test_worker_protocol_upgrade test_long_running_reply; do
+            python3 -m unittest discover -s chatgpt-android-relay/web/tests -p "$suite.py" -v
+          done

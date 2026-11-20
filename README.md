@@ -23,10 +23,12 @@ FastAPI + isolated Headless Chromium worker + existing pgvector PostgreSQL.
 
 ---
 
-## HITEL ChatGPT-Web2API · GitHub 실행
+## HITEL ChatGPT 원격 연결
 
-**[GitHub 실행 화면 — 서버 API 확인 / 실제 ChatGPT 메시지 시험](https://github.com/lyonbegin/procureflow/actions/workflows/hitel-web2api-github-console.yml)**
+[실행·재사용 안내](docs/HITEL_WEB2API_CONTINUE.md) · [Chrome 작업자 시작](https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml) · [통합 회귀시험](https://github.com/lyonbegin/procureflow/actions/workflows/hitel-runtime-regression.yml)
 
-[한국어 실행·설치 안내](docs/HITEL_WEB2API_GITHUB_OPERATOR.md) · [GitHub Chrome 작업자](https://github.com/lyonbegin/procureflow/actions/workflows/chatgpt-web2api-relay-worker.yml) · [Railway 시험 화면](https://chatgpt-relay-web-production.up.railway.app/)
+소스는 이 저장소의 main에서 함께 관리합니다. 방마다 독립 Chrome 탭을 사용하고, 두 에이전트의 지속 WebSocket 연결을 지원합니다. 기본 실행 시간은 4시간이며 예약 실행은 추가하지 않습니다.
 
-> Web2API의 원본 OpenAI 호환 API는 GitHub Actions 실행기의 localhost에서 임시 실행됩니다. Railway의 현재 공개 URL은 고정 질문용 시험 API이며, 일반 사용자용 OpenAI 호환 API 서버로 공개된 것은 아닙니다. API 비밀키나 Google 로그인 세션을 GitHub 공개 코드에 저장하지 않습니다.
+`tools/hitel_chat.py`는 요청을 저장한 뒤 전송하고, 연결이 끊기면 같은 요청의 결과를 이어받습니다. 기존 요청을 자동 재전송하지 않으며 응답의 방·요청·작업 ID와 SHA-256을 확인합니다.
+
+[실제 두 방 8회 송수신 검증](https://github.com/lyonbegin/procureflow/actions/runs/44749309310). 파일 첨부와 24시간 상시 운영은 이 시험의 검증 범위에 포함되지 않습니다.

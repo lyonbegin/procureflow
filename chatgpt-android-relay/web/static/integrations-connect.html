@@ -1,0 +1,104 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HITEL 외부 API 소유자 계정 연결 (검증 중)</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color:#243349;background:#f5f7fa}
+body{margin:0}main{max-width:780px;padding:28px 18px 80px;margin:auto}
+h1{font-size:27px}h2{font-size:20px}p{line-height:1.7}
+.card{padding:22px;background:white;border:1px solid #dbe4ef;border-radius:12px;margin-top:20px}
+button{font-size:15px;background:#164d8c;color:white;border:0;border-radius:6px;padding:12px 15px;cursor:pointer}
+button:disabled{background:#9faabe;cursor:not-allowed}
+input{font-size:15px;max-width:100%;width:270px;padding:12px;border:1px solid #cad4e0;border-radius:6px}
+code{font-family:Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
+p.warning{background:#fff1de;border-left:4px solid #b98536;padding:12px}
+pre{background:#eef3f9;padding:14px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+a{color:#1762aa}
+.small{font-size:13px;color:#617187}label{display:block;margin-bottom:7px}
+</style></head><body><main>
+<h1>HITEL API 계정 연결</h1>
+<p class="warning"><strong>운영 배포 전 시험용입니다.</strong> 새 Railway 서비스와 이미 등록된 GitHub Chrome 계정 1번을 안전하게 연결하는 절차입니다. API의 상시 동작, 일반 파일 첨부나 대량 문서 분류가 아직 완성되었다는 뜻이 아닙니다.</p>
+<section class="card">
+<h2>기존 계정은 그대로 · Chrome 작업자 켜기</h2>
+<p>기존에 발급받은 API 키가 있다면 계정을 다시 등록하지 않으셔도 됩니다. 작업자가 꺼진 경우 아래 실행 링크에서 GitHub <strong>Run workflow</strong>를 눌러 작업자만 켜시면 됩니다.</p>
+<p><a href="/integrations/worker">작업자 실행 화면 및 연결 상태 확인</a></p>
+</section>
+<section class="card">
+<h2>1. 브라우저 연결 상태</h2>
+<p id="status" aria-live="polite">상태 확인 중</p>
+<button id="refresh">상태 다시 확인</button>
+</section>
+<section class="card">
+<h2>2. 계정 연결코드 발급</h2>
+<p>아래 버튼을 누르시면 <strong>15분 동안 한 번만 사용 가능한 코드</strong>가 발급됩니다. 이 코드를 GitHub Actions에 입력하시면 저장된 Chrome 계정의 실제 로그인 일치 검증 후 현재 브라우저에 계정이 연결됩니다. ChatGPT 비밀번호나 로그인 쿠키를 입력하지 않습니다.</p>
+<button id="issue">일회성 연결코드 발급</button>
+<div id="challenge" hidden>
+<p><strong>GitHub Actions에 붙여 넣으실 연결코드</strong></p>
+<pre id="pairCode"></pre>
+<p><a href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml" target="_blank" rel="noopener noreferrer">서명된 GitHub Actions 계정 검증 워크플로</a>를 열고 <strong>Run workflow</strong>에서 <code>pairing_code</code> 필드에 위 코드를 넣으신 뒤 실행하십시오. 성공한 후 이 페이지에서 <strong>상태 다시 확인</strong>을 눌러주십시오.</p>
+</div>
+</section>
+<section class="card">
+<h2>3. 외부 프로그램용 API 키 발급</h2>
+<p>계정 연결 확인이 통과한 뒤에만 실행할 수 있습니다. 발급된 키는 화면에 <strong>한 번만 표시</strong>되며, 외부 프로그램에 넣을 때 비밀번호처럼 관리하십시오.</p>
+<label for="keyName">연동 프로그램 명칭</label><input id="keyName" value="HITEL external application" maxlength="80">
+<button id="makeKey" disabled>API 키 발급</button>
+<div id="result" hidden><p>발급된 키를 복사하여 안전한 비밀저장소에 보관하십시오.</p><pre id="apiKey"></pre><p id="account"></p><button id="copy">API 키 복사</button></div>
+</section>
+<p class="small">API 기본 주소: <code>https://hitel-integration-api-production.up.railway.app</code></p>
+<p><a href="/integrations/docs">기술 검증 중 API 명세</a> · <a href="/integrations/v1/capabilities">실시간 가동 상태</a></p>
+<script>
+"use strict";
+let csrf="",lastKey="";
+const $=id=>document.getElementById(id);
+async function api(path,method="GET",body=null){
+ const headers={"Accept":"application/json"};
+ if(body!==null){headers["Content-Type"]="application/json";headers["X-Web-Csrf"]=csrf;}
+ const res=await fetch(path,{method,headers,credentials:"same-origin",cache:"no-store",body:body===null?undefined:JSON.stringify(body)});
+ const data=await res.json().catch(()=>({}));
+ if(!res.ok)throw new Error("HTTP "+res.status+" — "+(data.detail||"요청 실패"));
+ return data;
+}
+async function bootstrap(){
+ const b=await api("/web/api/bootstrap");
+ csrf=b.csrf;
+ await refresh();
+}
+async function refresh(){
+ try{
+  const [s,c]=await Promise.all([
+    api("/web/api/integrations/pairing/status"),
+    api("/integrations/v1/capabilities")
+  ]);
+  const ready=Boolean(s.ready_to_issue_key);
+  $("makeKey").disabled=!ready;
+  $("status").textContent="계정 연결: "+(ready?"완료":"아직 미완료")
+    +" | Chrome 작업자: "+(c.worker_connected?"현재 연결":"현재 미연결")
+    +" | 연결된 계정 수: "+s.paired_accounts.length;
+ }catch(e){$("status").textContent=String(e.message||e);}
+}
+$("issue").onclick=async()=>{
+ $("issue").disabled=true;
+ try{
+  const d=await api("/web/api/integrations/pairing/request","POST",{});
+  $("pairCode").textContent=d.pairing_code;
+  $("challenge").hidden=false;
+ }catch(e){alert(String(e.message||e));}
+ finally{$("issue").disabled=false;}
+};
+$("refresh").onclick=refresh;
+$("makeKey").onclick=async()=>{
+ $("makeKey").disabled=true;
+ try{
+  const d=await api("/web/api/integrations/keys","POST",{"name":$("keyName").value});
+  lastKey=d.api_key;
+  $("apiKey").textContent=lastKey;
+  $("account").textContent="계정 식별자: "+d.account_id;
+  $("result").hidden=false;
+ }catch(e){alert(String(e.message||e));}
+ finally{await refresh();}
+};
+$("copy").onclick=async()=>{if(lastKey)try{await navigator.clipboard.writeText(lastKey);}catch(e){alert("복사하지 못했습니다. 직접 복사해 주십시오.");}};
+bootstrap().catch(e=>$("status").textContent=String(e.message||e));
+setInterval(()=>{if(csrf)refresh();},5000);
+</script>
+</main></body></html>

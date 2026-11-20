@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HITEL — 바로 연결</title>
+<style>
+*{box-sizing:border-box}body{margin:0;color:#183047;background:#f6f8fb;font:16px/1.65 system-ui,-apple-system,"Malgun Gothic",sans-serif}
+main{max-width:690px;margin:42px auto;padding:18px}
+section{background:#fff;border:1px solid #dae3ed;border-radius:12px;padding:24px;margin:16px 0}
+h1{font-size:27px;margin:0 0 8px}h2{font-size:19px;margin:0 0 10px}
+p{margin:9px 0}a{color:#1d5e9f}a.primary{display:inline-block;background:#215e98;color:#fff;text-decoration:none;padding:12px 16px;border-radius:8px;font-weight:700}
+.state{font-weight:700}small{color:#68798b}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#939cab;margin-right:8px}
+.online .dot{background:#168b56}.offline .dot{background:#c67827}
+code{overflow-wrap:anywhere;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+</style></head><body><main>
+<h1>HITEL 바로 연결</h1>
+<p>누구나 링크를 열어 바로 질문하실 수 있습니다. 로그인·API 키·계정 연결코드가 필요하지 않습니다.</p>
+<section>
+<h2>현재 상태</h2>
+<p id="state" class="state"><span class="dot"></span><span id="message">서버 확인 중</span></p>
+<p id="detail">연결 상태를 조회하고 있습니다.</p>
+<small id="clock"></small>
+</section>
+<section>
+<h2>다른 프로그램에서 사용하기</h2>
+<p><a class="primary" href="/integrations/public">누구나 바로 질문하기</a></p>
+<p><a href="/integrations/quick-start">프로그램용 공개 API 사용법</a></p>
+<p>공개 API: <a href="/integrations/v1/public/status">로그인 없이 이용 가능</a></p>
+<p>워커가 꺼져 있으면 기존 서버 설정으로 자동 기동을 시도합니다. 실행 버튼을 따로 누르지 않아도 됩니다.</p>
+</section>
+<section>
+<h2>연결 상태를 직접 확인하려면</h2>
+<p><a href="/integrations/v1/worker/autostart">실시간 상태 JSON</a></p>
+<p><small>상태가 미연결이어도 대기 질문이 없다면 정상입니다. 실제 질문의 완료 여부는 해당 작업의 결과 조회로 확인해야 합니다.</small></p>
+</section>
+<script>
+"use strict";
+let busy=false;
+async function refresh(){
+ if(busy)return;busy=true;
+ try{
+  const response=await fetch("/integrations/v1/worker/autostart",{cache:"no-store",credentials:"omit"});
+  if(!response.ok)throw Error("상태 조회 실패");
+  const data=await response.json();
+  const up=data.worker_connected===true;
+  document.getElementById("state").className="state "+(up?"online":"offline");
+  document.getElementById("message").textContent=up?"연결됨":data.launch_status==="dispatch_failed"?"연결 복구 재시도 중":
+      data.launch_status==="requested"||data.launch_status==="starting"?"자동 연결 진행 중":"대기 중";
+  document.getElementById("detail").textContent=up?"사용할 수 있습니다.":
+      !data.auto_start_configured?"자동 연결 준비가 되어 있지 않습니다.":
+      "필요한 질문이 들어오면 자동 연결합니다. 대기 작업 "+(data.pending_verified_chat_jobs||0)+"건";
+  document.getElementById("clock").textContent="확인: "+new Date().toLocaleString("ko-KR");
+ }catch(e){document.getElementById("message").textContent="상태 확인 실패";
+   document.getElementById("detail").textContent="상태 재확인 중입니다.";}
+ finally{busy=false}
+}
+refresh();setInterval(refresh,5000);
+</script>
+</main></body></html>

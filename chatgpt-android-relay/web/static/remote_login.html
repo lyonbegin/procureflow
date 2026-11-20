@@ -1,0 +1,102 @@
+<!doctype html><html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>HITEL | ChatGPT 실제 계정 2개 원격 로그인</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f5f7fb;color:#1c304a;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif}
+main{max-width:880px;margin:0 auto;padding:27px 16px}
+header{padding-bottom:18px}header p{color:#57708c;line-height:1.7}
+h1{font-size:clamp(21px,3vw,29px);margin:0 0 8px}
+h2{font-size:19px;margin:0 0 12px}
+p{line-height:1.7}
+section{background:white;border:1px solid #dae4ee;border-radius:16px;padding:20px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.slot{padding:18px;background:#f7f9fc;border-radius:12px;min-width:0}
+.slot strong{font-size:19px}
+.slot p{font-size:14px;color:#526785}
+.number{color:#235c91;font-weight:700}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin:14px 0}
+a.action{display:inline-flex;justify-content:center;align-items:center;padding:13px 17px;
+text-decoration:none;color:white;background:#195a8c;border-radius:10px;font-weight:650}
+a.action.secondary{background:#e6eff7;color:#195a8c}
+button{background:#e6eff7;border:0;color:#195a8c;padding:12px 16px;
+font-weight:650;border-radius:10px;cursor:pointer}
+.status{padding:14px;background:#eff5fc;border-radius:10px;margin:14px 0;
+color:#274561;font-weight:600}
+.note{font-size:13px;color:#556d86}
+.ok{background:#eaf5ef;color:#166243}
+@media(max-width:580px){.grid{grid-template-columns:1fr}.actions>a.action{width:100%}}
+</style></head>
+<body><main>
+<header><h1>ChatGPT 계정 2개 · 원격 Chrome 최초 로그인</h1>
+<p>최초 한 번만 GitHub Actions에서 실행되는 실제 Chrome에 계정 A와 B를
+각각 로그인하시면 됩니다. 이메일과 비밀번호는 <strong>Google 또는 OpenAI의 공식 로그인 화면</strong>에
+직접 입력하시며, HITEL 서버는 비밀번호를 받지 않습니다.</p></header>
+<section>
+<h2>① GitHub Actions 원격 Chrome 실행</h2>
+<p>버튼을 누르셔서 GitHub의 <strong>Run workflow</strong>를 실행해 주십시오.
+이 작업은 임시 GitHub 컴퓨터에서만 Chrome을 시작합니다.</p>
+<div class="actions">
+<a class="action" href="https://github.com/lyonbegin/procureflow/actions/workflows/hitel-two-account-manual-login.yml"
+ target="_blank" rel="noopener noreferrer">GitHub에서 원격 Chrome 시작</a>
+<button id="refresh" type="button">원격 화면 연결 확인</button>
+</div>
+<div class="status" id="state" role="status">현재 실행 가능한 원격 Chrome 링크를 확인하고 있습니다.</div>
+<div class="actions"><a class="action secondary" id="remote" target="_blank"
+rel="noopener noreferrer" hidden>계정 A·B 로그인 화면 열기</a></div>
+<p class="note">원격 화면은 기존에 사용하시던 개인 접속 코드로 보호됩니다. 코드나 Google 비밀번호를
+GitHub 실행 로그·채팅창에 입력하지 마십시오.</p>
+</section>
+<section>
+<h2>② 원격 화면에서 두 계정 로그인</h2>
+<div class="grid">
+<div class="slot"><strong>계정 A</strong>
+<p><span class="number">1.</span> 원격 Chrome에서 첫 번째 Google/ChatGPT 계정으로 로그인</p>
+<p><span class="number">2.</span> 화면의 <b>A 로그인 확인·저장</b> 선택</p>
+<p><span class="number">3.</span> 실제 ChatGPT 로그인 검증 후 A 전용 Chrome 프로필 암호화</p></div>
+<div class="slot"><strong>계정 B</strong>
+<p><span class="number">1.</span> 원격 화면이 B 전용 Chrome으로 바뀌면 두 번째 계정 로그인</p>
+<p><span class="number">2.</span> 화면의 <b>B 로그인 확인·저장</b> 선택</p>
+<p><span class="number">3.</span> A와 다른 계정임을 확인한 뒤 B 전용 프로필 암호화</p></div>
+</div>
+</section>
+<section>
+<h2>③ 이후에는 저장된 세션 재사용</h2>
+<p>두 프로필은 별도 암호화 파일로 저장됩니다. Chrome 세션이 유효한 동안에는
+매번 비밀번호를 입력할 필요가 없습니다. Google/OpenAI가 재인증을 요청하면
+해당 계정을 다시 직접 로그인해야 합니다.</p>
+<p class="note">GitHub Actions 암호화 아티팩트의 기본 저장기간은 이번 워크플로 설정상
+90일이며, 실제 로그인 유지기간과는 다릅니다. 저장파일 만료 이전에는 갱신이 필요합니다.</p>
+</section>
+</main>
+<script>
+"use strict";
+const state=document.getElementById("state");
+const link=document.getElementById("remote");
+async function check(){
+try{
+ const r=await fetch("/web/api/remote-login/status",{cache:"no-store"});
+ if(!r.ok)throw new Error("서버 연결 오류");
+ const d=await r.json();
+ if(d.ready && /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/grant$/.test(d.remoteUrl||"")){
+    link.href=d.remoteUrl;
+    link.hidden=false;
+    state.classList.add("ok");
+    state.textContent="GitHub 원격 Chrome 실행 확인: 보호된 A/B 로그인 화면이 열려 있습니다.";
+ }else{
+    link.hidden=true;
+    state.classList.remove("ok");
+    state.textContent=d.statusUnavailable?
+      "GitHub 실행 상태를 확인할 수 없습니다. GitHub Actions 실행 로그를 확인해 주십시오.":
+      "현재 활성화된 원격 로그인 화면이 없습니다. 위에서 GitHub Actions를 시작해 주십시오.";
+ }
+}catch(e){
+  link.hidden=true;
+  state.textContent="연결 상태 조회 오류: "+e.message;
+}
+}
+document.getElementById("refresh").onclick=check;
+setInterval(check,15000);
+check();
+</script></body></html>

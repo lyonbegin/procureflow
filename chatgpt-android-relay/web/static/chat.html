@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>HITEL Web2API · 채팅 시험실</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;color:#182230;background:#fff}
+*{box-sizing:border-box}html,body{margin:0;height:100%;min-height:0}
+button,input,textarea,select{font:inherit}button{cursor:pointer}
+.shell{display:grid;grid-template-columns:266px minmax(0,1fr);height:100dvh;min-height:480px}
+.sidebar{background:#f7f7f8;border-right:1px solid #e6e8eb;display:flex;flex-direction:column;min-height:0}
+.brand{padding:24px 19px 17px;display:flex;gap:11px;align-items:center;font-size:16px;font-weight:750}
+.logo{width:34px;height:34px;background:#162f56;border-radius:11px;color:white;display:grid;place-items:center;font-weight:800;font-size:15px;letter-spacing:-1px}
+.side-pad{padding:0 13px}
+.primary{display:flex;align-items:center;justify-content:center;gap:8px;background:#18385f;color:#fff;border:0;border-radius:10px;padding:12px 16px;font-size:13px;font-weight:700}
+.primary:hover{background:#28517f}.primary:disabled{opacity:.55;cursor:not-allowed}
+.side-section{padding:23px 19px 10px;font-size:11px;font-weight:750;color:#758396;letter-spacing:.07em}
+.rooms{flex:1;overflow:auto;padding:0 9px;min-height:0}
+.room-btn{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;text-align:left;color:#344054;padding:11px 10px;border-radius:10px;font-size:13px}
+.room-btn:hover{background:#ebeff3}.room-btn.selected{background:#e3eaf4;color:#14375e;font-weight:700}
+.room-btn .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room-btn .room-ico{font-size:17px;color:#7a899a}
+.side-foot{padding:15px;border-top:1px solid #e5e7ea;font-size:11px;color:#66758a;line-height:1.6}
+.status-dot{display:inline-block;width:8px;height:8px;background:#e0a34c;border-radius:50%;margin-right:6px}
+.status-dot.on{background:#199c6c}
+.identity-line{padding:5px 0;word-break:break-word}
+.identity-line strong{display:block;color:#3d4c61;font-size:11px}
+.identity-note{margin-top:7px;line-height:1.55;color:#758396}
+.profile-trigger{width:100%;display:flex;gap:7px;align-items:center;justify-content:space-between;background:#fff;border:1px solid #dfe5ee;border-radius:10px;padding:10px 11px;margin-bottom:12px;text-align:left;color:#193453;font-weight:700;font-size:12px}
+.profile-list{display:flex;flex-direction:column;gap:8px;margin:14px 0;max-height:40vh;overflow:auto}
+.profile-row{display:flex;align-items:center;gap:7px;padding:9px;background:#f7f9fc;border:1px solid #e4e9f0;border-radius:10px}
+.profile-name{flex:1;min-width:0;font-size:13px;word-break:break-word}
+.profile-active{font-size:10px;color:#167653}
+.profile-warning{font-size:12px;color:#98612e;line-height:1.7;background:#fffaf1;padding:11px;border-radius:8px;margin:10px 0}
+.profile-error{font-size:12px;color:#a53740;min-height:19px;margin:5px 0}
+.chatgpt-account-status{display:flex;gap:8px;align-items:center;color:#324b67;font-size:12px}
+.verified-chatgpt-account{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid #dfe7f0;border-radius:12px;margin:9px 0}
+.verified-chatgpt-account .details{flex:1;min-width:0;word-break:break-word;font-size:12px}
+.verified-chatgpt-account .details strong{display:block;font-size:13px}
+.oauth-connection-note{font-size:12px;line-height:1.7;padding:12px;background:#f7f9fc;border-radius:9px;color:#465d78}
+.oauth-not-ready{font-size:12px;line-height:1.7;color:#a05427;padding:10px;background:#fffaf1;border-radius:9px}
+.workspace{display:flex;flex-direction:column;min-width:0;min-height:0}
+.topbar{height:67px;border-bottom:1px solid #eaecf0;display:flex;align-items:center;gap:12px;justify-content:space-between;padding:0 29px}
+.topbar-title{font-size:16px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;gap:7px;align-items:center}
+.small-button{border:1px solid #dfe4ea;background:#fff;padding:8px 11px;border-radius:8px;font-size:12px;color:#3c5269}
+.small-button:hover{background:#f5f7fa}
+.small-button:disabled{opacity:.45}
+.chat-area{flex:1;overflow-y:auto;min-height:0;background:#fff}
+.chat-inner{max-width:810px;margin:0 auto;min-height:100%;padding:27px 24px 30px}
+.welcome{max-width:640px;margin:90px auto 20px;text-align:center}
+.welcome-icon{width:56px;height:56px;margin:0 auto 20px;display:grid;place-items:center;border-radius:18px;background:#eef4fb;color:#173965;font-size:26px}
+.welcome h1{font-size:26px;letter-spacing:-.7px;margin:0 0 12px}.welcome p{font-size:14px;color:#66758a;line-height:1.8;margin:0}
+.info-line{font-size:12px;padding:10px 14px;background:#f7f9fc;border:1px solid #e4e9f1;border-radius:10px;color:#506680;line-height:1.7;margin:0 0 24px}
+.message{display:flex;gap:12px;margin:0 0 24px;align-items:flex-start}
+.message.user{flex-direction:row-reverse}
+.avatar{width:29px;height:29px;display:grid;place-items:center;flex-shrink:0;border-radius:9px;background:#e7ecf2;color:#556676;font-size:12px;font-weight:800}
+.message.user .avatar{background:#17395e;color:#fff}
+.bubble{max-width:min(86%,660px);white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.75;padding:12px 17px;border-radius:15px;background:#f3f5f7}
+.message.assistant .bubble{background:transparent;padding:2px 6px}
+.time{color:#96a2ae;font-size:10px;margin-top:4px}
+.job{padding:12px 15px;border:1px solid #e7edf4;border-radius:10px;background:#fbfcfd;color:#506175;font-size:12px;line-height:1.7;margin:8px 0}
+.job.bad{border-color:#f1ccce;background:#fff6f6;color:#a53740}
+.composer-wrap{padding:9px 25px 20px;background:#fff;border-top:1px solid #f0f1f4}
+.composer-inner{max-width:770px;margin:0 auto}
+.composer{border:1px solid #d7dde4;border-radius:15px;box-shadow:0 4px 22px rgba(27,40,60,.055);padding:13px 14px;background:#fff}
+.composer:focus-within{border-color:#829fc3}
+.composer textarea{display:block;width:100%;min-height:57px;max-height:120px;resize:vertical;border:0;outline:none;line-height:1.65;color:#202f40;font-size:14px}
+.tool-row{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:10px}
+.tool-left{display:flex;gap:8px;align-items:center;min-width:0;flex-wrap:wrap}
+.preset-select{border:1px solid #e1e5e9;background:#fafbfc;border-radius:8px;padding:7px 8px;max-width:260px;font-size:12px;color:#455a70}
+.send{border:0;border-radius:10px;background:#17395e;color:#fff;padding:9px 17px;font-size:12px;font-weight:700}
+.send:disabled{opacity:.5;cursor:not-allowed}
+.help{font-size:11px;color:#8590a0;margin-top:10px;line-height:1.65}
+.file-panel{display:none;border-bottom:1px solid #e8eaf0;background:#fcfdff;padding:17px 28px;max-height:300px;overflow:auto}
+.file-panel.open{display:block}
+.file-panel h2{font-size:14px;margin:0 0 5px}.file-panel p{font-size:12px;color:#718095;margin:0 0 13px;line-height:1.5}
+.file-item{display:flex;align-items:center;gap:12px;background:white;border:1px solid #e7ecf2;padding:10px 13px;border-radius:10px;margin-bottom:8px;font-size:12px}
+.file-item .file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.empty-small{font-size:13px;color:#8996a4;padding:8px 0}
+.attach{display:inline-flex;align-items:center;justify-content:center;border:1px solid #e1e5e9;color:#445d75;background:#fff;border-radius:8px;padding:8px 12px;font-size:12px}
+#notice{color:#51647c;font-size:12px;line-height:1.7;margin:0 auto 10px;max-width:770px}
+#notice.error{color:#ad3646}
+#notice.success{color:#167e52}
+.overlay{display:none;position:fixed;inset:0;z-index:10;background:rgba(18,31,48,.55);align-items:center;justify-content:center;padding:16px}
+.overlay.open{display:flex}
+.dialog{background:#fff;width:min(500px,95vw);max-height:85vh;overflow:auto;border-radius:16px;padding:24px;box-shadow:0 20px 80px #0002}
+.dialog h2{font-size:18px;margin:0 0 15px}
+.dialog p{font-size:13px;color:#66758a;line-height:1.7;margin:0 0 15px}
+.dialog input{width:100%;padding:12px 13px;border:1px solid #ccd5df;border-radius:9px;margin-bottom:13px}
+.dialog-actions{display:flex;gap:8px;justify-content:flex-end}
+.preview{width:min(880px,95vw)}.preview-content{max-height:58vh;overflow:auto;white-space:pre-wrap;font-size:13px;line-height:1.6}
+.preview-content iframe{width:100%;height:56vh;border:0}
+.preview-content img{max-width:100%;max-height:55vh}
+.mobile-menu{display:none}
+@media(max-width:700px){.shell{grid-template-columns:1fr}.sidebar{position:fixed;z-index:5;inset:0 auto 0 0;width:270px;box-shadow:10px 0 50px #0001;transform:translateX(-110%);transition:.15s}.sidebar.open{transform:translateX(0)}.mobile-menu{display:inline-flex}.topbar{height:59px;padding:0 13px}.chat-inner{padding:18px 14px}.welcome{margin:40px auto}.welcome h1{font-size:22px}.composer-wrap{padding:8px 10px 13px}.file-panel{padding:14px}.topbar-title{font-size:14px}.preset-select{max-width:190px}}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><div class="logo">H</div><span>HITEL Web2API</span></div>
+  <div class="side-pad"><button class="primary" id="new-room" style="width:100%">＋ 새 대화방 만들기</button></div>
+  <div class="side-section">내 대화방</div>
+  <div class="rooms" id="room-list"><div class="empty-small" style="padding:12px">대화방을 불러오고 있습니다.</div></div>
+  <div class="side-foot">
+    <button type="button" id="profile-trigger" class="profile-trigger" aria-haspopup="dialog" aria-controls="profile-dialog"><span id="profile-label">👤 기본 프로필</span><span>시험 프로필 ▾</span></button>
+    <div class="identity-line"><strong>① 현재 HITEL 접속</strong><span id="browser-identity">브라우저 임시 세션 확인 중</span></div>
+    <div class="identity-line"><strong>② 실제 ChatGPT 실행 계정</strong><span id="worker-dot" class="status-dot"></span><span id="worker-status">GitHub Chrome 연결 확인 중</span></div>
+    <div class="identity-note" id="account-explainer">이 브라우저는 ChatGPT 계정으로 로그인한 상태가 아닙니다. GitHub Chrome의 별도 로그인 세션으로 작업하며 계정명·이메일은 공개하지 않습니다.</div>
+  </div>
+</aside>
+<div class="workspace">
+  <header class="topbar">
+    <div class="actions"><button class="small-button mobile-menu" id="menu-button" aria-label="메뉴 열기">☰</button><div class="topbar-title" id="room-title">채팅 시험실</div></div>
+    <div class="actions"><button class="small-button" id="chatgpt-accounts-trigger" type="button">ChatGPT 로그인</button><button class="small-button" id="rename-room" disabled>이름 변경</button><button class="small-button" id="toggle-files" disabled>📁 파일</button><button class="small-button" id="delete-room" disabled>삭제</button></div>
+  </header>
+  <section id="file-panel" class="file-panel">
+    <h2>이 대화방의 파일</h2>
+    <p>선택한 파일은 해당 방에만 저장됩니다. 파일 열기·내려받기는 가능하지만, 현재 GitHub Chrome 작업자에게 바이너리를 직접 첨부하는 기능은 검증되지 않았습니다.</p>
+    <div id="file-list"><div class="empty-small">등록된 파일이 없습니다.</div></div>
+    <label class="attach" for="file-input">＋ 파일 선택 및 업로드</label><input type="file" id="file-input" hidden accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif" multiple>
+  </section>
+  <main id="chat-area" class="chat-area">
+    <div id="messages" class="chat-inner">
+      <div class="welcome"><div class="welcome-icon">✦</div><h1>대화방과 파일을 시험해 보십시오</h1>
+        <p>새 대화방을 만들고 질문을 직접 입력하실 수 있습니다.<br>GitHub Chrome이 연결되면 실제 ChatGPT 답변을 받아 표시합니다.</p></div>
+    </div>
+  </main>
+  <section class="composer-wrap">
+    <div id="notice" role="status" aria-live="polite">브라우저용 대화 기록을 준비하고 있습니다.</div>
+    <div class="composer-inner">
+      <div class="composer">
+        <textarea id="draft" maxlength="2000" placeholder="ChatGPT에 보낼 질문을 직접 입력하십시오. (최대 2,000자)" spellcheck="true"></textarea>
+        <div class="tool-row">
+          <div class="tool-left">
+            <button class="small-button" id="attach-button" disabled>📎 파일 보관</button>
+            <select id="preset" class="preset-select" aria-label="선택 가능한 예시 질문"><option value="">예시 질문 (선택)</option></select>
+          </div>
+          <button class="send" id="send" disabled>질문 보내기</button>
+        </div>
+      </div>
+      <div class="help">자유 질문 전송은 브라우저별 시간당 5회, 전체 사이트 일일 30회로 제한됩니다. 파일 업로드·열람은 가능하나 PDF·이미지를 ChatGPT에 직접 첨부하는 기능은 아직 지원되지 않습니다. 별도 토큰 입력은 없습니다.</div>
+    </div>
+  </section>
+</div>
+</div>
+<div class="overlay" id="room-dialog" role="dialog" aria-modal="true" aria-label="대화방 이름 입력">
+  <div class="dialog"><h2 id="dialog-title">새 대화방</h2><p>방 이름을 입력해 주십시오. 다른 방문자의 대화는 표시되지 않습니다.</p>
+    <form id="room-form"><input id="room-name" maxlength="80" placeholder="예: 수학 공부 질문" required>
+    <div class="dialog-actions"><button class="small-button" type="button" id="room-cancel">취소</button><button class="primary" type="submit">저장</button></div></form>
+  </div>
+</div>
+<div class="overlay" id="chatgpt-accounts-dialog" role="dialog" aria-modal="true" aria-label="ChatGPT 로그인 계정">
+ <div class="dialog">
+  <div class="tool-row"><h2>실제 ChatGPT 계정 연결</h2><button class="small-button" id="chatgpt-accounts-close" type="button">닫기</button></div>
+  <p>Google로 가입하신 계정도 <strong>공식 OpenAI 인증</strong>을 완료해야 이 목록에 표시됩니다. 기존 ChatGPT 앱의 계정 목록이 HITEL에 자동 복사되지는 않습니다.</p>
+  <div id="chatgpt-connection-status" class="oauth-connection-note" role="status">인증 상태를 확인하고 있습니다.</div>
+  <div id="chatgpt-account-list" class="profile-list"></div>
+  <p class="oauth-connection-note"><a href="/remote-login" target="_blank" rel="noopener noreferrer">GitHub Chrome에서 실제 ChatGPT 계정 A·B 두 개 직접 로그인하기</a></p>
+  <button id="chatgpt-official-login" type="button" class="primary" disabled>ChatGPT 계정으로 로그인 · 계정 추가</button>
+  <p class="oauth-connection-note" id="chatgpt-app-approval-note">
+    HITEL의 공식 로그인은 OpenAI에서 발급하는 웹사이트용 OAuth 클라이언트가 필요합니다.
+    <a href="https://developers.openai.com/siwc/request-client-id" target="_blank" rel="noopener noreferrer">공식 클라이언트 등록 안내</a>
+    · 인증 전에는 실제 ChatGPT 계정명을 확인하거나 GitHub Chrome 로그인으로 사용할 수 없습니다.
+  </p>
+  <div id="chatgpt-account-error" class="profile-error" role="status"></div>
+  <p class="oauth-connection-note">이 페이지는 Google 비밀번호와 인증코드를 받지 않습니다. 위의 GitHub Chrome 원격 화면에서 Google/OpenAI 공식 로그인 페이지에 직접 입력해 주십시오. 원격 로그인 저장 여부와 HITEL의 계정 선택은 별도로 검증됩니다.</p>
+ </div>
+</div>
+<div class="overlay" id="profile-dialog" role="dialog" aria-modal="true" aria-label="HITEL 시험 계정 관리">
+  <div class="dialog">
+    <div class="tool-row"><h2>HITEL 계정 추가 · 전환 · 삭제</h2><button class="small-button" id="profile-close" type="button">닫기</button></div>
+    <p>이 화면은 <strong>HITEL 브라우저 시험 프로필</strong>을 관리합니다. 실제 Google 계정이나 ChatGPT 로그인 계정을 추가·전환·삭제하지 않습니다.</p>
+    <div class="profile-list" id="profile-list" role="list"></div>
+    <form id="profile-form">
+      <label for="profile-name">새 시험 프로필 추가 (최대 5개)</label>
+      <input type="text" id="profile-name" maxlength="40" placeholder="예: 업무용 시험" required>
+      <div class="dialog-actions"><button class="primary" type="submit">＋ 계정 추가</button></div>
+    </form>
+    <div class="profile-error" id="profile-error" role="status"></div>
+    <div class="profile-warning">계정 전환 시 해당 프로필의 방과 파일만 표시됩니다. 삭제하면 해당 시험 프로필의 대화방·파일이 영구 삭제됩니다. 실제 ChatGPT 로그인은 바뀌지 않습니다.</div>
+  </div>
+</div>
+<div class="overlay" id="preview-overlay" role="dialog" aria-modal="true" aria-label="파일 내용">
+  <div class="dialog preview"><div class="tool-row"><h2 id="preview-title">파일 보기</h2><button class="small-button" id="close-preview">닫기</button></div>
+   <div class="preview-content" id="preview-content"></div></div>
+</div>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const state={csrf:"",room:null,rooms:[],files:[],presets:{},profiles:[],profile:null,chatgpt:{accounts:[],oauthAvailable:false},busy:false,rename:false,previewUrl:null};
+const safeText=(el,text)=>{el.textContent=text??"";};
+function notice(text,kind=""){safeText($("notice"),text);$("notice").className=kind}
+async function req(url,options={}){
+ const headers=new Headers(options.headers||{});
+ if(options.method&&options.method!=="GET")headers.set("X-Web-Csrf",state.csrf);
+ if(options.body&&!(options.body instanceof FormData))headers.set("Content-Type","application/json");
+ const r=await fetch(url,{credentials:"same-origin",cache:"no-store",...options,headers});
+ if(!r.ok){let detail="서버 오류 "+r.status;try{detail=(await r.json()).detail||detail}catch{};throw Error(detail)}
+ if(options.asBlob)return r.blob();
+ return r.json()
+}
+function el(tag,cls,text){
+ const x=document.createElement(tag);if(cls)x.className=cls;
+ if(text!==undefined)safeText(x,text);return x
+}
+function formatTime(ms){return ms?new Date(ms).toLocaleString("ko-KR",{hour:"2-digit",minute:"2-digit"}):""}
+async function boot(){
+ try{
+   const d=await req("/web/api/bootstrap");
+   state.csrf=d.csrf;
+   state.profile=d.profile||{id:"default",name:"기본 프로필"};
+   safeText($("profile-label"),"👤 "+state.profile.name);
+   for(const item of d.presets){
+     state.presets[item.id]=item.label;
+     const opt=el("option","",item.id==="connection"?"연결 확인":item.id==="hello"?"인사 시험":"기능 설명");
+     opt.value=item.id;$("preset").appendChild(opt);
+   }
+   await loadRooms();
+   await refreshStatus();
+   await refreshChatGPTAccounts();
+   notice("실제 채팅방을 생성하거나 파일을 추가하실 수 있습니다.");
+ }catch(e){notice(e.message,"error")}
+}
+async function loadRooms(){
+ const d=await req("/web/api/rooms");state.rooms=d.rooms;
+ const root=$("room-list");root.replaceChildren();
+ if(!state.rooms.length)root.appendChild(el("div","empty-small","새 대화방을 만들어 주십시오."));
+ for(const item of state.rooms){
+   const b=el("button","room-btn"+(item.id===state.room?" selected":""));
+   b.type="button";b.appendChild(el("span","room-ico","◫"));b.appendChild(el("span","name",item.title));
+   b.onclick=()=>selectRoom(item.id);root.appendChild(b);
+ }
+}
+async function selectRoom(id){
+ state.room=id;$("sidebar").classList.remove("open");
+ await loadRooms();await loadRoomDetail();
+}
+async function loadRoomDetail(){
+ if(!state.room)return;
+ try{
+ const d=await req("/web/api/rooms/"+encodeURIComponent(state.room));
+ if(!state.room||d.room.id!==state.room)return;
+ safeText($("room-title"),d.room.title);
+ ["rename-room","delete-room","toggle-files","attach-button"].forEach(x=>$(x).disabled=false);
+ $("send").disabled=!$("draft").value.trim()||state.busy;
+ state.files=d.files;
+ const m=$("messages");m.replaceChildren();
+ m.appendChild(el("div","info-line",
+   "브라우저별로 분리된 저장 공간입니다. 파일 저장과 실제 ChatGPT 전송은 별도 기능입니다. "+
+   (d.room.chatgpt_url?"이 방은 이전 ChatGPT 대화와 연결되어 있습니다.":"이 방의 첫 답변이 확인되면 ChatGPT 대화 주소를 기록합니다.")));
+ if(!d.messages.length)m.appendChild(el("div","welcome",
+   "아직 메시지가 없습니다. 아래에 질문을 직접 입력하여 실제 ChatGPT 연결을 시험하실 수 있습니다."));
+ for(const item of d.messages){
+   const row=el("div","message "+item.role);
+   row.appendChild(el("div","avatar",item.role==="user"?"나":"AI"));
+   const body=el("div","");body.appendChild(el("div","bubble",item.text));
+   body.appendChild(el("div","time",formatTime(item.created_at)));row.appendChild(body);m.appendChild(row);
+ }
+ const existing=d.jobs.filter(x=>x.status==="queued"||x.status==="running"||x.status==="failed").slice(0,5);
+ for(const j of existing){
+   const text=j.status==="queued"?"질문 접수 완료: GitHub Chrome 작업자 연결 후 실제 ChatGPT에 전송됩니다.":
+              j.status==="running"?"ChatGPT 응답을 기다리고 있습니다.": "전송 실패: "+(j.error||"확인되지 않은 오류");
+   m.appendChild(el("div","job"+(j.status==="failed"?" bad":""),text));
+ }
+ const files=$("file-list");files.replaceChildren();
+ if(!d.files.length)files.appendChild(el("div","empty-small","등록된 파일이 없습니다."));
+ for(const f of d.files){
+  const row=el("div","file-item");row.appendChild(el("span","","📄"));
+  row.appendChild(el("span","file-name",f.name+" · "+Math.round(f.size/1024)+"KB"));
+  const preview=el("button","small-button","열기");preview.onclick=()=>openFile(f);
+  const download=el("button","small-button","다운로드");download.onclick=()=>downloadFile(f);
+  row.appendChild(preview);row.appendChild(download);files.appendChild(row);
+ }
+ if(d.room.chatgpt_url){const a=el("a","","ChatGPT 원본 대화 열기");
+ a.href=d.room.chatgpt_url;a.target="_blank";a.rel="noopener noreferrer";
+ const row=el("div","info-line");row.appendChild(a);m.appendChild(row)}
+ $("chat-area").scrollTop=$("chat-area").scrollHeight;
+ const inflight=d.jobs.some(x=>x.status==="queued"||x.status==="running");
+ $("send").disabled=!$("draft").value.trim()||state.busy||inflight;
+ }catch(e){notice(e.message,"error")}
+}
+async function refreshStatus(){
+ try{
+ const s=await req("/web/api/status");
+ // These two identities must never be presented as the same login.
+ const tag=(typeof s.browserSessionTag==="string"&&/^[0-9a-f]{8}$/.test(s.browserSessionTag))
+   ?s.browserSessionTag:"확인 불가";
+ safeText($("browser-identity"),"HITEL "+(s.profileName||"기본 프로필")+" · #"+tag+" (ChatGPT 계정 로그인 아님)");
+ safeText($("profile-label"),"👤 "+(s.profileName||"기본 프로필"));
+ $("worker-dot").className="status-dot"+(s.workerConnected?" on":"");
+ safeText($("worker-status"),s.workerConnected?
+   "별도 GitHub Chrome 작업자 연결됨 (계정명 비공개)":
+   "별도 GitHub Chrome 현재 연결 없음 (계정명 비공개)");
+ if(state.room)await loadRoomDetail();
+ }catch(e){notice(e.message,"error")}
+}
+async function selectChatGPTAccountRoom(accountId){
+ // Never display the previous account's room or carry over its draft.
+ resetActiveRoom();
+ await loadRooms();
+ const expected=accountId||"__guest__";
+ const matching=state.rooms.find(r=>r.chatgpt_account_id===expected);
+ if(matching){
+   await selectRoom(matching.id);
+ }else{
+   // A newly selected ChatGPT account must get its OWN conversation room.
+   // Never repurpose a previous account's existing ChatGPT conversation.
+   const d=await req("/web/api/rooms",{method:"POST",
+     body:JSON.stringify({title:accountId?"ChatGPT 계정 대화":"기본 시험 대화",
+                           account_id:accountId})});
+   await selectRoom(d.room.id);
+ }
+ notice("선택하신 계정 전용 대화방으로 이동했습니다.","success");
+}
+async function refreshChatGPTAccounts(){
+ const data=await req("/web/api/chatgpt/accounts");
+ state.chatgpt=data;
+ const accounts=data.accounts||[];
+ const active=accounts.find(a=>a.active)||accounts[0];
+ safeText($("chatgpt-accounts-trigger"),active?
+   "ChatGPT 신원: "+(active.email||active.name)+" (실행 미연결)":"ChatGPT 로그인 안 됨");
+ safeText($("chatgpt-connection-status"),accounts.length?
+   "공식 OpenAI 신원 인증된 계정 "+accounts.length+"개. 현재 Web2API 실행 계정과는 아직 연결되지 않았습니다.":
+   "ChatGPT 로그인 안 됨 — 이 HITEL 브라우저에 인증된 ChatGPT 계정이 없습니다.");
+ const list=$("chatgpt-account-list");list.replaceChildren();
+ for(const a of accounts){
+   const row=el("div","verified-chatgpt-account");
+   const details=el("div","details");
+   details.appendChild(el("strong","",a.name||"ChatGPT 계정"));
+   details.appendChild(el("span","",a.email||"OpenAI가 확인한 신원 (이메일 비공개)"));
+   row.appendChild(details);
+   row.appendChild(el("span","profile-active",
+      a.canRunWeb2APIAsThisAccount?"실행 인증 완료":"GitHub Chrome 실행 미연결"));
+   if(a.active)row.appendChild(el("span","profile-active","신원 선택됨"));
+   else{
+     const choose=el("button","small-button","선택");
+     choose.type="button";
+     choose.onclick=async()=>{
+       try{
+         await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id)+"/select",
+                   {method:"POST"});
+         await refreshChatGPTAccounts();
+         await selectChatGPTAccountRoom(a.id);
+         $("chatgpt-accounts-dialog").classList.remove("open");
+       }catch(e){safeText($("chatgpt-account-error"),e.message)}
+     };
+     row.appendChild(choose);
+   }
+   const unlink=el("button","small-button","연결 해제");
+   unlink.type="button";
+   unlink.onclick=async()=>{
+     if(!confirm("HITEL에서 이 ChatGPT 인증 연결만 해제하시겠습니까? 실제 ChatGPT 계정은 삭제되지 않습니다."))return;
+     try{
+       await req("/web/api/chatgpt/accounts/"+encodeURIComponent(a.id),{method:"DELETE"});
+       await refreshChatGPTAccounts();
+       const current=(state.chatgpt.accounts||[]).find(x=>x.active)||null;
+       await selectChatGPTAccountRoom(current?current.id:null);
+       $("chatgpt-accounts-dialog").classList.remove("open");
+     }catch(e){safeText($("chatgpt-account-error"),e.message)}
+   };
+   row.appendChild(unlink);
+   list.appendChild(row);
+ }
+ $("chatgpt-official-login").disabled=!data.oauthAvailable;
+ safeText($("chatgpt-official-login"),data.oauthAvailable?
+   "ChatGPT 계정으로 로그인 · 계정 추가":"ChatGPT 로그인 설정 대기 중");
+ safeText($("chatgpt-account-error"),data.oauthAvailable?"":data.message);
+}
+$("chatgpt-accounts-trigger").onclick=async()=>{
+ $("chatgpt-accounts-dialog").classList.add("open");
+ safeText($("chatgpt-account-error"),"");
+ try{await refreshChatGPTAccounts()}catch(e){safeText($("chatgpt-account-error"),e.message)}
+};
+$("chatgpt-accounts-close").onclick=()=>$("chatgpt-accounts-dialog").classList.remove("open");
+$("chatgpt-official-login").onclick=()=>{
+ if(!state.chatgpt.oauthAvailable){
+   safeText($("chatgpt-account-error"),
+     "현재 HITEL 서버는 공식 OpenAI OAuth 클라이언트 승인이 설정되지 않아 인증을 시작할 수 없습니다. ChatGPT의 비밀번호나 쿠키를 입력하지 마십시오.");
+   return;
+ }
+ window.location.assign("/web/api/chatgpt/login");
+};
+function profileMessage(message){safeText($("profile-error"),message||"");}
+async function loadProfiles(){
+ const d=await req("/web/api/profiles");
+ state.profiles=d.profiles||[];
+ const active=state.profiles.find(p=>p.active);
+ if(active)state.profile={id:active.id,name:active.name};
+ safeText($("profile-label"),"👤 "+(state.profile?.name||"기본 프로필"));
+ const list=$("profile-list");list.replaceChildren();
+ for(const item of state.profiles){
+   const row=el("div","profile-row");
+   row.setAttribute("role","listitem");
+   row.appendChild(el("span","profile-name",item.name));
+   if(item.active)row.appendChild(el("span","profile-active","현재 사용 중"));
+   else {
+     const change=el("button","small-button","전환");
+     change.type="button";change.onclick=()=>switchProfile(item.id);
+     row.appendChild(change);
+   }
+   if(item.deletable){
+     const remove=el("button","small-button","삭제");
+     remove.type="button";remove.onclick=()=>deleteProfile(item);
+     row.appendChild(remove);
+   }
+   list.appendChild(row);
+ }
+}
+function resetActiveRoom(){
+ state.room=null;state.rooms=[];state.files=[];
+ $("draft").value="";$("preset").value="";
+ safeText($("room-title"),"채팅 시험실");
+ $("messages").replaceChildren(el("div","welcome","대화방을 선택하거나 새로 만들어 주십시오."));
+ $("file-list").replaceChildren();
+ $("file-panel").classList.remove("open");
+ ["rename-room","delete-room","toggle-files","attach-button","send"].forEach(x=>$(x).disabled=true);
+}
+async function switchProfile(id){
+ try{
+   profileMessage("프로필 전환 중입니다.");
+   const r=await req("/web/api/profiles/"+encodeURIComponent(id)+"/activate",{method:"POST"});
+   state.profile=r.profile;
+   resetActiveRoom();
+   await loadProfiles();await loadRooms();await refreshStatus();
+   $("profile-dialog").classList.remove("open");
+   notice("HITEL "+r.profile.name+" 프로필로 전환했습니다. ChatGPT 로그인은 변경되지 않습니다.","success");
+ }catch(e){profileMessage(e.message)}
+}
+async function deleteProfile(item){
+ if(!confirm("시험 프로필 '"+item.name+"'의 대화방·메시지·업로드 파일을 영구 삭제하시겠습니까? 실제 Google·ChatGPT 계정은 삭제되지 않습니다."))return;
+ try{
+   profileMessage("프로필 데이터 삭제 중입니다.");
+   await req("/web/api/profiles/"+encodeURIComponent(item.id),{method:"DELETE"});
+   resetActiveRoom();
+   await loadProfiles();await loadRooms();await refreshStatus();
+   profileMessage("시험 프로필이 삭제되었습니다.");
+   notice("선택한 시험 프로필과 해당 데이터가 삭제되었습니다.","success");
+ }catch(e){profileMessage(e.message)}
+}
+$("profile-trigger").onclick=async()=>{
+ $("profile-dialog").classList.add("open");
+ $("sidebar").classList.remove("open");
+ profileMessage("");
+ try{await loadProfiles()}catch(e){profileMessage(e.message)}
+};
+$("profile-close").onclick=()=>$("profile-dialog").classList.remove("open");
+$("profile-form").onsubmit=async e=>{
+ e.preventDefault();
+ const name=$("profile-name").value.trim();
+ if(!name)return profileMessage("이름을 입력해 주십시오.");
+ try{
+   profileMessage("프로필 추가 중입니다.");
+   const created=await req("/web/api/profiles",{method:"POST",body:JSON.stringify({name})});
+   $("profile-name").value="";
+   await switchProfile(created.profile.id);
+ }catch(e){profileMessage(e.message)}
+};
+function roomModal(rename){
+ state.rename=rename;$("room-dialog").classList.add("open");
+ safeText($("dialog-title"),rename?"대화방 이름 변경":"새 대화방 만들기");
+ $("room-name").value=rename?(state.rooms.find(x=>x.id===state.room)?.title||""):"";
+ $("room-name").focus();
+}
+$("new-room").onclick=()=>roomModal(false);
+$("rename-room").onclick=()=>state.room&&roomModal(true);
+$("room-cancel").onclick=()=>$("room-dialog").classList.remove("open");
+$("room-form").onsubmit=async e=>{
+ e.preventDefault();const title=$("room-name").value.trim();if(!title)return;
+ try{
+  const d=state.rename?await req("/web/api/rooms/"+state.room,{method:"PATCH",body:JSON.stringify({title})}):
+          await req("/web/api/rooms",{method:"POST",body:JSON.stringify({title})});
+  $("room-dialog").classList.remove("open");await selectRoom(state.rename?state.room:d.room.id);
+  notice("대화방이 저장되었습니다.","success");
+ }catch(e){notice(e.message,"error");$("room-dialog").classList.remove("open")}
+};
+$("toggle-files").onclick=()=>$("file-panel").classList.toggle("open");
+$("attach-button").onclick=()=>{if(!state.room)return;$("file-panel").classList.add("open");$("file-input").click()};
+$("delete-room").onclick=async()=>{
+ if(!state.room||!confirm("이 대화방과 그 안의 메시지·업로드 파일을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."))return;
+ try{await req("/web/api/rooms/"+state.room,{method:"DELETE"});
+ state.room=null;safeText($("room-title"),"채팅 시험실");$("messages").replaceChildren();
+ $("messages").appendChild(el("div","welcome","대화방을 선택하거나 새로 만들어 주세요."));
+ ["rename-room","delete-room","toggle-files","attach-button","send"].forEach(x=>$(x).disabled=true);
+ $("file-panel").classList.remove("open");await loadRooms();
+ notice("대화방이 목록에서 삭제되었습니다.","success");
+ }catch(e){notice(e.message,"error")}
+};
+$("file-input").onchange=async()=>{
+ if(!state.room)return;
+ const files=[...$("file-input").files];$("file-input").value="";
+ for(const file of files){
+  try{
+   if(file.size>8*1024*1024)throw Error("8MB 이하 파일만 선택할 수 있습니다.");
+   notice(file.name+" 업로드 중...");
+   const body=new FormData();body.append("file",file,file.name);
+   const d=await req("/web/api/rooms/"+state.room+"/files",{method:"POST",body});
+   notice(d.file.name+" 저장 완료. ChatGPT로 직접 전송된 것은 아닙니다.","success");
+   await loadRoomDetail()
+  }catch(e){notice(file.name+": "+e.message,"error")}
+ }
+};
+$("preset").onchange=()=>{
+ const p=state.presets[$("preset").value]||"";
+ $("draft").value=p;
+ $("send").disabled=!state.room||!$("draft").value.trim()||state.busy;
+};
+$("draft").oninput=()=>{
+ $("send").disabled=!state.room||!$("draft").value.trim()||state.busy;
+};
+$("send").onclick=async()=>{
+ if(!state.room)return notice("먼저 방을 만들어 주십시오.","error");
+ const question=$("draft").value.trim();
+ if(!question)return notice("질문을 입력해 주십시오.","error");
+ if(question.length>2000)return notice("질문은 최대 2,000자까지 입력할 수 있습니다.","error");
+ state.busy=true;$("send").disabled=true;
+ try{
+   // Resolve the active account for EVERY turn. The server rechecks this
+   // value atomically at enqueue time, preventing stale-tab misrouting.
+   await refreshChatGPTAccounts();
+   const activeAccount=(state.chatgpt.accounts||[]).find(a=>a.active)||null;
+   const accountId=activeAccount?activeAccount.id:null;
+   const d=await req("/web/api/rooms/"+encodeURIComponent(state.room)+"/message",
+                     {method:"POST",body:JSON.stringify({text:question,account_id:accountId})});
+   $("draft").value="";$("preset").value="";
+   notice(d.workerConnected?
+     "실제 ChatGPT에 질문을 전송하고 있습니다. 답변을 확인해 주십시오.":
+     "질문이 정상 접수되었습니다. GitHub Chrome 작업자가 연결되면 전송됩니다.","success");
+   await loadRoomDetail();
+ }catch(e){notice(e.message,"error")}
+ finally{state.busy=false}
+};
+async function getBlob(f){
+ const r=await fetch("/web/api/files/"+encodeURIComponent(f.id),
+                   {credentials:"same-origin",cache:"no-store"});
+ if(!r.ok)throw Error("파일을 열 수 없습니다.");
+ return new Blob([await r.arrayBuffer()],{type:f.mime||"application/octet-stream"});
+}
+async function downloadFile(f){
+ try{const blob=await getBlob(f);const url=URL.createObjectURL(blob);
+ const a=el("a");a.href=url;a.download=f.name;document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),15000)}
+ catch(e){notice(e.message,"error")}
+}
+function closePreview(){
+ $("preview-overlay").classList.remove("open");$("preview-content").replaceChildren();
+ if(state.previewUrl){URL.revokeObjectURL(state.previewUrl);state.previewUrl=null}
+}
+$("close-preview").onclick=closePreview;
+async function openFile(f){
+ try{
+  const blob=await getBlob(f);
+  const ext=f.name.split(".").pop().toLowerCase();
+  const holder=$("preview-content");holder.replaceChildren();
+  safeText($("preview-title"),f.name);
+  if(["txt","md","json","csv"].includes(ext)){
+    const txt=await blob.text();
+    holder.appendChild(el("pre","",txt.slice(0,350000)));
+  }else if(["png","jpg","jpeg","webp","gif"].includes(ext)){
+    state.previewUrl=URL.createObjectURL(blob);
+    const img=el("img");img.src=state.previewUrl;img.alt=f.name;holder.appendChild(img);
+  }else if(ext==="pdf"){
+    state.previewUrl=URL.createObjectURL(blob);
+    const frame=el("iframe");frame.src=state.previewUrl;frame.title=f.name;holder.appendChild(frame);
+  }else{
+    holder.appendChild(el("p","", "이 형식은 브라우저에서 바로 미리보기를 지원하지 않습니다. 다운로드 후 해당 프로그램에서 열어주세요."));
+  }
+  $("preview-overlay").classList.add("open");
+ }catch(e){notice(e.message,"error")}
+}
+$("menu-button").onclick=()=>$("sidebar").classList.toggle("open");
+setInterval(()=>{if(state.csrf)refreshStatus()},6000);
+boot();
+</script>
+</body>
+</html>

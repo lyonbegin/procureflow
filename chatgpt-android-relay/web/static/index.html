@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>ChatGPT Web2API | 연결 시험</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;color:#172334;background:#f5f7fa}
+*{box-sizing:border-box}body{margin:0}button{font:inherit;cursor:pointer}
+header{background:#11243b;color:#fff;padding:30px max(24px,calc((100vw - 1080px)/2))}
+header h1{margin:0 0 8px;font-size:25px;letter-spacing:-.6px}
+header p{margin:0;color:#d2deeb;font-size:14px;line-height:1.6}
+main{max-width:1080px;margin:25px auto;padding:0 22px 60px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:#fff;border:1px solid #e1e7ee;border-radius:15px;padding:23px;box-shadow:0 3px 15px #20314a09}
+.card h2{margin:0 0 12px;font-size:14px;color:#5b6d80;font-weight:650}
+.value{font-size:19px;font-weight:750;letter-spacing:-.4px;overflow-wrap:anywhere}
+.note{color:#627389;font-size:12px;line-height:1.7;margin-top:10px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#a1aeba;margin-right:8px}
+.dot.good{background:#198754}.dot.wait{background:#e49a24}.dot.bad{background:#b6474b}
+.block{margin-top:16px}.block h2{font-size:19px;color:#172334}
+button.primary{border:0;background:#175ee1;color:#fff;font-weight:700;border-radius:10px;padding:14px 20px;min-height:48px}
+button.primary:disabled{background:#a6b9da;cursor:default}
+button.secondary{border:1px solid #c7d1e0;border-radius:9px;background:white;color:#21364e;padding:10px 15px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.alert{margin-top:18px;padding:14px 16px;background:#f3f7fd;border:1px solid #d6e4f8;border-radius:9px;color:#35516c;font-size:14px;line-height:1.65;white-space:pre-wrap}
+.alert.good{background:#eef8f1;border-color:#b8e4c7;color:#195c35}
+.alert.bad{background:#fff4f1;border-color:#efcbc4;color:#963c36}
+.steps{font-size:14px;line-height:1.9;color:#536579}
+.sep{height:1px;background:#e7ebf0;margin:18px 0}
+footer{color:#728096;font-size:12px;margin-top:22px;line-height:1.6}
+a{color:#1c61bb;text-decoration:none}a:hover{text-decoration:underline}
+@media(max-width:720px){header{padding:24px 20px}main{padding:0 13px}.grid{grid-template-columns:1fr}.card{padding:18px}}
+</style>
+</head>
+<body>
+<header>
+<h1>ChatGPT Web2API 연결 시험</h1>
+<p>GitHub Actions의 Chrome을 사용하여 실제 ChatGPT에 연결하는 시험 화면입니다.<br>
+기존 Android 관리 화면과 별개이며, 입력하실 인증 정보가 없습니다.</p>
+</header>
+<main>
+<div class="grid">
+  <section class="card"><h2>Railway 웹서버</h2><div class="value"><span id="server-dot" class="dot"></span><span id="server">확인 중</span></div><div class="note">서비스 상태를 자동 확인합니다.</div></section>
+  <section class="card"><h2>GitHub Chrome 작업자</h2><div class="value"><span id="worker-dot" class="dot"></span><span id="worker">확인 중</span></div><div class="note">작업자가 꺼져 있어도 시험 요청을 접수합니다. GitHub Actions가 요청을 확인하여 Chrome을 실행합니다.</div></section>
+  <section class="card"><h2>ChatGPT 왕복 시험</h2><div class="value"><span id="test-dot" class="dot"></span><span id="test">시험 전</span></div><div class="note" id="last-run">최근 시험 기록이 없습니다.</div></section>
+</div>
+<section class="card block">
+<h2>실제 질문·답변 자동 검증</h2>
+<p class="steps">버튼을 누르면 정해진 시험 질문을 즉시 접수합니다. GitHub Chrome이 꺼져 있으면 자동 실행 주기에 맞춰 작업자를 시작하여 질문·답변을 확인합니다. 계정 정보, 기존 채팅방, 과거 파일은 공개하지 않습니다. 시험은 10분에 1회로 제한됩니다.</p>
+<div class="row">
+  <button id="run" class="primary" type="button">연결 시험 시작</button>
+  <button id="refresh" class="secondary" type="button">상태 새로고침</button>
+</div>
+<div id="result" class="alert" role="status" aria-live="polite">서버와 작업자 연결 상태를 확인하고 있습니다.</div>
+<div class="sep"></div>
+<div class="note">이 페이지에는 별도의 인증 입력란이 없습니다. 기존 개인 대화 및 파일을 읽거나 수정하는 기능도 제공하지 않습니다.</div>
+</section>
+<footer>시험 전용 화면 · GitHub Actions 정기 확인은 지연될 수 있습니다. 작업자가 연결되기 전에는 요청만 대기하며 실제 ChatGPT 전송은 하지 않습니다.</footer>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+let activeRequest=false;
+const STAGES={not_started:"시험 전",queued:"작업 대기",running:"전송 중",completed:"작업 완료",failed:"실패"};
+function text(id,value){$(id).textContent=value;}
+function indicator(id,kind){$(id).className="dot "+(kind||"");}
+function info(message,kind){
+ const target=$("result");target.textContent=message;target.className="alert "+(kind||"");
+}
+async function refresh(){
+  try{
+    const r=await fetch("/demo/status",{cache:"no-store",credentials:"omit"});
+    if(!r.ok)throw new Error("서버 응답 오류 "+r.status);
+    const d=await r.json();
+    text("server","정상");indicator("server-dot","good");
+    text("worker",d.workerConnected?"연결됨":"연결 대기");
+    indicator("worker-dot",d.workerConnected?"good":"wait");
+    text("test",STAGES[d.testState]||"상태 확인");
+    indicator("test-dot",d.testState==="completed"&&d.testVerified?"good":
+                      d.testState==="failed"?"bad":"wait");
+    if(d.lastTestAt){
+      text("last-run","최근 시험: "+new Date(d.lastTestAt).toLocaleString("ko-KR"));
+    }
+    $("run").disabled=activeRequest||
+      d.testState==="queued"||d.testState==="running";
+    if(!activeRequest){
+      if(d.testState==="completed"){
+        info(d.testVerified?"성공: 실제 ChatGPT 답변을 확인했습니다.":
+                           "완료되었으나 답변 검증값이 일치하지 않습니다.",
+             d.testVerified?"good":"bad");
+      }else if(d.testState==="failed"){
+        info("실제 질문·답변 검증에 실패했습니다. 실행 기록을 확인해야 합니다.","bad");
+      }else if(d.testState==="queued"){
+        info(d.workerConnected?"요청 접수 완료. GitHub Chrome으로 전송을 준비하고 있습니다.":
+          "요청 접수 완료. GitHub Actions가 다음 실행 주기에 작업자를 시작하면 자동 전송합니다.");
+      }else if(d.testState==="running"){
+        info("GitHub Chrome으로 ChatGPT 질문을 전송하고 있습니다.");
+      }else if(!d.workerConnected){
+        info("Railway 서버가 정상입니다. '연결 시험 시작'을 누르시면 요청을 접수하고 GitHub Actions가 작업자를 자동 실행합니다.");
+      }else{
+        info("연결 준비 완료. 시험 버튼을 눌러 실제 질문·답변을 확인하십시오.","good");
+      }
+    }
+  }catch(e){
+    text("server","연결 실패");indicator("server-dot","bad");
+    text("worker","알 수 없음");indicator("worker-dot","wait");
+    $("run").disabled=true;info("서버 상태를 확인하지 못했습니다: "+e.message,"bad");
+  }
+}
+$("refresh").onclick=refresh;
+$("run").onclick=async()=>{
+ activeRequest=true;$("run").disabled=true;info("시험 실행을 요청하고 있습니다.");
+ try{
+  const r=await fetch("/demo/start",{method:"POST",cache:"no-store",credentials:"omit"});
+  const d=await r.json();
+  if(!r.ok)throw new Error(
+    r.status===429?"시험 간격 제한 중입니다. 마지막 시험 10분 후 다시 진행할 수 있습니다.":
+    r.status===409?"다른 시험이 진행 중입니다.":
+    "서버 오류 "+r.status
+  );
+  if(!d.started)throw new Error("작업 생성이 확인되지 않았습니다.");
+  info(d.workerConnected?"시험 접수 완료. ChatGPT 답변을 확인하고 있습니다.":
+    "시험 접수 완료. GitHub Chrome이 자동으로 시작될 때까지 요청이 대기합니다.");
+ }catch(e){info(e.message,"bad")}
+ finally{activeRequest=false;await refresh()}
+};
+refresh();
+setInterval(refresh,4500);
+</script>
+</body>
+</html>

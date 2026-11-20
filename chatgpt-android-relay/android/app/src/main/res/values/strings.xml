@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="relay_accessibility_description">ChatGPT 대화 입력과 전송, 파일 선택기에서 지정된 파일 선택을 원격으로 제어합니다. 다른 앱의 화면 정보는 서버로 전달하지 않습니다.</string>
+</resources>

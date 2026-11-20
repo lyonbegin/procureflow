@@ -1,11 +1,9 @@
 name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 
-# Manual operation or a one-time source-verified upgrade on this exact workflow.
-# One-time test: reuse the previously registered ChatGPT account profile; no new secrets or account login.
-# No schedule or public dispatch; Railway dispatch remains signed and on demand.
+# Start the consolidated runtime from this repository's default branch.
+# Reuse the existing registered account and signed relay; no schedule.
 on:
-  # One-time retry after verifying zero active ChatGPT jobs. Same existing
-  # workflow and account profile; no additional service, login or secret.
+  # Updating this entry point starts one authorized four-hour session.
   push:
     branches: [main]
     paths:
@@ -45,8 +43,8 @@ permissions:
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
   group: hitel-room-owned-tabs-worker-v4
-  # A newer signed worker replaces an idle prior worker; never two writers.
-  cancel-in-progress: true
+  # Queue a new session; never cancel a worker before checking active jobs.
+  cancel-in-progress: false
 
 jobs:
   verified-chatgpt-bridge:
@@ -60,7 +58,7 @@ jobs:
       RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws
       PYTHONPATH: .github/scripts
       PYTHONUNBUFFERED: "1"
-      W2A_WORKER_SECONDS: ${{ github.event_name == 'push' && '1800' || inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
+      W2A_WORKER_SECONDS: ${{ github.event_name == 'push' && '14400' || inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
     steps:
       - name: Refuse to start a worker when existing ChatGPT jobs remain active
         run: |
@@ -75,11 +73,6 @@ jobs:
           print("PASS_EXISTING_WORKER_NO_ACTIVE_JOBS_SAFE_TO_REPLACE")
           PY
       - uses: actions/checkout@v4
-      - name: Checkout integration API's exact worker/client revision
-        uses: actions/checkout@v4
-        with:
-          ref: fix/hitel-room-tab-isolation-20261120
-          path: qa
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -236,11 +229,12 @@ jobs:
       - name: Connect signed worker to actual Railway API WebSocket
         run: |
           set -euo pipefail
-          python3 -m py_compile qa/.github/scripts/w2a_relay_worker.py
-          python3 -m py_compile qa/.github/scripts/hitel_room_tab_pool.py
-          grep -q '"hitel_protocol_version":4' qa/.github/scripts/w2a_relay_worker.py
+          python3 -m py_compile .github/scripts/hitel_web2api_worker.py
+          python3 -m py_compile .github/scripts/hitel_room_tab_pool.py
+          grep -q '"hitel_protocol_version":4' .github/scripts/hitel_web2api_worker.py
           echo PASS_EXACT_SIGNED_ROOM_TAB_WORKER_V4
-          python3 qa/.github/scripts/w2a_relay_worker.py \
+          date +%s >"$RUNNER_TEMP/bridge-worker.started-at"
+          python3 .github/scripts/hitel_web2api_worker.py \
             >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
           echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
           for i in $(seq 1 210); do
@@ -289,19 +283,19 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/w2a_verify_saved_registry.py
-          python3 -m py_compile qa/.github/scripts/w2a_pairing_e2e.py
-          python3 qa/.github/scripts/w2a_pairing_e2e.py
+          python3 -m py_compile .github/scripts/w2a_pairing_e2e.py
+          python3 .github/scripts/w2a_pairing_e2e.py
 
       - name: Keep connected worker running for the selected session
         if: ${{ (github.event_name == 'push' || inputs.operation == 'worker_only') && (github.event_name == 'push' || inputs.pairing_code == '') }}
         run: |
           set -euo pipefail
           PID="$(cat "$RUNNER_TEMP/bridge-worker.pid")"
-          START="$(date +%s)"
+          START="$(cat "$RUNNER_TEMP/bridge-worker.started-at")"
           RESTARTS=0
           MISSED=0
           echo "PASS_CHROME_WORKER_WATCHDOG_SESSION_STARTED"
-          echo "WORKER_DURATION_MINUTES=${{ inputs.run_minutes }}"
+          echo "WORKER_DURATION_SECONDS=$W2A_WORKER_SECONDS"
           # The process can remain alive even after losing its signed socket.
           # A real /status heartbeat, not PID existence, decides liveness.
           # Never enqueue or replay a ChatGPT prompt from this watchdog.
@@ -321,7 +315,7 @@ jobs:
               echo "RECOVER_CHROME_WORKER_DISCONNECTED_ATTEMPT=$(( RESTARTS + 1 ))"
               kill "$PID" 2>/dev/null || true
               sleep 3
-              python3 qa/.github/scripts/w2a_relay_worker.py                 >>"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
+              python3 .github/scripts/hitel_web2api_worker.py                 >>"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
               PID=$!
               echo "$PID" > "$RUNNER_TEMP/bridge-worker.pid"
               RESTARTS=$(( RESTARTS + 1 ))

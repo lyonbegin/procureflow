@@ -1,0 +1,1137 @@
+"""Persistent multi-user room, job and file API for the ChatGPT Android test bench.
+
+Only one Android device works jobs; clients are isolated by their API keys.
+The web tester may use CONSOLE_TOKEN as an admin credential; this is NOT
+a production-user authentication solution, and must not be public.
+"""
+import base64
+import hashlib
+import hmac
+import json
+import mimetypes
+import os
+import re
+import secrets
+from urllib.parse import urlsplit
+import sqlite3
+import time
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Request, Response
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+BASE = Path(os.environ.get("RELAY_DATA_DIR", str(Path(__file__).resolve().parent / ".localdata")))
+BASE.mkdir(parents=True, exist_ok=True)
+FILES = BASE / "files"
+FILES.mkdir(parents=True, exist_ok=True)
+DB = BASE / "relay.sqlite3"
+MAX_FILE = 15 * 1024 * 1024
+FILE_TYPES = {".txt", ".md", ".pdf", ".doc", ".docx", ".ppt", ".pptx",
+              ".csv", ".json", ".xls", ".xlsx", ".png", ".jpeg", ".jpg",
+              ".webp", ".gif"}
+router = APIRouter(prefix="/api/v1", tags=["relay-api-v1"])
+on_new_job = None
+
+def clock():
+    return int(time.time() * 1000)
+
+def new_id():
+    return uuid.uuid4().hex
+
+@contextmanager
+def connection():
+    c = sqlite3.connect(DB, timeout=15)
+    c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=15000")
+    c.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield c
+        c.commit()
+    except BaseException:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+
+def init_db():
+    with connection() as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS users(
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, api_key_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS rooms(
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+            android_state TEXT NOT NULL DEFAULT 'uncreated',
+            android_title TEXT, status TEXT NOT NULL DEFAULT 'active',
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_room_user ON rooms(user_id, created_at DESC);
+        CREATE TABLE IF NOT EXISTS jobs(
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, room_id TEXT NOT NULL,
+            action TEXT NOT NULL, text TEXT NOT NULL DEFAULT '',
+            attachment_ids TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL,
+            stage TEXT NOT NULL DEFAULT 'queued', result_text TEXT,
+            error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_status ON jobs(status, created_at);
+        CREATE TABLE IF NOT EXISTS messages(
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, room_id TEXT NOT NULL,
+            job_id TEXT, role TEXT NOT NULL, text TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, created_at);
+        CREATE TABLE IF NOT EXISTS file_objects(
+            id TEXT PRIMARY KEY, user_id TEXT NOT NULL, room_id TEXT,
+            job_id TEXT, kind TEXT NOT NULL, name TEXT NOT NULL,
+            mime TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+            relative_path TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_room ON file_objects(room_id, created_at);
+        """)
+        # Preserve all previously created Railway rooms when adding direct
+        # ChatGPT conversation URLs. The database lives on a Railway volume.
+        columns={row[1] for row in c.execute("PRAGMA table_info(rooms)")}
+        if "chatgpt_url" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_url TEXT")
+        if "chatgpt_title" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_title TEXT")
+        # ChatGPT conversations and messages must never be mixed across
+        # distinct OpenAI accounts, even within a single HITEL browser room.
+        if "chatgpt_account_id" not in columns:
+            c.execute("ALTER TABLE rooms ADD COLUMN chatgpt_account_id TEXT")
+        c.execute("""UPDATE rooms SET chatgpt_account_id='__guest__'
+            WHERE chatgpt_account_id IS NULL AND chatgpt_url IS NOT NULL""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_room_chatgpt_url
+                     ON rooms(user_id,chatgpt_url)""")
+        # Pin the selected identity at queue time, before later account switches.
+        job_columns={row[1] for row in c.execute("PRAGMA table_info(jobs)")}
+        if "account_id" not in job_columns:
+            c.execute("ALTER TABLE jobs ADD COLUMN account_id TEXT")
+
+init_db()
+
+def challenge(token, expected):
+    return bool(token and expected) and hmac.compare_digest(token, expected)
+
+# Browser sessions are signed server-side, never published into the HTML.
+# A session grants the SAME scoped rights as the originally validated API key.
+SESSION_COOKIE = "relay_web_session"
+SESSION_LIFETIME = 7 * 24 * 3600
+
+def _session_key():
+    value = os.environ.get("WEB_SESSION_SIGNING_KEY", "")
+    return value.encode("utf-8") if len(value) >= 32 else None
+
+def issue_browser_session(actor):
+    key = _session_key()
+    if not key:
+        raise HTTPException(503, "WEB_SESSION_SIGNING_KEY is not configured")
+    data = {
+        "v": 1, "admin": bool(actor["admin"]), "uid": actor["user_id"],
+        "exp": int(time.time()) + SESSION_LIFETIME,
+    }
+    if data["admin"]:
+        # Existing admin sessions are revoked when CONSOLE_TOKEN is rotated.
+        data["admin_fp"] = hashlib.sha256(
+            os.environ.get("CONSOLE_TOKEN", "").encode()).hexdigest()
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(data, separators=(",", ":"), sort_keys=True).encode()
+    ).rstrip(b"=").decode()
+    signature = hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()
+    return encoded + "." + signature
+
+def validate_browser_session(cookie):
+    key = _session_key()
+    if not key or not cookie or len(cookie) > 1024 or "." not in cookie:
+        return None
+    try:
+        encoded, signature = cookie.split(".", 1)
+        expected = hmac.new(key, encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        padded = encoded + "=" * (-len(encoded) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded).decode())
+        if data.get("v") != 1 or type(data.get("exp")) is not int:
+            return None
+        now = int(time.time())
+        if not now < data["exp"] <= now + SESSION_LIFETIME:
+            return None
+        if data.get("admin") is True and data.get("uid") is None:
+            current_fp = hashlib.sha256(
+                os.environ.get("CONSOLE_TOKEN", "").encode()).hexdigest()
+            if not challenge(data.get("admin_fp"), current_fp):
+                return None
+            return {"admin": True, "user_id": None}
+        uid = data.get("uid")
+        if data.get("admin") is False and isinstance(uid, str) and re.fullmatch(
+                r"[a-zA-Z0-9_\-]{1,64}", uid):
+            with connection() as c:
+                if c.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+                    return {"admin": False, "user_id": uid}
+    except (ValueError, TypeError, UnicodeError, KeyError):
+        pass
+    return None
+
+def authentication(request: Request,
+                   x_console_token: str | None = Header(default=None),
+                   x_api_key: str | None = Header(default=None),
+                   authorization: str | None = Header(default=None)):
+    admin = os.environ.get("CONSOLE_TOKEN", "")
+    if challenge(x_console_token, admin):
+        return {"admin": True, "user_id": None}
+    token = x_api_key
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    if token:
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with connection() as c:
+            user = c.execute("SELECT id FROM users WHERE api_key_hash = ?", (digest,)).fetchone()
+        if not user:
+            raise HTTPException(403, "Invalid user API key")
+        return {"admin": False, "user_id": user["id"]}
+    if x_console_token:
+        # Explicitly bad admin credentials must not silently fall back.
+        raise HTTPException(403, "Invalid admin token")
+    actor = validate_browser_session(request.cookies.get(SESSION_COOKIE))
+    if actor is not None:
+        return actor
+    raise HTTPException(401, "Missing API key or expired browser session")
+
+def user_scope(user_id: str | None, actor: dict):
+    if actor["admin"]:
+        if not user_id or not re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", user_id):
+            raise HTTPException(400, "Admin requests require a valid user_id")
+        return user_id
+    if user_id and user_id != actor["user_id"]:
+        raise HTTPException(403, "Cannot access another user's resources")
+    return actor["user_id"]
+
+def existing_room(c, room_id, user_id, include_deleted=False):
+    item = c.execute("SELECT * FROM rooms WHERE id=? AND user_id=?", (room_id, user_id)).fetchone()
+    if not item or (item["status"] == "deleted" and not include_deleted):
+        raise HTTPException(404, "Room not found for user")
+    return item
+
+def public_job(r):
+    d = dict(r)
+    d["attachment_ids"] = json.loads(d["attachment_ids"])
+    return d
+
+def public_file(r):
+    d = dict(r)
+    d.pop("relative_path", None)
+    return d
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    user_id: str | None = None
+
+def normalize_chatgpt_conversation_url(url: str | None) -> str | None:
+    """An editable room MUST target a specific, private ChatGPT conversation.
+
+    /share/ links are snapshots, not an editable conversation. Reject
+    arbitrary domains, JavaScript: links, hidden credentials and fragments.
+    """
+    if url is None or not url.strip():
+        return None
+    value=url.strip()
+    if len(value)>350:
+        raise HTTPException(422,"ChatGPT conversation URL is too long")
+    try:
+        parsed=urlsplit(value)
+        host=(parsed.hostname or "").lower()
+        if (parsed.scheme != "https" or parsed.port not in (None,443)
+            or parsed.username or parsed.password
+            or host not in {"chatgpt.com","www.chatgpt.com","chat.openai.com","chat.com"}):
+            raise ValueError("untrusted ChatGPT URL")
+        segments=parsed.path.strip("/").split("/")
+        if len(segments)!=2 or segments[0] not in {"c","c2","uc"}:
+            raise ValueError("not a conversation URL")
+        conversation_id=segments[1]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{8,128}",conversation_id):
+            raise ValueError("invalid ChatGPT conversation ID")
+    except (ValueError,TypeError):
+        raise HTTPException(422,
+            "Use your private conversation URL, e.g. https://chatgpt.com/c/<conversation-id>. "
+            "Public /share/ URLs do not target editable chats.")
+    return f"https://chatgpt.com/{segments[0]}/{conversation_id}"
+
+
+class RoomCreate(BaseModel):
+    user_id: str | None = None
+    title: str = Field(min_length=1, max_length=160)
+    chatgpt_url: str | None = Field(default=None,max_length=350)
+    chatgpt_title: str | None = Field(default=None,max_length=160)
+
+class RoomUpdate(BaseModel):
+    user_id: str | None = None
+    title: str | None = Field(default=None,min_length=1,max_length=160)
+    chatgpt_url: str | None = Field(default=None,max_length=350)
+    chatgpt_title: str | None = Field(default=None,max_length=160)
+
+class MessageCreate(BaseModel):
+    user_id: str | None = None
+    text: str = Field(default="", max_length=24000)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=10)
+
+@router.get("/auth/check")
+def check_authentication(actor=Depends(authentication)):
+    """Validate a supplied console/user credential without disclosing it."""
+    return {"authenticated": True, "role": "admin" if actor["admin"] else "user",
+            "user_id": actor["user_id"]}
+
+
+@router.post("/auth/session")
+def create_browser_session(response: Response, actor=Depends(authentication)):
+    """After first successful key entry, keep the browser signed in.
+
+    Cookie is HttpOnly, Secure, SameSite=Strict and limited to API routes.
+    The raw admin token is never returned to or embedded in the web page.
+    """
+    session = issue_browser_session(actor)
+    response.set_cookie(
+        key=SESSION_COOKIE, value=session, max_age=SESSION_LIFETIME,
+        secure=True, httponly=True, samesite="strict", path="/api/v1",
+    )
+    return {"authenticated": True, "role": "admin" if actor["admin"] else "user",
+            "user_id": actor["user_id"], "session_seconds": SESSION_LIFETIME}
+
+@router.post("/auth/logout")
+def logout_browser_session(response: Response):
+    response.delete_cookie(key=SESSION_COOKIE, path="/api/v1",
+                           secure=True, httponly=True, samesite="strict")
+    return {"signed_out": True}
+
+
+@router.post("/users")
+def create_user(data: UserCreate, actor=Depends(authentication)):
+    if not actor["admin"]:
+        raise HTTPException(403, "Admin only")
+    uid = data.user_id or ("usr_" + new_id()[:12])
+    if not re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", uid):
+        raise HTTPException(400, "Invalid user_id")
+    token = "rlyu_" + secrets.token_urlsafe(32)
+    with connection() as c:
+        if c.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone():
+            raise HTTPException(409, "User already exists")
+        c.execute("INSERT INTO users VALUES(?,?,?,?)", (uid, data.name, hashlib.sha256(token.encode()).hexdigest(), clock()))
+    return {"user_id": uid, "name": data.name, "api_key": token, "notice": "API key is shown only once"}
+
+@router.get("/users")
+def list_users(actor=Depends(authentication)):
+    if not actor["admin"]:
+        raise HTTPException(403, "Admin only")
+    with connection() as c:
+        rows = c.execute("SELECT id, name, created_at FROM users ORDER BY created_at DESC").fetchall()
+    return {"users": [dict(r) for r in rows]}
+
+@router.post("/rooms")
+def create_room(data: RoomCreate, actor=Depends(authentication)):
+    uid = user_scope(data.user_id, actor)
+    now = clock()
+    rid = "room_" + new_id()
+    url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+    gpt_title=(data.chatgpt_title or "").strip() or None
+    with connection() as c:
+        if not actor["admin"] and not c.execute(
+            "SELECT id FROM users WHERE id=?", (uid,)).fetchone():
+            raise HTTPException(404, "User missing")
+        if url and c.execute(
+            "SELECT id FROM rooms WHERE user_id=? AND chatgpt_url=? AND status!='deleted'",
+            (uid,url)).fetchone():
+            raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
+        c.execute("""INSERT INTO rooms(
+            id,user_id,title,chatgpt_url,chatgpt_title,android_state,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)""",
+        (rid,uid,data.title,url,gpt_title,"unverified" if url else "uncreated",now,now))
+        row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
+    # Legacy Google Drive users may still have an OAuth-backed folder.
+    # Preserve that optional behavior without requiring it for Railway files
+    # or Android direct attachment workflows.
+    try:
+        import drive_v1
+        if drive_v1.has_connection(uid):
+            drive_v1.ensure_room_folder(uid,rid)
+            with connection() as c:
+                row=c.execute("SELECT * FROM rooms WHERE id=?",(rid,)).fetchone()
+    except HTTPException as exc:
+        print(f"[drive] optional folder pending for room={rid}: HTTP {exc.status_code}",flush=True)
+    return dict(row)
+
+@router.get("/rooms")
+def list_rooms(user_id: str | None = None, include_deleted: bool = False, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        sql = "SELECT * FROM rooms WHERE user_id=?"
+        if not include_deleted:
+            sql += " AND status!='deleted'"
+        rows = c.execute(sql + " ORDER BY created_at DESC", (uid,)).fetchall()
+    return {"rooms": [dict(r) for r in rows]}
+
+@router.get("/rooms/{room_id}")
+def get_room(room_id: str, user_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        row = existing_room(c, room_id, uid)
+        return dict(row)
+
+@router.patch("/rooms/{room_id}")
+def rename_room(room_id: str, data: RoomUpdate, actor=Depends(authentication)):
+    uid=user_scope(data.user_id,actor)
+    fields=data.model_fields_set
+    with connection() as c:
+        existing_room(c,room_id,uid)
+        sets=[]
+        values=[]
+        if "title" in fields:
+            if data.title is None:
+                raise HTTPException(422,"Room title cannot be null")
+            sets.append("title=?");values.append(data.title)
+        if "chatgpt_url" in fields:
+            url=normalize_chatgpt_conversation_url(data.chatgpt_url)
+            previous=c.execute("SELECT chatgpt_url FROM rooms WHERE id=?",
+                               (room_id,)).fetchone()["chatgpt_url"]
+            if url != previous:
+                # Do not retarget a queued/running job in the middle of an
+                # Android conversation. Its completion must retain the target
+                # to which it was originally dispatched.
+                unfinished=c.execute("""SELECT id FROM jobs
+                    WHERE room_id=? AND status IN ('queued','running')
+                    LIMIT 1""",(room_id,)).fetchone()
+                if unfinished:
+                    raise HTTPException(409,
+                        "Cannot change ChatGPT conversation while jobs are pending")
+            if url and c.execute("""SELECT id FROM rooms
+                WHERE user_id=? AND chatgpt_url=? AND id!=? AND status!='deleted'""",
+                (uid,url,room_id)).fetchone():
+                raise HTTPException(409,"This ChatGPT conversation is already linked to another room")
+            if url != previous:
+                sets.append("chatgpt_url=?");values.append(url)
+                # Even if the prior conversation was active, a changed link
+                # is unverified. Clear stale Android and ChatGPT titles.
+                sets.append("android_state=?")
+                values.append("unverified" if url else "uncreated")
+                sets.append("android_title=NULL")
+                if "chatgpt_title" not in fields:
+                    sets.append("chatgpt_title=NULL")
+        if "chatgpt_title" in fields:
+            sets.append("chatgpt_title=?")
+            values.append((data.chatgpt_title or "").strip() or None)
+        if sets:
+            sets.append("updated_at=?");values.append(clock())
+            c.execute("UPDATE rooms SET "+",".join(sets)+" WHERE id=?",
+                      (*values,room_id))
+        return dict(c.execute("SELECT * FROM rooms WHERE id=?",(room_id,)).fetchone())
+
+def store_job(c, uid, rid, action, text="", attachment_ids=None, account_id=None):
+    jid = "job_" + new_id()
+    now = clock()
+    c.execute("INSERT INTO jobs(id,user_id,room_id,action,text,attachment_ids,status,stage,created_at,updated_at,account_id) VALUES(?,?,?,?,?,?, 'queued','queued',?,?,?)",
+              (jid,uid,rid,action,text,json.dumps(attachment_ids or []),now,now,account_id))
+    return jid
+
+@router.delete("/rooms/{room_id}")
+async def delete_room(room_id: str, user_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] == "delete_pending":
+            raise HTTPException(409, "Room deletion already pending")
+        c.execute("UPDATE rooms SET status='delete_pending',updated_at=? WHERE id=?", (clock(),room_id))
+        jid = store_job(c, uid, room_id, "room.delete")
+    if on_new_job:
+        await on_new_job()
+    return {"room_id": room_id, "status": "delete_pending", "job_id": jid,
+            "notice": "Deletion is only confirmed after Android verifies removal"}
+
+@router.get("/rooms/{room_id}/messages")
+def list_messages(room_id: str, user_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        existing_room(c, room_id, uid, True)
+        rows = c.execute("SELECT * FROM messages WHERE room_id=? AND user_id=? ORDER BY created_at,id",
+                         (room_id, uid)).fetchall()
+    return {"messages": [dict(r) for r in rows]}
+
+@router.post("/rooms/{room_id}/bind")
+async def bind_legacy_android_chat(room_id: str, user_id: str | None = None,
+                                   actor=Depends(authentication)):
+    """Explicit one-time binding: user opens the correct ChatGPT chat on phone.
+
+    Android sends a unique visible marker into THAT foreground conversation;
+    after a confirmed reply the marker becomes a searchable verified anchor.
+    Never silently bind an arbitrary conversation via a room.open request.
+    """
+    uid=user_scope(user_id,actor)
+    with connection() as c:
+        room=existing_room(c,room_id,uid)
+        if room["status"]!="active":
+            raise HTTPException(409,"Room is not active")
+        ongoing=c.execute("""SELECT * FROM jobs WHERE user_id=? AND room_id=?
+            AND action='room.bind' AND status IN ('queued','running')
+            ORDER BY created_at DESC LIMIT 1""",(uid,room_id)).fetchone()
+        if ongoing:
+            return public_job(ongoing)
+        c.execute("""UPDATE jobs SET status='failed',stage='superseded',
+            error='Replaced by explicit legacy room binding',updated_at=?
+            WHERE user_id=? AND action='room.open' AND status='queued'""",
+            (clock(),uid))
+        marker="HITEL Relay room marker "+room_id
+        jid=store_job(c,uid,room_id,"room.bind",marker,[])
+        job=c.execute("SELECT * FROM jobs WHERE id=?",(jid,)).fetchone()
+    if on_new_job:
+        await on_new_job()
+    return public_job(job)
+
+
+@router.post("/rooms/{room_id}/open")
+async def open_existing_chat_room(
+    room_id: str,
+    user_id: str | None = None,
+    actor=Depends(authentication),
+):
+    """Queue Android navigation to an EXISTING ChatGPT conversation.
+
+    A successful result requires Android to find and verify a distinct
+    completed message from this room; the action sends no text/files.
+    """
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room is not active")
+        if room["android_state"] != "active" and not room["chatgpt_url"]:
+            raise HTTPException(409,
+                "This chat has not been created and has no ChatGPT conversation URL")
+        # A quick sequence of web clicks should not queue dozens of
+        # stale navigation jobs or reopen a room after a newer selection.
+        active=c.execute("""SELECT * FROM jobs WHERE user_id=? AND room_id=?
+            AND action='room.open' AND status='running'
+            ORDER BY created_at DESC LIMIT 1""",(uid,room_id)).fetchone()
+        if active:
+            return public_job(active)
+        c.execute("""UPDATE jobs SET status='failed',stage='superseded',
+            error='Replaced by newer room selection',updated_at=?
+            WHERE user_id=? AND action='room.open' AND status='queued'""",
+            (clock(),uid))
+        jid = store_job(c, uid, room_id, "room.open")
+        job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    if on_new_job:
+        await on_new_job()
+    return public_job(job)
+
+
+@router.post("/rooms/{room_id}/messages")
+async def create_message(room_id: str, data: MessageCreate, actor=Depends(authentication)):
+    uid = user_scope(data.user_id, actor)
+    if not data.text.strip() and not data.attachment_ids:
+        raise HTTPException(422, "Supply text or at least one attachment")
+    if len(set(data.attachment_ids)) != len(data.attachment_ids):
+        raise HTTPException(422, "Duplicate attachment IDs")
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room is not active")
+        for fid in data.attachment_ids:
+            f = c.execute("""SELECT id,kind,drive_url,drive_shared
+                             FROM file_objects WHERE id=? AND user_id=? AND room_id=?""",
+                          (fid,uid,room_id)).fetchone()
+            if not f:
+                raise HTTPException(422, "File does not belong to this user/room: " + fid)
+            if f["kind"] not in ("input", "drive"):
+                raise HTTPException(409, "Output files cannot be attached to ChatGPT")
+            if f["kind"] == "drive" and (not f["drive_url"] or not f["drive_shared"]):
+                raise HTTPException(409, "Drive link is private; only an explicit shared link can be sent")
+        jid = store_job(c, uid, room_id, "chat.send", data.text, data.attachment_ids)
+        c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                  ("msg_"+new_id(), uid, room_id, jid, "user", data.text, clock()))
+        job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    if on_new_job:
+        await on_new_job()
+    return public_job(job)
+
+@router.post("/rooms/{room_id}/turns")
+async def submit_turn_with_files(
+    room_id: str,
+    user_id: str | None = Form(default=None),
+    text: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+    actor=Depends(authentication)
+):
+    """One multipart API call: upload real file bytes, queue Android chat job.
+
+    The queued job carries file IDs, authenticated Android fetches real bytes.
+    No Drive account, public URL or Google OAuth is required.
+    """
+    uid = user_scope(user_id, actor)
+    if len(text) > 24000:
+        raise HTTPException(422, "Question exceeds 24000 characters")
+    if not text.strip():
+        raise HTTPException(422, "A question is required to send attachments safely")
+    if len(files) > 10:
+        raise HTTPException(422, "Maximum 10 attachments per turn")
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room is not active")
+    accepted = []
+    try:
+        for upload in files:
+            accepted.append(_write_upload(upload, uid, room_id, None, "input"))
+        ids = [f["id"] for f in accepted]
+        with connection() as c:
+            room = existing_room(c, room_id, uid)
+            if room["status"] != "active":
+                raise HTTPException(409, "Room is not active")
+            jid = store_job(c, uid, room_id, "chat.send", text, ids)
+            c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                      ("msg_"+new_id(), uid, room_id, jid, "user", text, clock()))
+            job = c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+    except Exception:
+        # Avoid orphaned files if a later upload or database transaction fails.
+        for file in accepted:
+            with connection() as c:
+                c.execute("DELETE FROM file_objects WHERE id=? AND user_id=?", (file["id"],uid))
+            ext = Path(file["name"]).suffix.lower()
+            (FILES / (file["id"]+ext)).unlink(missing_ok=True)
+        raise
+    if on_new_job:
+        await on_new_job()
+    response = public_job(job)
+    response["files"] = accepted
+    return response
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, user_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        row = c.execute("SELECT * FROM jobs WHERE id=? AND user_id=?", (job_id, uid)).fetchone()
+    if not row:
+        raise HTTPException(404, "Job not found")
+    return public_job(row)
+
+@router.get("/jobs")
+def list_jobs(user_id: str | None = None, room_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        sql = "SELECT * FROM jobs WHERE user_id=?"
+        p = [uid]
+        if room_id:
+            existing_room(c, room_id, uid, True)
+            sql += " AND room_id=?"
+            p.append(room_id)
+        rows = c.execute(sql + " ORDER BY created_at DESC LIMIT 200", p).fetchall()
+    return {"jobs": [public_job(r) for r in rows]}
+
+def _write_upload(up: UploadFile, uid: str, room_id: str | None, job_id: str | None, kind: str):
+    name = Path(up.filename or "document.bin").name[:180]
+    ext = Path(name).suffix.lower()
+    if ext not in FILE_TYPES:
+        raise HTTPException(415, "Unsupported extension: " + ext)
+    fid = "file_" + new_id()
+    file_path = FILES / (fid + ext)
+    digest = hashlib.sha256()
+    count = 0
+    try:
+        with file_path.open("wb") as fout:
+            while True:
+                chunk = up.file.read(256 * 1024)
+                if not chunk:
+                    break
+                count += len(chunk)
+                if count > MAX_FILE:
+                    raise HTTPException(413, "15MB per file limit")
+                digest.update(chunk)
+                fout.write(chunk)
+        if count == 0:
+            raise HTTPException(422, "Empty files are not accepted")
+        now = clock()
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        with connection() as c:
+            c.execute("INSERT INTO file_objects (id,user_id,room_id,job_id,kind,name,mime,size,sha256,relative_path,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                      (fid, uid, room_id, job_id, kind, name, mime, count, digest.hexdigest(),file_path.name, now))
+            row = c.execute("SELECT * FROM file_objects WHERE id=?", (fid,)).fetchone()
+        return public_file(row)
+    except BaseException:
+        file_path.unlink(missing_ok=True)
+        raise
+
+@router.post("/files")
+def upload_file(user_id: str = Form(...), room_id: str = Form(...), file: UploadFile = File(...),
+                actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        room = existing_room(c, room_id, uid)
+        if room["status"] != "active":
+            raise HTTPException(409, "Room not active")
+    return _write_upload(file, uid, room_id, None, "input")
+
+@router.get("/files")
+def list_files(user_id: str | None = None, room_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        sql = "SELECT * FROM file_objects WHERE user_id=?"
+        args = [uid]
+        if room_id:
+            existing_room(c, room_id, uid, True)
+            sql += " AND room_id=?"
+            args.append(room_id)
+        rows = c.execute(sql+" ORDER BY created_at DESC LIMIT 200",args).fetchall()
+    return {"files":[public_file(r) for r in rows]}
+
+@router.get("/files/{file_id}/download")
+def download_file(file_id: str, user_id: str | None = None, actor=Depends(authentication)):
+    uid = user_scope(user_id, actor)
+    with connection() as c:
+        r = c.execute("SELECT * FROM file_objects WHERE id=? AND user_id=?", (file_id,uid)).fetchone()
+    if not r:
+        raise HTTPException(404, "File not found")
+    if r["kind"] == "drive" and r["drive_url"]:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(r["drive_url"],status_code=302)
+    return FileResponse(FILES / r["relative_path"], filename=r["name"], media_type=r["mime"])
+
+def device_identity(authorization: str | None = Header(default=None)):
+    expected = os.environ.get("DEVICE_TOKEN","")
+    token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+    if not challenge(token, expected):
+        raise HTTPException(403, "Invalid device token")
+    return True
+
+@router.get("/device/jobs/{job_id}/files/{file_id}")
+def device_download(job_id: str, file_id: str, authorized=Depends(device_identity)):
+    with connection() as c:
+        job = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not job or job["status"] not in ("running","queued"):
+            raise HTTPException(404, "No active job")
+        if file_id not in json.loads(job["attachment_ids"]):
+            raise HTTPException(403, "File is not attached to this job")
+        f = c.execute("SELECT * FROM file_objects WHERE id=? AND room_id=? AND user_id=?",
+                      (file_id,job["room_id"],job["user_id"])).fetchone()
+    if not f:
+        raise HTTPException(404, "File missing")
+    return FileResponse(FILES / f["relative_path"], filename=f["name"], media_type=f["mime"])
+
+@router.post("/device/jobs/{job_id}/outputs")
+def device_upload_output(job_id: str, file: UploadFile = File(...), authorized=Depends(device_identity)):
+    with connection() as c:
+        job = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    if not job or job["status"] not in ("running","completed"):
+        raise HTTPException(404, "Job not available for output")
+    return _write_upload(file, job["user_id"], job["room_id"], job_id, "output")
+
+def fail_queued_jobs_with_unavailable_files():
+    """Remove poison jobs from the queue without retrying unknown input bytes.
+
+    If a Railway file has disappeared since upload, claim_next_job would raise
+    while constructing the device packet and leave the SAME job at the front of
+    the queue indefinitely. Fail only such jobs; keep later jobs available.
+    """
+    failures = 0
+    with connection() as c:
+        queued = c.execute("""SELECT id,user_id,room_id,attachment_ids
+                              FROM jobs WHERE status='queued'
+                              ORDER BY created_at,id""").fetchall()
+        for job in queued:
+            reason = None
+            try:
+                ids = json.loads(job["attachment_ids"])
+                if not isinstance(ids, list):
+                    raise ValueError("Invalid attachment ID list")
+                for fid in ids:
+                    entry = c.execute("""SELECT kind,relative_path,drive_url,drive_shared
+                                         FROM file_objects
+                                         WHERE id=? AND user_id=? AND room_id=?""",
+                                      (fid,job["user_id"],job["room_id"])).fetchone()
+                    if entry is None:
+                        reason = "File metadata missing for queued job"
+                        break
+                    if entry["kind"] == "input":
+                        if not (FILES / entry["relative_path"]).is_file():
+                            reason = "Original Railway file bytes missing for queued job"
+                            break
+                    elif entry["kind"] == "drive":
+                        if not entry["drive_url"] or not entry["drive_shared"]:
+                            reason = "Legacy Drive file is not explicitly shared"
+                            break
+                    else:
+                        reason = "Queued attachment has an unsupported file kind"
+                        break
+            except (TypeError,ValueError,json.JSONDecodeError):
+                reason = "Queued attachment IDs could not be parsed"
+            if reason:
+                c.execute("""UPDATE jobs SET status='failed',stage='input_file_unavailable',
+                             error=?,updated_at=? WHERE id=? AND status='queued'""",
+                          (reason,clock(),job["id"]))
+                failures += 1
+    return failures
+
+
+def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
+                   allow_account_bound: bool = True,
+                   web_text_only: bool = False,
+                   min_created_at: int | None = None):
+    """Atomically claim ONE queued job, never a second active job in its room.
+
+    The web worker can process multiple *different* rooms concurrently but
+    must not send two messages to one ChatGPT tab at the same time.
+    """
+    with connection() as c:
+        c.execute("BEGIN IMMEDIATE")
+        filters = [
+            "status='queued'",
+            "NOT EXISTS (SELECT 1 FROM jobs AS busy"
+            " WHERE busy.room_id=jobs.room_id AND busy.status IN ('running','unknown','stalled'))",
+        ]
+        args = []
+        if not allow_account_bound:
+            filters.append("account_id IS NULL")
+        if web_text_only:
+            filters.extend(("action='chat.send'", "attachment_ids='[]'"))
+        if min_created_at is not None:
+            filters.append("created_at>=?")
+            args.append(min_created_at)
+        if public_trial_only:
+            filters.append("(user_id=? OR user_id LIKE 'usr_browser_%')")
+            args.append("usr_public_web2api_probe_20261113")
+        elif only_user_id is not None:
+            filters.append("user_id=?")
+            args.append(only_user_id)
+        r = c.execute(
+            "SELECT * FROM jobs WHERE " + " AND ".join(filters)
+            + " ORDER BY created_at,id LIMIT 1", tuple(args)
+        ).fetchone()
+        if not r:
+            return None
+        c.execute("UPDATE jobs SET status='running',stage='dispatched',updated_at=? WHERE id=?",
+                  (clock(), r["id"]))
+        item = c.execute("SELECT * FROM jobs WHERE id=?", (r["id"],)).fetchone()
+        room = c.execute("SELECT * FROM rooms WHERE id=?", (r["room_id"],)).fetchone()
+        job = public_job(item)
+        # The account email is read from server-side verified OpenAI identity,
+        # never from a browser's claimed request. Scope it to this HITEL owner.
+        # Only the authenticated GitHub worker receives it over TLS WebSocket.
+        if job.get("account_id") is not None:
+            verified = c.execute("""
+                SELECT a.email FROM hitel_verified_chatgpt_accounts a
+                JOIN web_trial_profiles p ON p.owner_hash=a.browser_owner
+                WHERE a.id=? AND p.user_id=? AND a.issuer IN ('https://auth.openai.com','urn:hitel:chatgpt:github-actions-verified-browser')
+                  AND a.email IS NOT NULL AND a.email!='' LIMIT 1
+            """, (job["account_id"], job["user_id"])).fetchone()
+            job["account_email"] = verified["email"] if verified else None
+        job["room"] = dict(room)
+        job["target_chatgpt_url"] = room["chatgpt_url"]
+        job["target_conversation_id"] = (
+            room["chatgpt_url"].rsplit("/",1)[-1] if room["chatgpt_url"] else None
+        )
+        job["target_chatgpt_title"] = room["chatgpt_title"] or room["title"]
+        # Railway files travel as bytes over authenticated HTTPS. Send
+        # metadata to the Android relay; never substitute file URLs for bytes.
+        # Retain old Drive links only for explicitly registered legacy links.
+        direct_ids = []
+        details = []
+        links = []
+        for fid in job["attachment_ids"]:
+            row = c.execute("""SELECT id,kind,name,mime,size,sha256,relative_path,
+                                      drive_url,drive_file_id,drive_shared
+                               FROM file_objects WHERE id=? AND user_id=? AND room_id=?""",
+                            (fid,job["user_id"],job["room_id"])).fetchone()
+            if not row:
+                raise RuntimeError("Job references a missing scoped file: " + fid)
+            if row["kind"] == "input":
+                path = FILES / row["relative_path"]
+                if not path.is_file():
+                    raise RuntimeError("Job references a missing Railway file: " + fid)
+                direct_ids.append(fid)
+                details.append({k:row[k] for k in ("id","name","mime","size","sha256")})
+            elif row["kind"] == "drive" and row["drive_url"] and row["drive_shared"]:
+                links.append({"id":fid,"name":row["name"],"mime":row["mime"],
+                              "url":row["drive_url"]})
+            else:
+                raise RuntimeError("Job references an unavailable or private attachment: " + fid)
+        if links:
+            job["text"] = (job["text"] + "\n\n" +
+                "참고할 수 있는 외부 자료 링크 (파일 접근이 불가능하면 그 사실을 설명해 주십시오):\n" +
+                "\n".join(f"- {x['name']}: {x['url']}" for x in links)).strip()
+        job["drive_links"] = links
+        job["attachment_ids"] = direct_ids
+        job["attachment_details"] = details
+        # A restarted Android controller receives ONLY historical messages
+        # from completed jobs in the SAME room, not failed or in-flight jobs.
+        # Earlier releases discarded all messages under 24 characters, so
+        # short conversations could never be re-opened. Keep sufficiently
+        # distinctive short messages as well, while detecting duplicates
+        # across this user's other Railway rooms.
+        history = c.execute("""
+            SELECT m.text,m.role,m.job_id
+            FROM messages m JOIN jobs completed ON completed.id=m.job_id
+            WHERE m.user_id=? AND m.room_id=? AND m.job_id!=?
+              AND completed.status='completed'
+              AND m.role IN ('assistant','user')
+            ORDER BY m.created_at DESC,m.id DESC LIMIT 40
+        """, (job["user_id"],job["room_id"],job["id"])).fetchall()
+        other_texts = {
+            " ".join(m["text"].split()).casefold()
+            for m in c.execute("""
+                SELECT m.text FROM messages m
+                JOIN jobs completed ON completed.id=m.job_id
+                WHERE m.user_id=? AND m.room_id!=?
+                  AND completed.status='completed'
+                  AND LENGTH(m.text) BETWEEN 8 AND 2000
+            """,(job["user_id"],job["room_id"])).fetchall()
+        }
+        anchors = []
+        seen = set()
+        for msg in history:
+            txt = " ".join(msg["text"].split())
+            # A conversation-specific text of >=12 characters can be
+            # independently searched; generic one-word greetings cannot.
+            if len(txt) < 12 or len(txt) > 50000 or txt.casefold() in other_texts:
+                continue
+            first = txt[:200]
+            if first.casefold() in seen:
+                continue
+            seen.add(first.casefold())
+            anchors.append({"role":msg["role"],"text":first,
+                            "from_job_id":msg["job_id"]})
+            if len(anchors) >= 12:
+                break
+        job["room_anchors"] = anchors
+        job["room_search_terms"] = []
+        for anchor in anchors:
+            # Search short phrases, not 62-character verbatim messages:
+            # search results usually display titles/snippets, not full text.
+            raw = anchor["text"]
+            for part in [raw[:34].strip(), raw[:22].strip()]:
+                if len(part)>=8 and part not in job["room_search_terms"]:
+                    job["room_search_terms"].append(part)
+                    if len(job["room_search_terms"])>=8:break
+            if len(job["room_search_terms"])>=8:break
+        # Fallback is a heuristic only; Android still verifies the history
+        # after opening a result, never assumes a matching title is proof.
+        if room["android_title"]:
+            job["room_search_terms"].append(room["android_title"])
+        if room["title"] and room["title"] not in job["room_search_terms"]:
+            job["room_search_terms"].append(room["title"])
+        job.pop("result_text",None)
+        return job
+
+def update_job(job_id: str, status: str | None = None, stage: str | None = None,
+               error: str | None = None, result_text: str | None = None):
+    with connection() as c:
+        j = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not j or j["status"] not in ("running","queued"):
+            return False
+        statuses = {"queued","running","completed","failed"}
+        if status and status not in statuses:
+            return False
+        c.execute("""UPDATE jobs SET status=?,stage=?,error=?,result_text=COALESCE(?,result_text),
+                     updated_at=? WHERE id=?""",
+                  (status or j["status"],stage or j["stage"],error,result_text,clock(),job_id))
+        if status == "completed":
+            if j["action"] == "room.bind":
+                c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                          ("msg_"+new_id(),j["user_id"],j["room_id"],job_id,
+                           "user",j["text"],clock()))
+                if result_text:
+                    c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                              ("msg_"+new_id(),j["user_id"],j["room_id"],job_id,
+                               "assistant",result_text,clock()))
+            elif j["action"] == "room.delete":
+                c.execute("UPDATE rooms SET status='deleted',android_state='deleted',updated_at=? WHERE id=?",
+                          (clock(), j["room_id"]))
+            elif result_text:
+                c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
+                          ("msg_"+new_id(),j["user_id"],j["room_id"],job_id,"assistant",result_text,clock()))
+        elif status == "failed" and j["action"] == "room.delete":
+            c.execute("UPDATE rooms SET status='delete_failed',updated_at=? WHERE id=?",
+                      (clock(),j["room_id"]))
+        return True
+
+def bind_verified_browser_conversation(job_id: str, room_id: str, url: str) -> bool:
+    """Bind only the conversation returned by the actual completed Web2API turn.
+
+    Prevent one Railway room from silently changing its ChatGPT target,
+    even if the worker reports a mismatched ID. Existing Android flows
+    are not changed; only a verified GitHub Web2API worker calls this.
+    """
+    try:
+        normalized = normalize_chatgpt_conversation_url(url)
+    except (HTTPException, ValueError, TypeError):
+        return False
+    if not normalized:
+        return False
+    with connection() as c:
+        job = c.execute(
+            "SELECT user_id,room_id,action,status FROM jobs WHERE id=?", (job_id,)
+        ).fetchone()
+        if (not job or job["room_id"] != room_id or
+                job["action"] != "chat.send" or job["status"] != "running"):
+            return False
+        row = c.execute(
+            "SELECT user_id,chatgpt_url,status FROM rooms WHERE id=?", (room_id,)
+        ).fetchone()
+        if (not row or row["user_id"] != job["user_id"] or
+                row["status"] != "active"):
+            return False
+        existing = row["chatgpt_url"]
+        if existing and existing != normalized:
+            return False
+        conflict = c.execute("""SELECT id FROM rooms WHERE user_id=?
+            AND chatgpt_url=? AND id!=? AND status!='deleted' LIMIT 1""",
+            (job["user_id"], normalized, room_id)
+        ).fetchone()
+        if conflict:
+            return False
+        if not existing:
+            c.execute(
+                "UPDATE rooms SET chatgpt_url=?, android_state='active', updated_at=? WHERE id=?",
+                (normalized, clock(), room_id),
+            )
+        return True
+
+
+
+def authorize_web2api_preflight(job_id: str, room_id: str,
+                                 account_id: str, claimed_email: str) -> bool:
+    """Authorize ONE still-running, account-scoped Chrome job just before send.
+
+    The caller must separately prove a GitHub OIDC worker connection and
+    live Chrome identity. A stale, unlinked, wrong-room, wrong-account, or
+    guest job must never be authorized. No account email is logged.
+    """
+    if not all(isinstance(v,str) and v for v in (job_id,room_id,account_id,claimed_email)):
+        return False
+    if len(claimed_email) > 254 or len(account_id) > 80:
+        return False
+    with connection() as c:
+        row = c.execute("""
+            SELECT a.email AS expected_email FROM jobs j
+            JOIN rooms r ON r.id=j.room_id AND r.user_id=j.user_id
+            JOIN web_trial_profiles p ON p.user_id=j.user_id
+            JOIN hitel_verified_chatgpt_accounts a
+              ON a.browser_owner=p.owner_hash AND a.id=j.account_id
+            WHERE j.id=? AND j.room_id=? AND j.account_id=?
+              AND j.status='running' AND j.action='chat.send'
+              AND r.status='active' AND r.chatgpt_account_id=j.account_id
+              AND a.issuer IN ('https://auth.openai.com','urn:hitel:chatgpt:github-actions-verified-browser')
+              AND a.email IS NOT NULL AND a.email!=''
+            LIMIT 1
+        """,(job_id,room_id,account_id)).fetchone()
+    return bool(row and row["expected_email"].strip().casefold() == claimed_email.strip().casefold())
+
+
+def complete_web2api_job(job_id: str, room_id: str, result_text: str,
+                         chatgpt_url: str) -> bool:
+    """Complete a GitHub Chrome answer and bind its proven conversation atomically.
+
+    Do not accept a mismatched URL, another user's room, a previously finished
+    job, or a conversation already linked to a different room. A reconnect
+    must never replay a completed turn.
+    """
+    if not isinstance(result_text, str) or not result_text.strip() or len(result_text.encode('utf-8')) > 2000000:
+        return False
+    try:
+        normalized = normalize_chatgpt_conversation_url(chatgpt_url)
+    except HTTPException:
+        return False
+    if not normalized:
+        return False
+
+    with connection() as c:
+        row = c.execute("""SELECT j.*,r.chatgpt_url AS saved_chatgpt_url,
+                               r.status AS room_status,
+                               r.chatgpt_account_id AS saved_account_id
+                            FROM jobs j JOIN rooms r ON r.id=j.room_id
+                            WHERE j.id=? AND j.room_id=? AND j.user_id=r.user_id
+                            """, (job_id, room_id)).fetchone()
+        if (not row or row["status"] != "running" or
+                row["action"] != "chat.send" or row["room_status"] != "active"):
+            return False
+        expected_account = row["account_id"] or "__guest__"
+        if (row["saved_account_id"] is not None
+                and row["saved_account_id"] != expected_account):
+            # Never persist an assistant response to a room belonging to a
+            # different authenticated ChatGPT account.
+            return False
+        if row["saved_chatgpt_url"] and row["saved_chatgpt_url"] != normalized:
+            return False
+        duplicate = c.execute("""SELECT 1 FROM rooms
+             WHERE user_id=? AND id!=? AND chatgpt_url=? AND status!='deleted'
+             LIMIT 1""", (row["user_id"],room_id,normalized)).fetchone()
+        if duplicate:
+            return False
+
+        timestamp=clock()
+        c.execute("""UPDATE rooms SET chatgpt_url=?,android_state='active',
+                     chatgpt_account_id=COALESCE(chatgpt_account_id,?),
+                     updated_at=? WHERE id=? AND user_id=?""",
+                  (normalized,expected_account,timestamp,room_id,row["user_id"]))
+        c.execute("""UPDATE jobs SET status='completed',stage='assistant_reply_stable',
+                     error=NULL,result_text=?,updated_at=?
+                     WHERE id=? AND room_id=? AND status='running'""",
+                  (result_text,timestamp,job_id,room_id))
+        c.execute("""INSERT INTO messages(id,user_id,room_id,job_id,role,text,created_at)
+                     VALUES(?,?,?,?,?,?,?)""",
+                  ("msg_"+new_id(),row["user_id"],room_id,job_id,
+                   "assistant",result_text,timestamp))
+    return True
+
+
+def set_room_android_state(room_id: str, state: str, android_title: str | None = None):
+    if state not in {"uncreated","active","unverified","deleted"}:
+        return
+    with connection() as c:
+        c.execute("UPDATE rooms SET android_state=?,android_title=COALESCE(?,android_title),updated_at=? WHERE id=?",
+                  (state, android_title,clock(),room_id))
+
+def fail_orphaned_running_jobs(public_trial_only=False):
+    """Fail tasks left running by an earlier server process.
+
+    Our relay has a single active Android worker per process. After a server
+    restart no running task can be safely resumed: it may have submitted
+    the text before the connection disappeared. Never retry it silently.
+    This runs once on the first Android connection in each server process.
+    """
+    with connection() as c:
+        if public_trial_only:
+            rows = c.execute(
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running' AND "
+                "(user_id=? OR user_id LIKE 'usr_browser_%')",
+                ("usr_public_web2api_probe_20261113",)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id,room_id,action,user_id FROM jobs WHERE status='running'"
+            ).fetchall()
+        for item in rows:
+            # Public ChatGPT rooms may still be generating in the browser.
+            # Quarantine their original job_id instead of recording a false
+            # terminal model failure; disallow a second prompt in the room.
+            preserved = item["user_id"] == "usr_browser_hitel_public_link"
+            c.execute("""UPDATE jobs SET status=?,stage='server_restarted',
+                error=?,updated_at=? WHERE id=?""",
+                ("unknown" if preserved else "failed",
+                 "Server restarted; delivery unknown; not automatically retried",
+                 clock(), item["id"]))
+            if item["action"] == "room.delete":
+                c.execute("""UPDATE rooms SET status='delete_failed',updated_at=?
+                             WHERE id=? AND status='delete_pending'""",
+                          (clock(),item["room_id"]))
+        return len(rows)
+
+
+def release_running_job(job_id, reason="Device disconnected; will retry"):
+    with connection() as c:
+        row=c.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row and row["status"]=="running":
+            # Automatic retry of a message can duplicate it when transmission was
+            # actually completed but the acknowledgement was lost. Fail closed.
+            c.execute("UPDATE jobs SET status='failed',stage='connection_lost',error=?,updated_at=? WHERE id=?",
+                      (reason,clock(),job_id))

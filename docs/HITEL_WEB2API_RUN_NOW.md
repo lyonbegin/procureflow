@@ -1,10 +1,10 @@
-# HITEL Web2API 자동 실행 요청
+# HITEL ChatGPT 원격 연결 실행
 
-- 실행 식별: 2026-11-16T12:41+09:00
-- 요청자 지시: GitHub Actions Run workflow 버튼을 사용자에게 요구하지 말고 ChatGPT가 직접 실행할 것
-- 실행: Railway /health 및 /demo/status 확인, GitHub-hosted Chrome 설치, 저장된 ChatGPT 로그인 세션 복원, 원본 Web2API 실제 질문/답변 왕복 검증
-- 처리 방식: 이 파일의 자동화 요청 커밋이 워크플로를 호출함
-- 공개 비밀번호, 쿠키 및 사용자의 개인 대화 내용은 저장하지 않음
-- 검증 기준: 각 job 결과와 PASS_WEB2API_CHAT_SEND_AND_RECEIVE를 실제 GitHub Actions에서 확인
+[현재 실행·설치·재개 안내](HITEL_WEB2API_CONTINUE.md)를 기준으로 이용해 주십시오.
 
-이 파일은 비밀정보 없는 GitHub Actions 실행 트리거입니다. 저장소에서 사용자에게 Run workflow 버튼 조작을 요구하지 않습니다.
+- 실행: [Chrome 작업자 시작](https://github.com/lyonbegin/procureflow/actions/workflows/hitel-integration-bridge-live-qa.yml)
+- 기본 실행 시간: 240분
+- 프로그램에서 사용: `python tools/hitel_chat.py --room HITEL-WS-STABLE-AGENT-A --state agent-a.json --text "질문"`
+- 연결 종료 후 결과 이어받기: `python tools/hitel_chat.py --state agent-a.json --resume`
+
+소스는 main에 통합되어 있으며 예약 실행은 추가하지 않았습니다.
