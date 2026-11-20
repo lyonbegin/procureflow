@@ -160,3 +160,10 @@ _replace_projection_once(
     "ONE_CHATGPT_SUBMISSION_ONLY",
 )
 print("PASS_VENDOR_NONSTREAMING_SEND_NO_AUTOMATIC_REPLAY",flush=True)
+_replace_projection_once(
+    detector,
+    "                and (not has_action or not md_text)\n",
+    "                and not has_action\n",
+    "STOP_READS_WHEN_DOM_ACTION_IS_VISIBLE",
+)
+print("PASS_VENDOR_DOM_ACTION_COMPLETION_NO_CONVERSATION_READ",flush=True)
