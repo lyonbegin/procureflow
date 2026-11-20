@@ -48,6 +48,43 @@ jobs:
               print("PASS_REAL_RAILWAY_TWO_DISTINCT_PERSISTENT_WEBSOCKETS_NO_MESSAGE_SENT")
           asyncio.run(run())
           PY
+      - name: Verify typed 503 from both LIVE agent WebSockets when worker is offline
+        run: |
+          python3 - <<'PY'
+          import asyncio,json,urllib.request
+          import websockets
+          api="https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status"
+          with urllib.request.urlopen(api,timeout=20) as r:status=json.load(r)
+          if status.get("worker_connected") is True:
+              print("SKIP_OFFLINE_ERROR_TEST_WORKER_IS_ONLINE",flush=True)
+              raise SystemExit(0)
+          url="wss://hitel-integration-api-production.up.railway.app/integrations/v1/public/stream"
+          async def check(label):
+              # Reuse the two existing isolated QA rooms from the prior
+              # authorized live test; never modify research-room mappings.
+              name="HITEL-WS-LIVE-44724395108-"+label
+              async with websockets.connect(url,ping_interval=20,open_timeout=15) as ws:
+                  ready=json.loads(await asyncio.wait_for(ws.recv(),20))
+                  if ready.get("type")!="session.ready":raise RuntimeError("NO_WS_READY_"+label)
+                  await ws.send(json.dumps({"type":"room.open","room_name":name}))
+                  room=json.loads(await asyncio.wait_for(ws.recv(),20))
+                  if room.get("type")!="room.bound":raise RuntimeError("NO_EXISTING_QA_ROOM_"+label)
+                  rid=room["room_id"]
+                  request="HI_WS_OFFLINE_44724395108_"+label+"_01"
+                  await ws.send(json.dumps({"type":"chat.send","room_id":rid,
+                      "request_id":request,"seq":1,"text":"SAFE_PREFLIGHT_ONLY"},ensure_ascii=False))
+                  result=json.loads(await asyncio.wait_for(ws.recv(),20))
+                  if (result.get("type")!="request.error"
+                        or result.get("room_id")!=rid or result.get("request_id")!=request
+                        or result.get("http_status")!=503 or
+                        result.get("error_code") not in ("WORKER_NOT_CONNECTED","WORKER_NOT_BOOTSTRAPPED",
+                                                       "WORKER_HEARTBEAT_STALE")):
+                      raise RuntimeError("REAL_WORKER_OFFLINE_NOT_FAIL_CLOSED_"+label)
+                  print("PASS_REAL_AGENT_"+label+"_WS_TYPED_503_NO_CHATGPT_SEND",flush=True)
+          async def main():
+              await asyncio.gather(check("A"),check("B"))
+          asyncio.run(main())
+          PY
       - name: Read-only existing Web2API worker safety preflight - NO new credentials or dispatch
         run: |
           python3 - <<'PY'
