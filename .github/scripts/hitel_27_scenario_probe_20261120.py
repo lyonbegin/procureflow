@@ -205,6 +205,28 @@ async def browser():
                 if token.lower() in content.lower():
                     summary[token]=summary.get(token,0)+content.lower().count(token.lower())
         print("VENDOR_QA_SAFE_ERROR_CATEGORIES="+json.dumps(summary,sort_keys=True),flush=True)
+        # Vendor already captures its own live DOM selector diagnostics when
+        # type_message fails. Publish only booleans and counts, never URL,
+        # page title, messages, body preview, or any account identifier.
+        import re
+        allow=("button_count","textarea_count","composer_found","composer_text_length",
+               "composer_enabled","send_candidates_count",
+               "enabled_send_candidates_count","stop_button_present",
+               "generating_indicator_present")
+        safe=[]
+        for log in ROOT.glob("vendor-*.log"):
+            for line in log.read_text("utf-8",errors="replace").splitlines():
+                if "Selector drift diagnostic" not in line:continue
+                match=re.search(r"(\\{[^{}]*\\})\\s*$",line)
+                if not match:
+                    safe.append({"diagnostic":"missing_json"})
+                    continue
+                try:
+                    body=json.loads(match.group(1))
+                    safe.append({k:body.get(k) for k in allow if k in body})
+                except Exception:
+                    safe.append({"diagnostic":"json_parse_failed"})
+        print("VENDOR_QA_SANITIZED_COMPOSER_SNAPSHOTS="+json.dumps(safe[-6:],sort_keys=True),flush=True)
     try:
         ea,es=await asyncio.gather(pool.endpoint(ra,9222),pool.endpoint(rs,9222))
         reg=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
