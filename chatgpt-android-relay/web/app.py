@@ -66,7 +66,6 @@ active_job_transport: str | None = None
 # Internal multi-tab dispatch: each in-flight Web2API request belongs to ONE room.
 # The native Android device retains its independent legacy active_job_id.
 web2api_active_jobs: dict[str, str] = {}  # job_id -> room_id
-WEB2API_MAX_ACTIVE = 4
 # Cutover protects all old queued jobs from accidental replay by the v4 worker.
 WEB2API_V4_CUTOVER_CREATED_AT = 1795104560000
 # Preserve all pre-v4 jobs and prior chat records; never replay a stalled
@@ -111,7 +110,7 @@ def linked_rooms_for_authenticated_worker() -> list[dict[str,str]]:
 recovery_checked = False
 
 async def dispatch_next():
-    """Fill free Chrome-tab slots without blocking other rooms or Android.
+    """Dispatch eligible independent rooms without arbitrary numeric slot caps.
 
     A room has at most one RUNNING job (enforced atomically by claim_next_job).
     Each signed Web2API job gets its own adapter process + Chrome owned tab.
@@ -133,7 +132,7 @@ async def dispatch_next():
             print(f"[relay-v1] unavailable attachments: {failed_missing}", flush=True)
 
         if web2api_device is not None and worker_bootstrap_ready:
-            while len(web2api_active_jobs) < WEB2API_MAX_ACTIVE:
+            while True:
                 job = api_v1.claim_next_job(
                     public_trial_only=PUBLIC_SMOKE_ONLY,
                     allow_account_bound=True,
@@ -847,6 +846,14 @@ async def socket(ws: WebSocket):
                             # Agent sockets still read signed results from DB
                             # and reject any room/request/job mismatch.
                             integration_agent_stream.notify_job_changed(jid)
+                            # Acknowledgment is sent only AFTER the ChatGPT reply
+                            # and conversation URL have been durably stored by
+                            # complete_web2api_job. The worker may then close
+                            # only its own idle temporary Chrome tab.
+                            if role == "web2api" and good and saved_by_web2api:
+                                await transmit(ws,event(
+                                    "job.committed", job_id=jid,
+                                    room_id=assigned_room, verified=True))
                             preflight_jobs.discard(jid)
                             if role == "web2api":
                                 web2api_active_jobs.pop(jid, None)
