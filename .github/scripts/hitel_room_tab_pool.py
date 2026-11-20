@@ -113,6 +113,68 @@ def _live_owned_target_url(ws_uri: str) -> str | None:
     return None
 
 
+def _owned_editor_diagnostic(slot: RoomTab, target_id: str) -> str:
+    """Observe ONLY bounded, non-content DOM flags on the exact owned CDP tab."""
+    from websockets.sync.client import connect as connect_cdp
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}",target_id):
+        return "TARGET_INVALID"
+    try:
+        req=urllib.request.Request(f"http://127.0.0.1:{slot.cdp_port}/json/list",
+                                   headers={"Accept":"application/json"})
+        with urllib.request.urlopen(req,timeout=5) as response:
+            tabs=json.load(response)
+        matches=[t for t in tabs if isinstance(t,dict)
+                 and t.get("id")==target_id and t.get("type")=="page"]
+        if len(matches)!=1:return "TARGET_NOT_OWNED"
+        uri=matches[0].get("webSocketDebuggerUrl")
+        parsed=urlsplit(uri) if isinstance(uri,str) else None
+        if (parsed is None or parsed.scheme!="ws"
+            or parsed.hostname not in ("127.0.0.1","localhost")
+            or parsed.port!=slot.cdp_port
+            or parsed.path!="/devtools/page/"+target_id):
+            return "TARGET_CDP_INVALID"
+        # Only counts and booleans. Never read content, cookies, tokens or URLs.
+        expression=(
+            "(function(){"
+            "var e=Array.from(document.querySelectorAll('textarea,[contenteditable],[role=textbox]'));"
+            "var v=e.filter(x=>x.isConnected&&x.getClientRects().length>0"
+            "&&!x.closest('[aria-hidden=true],[inert]'));"
+            "var path=location.pathname;"
+            "return JSON.stringify({"
+            "b:!!document.body,e:v.filter(x=>x.isContentEditable).length,"
+            "t:v.filter(x=>x.tagName==='TEXTAREA').length,"
+            "r:v.filter(x=>x.getAttribute('role')==='textbox').length,"
+            "p:document.querySelectorAll('#prompt-textarea').length,"
+            "h:location.hostname==='chatgpt.com',"
+            "c:path.startsWith('/c/')||path.startsWith('/c2/')||path.startsWith('/uc/'),"
+            "s:document.readyState});"
+            "})()"
+        )
+        with connect_cdp(uri,open_timeout=7,close_timeout=4,max_size=100000) as socket:
+            socket.send(json.dumps({"id":7113,"method":"Runtime.evaluate",
+                 "params":{"expression":expression,"returnByValue":True}}))
+            deadline=time.monotonic()+6
+            while time.monotonic()<deadline:
+                packet=json.loads(socket.recv(timeout=max(.25,deadline-time.monotonic())))
+                if packet.get("id")!=7113:continue
+                obj=packet.get("result",{}).get("result",{})
+                raw=obj.get("value") if isinstance(obj,dict) else None
+                if not isinstance(raw,str):return "DOM_NO_RESULT"
+                flags=json.loads(raw)
+                if not isinstance(flags,dict):return "DOM_INVALID"
+                def n(k):
+                    try:return min(9,max(0,int(flags.get(k,0))))
+                    except (TypeError,ValueError):return 0
+                ready={"complete":"C","interactive":"I","loading":"L"}.get(flags.get("s"),"U")
+                return ("DOM_B"+str(int(flags.get("b") is True))
+                        +"_E"+str(n("e"))+"_T"+str(n("t"))+"_R"+str(n("r"))
+                        +"_P"+str(n("p"))+"_H"+str(int(flags.get("h") is True))
+                        +"_C"+str(int(flags.get("c") is True))+"_S"+ready)
+    except (OSError,TimeoutError,ValueError,KeyError):
+        return "DOM_PROBE_UNAVAILABLE"
+    return "DOM_PROBE_TIMEOUT"
+
+
 def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
     """Verify/recover ONLY the CDP target actually owned by this vendor instance.
 
@@ -338,7 +400,7 @@ class RoomTabPool:
             # The vendor-owned tab may have been blank while the adapter
             # process started. Require a real editable composer only AFTER
             # navigating this exact owned target to the saved conversation.
-            await self._wait_composer(slot.api_port)
+            await self._wait_composer(slot.api_port,slot=slot,target_id=target_id)
             self._protected_rooms.add(room_id)
             return target_id
         except TabIsolationError:
@@ -365,7 +427,7 @@ class RoomTabPool:
         if slot is None:
             raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
         target_id=await asyncio.to_thread(_navigate_owned_target,slot,conversation_url)
-        await self._wait_composer(slot.api_port)
+        await self._wait_composer(slot.api_port,slot=slot,target_id=target_id)
         return target_id
 
     def inspect(self) -> dict[str, tuple[int, int]]:
@@ -468,7 +530,9 @@ class RoomTabPool:
             and data.get("status") in ("healthy", "starting")
         )
 
-    async def _wait_composer(self, port: int, timeout_s: float = 50.0) -> None:
+    async def _wait_composer(self, port: int, timeout_s: float = 50.0,
+                             *,slot: RoomTab | None = None,
+                             target_id: str | None = None) -> None:
         """Fail-closed after navigation if the owned ChatGPT editor is absent.
 
         Never retry a send or navigate another tab. No prompt text is logged.
@@ -493,6 +557,8 @@ class RoomTabPool:
         flags+="_D"+str(int(probe.get("driver_connected") is True))
         flags+="_E"+str(int(probe.get("composer_ready") is True))
         flags+="_S"+state
+        if slot is not None and target_id is not None:
+            flags+="_"+await asyncio.to_thread(_owned_editor_diagnostic,slot,target_id)
         raise TabIsolationError("ROOM_OWNED_COMPOSER_GUARD_FAILED_"+flags)
 
     async def close(self) -> None:
