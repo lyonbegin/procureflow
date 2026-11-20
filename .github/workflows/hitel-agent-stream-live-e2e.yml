@@ -26,6 +26,53 @@ jobs:
         with:
           python-version: "3.11"
       - run: python3 -m pip install -q websockets==13.1
+      - name: Verify two separate persistent WebSocket sessions on LIVE Railway
+        run: |
+          python3 - <<'PY'
+          import asyncio,json
+          import websockets
+          uri="wss://hitel-integration-api-production.up.railway.app/integrations/v1/public/stream"
+          async def one(label):
+              async with websockets.connect(uri,open_timeout=20,ping_interval=20) as ws:
+                  ready=json.loads(await asyncio.wait_for(ws.recv(),20))
+                  if ready.get("type")!="session.ready" or not ready.get("session_id"):
+                      raise RuntimeError("LIVE_AGENT_WS_HANDSHAKE_FAILED_"+label)
+                  await ws.send('{"type":"ping"}')
+                  pong=json.loads(await asyncio.wait_for(ws.recv(),15))
+                  if pong.get("type")!="pong" or pong.get("session_id")!=ready["session_id"]:
+                      raise RuntimeError("LIVE_AGENT_WS_PONG_WRONG_SESSION_"+label)
+                  return ready["session_id"]
+          async def run():
+              a,b=await asyncio.gather(one("A"),one("B"))
+              if a==b:raise RuntimeError("LIVE_AGENT_SESSION_IDS_COLLIDED")
+              print("PASS_REAL_RAILWAY_TWO_DISTINCT_PERSISTENT_WEBSOCKETS_NO_MESSAGE_SENT")
+          asyncio.run(run())
+          PY
+      - name: Read-only existing Web2API worker safety preflight - NO new credentials or dispatch
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request
+          url="https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status"
+          with urllib.request.urlopen(url,timeout=20) as r:
+              state=json.load(r)
+          keys=["worker_connected","worker_heartbeat_recent","worker_bootstrap_ready",
+                "worker_active_jobs_count","worker_capacity","prewarmed_room_count",
+                "worker_autostart_configured"]
+          print("EXISTING_WORKER_READONLY="+json.dumps({k:state.get(k) for k in keys},
+                                                 ensure_ascii=False,sort_keys=True))
+          if not all(state.get(k) is True for k in (
+              "worker_connected","worker_heartbeat_recent","worker_bootstrap_ready"
+          )):
+              raise SystemExit("FAIL_REAL_CHATGPT_SEND_BLOCKED_WORKER_NOT_READY_NO_QUESTIONS_SENT")
+          capacity=state.get("worker_capacity",0)
+          reserved=state.get("prewarmed_room_count",0)
+          active=state.get("worker_active_jobs_count",0)
+          # Two independent QA rooms must NOT steal or evict either of the
+          # previously prewarmed research rooms from a 3-slot Chrome worker.
+          if not all(isinstance(x,int) for x in (capacity,reserved,active)) or capacity-reserved-active<2:
+              raise SystemExit("FAIL_REAL_TWO_QA_ROOMS_EXCEED_VERIFIED_WORKER_SLOTS_NO_SEND")
+          print("PASS_TWO_LIVE_QA_ROOMS_HAVE_VERIFIED_FREE_WORKER_SLOTS")
+          PY
       - name: Verify two durable agent sockets, independent ChatGPT replies and follow-up turns
         run: |
           mkdir -p hitel-live-ws
