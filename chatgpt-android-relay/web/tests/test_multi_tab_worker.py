@@ -166,6 +166,61 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(transmitted["method"],"Page.navigate")
             self.assertEqual(transmitted["params"]["url"],new_url)
 
+    def test_owned_tab_about_blank_during_navigation_is_not_login_failure(self):
+        import io,json,tempfile
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_navigate_owned_target
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp);(home/".chatgpt_web2api").mkdir()
+            instance="hitel-room-transition-9222"
+            target="TRANSIENTTARGET12345"
+            (home/".chatgpt_web2api"/"owned_tabs.json").write_text(
+                json.dumps({instance:{"target_id":target}}))
+            dest="https://chatgpt.com/c/"+"a"*32
+            initial={"id":target,"type":"page","url":"https://chatgpt.com/",
+                     "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
+            transitioning={**initial,"url":"about:blank"}
+            arrived={**initial,"url":dest}
+            sequence=iter([initial,transitioning,arrived])
+            sock=MagicMock()
+            sock.__enter__.return_value=sock
+            sock.recv.return_value=json.dumps({"id":41,"result":{"frameId":"frame"}})
+            def get(*a,**k):
+                return io.BytesIO(json.dumps([next(sequence)]).encode())
+            slot=RoomTab(ROOM_A,9222,18581,instance,FakeProcess(),0)
+            with patch("hitel_room_tab_pool.Path.home",return_value=home),\
+                 patch("hitel_room_tab_pool.urllib.request.urlopen",side_effect=get),\
+                 patch("hitel_room_tab_pool.time.sleep"),\
+                 patch("websockets.sync.client.connect",return_value=sock):
+                self.assertEqual(_navigate_owned_target(slot,dest),target)
+            print("PASS_CDPTARGET_ABOUT_BLANK_TRANSITION_ALLOWED_ONLY_TO_EXACT_ROOM",flush=True)
+
+    def test_owned_tab_real_auth_redirect_fails_closed_without_retry(self):
+        import io,json,tempfile
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_navigate_owned_target
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp);(home/".chatgpt_web2api").mkdir()
+            instance="hitel-room-login-9222";target="AUTHREDIRECTTARGET123"
+            (home/".chatgpt_web2api"/"owned_tabs.json").write_text(
+                json.dumps({instance:{"target_id":target}}))
+            dest="https://chatgpt.com/c/"+"b"*32
+            first={"id":target,"type":"page","url":"https://chatgpt.com/",
+                   "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
+            second={**first,"url":"https://auth.openai.com/login"}
+            sequence=iter([first,second])
+            sock=MagicMock()
+            sock.__enter__.return_value=sock
+            sock.recv.return_value=json.dumps({"id":41,"result":{}})
+            slot=RoomTab(ROOM_A,9222,18582,instance,FakeProcess(),0)
+            with patch("hitel_room_tab_pool.Path.home",return_value=home),\
+                 patch("hitel_room_tab_pool.urllib.request.urlopen",
+                       side_effect=lambda *a,**k:io.BytesIO(json.dumps([next(sequence)]).encode())),\
+                 patch("websockets.sync.client.connect",return_value=sock):
+                with self.assertRaisesRegex(TabIsolationError,"ROOM_PREWARM_LOGIN_REDIRECT"):
+                    _navigate_owned_target(slot,dest)
+            print("PASS_AUTH_REDIRECT_NOT_MISTAKEN_FOR_TRANSIENT_CDPTARGET",flush=True)
+
     async def test_health_must_confirm_real_usable_composer(self):
         healthy={"chrome_running":True,"driver_connected":True,"status":"healthy"}
         pool=RoomTabPool()
