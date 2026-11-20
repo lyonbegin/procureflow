@@ -167,18 +167,31 @@ class DirectWeb2API:
         self._lock = threading.RLock()
         self._rooms: dict[str, Binding] = {}
         self._uncertain: set[str] = set()
+        self._sending: set[str] = set()
 
     def _gateway_headers(self) -> dict[str, str]:
         return {"Authorization": "Bearer " + self._api_key,
                 "Content-Type": "application/json", "Accept": "application/json"}
 
     def ready(self) -> None:
-        # This is *not* just process liveness. The gateway's authenticated
-        # readyz verifies its configured credential and direct-mode provider.
+        # /readyz alone checks credential CONFIGURATION, not a valid LIVE
+        # account. Require the browserless requirements provider to be enabled
+        # and a real model catalog response from the upstream ChatGPT account.
         document, _ = _http_json(self._base + "/readyz", method="GET",
                                  headers=self._gateway_headers(), timeout=20)
-        if document.get("ready") is not True:
+        checks = document.get("checks")
+        if (document.get("ready") is not True or not isinstance(checks, dict)
+                or checks.get("chatgpt_auth_configured") is not True
+                or checks.get("requirements_provider_configured") is not True
+                or checks.get("browser_transport_configured") is not False):
             raise DirectError("DIRECT_GATEWAY_NOT_AUTHENTICATED_READY")
+        models, _ = _http_json(self._base + "/v1/models", method="GET",
+                               headers=self._gateway_headers(), timeout=35)
+        catalog = models.get("data")
+        if not isinstance(catalog, list) or not any(
+                isinstance(item, dict) and isinstance(item.get("id"), str)
+                and item["id"] for item in catalog):
+            raise DirectError("DIRECT_LIVE_MODEL_CATALOG_UNVERIFIED")
 
     def account_id(self) -> str | None:
         return _load_credential(self._oauth_file)[1]
@@ -236,6 +249,17 @@ class DirectWeb2API:
             raise DirectError("DIRECT_ROOM_ID_INVALID")
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > MAX_PROMPT_LENGTH:
             raise DirectError("DIRECT_PROMPT_INVALID")
+        with self._lock:
+            if room_id in self._sending:
+                raise DirectError("DIRECT_SAME_ROOM_CONCURRENT_SEND_REFUSED")
+            self._sending.add(room_id)
+        try:
+            return self._send_once(room_id, prompt, target_url)
+        finally:
+            with self._lock:
+                self._sending.discard(room_id)
+
+    def _send_once(self, room_id: str, prompt: str, target_url: str | None) -> tuple[str, str]:
         state = self.binding(room_id, target_url)
         headers = self._gateway_headers()
         if state:
