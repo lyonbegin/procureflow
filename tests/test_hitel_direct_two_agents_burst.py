@@ -219,16 +219,20 @@ class MultiAgentStress(unittest.TestCase):
 
     def test_one_room_wrong_response_cid_other_room_continues(self):
         self.state.first_turn_barrier=threading.Barrier(1)
+        _,original_cid=self.client.send(RIDS["AGENT_A"],self.prompt("AGENT_A",0),None)
+        self.assertEqual(original_cid,CIDS["AGENT_A"])
         self.state.flip_cid_once="AGENT_A"
         with self.assertRaises(DirectError) as e:
-            self.client.send(RIDS["AGENT_A"],self.prompt("AGENT_A",0),None)
-        self.assertEqual(e.exception.code,"DIRECT_CONVERSATION_CHANGED_AFTER_POST") if False else None
+            self.client.send(RIDS["AGENT_A"],self.prompt("AGENT_A",1),
+                             "https://chatgpt.com/c/"+CIDS["AGENT_A"])
+        self.assertEqual(e.exception.code,"DIRECT_CONVERSATION_CHANGED_AFTER_POST")
         with self.assertRaises(DirectError):
-            self.client.send(RIDS["AGENT_A"],self.prompt("AGENT_A",1),None)
+            self.client.send(RIDS["AGENT_A"],self.prompt("AGENT_A",2),
+                             "https://chatgpt.com/c/"+CIDS["AGENT_A"])
         answer,cid=self.client.send(RIDS["AGENT_B"],self.prompt("AGENT_B",0),None)
         self.assertEqual(cid,CIDS["AGENT_B"])
         self.assertIn("AGENT_B",answer)
-        self.assertEqual(self.state.post_count["AGENT_A"],1)
+        self.assertEqual(self.state.post_count["AGENT_A"],2)
         print("PASS_OFFLINE_WRONG_CID_A_QUARANTINED_B_STILL_OPERATES",flush=True)
 
 if __name__=="__main__":
