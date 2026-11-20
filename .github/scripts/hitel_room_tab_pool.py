@@ -160,6 +160,8 @@ class RoomTabPool:
         self._rooms: dict[str, RoomTab] = {}
         self._busy_rooms: set[str] = set()
         self._uncertain_rooms: set[str] = set()
+        # Linked, prewarmed research rooms cannot be displaced by new QA/temporary rooms.
+        self._protected_rooms: set[str] = set()
         self._lock = asyncio.Lock()
 
     def pin(self, room_id: str) -> None:
@@ -179,7 +181,8 @@ class RoomTabPool:
         """Only an idle, confirmed-safe tab may be reclaimed for another room."""
         candidates = sorted(
             (item for key,item in self._rooms.items()
-             if key not in self._busy_rooms and key not in self._uncertain_rooms),
+             if key not in self._busy_rooms and key not in self._uncertain_rooms
+             and key not in self._protected_rooms),
             key=lambda item:item.assigned_at,
         )
         if not candidates:
@@ -210,6 +213,7 @@ class RoomTabPool:
                 raise TabIsolationError("ROOM_TAB_NOT_ALLOCATED")
             target_id=await asyncio.to_thread(
                 _navigate_owned_target,slot,conversation_url)
+            self._protected_rooms.add(room_id)
             return target_id
         except TabIsolationError:
             # Failure to navigate does not authorize a replacement tab or a new SEND.
@@ -322,6 +326,7 @@ class RoomTabPool:
         async with self._lock:
             procs = list(self._rooms.values())
             self._rooms.clear()
+            self._protected_rooms.clear()
         for item in procs:
             if item.process.returncode is None:
                 item.process.terminate()
