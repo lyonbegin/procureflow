@@ -230,25 +230,28 @@ async def browser():
         report("C03","PASS" if own else "FAIL",f"parallel_first_turn; correct_response_isolation={own}; cid_distinct={a_cid!=s_cid}","real_chrome")
         sessions[ra]=a_cid;sessions[rs]=s_cid
         for rid in (ra,rs):
-            target=sessions[rid]
-            await pool.prewarm(rid,9222,f"https://chatgpt.com/c/{target}")
             try:
                 print("REAL_CHROME_POST_FIRST_TURN_DOM_"+ids[rid]+"="+json.dumps(
                     await asyncio.to_thread(cdp_probe,rid),sort_keys=True),flush=True)
             except Exception as e:
                 print("REAL_CHROME_DOM_PROBE_ERROR_"+ids[rid]+"="+type(e).__name__,flush=True)
+        print("QA_DIFFERENTIAL_DIRECT_VENDOR_FOLLOWUP_NO_POOL_NAVIGATION",flush=True)
         # S2: exact 20 synthetic source titles, never a user's research dataset.
         synthetic=[{"no":i,"id":f"SIM{i:03d}","title":f"중학교 {1+(i%3)}학년 수학 가상 교재 {i}"} for i in range(1,21)]
         prompt="실제 서비스 연동을 시험하는 합성 가상 제목 20개입니다. 원본 사용자 자료가 아닙니다. 반드시 JSON 객체 하나만 출력하십시오. 구조는 "+'{"rows":[{"no":1,"id":"SIM001","school":"중등","grade":"1","semester":"1","subject":"수학","edition":"해당없음","download":"대상","reason":"중학교 수학 가상 교재"}]}'+" 와 같으며 전체 20개 모든 no/id를 정확히 포함하십시오. 제목에 따라 grade를 판단하십시오. "+json.dumps(synthetic,ensure_ascii=False)
-        async def follow(rid,endpoint,turn,text=None):
+        async def follow(rid,endpoint,turn,text=None,verify_pool_route=False):
             cid=sessions[rid]
             pool.pin(rid)
             try:
-                await pool.navigate_existing(rid,9222,f"https://chatgpt.com/c/{cid}")
+                if verify_pool_route:
+                    await pool.navigate_existing(rid,9222,f"https://chatgpt.com/c/{cid}")
                 (answer,new_cid),marker=await asyncio.to_thread(send,rid,endpoint,turn,cid,text)
                 if cid!=new_cid:
                     raise AssertionError("ROOM_CONVERSATION_CHANGED")
                 return answer,marker
+            except Exception as err:
+                print(f"REAL_CHROME_TURN_ERROR_ROOM={ids[rid]} TURN={turn} POOL_NAV={verify_pool_route} CLASS={type(err).__name__} MESSAGE={str(err)[:110]}",flush=True)
+                raise
             finally:
                 pool.unpin(rid)
         (a2,ma2),(s2,ms2)=await asyncio.gather(follow(ra,ea,2),follow(rs,es,2,prompt))
@@ -262,7 +265,10 @@ async def browser():
             report("S02","PASS" if good else "FAIL",f"synthetic_20_titles; returned_rows={len(found)}; exact_ids={good}","real_chrome")
         except Exception as e:
             report("S02","FAIL",f"synthetic_20_title_json_invalid; reason={type(e).__name__}; reply_chars={len(s2)}","real_chrome")
-        (a3,ma3),(s3,ms3)=await asyncio.gather(follow(ra,ea,3),follow(rs,es,3))
+        print("QA_DIFFERENTIAL_FULL_POOL_NAVIGATION_FOLLOWUP",flush=True)
+        (a3,ma3),(s3,ms3)=await asyncio.gather(
+            follow(ra,ea,3,verify_pool_route=True),
+            follow(rs,es,3,verify_pool_route=True))
         good_a=ma in a_answer and ma2 in a2 and ma3 in a3
         good_s=ms in s_answer and ms3 in s3
         report("C02","PASS" if good_a and good_s else "FAIL",f"three_turns_each; A={good_a},S={good_s},distinct={a_cid!=s_cid}","real_chrome")
@@ -294,7 +300,10 @@ async def browser():
         count,false_positive,is_visible=await asyncio.to_thread(dom_probe)
         report("C04","FAIL" if false_positive and not is_visible else "PASS",f"real_tab_editors_visible={count}; hidden_textarea_wrongly_accepted={false_positive}; scratch_visible={is_visible}","real_chrome")
     except Exception as e:
+        import traceback
+        stack=[(Path(t.filename).name,t.lineno,t.name) for t in traceback.extract_tb(e.__traceback__)]
         print("REAL_CHROME_QA_EXCEPTION="+type(e).__name__+":"+str(e)[:300],flush=True)
+        print("REAL_CHROME_SAFE_ERROR_STACK="+json.dumps(stack[-12:]),flush=True)
         try:
             for rid in (ra,rs):
                 if rid in pool._rooms:
