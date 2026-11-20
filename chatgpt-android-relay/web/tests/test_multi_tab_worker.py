@@ -37,6 +37,12 @@ class VendorEditorCompatibilityTest(unittest.TestCase):
             self.assertNotEqual(changed,old+"\n")
             patcher(path)  # idempotent
             self.assertEqual(path.read_text(encoding="utf-8"),changed)
+            # The GitHub workflow source-pinned patch uses the quoted
+            # value="true" selector, not the worker's bare-attribute spelling.
+            current=changed.replace('[contenteditable]', '[contenteditable="true"]')
+            path.write_text(current,encoding="utf-8")
+            patcher(path)
+            self.assertEqual(path.read_text(encoding="utf-8"),current)
             path.write_text("COMPOSER_SELECTOR = 'unreviewed'\n",encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError,"REFUSE_UNKNOWN"):
                 patcher(path)
