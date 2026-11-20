@@ -84,14 +84,17 @@ def _same_conversation_route(observed: str, expected: str) -> bool:
 
 
 def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
-    """Read own vendor instance registry; navigate ONLY its owned Chrome target.
+    """Verify/recover ONLY the CDP target actually owned by this vendor instance.
 
-    No send/typing/clicking. A valid URL is supplied by the authenticated HITEL
-    server from that exact room's persisted ChatGPT conversation mapping.
+    Direct CDP avoids Playwright sync_api's event-loop AssertionError observed
+    in real QA at the third message. An already-correct URL is NEVER reloaded.
+    Nothing here sends a ChatGPT message, clicks or changes the active account.
     """
-    from playwright.sync_api import sync_playwright
+    from websockets.sync.client import connect as connect_cdp
 
-    registry = Path.home()/".chatgpt_web2api"/"owned_tabs.json"
+    if not CONVERSATION_URL.fullmatch(conversation_url):
+        raise TabIsolationError("UNVERIFIED_SAVED_CONVERSATION_URL")
+    registry=Path.home()/".chatgpt_web2api"/"owned_tabs.json"
     deadline=time.monotonic()+35
     target_id=None
     while time.monotonic()<deadline:
@@ -104,50 +107,77 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
         except (FileNotFoundError,PermissionError,OSError,ValueError):
             pass
         time.sleep(0.5)
-    if not target_id:
+    if not target_id or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}",target_id):
         raise TabIsolationError("ROOM_OWNED_TARGET_NOT_RECORDED")
 
-    with sync_playwright() as pw:
-        browser=pw.chromium.connect_over_cdp(
-            f"http://127.0.0.1:{slot.cdp_port}",timeout=12000)
-        for context in browser.contexts:
-            for page in context.pages:
-                if page.is_closed():
+    def owned_tab():
+        req=urllib.request.Request(
+            f"http://127.0.0.1:{slot.cdp_port}/json/list",
+            headers={"Accept":"application/json"},
+        )
+        with urllib.request.urlopen(req,timeout=5) as response:
+            tabs=json.load(response)
+        if not isinstance(tabs,list):
+            raise TabIsolationError("CHROME_TARGET_LIST_INVALID")
+        matches=[t for t in tabs if isinstance(t,dict)
+                 and t.get("id")==target_id and t.get("type")=="page"]
+        if len(matches)!=1:
+            raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
+        return matches[0]
+
+    tab=owned_tab()
+    if _same_conversation_route(str(tab.get("url","")),conversation_url):
+        return target_id
+
+    # A displaced tab may be recovered, but ONLY the exact persisted CDP
+    # target. Never adopt an arbitrary tab or restart the vendor process.
+    address=urlsplit(str(tab.get("url","")))
+    if address.scheme not in ("https","about") or (
+        address.scheme=="https" and address.hostname!="chatgpt.com"
+    ):
+        raise TabIsolationError("ROOM_OWNED_TARGET_FOREIGN_HOST_NO_NAVIGATION")
+    ws_uri=tab.get("webSocketDebuggerUrl")
+    parsed=urlsplit(ws_uri) if isinstance(ws_uri,str) else None
+    if (parsed is None or parsed.scheme!="ws"
+            or parsed.hostname not in ("127.0.0.1","localhost")
+            or parsed.port!=slot.cdp_port
+            or not parsed.path.endswith("/"+target_id)
+            or not parsed.path.startswith("/devtools/page/")):
+        raise TabIsolationError("ROOM_OWNED_TARGET_CDP_URL_UNVERIFIED")
+    try:
+        with connect_cdp(ws_uri,open_timeout=12,close_timeout=4,max_size=100000) as socket:
+            socket.send(json.dumps({
+                "id":41,"method":"Page.navigate","params":{"url":conversation_url}
+            }))
+            response_deadline=time.monotonic()+15
+            while time.monotonic()<response_deadline:
+                packet=json.loads(socket.recv(timeout=max(0.5,response_deadline-time.monotonic())))
+                if packet.get("id")!=41:
                     continue
-                session=None
-                try:
-                    session=context.new_cdp_session(page)
-                    target=session.send("Target.getTargetInfo")["targetInfo"]["targetId"]
-                except (KeyError,ValueError,RuntimeError):
-                    continue
-                finally:
-                    if session is not None:
-                        try:
-                            session.detach()
-                        except Exception:
-                            pass
-                if target != target_id:
-                    continue
-                # A page already on this verified room must NOT be reloaded:
-                # a redundant Page.navigate invalidates DOM turn anchors and
-                # can break the subsequent vendor reply collector (HTTP 500).
-                # Only navigate if the owned target is demonstrably elsewhere.
-                if _same_conversation_route(page.url, conversation_url):
-                    return target_id
-                page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
-                for _ in range(20):
-                    if _same_conversation_route(page.url, conversation_url):
-                        return target_id
-                    page.wait_for_timeout(500)
-                observed=urlsplit(page.url)
-                if observed.hostname!="chatgpt.com":
-                    raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
-                if observed.path.rstrip("/") in ("","/","/auth/login","/login"):
-                    raise TabIsolationError("ROOM_PREWARM_HOME_OR_LOGIN_REDIRECT")
-                if observed.path.startswith(("/c/","/c2/","/uc/")):
-                    raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
-                raise TabIsolationError("ROOM_PREWARM_UNEXPECTED_CHATGPT_ROUTE")
-    raise TabIsolationError("ROOM_OWNED_TARGET_NOT_FOUND_IN_CHROME")
+                if (packet.get("error") or
+                        packet.get("result",{}).get("errorText")):
+                    raise TabIsolationError("ROOM_OWNED_TARGET_NAVIGATION_REJECTED")
+                break
+            else:
+                raise TabIsolationError("ROOM_OWNED_TARGET_NAVIGATION_TIMEOUT")
+    except (OSError,TimeoutError,ValueError,KeyError) as exc:
+        raise TabIsolationError("ROOM_OWNED_TARGET_CDP_NAVIGATION_FAILED") from exc
+
+    for _ in range(40):
+        current=str(owned_tab().get("url",""))
+        if _same_conversation_route(current,conversation_url):
+            return target_id
+        observed=urlsplit(current)
+        if observed.hostname!="chatgpt.com":
+            raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
+        if observed.path.rstrip("/") in ("","/","/auth/login","/login"):
+            # Allow client-side navigation to settle, without submitting text.
+            time.sleep(0.5)
+            continue
+        if observed.path.startswith(("/c/","/c2/","/uc/")):
+            raise TabIsolationError("ROOM_PREWARM_DIFFERENT_CONVERSATION")
+        time.sleep(0.5)
+    raise TabIsolationError("ROOM_PREWARM_HOME_OR_LOGIN_REDIRECT")
 
 
 class RoomTabPool:
