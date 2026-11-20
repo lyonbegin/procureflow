@@ -47,6 +47,12 @@ jobs:
               print("PARSED_EXPECTED",head=={"hitel_v4_postfix":"OK"})
               print("TAIL_LENGTH",len(tail))
               print("TAIL_EQUALS_HEAD_SUFFIX",bool(tail and clean[:end].endswith(tail)))
+              print("TAIL_EQUALS_HEAD_PREFIX",bool(tail and clean[:end].startswith(tail)))
+              print("TAIL_IS_HEAD_SUBSTRING",bool(tail and tail in clean[:end]))
+              print("TAIL_BEGINS_OPEN_BRACE",tail.startswith("{"))
+              print("TAIL_BEGINS_QUOTE",tail.startswith(chr(34)))
+              print("TAIL_CONTAINS_COLON",":" in tail)
+              print("TAIL_CONTAINS_NEWLINE","\\n" in tail)
               print("TAIL_HAS_CLOSING_BRACE",bool(tail and tail.endswith(("}","]"))))
               print("TAIL_BEGINS_NEW_JSON",tail.startswith(("{","[")))
           except (ValueError,TypeError) as exc:
