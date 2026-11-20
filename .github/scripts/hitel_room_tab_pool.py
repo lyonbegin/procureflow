@@ -468,12 +468,12 @@ class RoomTabPool:
             and data.get("status") in ("healthy", "starting")
         )
 
-    async def _wait_composer(self, port: int) -> None:
+    async def _wait_composer(self, port: int, timeout_s: float = 50.0) -> None:
         """Fail-closed after navigation if the owned ChatGPT editor is absent.
 
         Never retry a send or navigate another tab. No prompt text is logged.
         """
-        deadline=time.monotonic()+50
+        deadline=time.monotonic()+timeout_s
         while time.monotonic()<deadline:
             if await self._ready(port):
                 return
