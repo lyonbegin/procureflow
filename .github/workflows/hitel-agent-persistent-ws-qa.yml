@@ -1,0 +1,43 @@
+name: HITEL two persistent WebSocket agents protocol regression
+
+# Existing Railway source branch is not modified or deployed by this workflow.
+# No external ChatGPT calls, new services, Codex, OAuth or GitHub secrets.
+on:
+  push:
+    branches:
+      - fix/hitel-agent-persistent-ws-routing-20261120
+    paths:
+      - .github/workflows/hitel-agent-persistent-ws-qa.yml
+      - chatgpt-android-relay/web/integration_agent_stream.py
+      - chatgpt-android-relay/web/app.py
+      - tests/test_hitel_agent_persistent_ws.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ws-room-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install only existing server framework for offline protocol QA
+        run: python3 -m pip install -q fastapi==0.115.12
+      - name: Verify modified existing production app and new WebSocket handler compile
+        run: |
+          python3 -m py_compile chatgpt-android-relay/web/app.py
+          python3 -m py_compile chatgpt-android-relay/web/integration_agent_stream.py
+      - name: Both independent agents send 24 different questions over persistent WebSockets
+        run: |
+          python3 -m unittest discover -s tests -p 'test_hitel_agent_persistent_ws.py' -v
+      - name: Truthful scope
+        if: always()
+        run: |
+          echo "## HITEL persistent agent sockets" >> "$GITHUB_STEP_SUMMARY"
+          echo "Two full-duplex in-process WebSocket clients; one existing room per agent." >> "$GITHUB_STEP_SUMMARY"
+          echo "Injected Web2API COMPOSER_UNAVAILABLE on A must not affect B." >> "$GITHUB_STEP_SUMMARY"
+          echo "ChatGPT real Web2API transfer still requires separate live end-to-end verification." >> "$GITHUB_STEP_SUMMARY"
