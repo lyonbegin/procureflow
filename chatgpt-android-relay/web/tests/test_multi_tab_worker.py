@@ -80,7 +80,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             launched.append((args,kwargs,proc))
             return proc
         ports=iter([18311,18312,18313])
-        pool=RoomTabPool(max_rooms=3)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",side_effect=lambda:next(ports)),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
@@ -104,38 +104,58 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             await pool.close()
             self.assertTrue(all(p.stopped for _,_,p in launched))
 
-    async def test_concurrent_busy_rooms_never_evict_or_share_tab(self):
+    async def test_busy_and_uncertain_rooms_do_not_block_new_independent_tab(self):
         launched=[]
         async def spawn(*a,**k):
             p=FakeProcess();launched.append(p);return p
-        pool=RoomTabPool(max_rooms=2)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",side_effect=[18321,18322,18323]),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
              patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
             pool.pin(ROOM_A);pool.pin(ROOM_B)
-            await pool.endpoint(ROOM_A,9222)
-            await pool.endpoint(ROOM_B,9222)
-            with self.assertRaisesRegex(TabIsolationError,"CAPACITY_EXCEEDED"):
-                await pool.endpoint(ROOM_C,9222)
+            a_url=await pool.endpoint(ROOM_A,9222)
+            b_url=await pool.endpoint(ROOM_B,9222)
             pool.unpin(ROOM_A)
-            # An uncertain reply cannot be evicted even after its async task ends.
             pool.quarantine(ROOM_A)
-            with self.assertRaisesRegex(TabIsolationError,"CAPACITY_EXCEEDED"):
-                await pool.endpoint(ROOM_C,9222)
+            c_url=await pool.endpoint(ROOM_C,9222)
+            self.assertEqual(len(pool._rooms),3)
+            self.assertEqual(len({a_url,b_url,c_url}),3)
+            self.assertFalse(any(x.stopped for x in launched))
+            self.assertIn(ROOM_A,pool._uncertain_rooms)
             pool.unpin(ROOM_B)
-            new_url=await pool.endpoint(ROOM_C,9222)
-            self.assertIn(":18323/",new_url)
-            self.assertTrue(launched[1].stopped)
-            self.assertFalse(launched[0].stopped)
             await pool.close()
 
-    async def test_prelinked_research_rooms_are_never_evicted_by_new_room(self):
-        import hitel_room_tab_pool as module
+    async def test_server_committed_temporary_room_released_only_when_safe(self):
+        launched=[]
+        async def spawn(*a,**k):
+            p=FakeProcess();launched.append(p);return p
+        pool=RoomTabPool()
+        with patch("hitel_room_tab_pool._available_port",side_effect=[18371,18372]),\
+             patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch("hitel_room_tab_pool._close_verified_owned_target",return_value=True) as closer,\
+             patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True):
+            url="https://chatgpt.com/c/"+"a"*32
+            pool.pin(ROOM_A)
+            await pool.endpoint(ROOM_A,9222)
+            self.assertFalse(await pool.release_verified(ROOM_A,url))
+            pool.unpin(ROOM_A)
+            pool.quarantine(ROOM_A)
+            self.assertFalse(await pool.release_verified(ROOM_A,url))
+            self.assertEqual(closer.call_count,0)
+            # The same confirmed room is not released while delivery is uncertain.
+            pool._uncertain_rooms.clear()
+            self.assertTrue(await pool.release_verified(ROOM_A,url))
+            self.assertEqual(closer.call_count,1)
+            self.assertTrue(launched[0].stopped)
+            self.assertNotIn(ROOM_A,pool._rooms)
+            await pool.close()
+
+    async def test_prelinked_rooms_remain_protected_with_new_room(self):
         created=[]
         async def spawn(*args, **kwargs):
             proc=FakeProcess();created.append(proc);return proc
-        pool=RoomTabPool(max_rooms=2)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",side_effect=[18701,18702,18703]),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch("hitel_room_tab_pool._navigate_owned_target",return_value="owned-cdp-target"),\
@@ -144,9 +164,9 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             await pool.prewarm(ROOM_A,9222,"https://chatgpt.com/c/"+"a"*32)
             await pool.prewarm(ROOM_B,9222,"https://chatgpt.com/c/"+"b"*32)
             self.assertEqual(pool._protected_rooms,{ROOM_A,ROOM_B})
-            self.assertEqual(len(created),2)
-            with self.assertRaisesRegex(TabIsolationError,"CAPACITY_EXCEEDED"):
-                await pool.endpoint(ROOM_C,9222)
+            url=await pool.endpoint(ROOM_C,9222)
+            self.assertIn(":18703/",url)
+            self.assertEqual(len(created),3)
             self.assertFalse(any(p.stopped for p in created))
             await pool.close()
 
@@ -353,7 +373,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(phase["navigated"],
                             "composer must be checked AFTER room navigation")
             return True
-        pool=RoomTabPool(max_rooms=4)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",return_value=18401),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch("hitel_room_tab_pool._navigate_owned_target",side_effect=navigate),\
@@ -370,7 +390,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         launched=[]
         async def spawn(*a,**k):
             p=FakeProcess();launched.append(p);return p
-        pool=RoomTabPool(max_rooms=4)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",
                    side_effect=[18501,18502,18503,18504,18505]),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
@@ -385,6 +405,11 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(c,d)
             self.assertEqual(len(pool._rooms),4)
             self.assertEqual(pool._protected_rooms,{ROOM_A,ROOM_B})
+            # A fifth unrelated room is not refused merely because 4 exist.
+            with patch("hitel_room_tab_pool._available_port",return_value=18505):
+                another=await pool.endpoint("room_"+"e"*32,9222)
+            self.assertIn(":18505/",another)
+            self.assertEqual(len(pool._rooms),5)
             self.assertEqual(sum(int(x.stopped) for x in launched),0)
             await pool.close()
         print("PASS_FOUR_INDEPENDENT_TABS_TWO_PROTECTED_RESEARCH_PLUS_TWO_QA",flush=True)
@@ -416,7 +441,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_exact_owned_cdp_visible_textbox_overrides_stale_vendor_health(self):
         from hitel_room_tab_pool import RoomTab
-        pool=RoomTabPool(max_rooms=2)
+        pool=RoomTabPool()
         owned=RoomTab(ROOM_A,9222,19001,"known-owned",FakeProcess(),0)
         healthy={"chrome_running":True,"driver_connected":True,
                  "composer_ready":False,"status":"healthy"}
@@ -452,7 +477,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
         launched=[]
         async def spawn(*a,**k):
             p=FakeProcess();launched.append(p);return p
-        pool=RoomTabPool(max_rooms=2)
+        pool=RoomTabPool()
         with patch("hitel_room_tab_pool._available_port",return_value=18331),\
              patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
              patch.object(RoomTabPool,"_boot_ready",new_callable=AsyncMock,return_value=True),\
