@@ -40,6 +40,10 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/test_hitel_vendor_composer_20261120.py /tmp/hitel-original
           echo "PASS_OFFLINE_ONLY_NOT_A_LIVE_CHROME_SUCCESS"
+      - name: Compile 27 scenario operational runner without sending messages
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/hitel_27_scenario_probe_20261120.py
       - name: Validate per-room tab preservation, strict health and error codes
         run: |
           set -euo pipefail
