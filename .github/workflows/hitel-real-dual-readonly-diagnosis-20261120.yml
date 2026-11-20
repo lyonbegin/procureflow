@@ -1,0 +1,36 @@
+name: HITEL read-only diagnosis of actual simultaneous ChatGPT turns
+
+# No messages, no new rooms, no auth changes, no worker restarts.
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-real-dual-readonly-diagnosis-20261120.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Retrieve current existing HTTP statuses without sending anything
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json
+          b="https://hitel-integration-api-production.up.railway.app/integrations/v1/public"
+          for url in ["/status",
+                      "/jobs/job_3326dfa0ce4b4d97b17f0a107b8d2f51",
+                      "/jobs/job_92918bf6316d4c0ab5b91d062876dbd1"]:
+            req=urllib.request.Request(b+url,headers={"Accept":"application/json"})
+            with urllib.request.urlopen(req,timeout=15) as f:d=json.load(f)
+            if url=="/status":
+              safe={k:d.get(k) for k in ["worker_connected","worker_heartbeat_recent",
+                  "worker_heartbeat_age_seconds","worker_active_jobs_count",
+                  "worker_capacity","worker_bootstrap_ready","prewarmed_room_count",
+                  "worker_available_for_new_job"]}
+            else:
+              safe={k:d.get(k) for k in ["job_id","status","stage","error_code",
+                  "error_stage","chatgpt_send_confirmed","assistant_reply_observed",
+                  "result_ready","worker_connected","job_last_progress_at"]}
+            print(json.dumps(safe,ensure_ascii=False,sort_keys=True),flush=True)
+          PY
