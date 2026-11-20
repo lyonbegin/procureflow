@@ -1,11 +1,9 @@
 name: HITEL 27 scenarios isolated browser QA 20261120
 
 # One-off QA only: does not connect to Railway WebSocket, does not write A/Scribd research rooms.
+# Disabled automatic push execution after actual ChatGPT 429 rate limit.
+# Never run again without explicit user-directed dispatch.
 on:
-  push:
-    paths:
-      - .github/workflows/hitel-27-scenarios-isolated-20261120.yml
-      - .github/scripts/hitel_27_scenario_probe_20261120.py
   workflow_dispatch:
 
 permissions:
@@ -158,6 +156,7 @@ jobs:
           assert len(r)==27, "ONE_OR_MORE_CASES_NOT_RECORDED"
           if counts["FAIL"] or counts["미검증"]:
               print("NOT_READY_FOR_REAL_RESEARCH",flush=True)
+              raise SystemExit(1)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
