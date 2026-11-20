@@ -39,6 +39,8 @@ class DirectTransportTests(unittest.TestCase):
             return {"ready":True,"checks":{"chatgpt_auth_configured":True,
                          "requirements_provider_configured":True,
                          "browser_transport_configured":False}},{}
+        if url.endswith("/v1/models"):
+            return {"object":"list","data":[{"id":"auto","object":"model"}]},{}
         if "/backend-api/conversation/" in url:
             cid=url.rsplit("/",1)[-1]
             mid=PARENT_A if cid==CID_A else PARENT_S
@@ -76,7 +78,7 @@ class DirectTransportTests(unittest.TestCase):
             s=self.client.bootstrap(ROOM_S,"https://chatgpt.com/c/"+CID_S)
             self.assertNotEqual(a,s)
             self.assertTrue(a.startswith("direct-http-"))
-            self.assertEqual([x[-1] for x in self.calls], [False,False,False,False])
+            self.assertEqual([x[-1] for x in self.calls], [False]*6)
             av,acid=self.client.send(ROOM_A,"A-qa","https://chatgpt.com/c/"+CID_A)
             sv,scid=self.client.send(ROOM_S,"S-qa","https://chatgpt.com/c/"+CID_S)
             self.assertEqual((av,acid),("echo:A-qa",CID_A))
@@ -87,6 +89,59 @@ class DirectTransportTests(unittest.TestCase):
             self.assertEqual(posts[1][2]["X-GPTWeb-Parent-Message-ID"],PARENT_S)
             self.assertEqual(self.client.binding(ROOM_A,"https://chatgpt.com/c/"+CID_A).parent_message_id,NEXT_A)
             self.assertEqual(self.client.binding(ROOM_S,"https://chatgpt.com/c/"+CID_S).parent_message_id,NEXT_S)
+
+    def test_unready_or_browser_fallback_gateway_fails_closed(self):
+        def fake_not_ready(url,**kw):
+            if url.endswith("/readyz"):
+                return {"ready":True,"checks":{"chatgpt_auth_configured":True,
+                         "requirements_provider_configured":False,
+                         "browser_transport_configured":True}},{}
+            return self.fake(url,**kw)
+        with patch.object(direct,"_http_json",side_effect=fake_not_ready):
+            with self.assertRaises(direct.DirectError) as cm:
+                self.client.ready()
+            self.assertEqual(cm.exception.code,"DIRECT_GATEWAY_NOT_AUTHENTICATED_READY")
+        self.assertFalse(any(x[-1] for x in self.calls))
+
+    def test_models_failure_prevents_auth_ready(self):
+        def fake_bad_models(url,**kw):
+            if url.endswith("/v1/models"):
+                return {"object":"list","data":[]},{}
+            return self.fake(url,**kw)
+        with patch.object(direct,"_http_json",side_effect=fake_bad_models):
+            with self.assertRaises(direct.DirectError) as cm:
+                self.client.ready()
+            self.assertEqual(cm.exception.code,"DIRECT_LIVE_MODEL_CATALOG_UNVERIFIED")
+
+    def test_concurrent_same_room_post_refused(self):
+        started=threading.Event()
+        release=threading.Event()
+        errors=[]
+        def slower(url,**kw):
+            if kw.get("send"):
+                started.set()
+                if not release.wait(timeout=3):
+                    raise RuntimeError("test did not release")
+            return self.fake(url,**kw)
+        with patch.object(direct,"_http_json",side_effect=slower):
+            self.client.bootstrap(ROOM_A,"https://chatgpt.com/c/"+CID_A)
+            def first():
+                try:
+                    self.client.send(ROOM_A,"first","https://chatgpt.com/c/"+CID_A)
+                except Exception as e:
+                    errors.append(e)
+            runner=threading.Thread(target=first)
+            runner.start()
+            try:
+                self.assertTrue(started.wait(timeout=3))
+                with self.assertRaises(direct.DirectError) as cm:
+                    self.client.send(ROOM_A,"second","https://chatgpt.com/c/"+CID_A)
+                self.assertEqual(cm.exception.code,"DIRECT_SAME_ROOM_CONCURRENT_SEND_REFUSED")
+            finally:
+                release.set()
+                runner.join(timeout=4)
+        self.assertEqual(errors,[])
+        self.assertEqual(len([x for x in self.calls if x[-1]]),1)
 
     def test_bad_binding_refuses_any_post(self):
         with patch.object(direct,"_http_json",side_effect=self.fake):
