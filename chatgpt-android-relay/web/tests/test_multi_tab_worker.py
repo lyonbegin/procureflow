@@ -181,8 +181,9 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
                      "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
             transitioning={**initial,"url":"about:blank"}
             internal_newtab={**initial,"url":"chrome://newtab/"}
+            empty_url={**initial,"url":""}
             arrived={**initial,"url":dest}
-            sequence=iter([initial,transitioning,internal_newtab,arrived])
+            sequence=iter([initial,transitioning,internal_newtab,empty_url,arrived])
             sock=MagicMock()
             sock.__enter__.return_value=sock
             sock.recv.return_value=json.dumps({"id":41,"result":{"frameId":"frame"}})
@@ -194,7 +195,7 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
                  patch("hitel_room_tab_pool.time.sleep"),\
                  patch("websockets.sync.client.connect",return_value=sock):
                 self.assertEqual(_navigate_owned_target(slot,dest),target)
-            print("PASS_CDPTARGET_ABOUT_BLANK_AND_INTERNAL_NEWTAB_TRANSITIONS_EXACT_ROOM",flush=True)
+            print("PASS_CDPTARGET_ABOUT_BLANK_INTERNAL_NEWTAB_EMPTY_URL_TRANSITIONS",flush=True)
 
     def test_owned_tab_chrome_error_page_detected_without_url_leak(self):
         import io,json,tempfile
