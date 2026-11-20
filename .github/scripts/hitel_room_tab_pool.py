@@ -319,6 +319,7 @@ class RoomTabPool:
             isinstance(data, dict)
             and data.get("chrome_running") is True
             and data.get("driver_connected") is True
+            and data.get("composer_ready") is True
             and data.get("status") in ("healthy", "starting")
         )
 
