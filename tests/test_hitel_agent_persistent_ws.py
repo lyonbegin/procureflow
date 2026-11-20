@@ -338,7 +338,7 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.jobs.jobs),0)
         print("PASS_OFFLINE_WORKER_REFUSED_BEFORE_ANY_JOB_OR_NEW_WORKFLOW",flush=True)
 
-    async def test_real_worker_preflight_checks_socket_heartbeat_and_capacity(self):
+    async def test_real_worker_preflight_checks_socket_heartbeat_without_numeric_capacity(self):
         import time
         from unittest.mock import patch as p
         app_stub=types.ModuleType("app")
@@ -346,7 +346,6 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
         app_stub.worker_bootstrap_ready=False
         app_stub.web2api_last_seen_monotonic=0.0
         app_stub.web2api_active_jobs={}
-        app_stub.WEB2API_MAX_ACTIVE=3
         self.patchers[1].stop()
         try:
             with p.dict(sys.modules,{"app":app_stub}):
@@ -364,14 +363,14 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(third.exception.detail,"WORKER_HEARTBEAT_STALE")
                 app_stub.web2api_last_seen_monotonic=time.monotonic()
                 app_stub.web2api_active_jobs={"j1":"room_a","j2":"room_b","j3":"room_c"}
-                with self.assertRaises(HTTPException) as fourth:
-                    stream._existing_worker_preflight()
-                self.assertEqual(fourth.exception.detail,"WORKER_CAPACITY_EXHAUSTED")
-                app_stub.web2api_active_jobs={"j1":"room_a"}
+                # A valid existing worker accepts another independent room
+                # regardless of the number of other active room jobs.
+                stream._existing_worker_preflight()
+                app_stub.web2api_active_jobs={}
                 stream._existing_worker_preflight()
         finally:
             self.patchers[1].start()
-        print("PASS_ACTUAL_WORKER_GATES_DISCONNECTED_PREWARM_HEARTBEAT_CAPACITY",flush=True)
+        print("PASS_ACTUAL_WORKER_GATES_DISCONNECTED_PREWARM_HEARTBEAT_NO_CAP",flush=True)
 
     async def test_409_is_not_hidden_as_httpexception_and_never_submits(self):
         a,ar=await self.connect("AGENT_A")
