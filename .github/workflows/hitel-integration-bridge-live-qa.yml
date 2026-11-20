@@ -4,6 +4,12 @@ name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 # One-time test: reuse the previously registered ChatGPT account profile; no new secrets or account login.
 # No schedule or public dispatch; Railway dispatch remains signed and on demand.
 on:
+  # One-time retry after verifying zero active ChatGPT jobs. Same existing
+  # workflow and account profile; no additional service, login or secret.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hitel-integration-bridge-live-qa.yml
   workflow_dispatch:
     inputs:
       operation:
