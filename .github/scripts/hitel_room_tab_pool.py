@@ -70,6 +70,19 @@ CONVERSATION_URL = re.compile(
 )
 
 
+def _same_conversation_route(observed: str, expected: str) -> bool:
+    """Exact authenticated ChatGPT conversation path, ignoring query only."""
+    actual = urlsplit(observed)
+    wanted = urlsplit(expected)
+    return (
+        actual.scheme == wanted.scheme == "https"
+        and actual.hostname == wanted.hostname == "chatgpt.com"
+        and actual.username is None and actual.password is None
+        and actual.port in (None, 443)
+        and actual.path.rstrip("/") == wanted.path.rstrip("/")
+    )
+
+
 def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
     """Read own vendor instance registry; navigate ONLY its owned Chrome target.
 
@@ -115,20 +128,18 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
                             pass
                 if target != target_id:
                     continue
-                # Deliberate read-only navigation to a previously bound
-                # conversation. NEVER send a new prompt or create a new chat.
+                # A page already on this verified room must NOT be reloaded:
+                # a redundant Page.navigate invalidates DOM turn anchors and
+                # can break the subsequent vendor reply collector (HTTP 500).
+                # Only navigate if the owned target is demonstrably elsewhere.
+                if _same_conversation_route(page.url, conversation_url):
+                    return target_id
                 page.goto(conversation_url,wait_until="domcontentloaded",timeout=40000)
-                expected=urlsplit(conversation_url)
-                # ChatGPT may add a model/query parameter to an unchanged
-                # conversation route. Verify hostname + exact conversation
-                # path instead of rejecting harmless query-string changes.
                 for _ in range(20):
-                    observed=urlsplit(page.url)
-                    if (observed.scheme=="https"
-                        and observed.hostname=="chatgpt.com"
-                        and observed.path.rstrip("/")==expected.path.rstrip("/")):
+                    if _same_conversation_route(page.url, conversation_url):
                         return target_id
                     page.wait_for_timeout(500)
+                observed=urlsplit(page.url)
                 if observed.hostname!="chatgpt.com":
                     raise TabIsolationError("ROOM_PREWARM_LOGIN_OR_FOREIGN_HOST")
                 if observed.path.rstrip("/") in ("","/","/auth/login","/login"):

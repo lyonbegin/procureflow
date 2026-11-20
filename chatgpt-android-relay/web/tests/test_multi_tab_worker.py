@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 SCRIPT_DIR=Path(__file__).resolve().parents[3]/".github"/"scripts"
 sys.path.insert(0,str(SCRIPT_DIR))
-from hitel_room_tab_pool import RoomTabPool, TabIsolationError
+from hitel_room_tab_pool import RoomTabPool, TabIsolationError, _same_conversation_route
 
 ROOM_A="room_"+"a"*32
 ROOM_B="room_"+"b"*32
@@ -29,6 +29,16 @@ class FakeProcess:
         return self.returncode
 
 class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
+    def test_existing_room_exact_url_does_not_require_reload(self):
+        a="https://chatgpt.com/c/"+"a"*32
+        b="https://chatgpt.com/c/"+"b"*32
+        self.assertTrue(_same_conversation_route(a,a))
+        self.assertTrue(_same_conversation_route(a+"?model=auto",a))
+        self.assertFalse(_same_conversation_route(b,a))
+        self.assertFalse(_same_conversation_route("https://chatgpt.com.evil.example/c/"+"a"*32,a))
+        self.assertFalse(_same_conversation_route("https://evil@chatgpt.com/c/"+"a"*32,a))
+        self.assertFalse(_same_conversation_route("http://chatgpt.com/c/"+"a"*32,a))
+
     async def test_two_rooms_one_chrome_different_owned_cdp_targets(self):
         launched=[]
         async def spawn(*args,**kwargs):
