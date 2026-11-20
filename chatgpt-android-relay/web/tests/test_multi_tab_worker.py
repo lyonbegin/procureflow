@@ -355,6 +355,31 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             await pool.close()
         print("PASS_FOUR_INDEPENDENT_TABS_TWO_PROTECTED_RESEARCH_PLUS_TWO_QA",flush=True)
 
+    def test_owned_cdp_editor_diagnostic_exposes_counts_not_content(self):
+        import io,json
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_owned_editor_diagnostic
+        target="DOMPROBE123456789"
+        wsuri="ws://127.0.0.1:9222/devtools/page/"+target
+        tabs=[{"id":target,"type":"page","webSocketDebuggerUrl":wsuri}]
+        payload={"b":True,"e":1,"t":0,"r":1,"p":1,
+                 "h":True,"c":True,"s":"complete"}
+        sock=MagicMock();sock.__enter__.return_value=sock
+        sock.recv.return_value=json.dumps({
+            "id":7113,"result":{"result":{"type":"string","value":json.dumps(payload)}}})
+        slot=RoomTab(ROOM_A,9222,18588,"hitel-room-test",FakeProcess(),0)
+        with patch("hitel_room_tab_pool.urllib.request.urlopen",
+                   return_value=io.BytesIO(json.dumps(tabs).encode())),\
+             patch("websockets.sync.client.connect",return_value=sock):
+            result=_owned_editor_diagnostic(slot,target)
+        self.assertEqual(result,"DOM_B1_E1_T0_R1_P1_H1_C1_SC")
+        packet=json.loads(sock.send.call_args.args[0])
+        self.assertEqual(packet["method"],"Runtime.evaluate")
+        expression=packet["params"]["expression"].lower()
+        for forbidden in ("innertext","textcontent","cookie","accesstoken","fetch("):
+            self.assertNotIn(forbidden,expression)
+        print("PASS_OWNED_CDP_EDITOR_DIAG_SAFE_BOOLEAN_COUNTS_NO_CONTENT",flush=True)
+
     async def test_composer_failure_reports_only_safe_health_flags(self):
         pool=RoomTabPool()
         data={"status":"degraded","chrome_running":True,
