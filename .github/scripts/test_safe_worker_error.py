@@ -28,6 +28,10 @@ class TestSafeWorkerError(unittest.TestCase):
         self.assertEqual(classify(RuntimeError('WEB2API_ADAPTER_HTTP_500_VENDOR_TIMEOUTERROR')),
                          'WEB2API_ADAPTER_HTTP_500_VENDOR_TIMEOUTERROR')
 
+    def test_conversation_projection_read_429_is_not_chat_send_limit(self):
+        code="WEB2API_ADAPTER_HTTP_500_CONVERSATION_READ_429"
+        self.assertEqual(classify(RuntimeError(code)),code)
+
     def test_private_vendor_text_rejected(self):
         self.assertEqual(classify(RuntimeError('WEB2API_ADAPTER_HTTP_500_secret=http://private')),
                          'WEB2API_UNCLASSIFIED_RUNTIMEERROR')
