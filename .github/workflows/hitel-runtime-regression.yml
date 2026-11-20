@@ -72,8 +72,9 @@ jobs:
           python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/vendor"
           python3 .github/scripts/w2a_patch_vendor_composer_20261120.py "$ROOT/vendor"
           python3 -m compileall -q "$ROOT/vendor/src/chatgpt_web2api"
-          python3 -m pip install -q "$ROOT/vendor"
-          VENDOR_SOURCE="$ROOT/vendor" python3 - <<'PY'
+          python3 -m venv "$ROOT/venv"
+          "$ROOT/venv/bin/python" -m pip install -q "$ROOT/vendor"
+          VENDOR_SOURCE="$ROOT/vendor" "$ROOT/venv/bin/python" - <<'PY'
           import asyncio
           import json
           import os
