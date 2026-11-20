@@ -48,6 +48,13 @@ jobs:
           python3 - <<'PY'
           import json,urllib.request,urllib.error,re
           base="https://hitel-integration-api-production.up.railway.app/integrations/v1/public"
+          with urllib.request.urlopen(base+"/status",timeout=16) as resp:
+              health=json.load(resp)
+          names=("worker_connected","worker_heartbeat_recent",
+                 "worker_bootstrap_ready","worker_active_jobs_count",
+                 "worker_capacity","prewarmed_room_count")
+          print("HITEL_LIVE_WORKER_READ_ONLY_STATUS",
+                " ".join(k+"="+str(health.get(k)) for k in names),flush=True)
           for agent in ("A","B"):
               request_id=f"HI_WS_REAL_44744688954_{agent}_1"
               req=urllib.request.Request(base+"/requests/"+request_id,headers={"Accept":"application/json"})
