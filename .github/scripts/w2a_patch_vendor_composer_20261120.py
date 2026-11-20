@@ -94,9 +94,9 @@ source = replace_once(
 )
 source = replace_once(
     source,
-    '''                "  return parts.join('\\n');"
+    '''                "  return parts.join('\\\\n');"
 ''',
-    '''                "  return JSON.stringify({parts:parts.join('\\n'),visible:el.innerText||'',raw:el.textContent||''});"
+    '''                "  return JSON.stringify({parts:parts.join('\\\\n'),visible:el.innerText||'',raw:el.textContent||''});"
 ''',
     "VERIFY_MULTIPLE_EXACT_DOM_REPRESENTATIONS",
 )
