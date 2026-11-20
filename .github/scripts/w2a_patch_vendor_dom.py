@@ -142,3 +142,15 @@ _replace_projection_once(detector,"            backend_fetch_failed = False\n   
 _replace_projection_once(detector,"                        if last_dom_text or had_non_text_content:\n                            logger.info(","                        if last_dom_text or had_non_text_content:\n                            self.backend_completion_verified = True\n                            logger.info(","MARK_BACKEND_END")
 _replace_projection_once(driver,"            if conv_id:\n                logger.info(\"Conversation: %s\", conv_id)\n                self._current_conv_id = conv_id\n                last_dom_text = self._completion.last_dom_text\n","            if conv_id:\n                logger.info(\"Conversation: %s\", conv_id)\n                self._current_conv_id = conv_id\n            # A completed, new, response-bearing browser turn already has\n            # verified evidence. Do not repeat projection reads and turn a\n            # completed ChatGPT response into an observation-only HTTP 429.\n            if conv_id and not (\n                self._completion.last_dom_text.strip()\n                and (self._completion.dom_completion_verified\n                     or self._completion.backend_completion_verified)\n            ):\n                last_dom_text = self._completion.last_dom_text\n","SKIP_REDUNDANT_FINAL_READ")
 print("PASS_VENDOR_PROJECTION_OBSERVATION_WITHOUT_FAKE_SEND_FAILURE",flush=True)
+
+# A transient UI rate-limit popup after a submitted prompt must not cause
+# the vendor wrapper to replay the entire prompt. Read-only observation may
+# retry, but ChatGPT user-message submission remains strictly once-only.
+api=root/"src"/"chatgpt_web2api"/"api_server.py"
+_replace_projection_once(
+    api,
+    "        full_text = await retry_on_rate_limit(self._driver, _send_and_collect)\n",
+    "        full_text = await _send_and_collect()  # no automatic resend\n",
+    "ONE_CHATGPT_SUBMISSION_ONLY",
+)
+print("PASS_VENDOR_NONSTREAMING_SEND_NO_AUTOMATIC_REPLAY",flush=True)
