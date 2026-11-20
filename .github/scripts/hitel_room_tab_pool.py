@@ -83,6 +83,36 @@ def _same_conversation_route(observed: str, expected: str) -> bool:
     )
 
 
+def _live_owned_target_url(ws_uri: str) -> str | None:
+    """Read only location.href on the SAME already-verified CDP page target.
+
+    Chrome /json/list can report empty/stale URL metadata while Page.navigate
+    commits. A read-only Runtime.evaluate checks the actual document instead.
+    No sensitive URL is logged, returned to the public API, or transmitted
+    outside the local worker. This never types, clicks, or submits a message.
+    """
+    from websockets.sync.client import connect as connect_cdp
+    try:
+        with connect_cdp(ws_uri,open_timeout=6,close_timeout=3,max_size=100000) as socket:
+            socket.send(json.dumps({
+                "id":7042,"method":"Runtime.evaluate",
+                "params":{"expression":"location.href","returnByValue":True}
+            }))
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                packet=json.loads(socket.recv(timeout=max(0.25,deadline-time.monotonic())))
+                if packet.get("id")!=7042:
+                    continue
+                if packet.get("error") or packet.get("result",{}).get("exceptionDetails"):
+                    return None
+                result=packet.get("result",{}).get("result",{})
+                value=result.get("value") if isinstance(result,dict) else None
+                return value if isinstance(value,str) and len(value)<2048 else None
+    except (OSError,TimeoutError,ValueError,KeyError):
+        return None
+    return None
+
+
 def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
     """Verify/recover ONLY the CDP target actually owned by this vendor instance.
 
@@ -173,6 +203,18 @@ def _navigate_owned_target(slot: RoomTab, conversation_url: str) -> str:
         current=str(owned_tab().get("url",""))
         if _same_conversation_route(current,conversation_url):
             return target_id
+        # On a hostless/transient Chrome target, metadata can be stale.
+        # Prefer a read-only document location from this SAME verified CDP
+        # socket (never another tab) before classifying a navigation failure.
+        if attempt>=2 and attempt%4==2:
+            metadata=urlsplit(current)
+            if (not current.strip() or metadata.hostname is None or
+                    metadata.scheme in ("about","chrome","chrome-search")):
+                live=_live_owned_target_url(ws_uri)
+                if live and _same_conversation_route(live,conversation_url):
+                    return target_id
+                if live:
+                    current=live
         # CDP /json/list can briefly omit a URL while Page.navigate commits.
         # Only the exactly-empty URL is treated as a bounded transition.
         if not current.strip():
