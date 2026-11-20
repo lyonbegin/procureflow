@@ -20,8 +20,8 @@ jobs:
           from pathlib import Path
           from urllib.parse import urlencode
           BASE="https://hitel-integration-api-production.up.railway.app"
-          ROOM="HITEL-V4-LIVE-SMOKE-20261120-R2"
-          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R3"
+          ROOM="HITEL-V4-LIVE-SMOKE-20261120-R4"
+          REQUEST="HITEL_V4_SMOKE_SINGLE_REQ_20261120_R4"
           PROMPT='HITEL 실제 연결 시험입니다. 다른 말 없이 정확히 다음 JSON 객체만 응답해 주십시오: {"hitel_v4_smoke":"OK"}'
           output=Path("hitel-v4-smoke")
           observations=[]
@@ -124,3 +124,4 @@ jobs:
           name: hitel-v4-live-json-smoke-once-20261120
           path: hitel-v4-smoke/
           retention-days: 14
+# One fresh isolated QA request for user-approved 2026-11-20 live regression; existing A/Scribd room IDs are read-only.
