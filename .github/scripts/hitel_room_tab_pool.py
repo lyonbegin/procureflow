@@ -478,7 +478,22 @@ class RoomTabPool:
             if await self._ready(port):
                 return
             await asyncio.sleep(1)
-        raise TabIsolationError("ROOM_OWNED_COMPOSER_NOT_READY_AFTER_NAVIGATION")
+        # The previous generic COMPOSER_NOT_READY hid whether Chrome, its
+        # CDP driver, the DOM selector, or a degraded vendor breaker failed.
+        # Emit ONLY finite boolean/enum fields (never URLs, cookies or text).
+        try:
+            probe=await asyncio.to_thread(_health,port)
+        except (OSError,ValueError,KeyError):
+            probe={}
+        if not isinstance(probe,dict):
+            probe={}
+        status=probe.get("status")
+        state={"healthy":"H","starting":"S","degraded":"D","broken":"B"}.get(status,"U")
+        flags="C"+str(int(probe.get("chrome_running") is True))
+        flags+="_D"+str(int(probe.get("driver_connected") is True))
+        flags+="_E"+str(int(probe.get("composer_ready") is True))
+        flags+="_S"+state
+        raise TabIsolationError("ROOM_OWNED_COMPOSER_GUARD_FAILED_"+flags)
 
     async def close(self) -> None:
         async with self._lock:
