@@ -94,6 +94,35 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(launched[0].stopped)
             await pool.close()
 
+    async def test_prelinked_research_rooms_are_never_evicted_by_new_room(self):
+        import hitel_room_tab_pool as module
+        created=[]
+        async def spawn(*args, **kwargs):
+            proc=FakeProcess();created.append(proc);return proc
+        pool=RoomTabPool(max_rooms=2)
+        with patch("hitel_room_tab_pool._available_port",side_effect=[18701,18702,18703]),\
+             patch("hitel_room_tab_pool.asyncio.create_subprocess_exec",side_effect=spawn),\
+             patch("hitel_room_tab_pool._navigate_owned_target",return_value="owned-cdp-target"),\
+             patch.object(RoomTabPool,"_ready",new_callable=AsyncMock,return_value=True):
+            await pool.prewarm(ROOM_A,9222,"https://chatgpt.com/c/"+"a"*32)
+            await pool.prewarm(ROOM_B,9222,"https://chatgpt.com/c/"+"b"*32)
+            self.assertEqual(pool._protected_rooms,{ROOM_A,ROOM_B})
+            self.assertEqual(len(created),2)
+            with self.assertRaisesRegex(TabIsolationError,"CAPACITY_EXCEEDED"):
+                await pool.endpoint(ROOM_C,9222)
+            self.assertFalse(any(p.stopped for p in created))
+            await pool.close()
+
+    async def test_health_must_confirm_real_usable_composer(self):
+        healthy={"chrome_running":True,"driver_connected":True,"status":"healthy"}
+        pool=RoomTabPool()
+        with patch("hitel_room_tab_pool._health",return_value=healthy):
+            self.assertFalse(await pool._ready(18080))
+        with patch("hitel_room_tab_pool._health",return_value={**healthy,"composer_ready":False}):
+            self.assertFalse(await pool._ready(18080))
+        with patch("hitel_room_tab_pool._health",return_value={**healthy,"composer_ready":True}):
+            self.assertTrue(await pool._ready(18080))
+
     async def test_account_change_and_stale_driver_fail_closed(self):
         launched=[]
         async def spawn(*a,**k):
