@@ -28,8 +28,8 @@ jobs:
           done
           OLD="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44652272764" --jq '.status')"
           if [[ "$OLD" != completed ]]; then
-            CODE="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/44652272764/cancel" --include | head -n 1)"
-            [[ "$CODE" == *"202"* || "$CODE" == *"204"* ]] || { echo "FAIL_OLD_IDLE_WORKER_CANCEL"; exit 1; }
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/44652272764/cancel" >/dev/null
+            echo "PASS_OLD_IDLE_WORKER_CANCEL_REQUEST_ACCEPTED"
             for attempt in $(seq 1 30); do
               OLD="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44652272764" --jq '.status')"
               if [[ "$OLD" == completed ]]; then break; fi
@@ -40,8 +40,7 @@ jobs:
           ACTIVE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/runs?status=in_progress" --jq '.total_count')"
           QUEUED="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/runs?status=queued" --jq '.total_count')"
           [[ "$ACTIVE" == 0 && "$QUEUED" == 0 ]] || { echo "REFUSE_DUPLICATE_SIGNED_WORKER_LAUNCH"; exit 1; }
-          CODE="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' --include | head -n 1)"
-          [[ "$CODE" == *"204"* || "$CODE" == *"200"* ]]
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' >/dev/null
           echo "PASS_VERIFIED_V4_JSON_FIX_WORKER_DISPATCH"
   actual-chatgpt-once:
     needs: start-worker-once
