@@ -50,9 +50,13 @@ class Binding:
 
 
 def validate_gateway_url(url: str) -> str:
-    split = urllib.parse.urlsplit(url)
+    try:
+        split = urllib.parse.urlsplit(url)
+        port = split.port
+    except ValueError:
+        raise DirectError("DIRECT_GATEWAY_URL_MALFORMED") from None
     if (split.scheme != "http" or split.hostname != "127.0.0.1"
-            or split.port != 8787 or split.path not in ("", "/")
+            or port != 8787 or split.path not in ("", "/")
             or split.username is not None or split.password is not None
             or split.query or split.fragment):
         raise DirectError("DIRECT_GATEWAY_MUST_BE_EXACT_LOOPBACK")
@@ -62,9 +66,13 @@ def validate_gateway_url(url: str) -> str:
 def conversation_from_url(url: str) -> str:
     if not isinstance(url, str):
         raise DirectError("DIRECT_CONVERSATION_URL_INVALID")
-    u = urllib.parse.urlsplit(url)
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        raise DirectError("DIRECT_CONVERSATION_URL_MALFORMED") from None
     if (u.scheme != "https" or u.hostname != "chatgpt.com"
-            or u.port not in (None, 443) or u.username or u.password
+            or port not in (None, 443) or u.username or u.password
             or u.query or u.fragment or not u.path.startswith("/c/")):
         raise DirectError("DIRECT_CONVERSATION_URL_UNTRUSTED")
     cid = u.path.removeprefix("/c/")
