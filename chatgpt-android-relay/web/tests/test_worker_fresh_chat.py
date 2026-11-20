@@ -101,6 +101,21 @@ class TestChromeWorkerRequestContract(unittest.TestCase):
         raw='{"rows":[{"id":"A123","title":"example"}]}\n설명: 데이터는 참고용입니다.'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
 
+    def test_composer_text_mismatch_is_not_reported_as_missing_composer(self):
+        def make_error(message):
+            payload=json.dumps({"error":{"message":message,"code":"SendReadinessError"}}).encode()
+            return worker.urllib.error.HTTPError(
+                "http://127.0.0.1:18080/v1/chat/completions",500,"fail",{},io.BytesIO(payload))
+        self.assertEqual(
+            worker._safe_vendor_http_error(make_error("Composer text verification failed after retry")),
+            "WEB2API_ADAPTER_HTTP_500_COMPOSER_TEXT_MISMATCH")
+        self.assertEqual(
+            worker._safe_vendor_http_error(make_error("No composer found")),
+            "WEB2API_ADAPTER_HTTP_500_COMPOSER_NOT_FOUND")
+        self.assertEqual(
+            worker._safe_vendor_http_error(make_error("Send not acknowledged")),
+            "WEB2API_ADAPTER_HTTP_500_SEND_NOT_ACKNOWLEDGED")
+
     def test_existing_valid_json_unmodified(self):
         raw='{"rows":[{"id":1}]}'
         self.assertEqual(worker.discard_verified_duplicate_json_tail(raw),raw)
