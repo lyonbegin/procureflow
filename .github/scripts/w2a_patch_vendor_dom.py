@@ -104,3 +104,19 @@ if server.count(old_opaque) != 1:
     raise SystemExit("REFUSE_PATCH_VENDOR_500_ERROR_SHAPE_MISMATCH")
 api.write_text(server.replace(old_opaque, new_typed), encoding="utf-8")
 print("PASS_VENDOR_500_ERROR_CLASS_REPORTED_WITHOUT_ERROR_MESSAGE", flush=True)
+
+# Existing-room sends must not trigger an unconditional SECOND navigation.
+# The signed worker already verified the exact owned target's /c/<id> route.
+# Re-navigating destroys the DOM response anchor and can cause vendor HTTP 500.
+# Vendor ensure_current_conversation verifies the live URL and navigates ONLY
+# if displaced. Record the current ID only after that verified check.
+server = api.read_text(encoding="utf-8")
+old_repeat_nav = "                    await self._driver.navigate_conversation(conversation_id)\n"
+new_idempotent_nav = (
+    "                    await self._driver.ensure_current_conversation(conversation_id)\n"
+    "                    self._driver._current_conv_id = conversation_id\n"
+)
+if server.count(old_repeat_nav) != 1:
+    raise SystemExit("REFUSE_PATCH_VENDOR_EXISTING_ROOM_NAVIGATION_SOURCE_MISMATCH")
+api.write_text(server.replace(old_repeat_nav,new_idempotent_nav),encoding="utf-8")
+print("PASS_VENDOR_EXISTING_ROOM_NAVIGATION_IDEMPOTENT",flush=True)
