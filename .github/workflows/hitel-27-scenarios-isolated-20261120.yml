@@ -20,7 +20,7 @@ concurrency:
 jobs:
   scenarios:
     # One isolated live run by exact commit message; later disable push again.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'qa(hitel): isolated exact composer six-turn smoke' }}
+    if: "${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'qa(hitel): isolated exact composer six-turn smoke v2' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
