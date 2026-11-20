@@ -245,6 +245,81 @@ class PersistentTwoAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.jobs.jobs),0)
         print("PASS_WS_AGENT_BOUND_ROOM_CANNOT_SWITCH_OR_SEND_CROSS_ROOM",flush=True)
 
+    async def test_reconnect_resumes_original_job_without_resending(self):
+        self.jobs.first_barrier=asyncio.Barrier(1)
+        a,ar=await self.connect("AGENT_A")
+        rid=ar
+        reqid="HI_WS_RESUME_SAME_JOB_01"
+        await a.emit({"type":"chat.send","room_id":rid,"seq":1,
+                      "request_id":reqid,"text":"ORIGINAL_QUESTION_ONLY"})
+        accepted=await a.receive()
+        self.assertEqual(accepted["type"],"job.accepted")
+        old_job=accepted["job_id"]
+        await a.disconnect()
+        async def valid_room(roomid):
+            return {"room_id":roomid,"room_name":"AGENT_A",
+                    "status":"active","conversation_linked":True}
+        def sync_room(roomid):
+            if roomid!=rid:raise ValueError("OTHER_ROOM")
+            return {"room_id":rid,"room_name":"AGENT_A",
+                    "status":"active","conversation_linked":True}
+        def existing_request(requestid):
+            job=self.jobs.jobs[requestid]
+            return {"job_id":job["job_id"],"room_id":job["room_id"],
+                    "request_id":requestid}
+        with patch.object(stream,"_confirmed_public_room",sync_room), \
+             patch.object(public,"lookup_existing_request",existing_request,create=True):
+            sock=SimulatedSocket()
+            task=asyncio.create_task(stream.agent_stream(sock))
+            self.active.append((sock,task))
+            await sock.receive()
+            await sock.emit({"type":"room.bind","room_id":rid})
+            rebound=await sock.receive()
+            self.assertEqual(rebound["type"],"room.bound")
+            await sock.emit({"type":"job.resume","room_id":rid,"seq":1,
+                             "request_id":reqid})
+            reply=await sock.receive()
+            self.assertEqual(reply["type"],"job.accepted")
+            self.assertTrue(reply["replayed"])
+            self.assertEqual(reply["job_id"],old_job)
+            while True:
+                nxt=await sock.receive()
+                if nxt["type"] in ("reply.done","reply.unverified"):
+                    break
+            self.assertEqual(nxt["type"],"reply.done")
+        self.assertEqual(self.jobs.calls[reqid],1)
+        print("PASS_WS_RECONNECT_RESUME_READ_ONLY_JOB_ID_UNCHANGED_NO_NEW_POST",flush=True)
+
+    async def test_same_agent_cannot_flood_two_jobs_before_reply(self):
+        self.jobs.first_barrier=asyncio.Barrier(1)
+        a,ar=await self.connect("AGENT_A")
+        original_read=self.jobs.read
+        def slow_read(job_id):
+            import time
+            time.sleep(0.09)
+            return original_read(job_id)
+        with patch.object(public,"read_public_result",slow_read,create=True):
+            await a.emit({"type":"chat.send","room_id":ar,"seq":1,
+                          "request_id":"HI_WS_BUSY_FIRST_JOB_01","text":"first"})
+            accepted=await a.receive()
+            self.assertEqual(accepted["type"],"job.accepted")
+            await a.emit({"type":"chat.send","room_id":ar,"seq":2,
+                          "request_id":"HI_WS_BUSY_SECOND_JOB_02","text":"second"})
+            got_busy=False
+            got_done=False
+            for _ in range(8):
+                item=await a.receive()
+                if item["type"]=="request.error":
+                    self.assertEqual(item["error_code"],"ROOM_JOB_BUSY")
+                    got_busy=True
+                if item["type"]=="reply.done":
+                    got_done=True
+                if got_busy and got_done:break
+            self.assertTrue(got_busy)
+            self.assertTrue(got_done)
+        self.assertEqual(len(self.jobs.jobs),1)
+        print("PASS_WS_AGENT_FLOOD_IS_BLOCKED_WHILE_EXISTING_JOB_PENDING",flush=True)
+
     async def test_scope_validation_rejects_other_job_id(self):
         with self.assertRaisesRegex(ValueError,"REPLY_ROOM_REQUEST_JOB_MISMATCH"):
             stream._job_scope({"room_id":"room_"+"a"*32,
