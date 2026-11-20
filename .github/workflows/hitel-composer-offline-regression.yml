@@ -44,6 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           PYTHONPATH=qa/.github/scripts python3 -m unittest discover -s qa/chatgpt-android-relay/web/tests -p 'test_multi_tab_worker.py' -v
+          PYTHONPATH=qa/.github/scripts python3 -m unittest discover -s qa/chatgpt-android-relay/web/tests -p 'test_worker_fresh_chat.py' -v
       - name: Validate Scribd verified chunk retrieval and no-result corruption
         run: |
           set -euo pipefail
