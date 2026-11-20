@@ -558,7 +558,24 @@ class RoomTabPool:
         flags+="_E"+str(int(probe.get("composer_ready") is True))
         flags+="_S"+state
         if slot is not None and target_id is not None:
-            flags+="_"+await asyncio.to_thread(_owned_editor_diagnostic,slot,target_id)
+            direct=await asyncio.to_thread(_owned_editor_diagnostic,slot,target_id)
+            flags+="_"+direct
+            # Vendor /health has returned composer_ready=False for an actual
+            # tab with a verified visible contenteditable textbox in both
+            # authenticated research conversations. Only accept the *exact*
+            # CDP target this vendor process owns, already navigated to its
+            # saved /c/<id>, with an observed editable/role=textbox, ready DOM,
+            # and a healthy connected vendor CDP. Never probe or adopt a
+            # different tab; never pretend any assistant reply succeeded.
+            if (probe.get("chrome_running") is True
+                    and probe.get("driver_connected") is True
+                    and status in ("healthy","starting")
+                    and re.fullmatch(
+                        r"DOM_B1_E[1-9]_T[0-9]_R[1-9]_P[0-9]_H1_C1_S[CI]",
+                        direct
+                    )):
+                print("PASS_OWNED_TAB_VISIBLE_EDITOR_CONFIRMED_BY_DIRECT_CDP",flush=True)
+                return
         raise TabIsolationError("ROOM_OWNED_COMPOSER_GUARD_FAILED_"+flags)
 
     async def close(self) -> None:
