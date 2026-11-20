@@ -1,6 +1,7 @@
 name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
 
 # Manual operation or a one-time source-verified upgrade on this exact workflow.
+# One-time test: reuse the previously registered ChatGPT account profile; no new secrets or account login.
 # No schedule or public dispatch; Railway dispatch remains signed and on demand.
 on:
   workflow_dispatch:
@@ -52,7 +53,7 @@ jobs:
       RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws
       PYTHONPATH: .github/scripts
       PYTHONUNBUFFERED: "1"
-      W2A_WORKER_SECONDS: ${{ inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
+      W2A_WORKER_SECONDS: ${{ github.event_name == 'push' && '1800' || inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout integration API's exact worker/client revision
