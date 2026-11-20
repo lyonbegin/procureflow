@@ -1,4 +1,4 @@
-name: HITEL one-time postfix Chrome worker and actual JSON proof
+name: HITEL one-time verified DOM JSON tail fix rollout and proof
 on:
   push:
     branches: [main]
@@ -17,15 +17,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          EXPECTED="9facedea69e53a727d2029d903fe307d66e89043"
+          ACTUAL="$(gh api "repos/$GITHUB_REPOSITORY/branches/fix/hitel-room-tab-isolation-20261120" --jq '.commit.sha')"
+          [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "REFUSE_UNTESTED_WORKER_REVISION"; exit 1; }
+          # Never interrupt a real research generation or accidentally resend it.
+          for attempt in 1 2 3; do
+            BUSY="$(curl --max-time 15 -fsS https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status | python3 -c 'import json,sys; x=json.load(sys.stdin); print(x.get("worker_active_jobs_count",-1))')"
+            [[ "$BUSY" == 0 ]] || { echo "REFUSE_CANCEL_ACTIVE_CHATGPT_RESEARCH_JOB"; exit 1; }
+            sleep 3
+          done
+          OLD="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44652272764" --jq '.status')"
+          if [[ "$OLD" != completed ]]; then
+            CODE="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/44652272764/cancel" --include | head -n 1)"
+            [[ "$CODE" == *"202"* || "$CODE" == *"204"* ]] || { echo "FAIL_OLD_IDLE_WORKER_CANCEL"; exit 1; }
+            for attempt in $(seq 1 30); do
+              OLD="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44652272764" --jq '.status')"
+              if [[ "$OLD" == completed ]]; then break; fi
+              sleep 3
+            done
+            [[ "$OLD" == completed ]] || { echo "FAIL_OLD_WORKER_NOT_STOPPED"; exit 1; }
+          fi
           ACTIVE="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/runs?status=in_progress" --jq '.total_count')"
           QUEUED="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/runs?status=queued" --jq '.total_count')"
-          if [[ "$ACTIVE" != 0 || "$QUEUED" != 0 ]]; then
-            echo "REFUSE_DUPLICATE_SIGNED_WORKER_LAUNCH"
-            exit 1
-          fi
+          [[ "$ACTIVE" == 0 && "$QUEUED" == 0 ]] || { echo "REFUSE_DUPLICATE_SIGNED_WORKER_LAUNCH"; exit 1; }
           CODE="$(gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/hitel-integration-bridge-live-qa.yml/dispatches" -f ref=main -f 'inputs[operation]=worker_only' -f 'inputs[run_minutes]=240' -f 'inputs[pairing_code]=' --include | head -n 1)"
           [[ "$CODE" == *"204"* || "$CODE" == *"200"* ]]
-          echo "PASS_SINGLE_V4_WORKER_DISPATCH_ACCEPTED"
+          echo "PASS_VERIFIED_V4_JSON_FIX_WORKER_DISPATCH"
   actual-chatgpt-once:
     needs: start-worker-once
     runs-on: ubuntu-latest
@@ -34,16 +51,16 @@ jobs:
       - name: Verify prewarmed A + Scribd rooms, submit ONE isolated QA question, poll and validate
         run: |
           set -euo pipefail
-          mkdir -p hitel-postfix-proof
+          mkdir -p hitel-postfix-proof-r2
           python3 - <<'PY'
           import base64,hashlib,json,time,urllib.error,urllib.request
           from pathlib import Path
           from urllib.parse import urlencode
           BASE="https://hitel-integration-api-production.up.railway.app"
-          ROOM="HITEL-V4-POSTFIX-PROOF-20261120-R1"
-          REQUEST="HITEL_V4_POSTFIX_SINGLE_REQ_20261120_R1"
+          ROOM="HITEL-V4-POSTFIX-PROOF-20261120-R2"
+          REQUEST="HITEL_V4_POSTFIX_SINGLE_REQ_20261120_R2"
           PROMPT='HITEL 실제 연결 시험입니다. 다른 말 없이 정확히 다음 JSON 객체만 응답해 주십시오: {"hitel_v4_postfix":"OK"}'
-          output=Path("hitel-postfix-proof")
+          output=Path("hitel-postfix-proof-r2")
           observations=[]
           expected={
             "STOCK-KG-A-RESEARCH-20261119-R3":"room_e43054eed81d46fba991b946ede92d1b",
@@ -141,6 +158,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hitel-v4-postfix-proof-20261120
-          path: hitel-postfix-proof/
+          name: hitel-v4-postfix-proof-r2-20261120
+          path: hitel-postfix-proof-r2/
           retention-days: 14
