@@ -197,6 +197,49 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(_navigate_owned_target(slot,dest),target)
             print("PASS_CDPTARGET_ABOUT_BLANK_INTERNAL_NEWTAB_EMPTY_URL_TRANSITIONS",flush=True)
 
+    def test_cdp_runtime_url_resolves_stale_empty_target_metadata(self):
+        import io,json,tempfile
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import RoomTab,_navigate_owned_target
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp);(home/".chatgpt_web2api").mkdir()
+            instance="hitel-room-cdp-read-9222";target="READONLYTARGET123456"
+            (home/".chatgpt_web2api"/"owned_tabs.json").write_text(
+                json.dumps({instance:{"target_id":target}}))
+            dest="https://chatgpt.com/c/"+"a"*32
+            initial={"id":target,"type":"page","url":"https://chatgpt.com/",
+                     "webSocketDebuggerUrl":"ws://127.0.0.1:9222/devtools/page/"+target}
+            blank={**initial,"url":""}
+            observations=iter([initial,blank,blank,blank])
+            cdpsock=MagicMock();cdpsock.__enter__.return_value=cdpsock
+            cdpsock.recv.return_value=json.dumps({"id":41,"result":{}})
+            slot=RoomTab(ROOM_A,9222,18585,instance,FakeProcess(),0)
+            with patch("hitel_room_tab_pool.Path.home",return_value=home),\
+                 patch("hitel_room_tab_pool.urllib.request.urlopen",
+                       side_effect=lambda *a,**k:io.BytesIO(json.dumps([next(observations)]).encode())),\
+                 patch("hitel_room_tab_pool.time.sleep"),\
+                 patch("hitel_room_tab_pool._live_owned_target_url",return_value=dest) as actual,\
+                 patch("websockets.sync.client.connect",return_value=cdpsock):
+                self.assertEqual(_navigate_owned_target(slot,dest),target)
+            actual.assert_called_once()
+            print("PASS_READONLY_CDP_DOCUMENT_LOCATION_OVERRIDES_STALE_EMPTY_TARGET_METADATA",flush=True)
+
+    def test_live_cdp_location_probe_only_reads_location_no_mutations(self):
+        import json
+        from unittest.mock import MagicMock
+        from hitel_room_tab_pool import _live_owned_target_url
+        target_url="https://chatgpt.com/c/"+"c"*32
+        sock=MagicMock();sock.__enter__.return_value=sock
+        sock.recv.return_value=json.dumps({
+            "id":7042,"result":{"result":{"type":"string","value":target_url}}})
+        with patch("websockets.sync.client.connect",return_value=sock):
+            self.assertEqual(_live_owned_target_url(
+                "ws://127.0.0.1:9222/devtools/page/READONLYTARGET123456"),target_url)
+        packet=json.loads(sock.send.call_args.args[0])
+        self.assertEqual(packet["method"],"Runtime.evaluate")
+        self.assertEqual(packet["params"]["expression"],"location.href")
+        print("PASS_CDP_LOCATION_PROBE_IS_READONLY_EXACT_TARGET_ONLY",flush=True)
+
     def test_owned_tab_chrome_error_page_detected_without_url_leak(self):
         import io,json,tempfile
         from unittest.mock import MagicMock
