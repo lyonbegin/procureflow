@@ -39,7 +39,8 @@ permissions:
 # do not disable job-level or Railway SQL dispatch deduplication.
 concurrency:
   group: hitel-room-owned-tabs-worker-v4
-  cancel-in-progress: false
+  # A newer signed worker replaces an idle prior worker; never two writers.
+  cancel-in-progress: true
 
 jobs:
   verified-chatgpt-bridge:
@@ -55,6 +56,18 @@ jobs:
       PYTHONUNBUFFERED: "1"
       W2A_WORKER_SECONDS: ${{ github.event_name == 'push' && '1800' || inputs.run_minutes == '30' && '1800' || inputs.run_minutes == '60' && '3600' || inputs.run_minutes == '120' && '7200' || '14400' }}
     steps:
+      - name: Refuse to start a worker when existing ChatGPT jobs remain active
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request
+          url="https://hitel-integration-api-production.up.railway.app/integrations/v1/public/status"
+          with urllib.request.urlopen(url,timeout=15) as response:
+              status=json.load(response)
+          active=status.get("worker_active_jobs_count")
+          if not isinstance(active,int) or isinstance(active,bool) or active!=0:
+              raise SystemExit("REFUSE_REPLACE_WORKER_WITH_ACTIVE_OR_UNVERIFIED_JOBS")
+          print("PASS_EXISTING_WORKER_NO_ACTIVE_JOBS_SAFE_TO_REPLACE")
+          PY
       - uses: actions/checkout@v4
       - name: Checkout integration API's exact worker/client revision
         uses: actions/checkout@v4
