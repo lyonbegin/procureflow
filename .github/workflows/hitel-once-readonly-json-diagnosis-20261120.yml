@@ -53,6 +53,10 @@ jobs:
               print("TAIL_BEGINS_QUOTE",tail.startswith(chr(34)))
               print("TAIL_CONTAINS_COLON",":" in tail)
               print("TAIL_CONTAINS_NEWLINE","\\n" in tail)
+              print("TAIL_CHAR_SHAPE","".join("L" if z.isalpha() else "D" if z.isdigit() else "S" if z.isspace() else z for z in tail))
+              print("TAIL_ENDS_QUOTE",tail.endswith(chr(34)))
+              print("TAIL_RESEMBLES_COMPLETION_MARKER",tail.startswith(("turn","assistant","end","response")))
+              print("TAIL_ALNUM_COUNT",sum(z.isalnum() for z in tail))
               print("TAIL_HAS_CLOSING_BRACE",bool(tail and tail.endswith(("}","]"))))
               print("TAIL_BEGINS_NEW_JSON",tail.startswith(("{","[")))
           except (ValueError,TypeError) as exc:
