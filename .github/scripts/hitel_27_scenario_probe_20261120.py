@@ -227,6 +227,22 @@ async def browser():
                 except Exception:
                     safe.append({"diagnostic":"json_parse_failed"})
         print("VENDOR_QA_SANITIZED_COMPOSER_SNAPSHOTS="+json.dumps(safe[-6:],sort_keys=True),flush=True)
+        # These are synthetic QA conversations only. Redact all URL, IDs,
+        # emails and QA marker tokens before exposing bounded vendor errors.
+        safe_errors=[]
+        for log in ROOT.glob("vendor-*.log"):
+            for line in log.read_text("utf-8",errors="replace").splitlines():
+                if "Chat error:" not in line and "SendReadinessError:" not in line:
+                    continue
+                msg=line.split("Chat error:",1)[-1] if "Chat error:" in line else line.split("SendReadinessError:",1)[-1]
+                msg=re.sub(r"https?://[^\\s]+","<URL>",msg)
+                msg=re.sub(r"[A-Za-z0-9_.%+-]+@[A-Za-z0-9.-]+","<EMAIL>",msg)
+                msg=re.sub(r"room_[a-f0-9]{32}","<ROOM>",msg)
+                msg=re.sub(r"\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b","<CID>",msg,re.I)
+                msg=re.sub(r"HITEL_QA_[A-Z0-9_]+","<QA_TOKEN>",msg)
+                msg=re.sub(r"[^\\x20-\\x7e가-힣]","?",msg)
+                safe_errors.append(msg.strip()[:230])
+        print("VENDOR_QA_SANITIZED_FAILURE_REASONS="+json.dumps(safe_errors[-8:],ensure_ascii=False),flush=True)
     try:
         ea,es=await asyncio.gather(pool.endpoint(ra,9222),pool.endpoint(rs,9222))
         reg=json.loads((Path.home()/".chatgpt_web2api"/"owned_tabs.json").read_text("utf-8"))
