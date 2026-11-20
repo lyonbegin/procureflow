@@ -118,7 +118,7 @@ jobs:
         run: |
           mkdir -p hitel-live-ws
           python3 - <<'PY'
-          import asyncio,base64,hashlib,json,os,time,uuid
+          import asyncio,base64,hashlib,json,os,time,uuid,urllib.request,re
           from pathlib import Path
           import websockets
 
@@ -139,7 +139,9 @@ jobs:
           async def agent(label):
               out=results["agent_"+label]
               other="B" if label=="A" else "A"
-              name="HITEL-WS-LIVE-"+RUN+"-"+label
+              # Stable two QA rooms: repeated runs never accumulate more
+              # owned Chrome tabs by creating a new room on every test.
+              name="HITEL-WS-STABLE-AGENT-"+label
               async with websockets.connect(WS,ping_interval=20,ping_timeout=20,
                                            close_timeout=5,max_size=4*1024*1024) as ws:
                   ready=await recv(ws,30)
@@ -187,11 +189,30 @@ jobs:
                               pieces.append((p["offset"],base64.b64decode(p["data_base64"],validate=True)))
                               continue
                           if typ=="reply.unverified":
+                              # The worker's signed result reason is stored in
+                              # the existing public job row, but the socket
+                              # event intentionally contains only a generic
+                              # status. Read it exactly once, WITHOUT retrying
+                              # the actual ChatGPT message.
+                              safe_reason="REASON_UNAVAILABLE"
+                              try:
+                                  u="https://hitel-integration-api-production.up.railway.app/integrations/v1/public/jobs/"+jid
+                                  with urllib.request.urlopen(u,timeout=12) as response:
+                                      detail=json.load(response)
+                                  candidate=detail.get("error")
+                                  if (detail.get("room_id")==rid
+                                      and detail.get("request_id")==req
+                                      and isinstance(candidate,str)
+                                      and re.fullmatch("[A-Z0-9_]{1,110}",candidate)):
+                                      safe_reason=candidate
+                              except Exception:
+                                  pass
                               out.append({"seq":seq,"room_id":rid,"job_id":jid,
                                           "result":"UNVERIFIED","error_code":p.get("error_code"),
+                                          "worker_reason_code":safe_reason,
                                           "state":p.get("status"),"no_retry":True})
                               save()
-                              print(f"FAIL_WS_AGENT_{label}_TURN_{seq}_{p.get('error_code')}",flush=True)
+                              print(f"FAIL_WS_AGENT_{label}_TURN_{seq}_{p.get('error_code')}_REASON_{safe_reason}",flush=True)
                               return
                           if typ=="reply.done":
                               data=bytearray()
