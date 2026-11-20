@@ -44,6 +44,21 @@ source = replace_once(
     '                "composer_ready": bool(driver_connected and await self._driver._has_composer()),',
     "HEALTH_REAL_COMPOSER_READINESS",
 )
+# The vendor previously logged the leading 60 characters of EVERY user prompt
+# on each REST send, including a lawyer's private messages / source titles.
+# Replace it with the length only. Never change the sent message bytes.
+source = replace_once(
+    source,
+    '            "Request #%d: model=%s->%s conv=%s project=%s stream=%s msg=%.60s",',
+    '            "Request #%d: model=%s->%s conv=%s project=%s stream=%s chars=%d",',
+    "REDACT_REQUEST_LOG_FORMAT",
+)
+source = replace_once(
+    source,
+    '            full_text,' + chr(10) + '        )' + chr(10) + chr(10) + '        # Serialize',
+    '            len(full_text),' + chr(10) + '        )' + chr(10) + chr(10) + '        # Serialize',
+    "REDACT_REQUEST_LOG_ARGUMENT",
+)
 api.write_text(source, encoding="utf-8")
 
 source = dom.read_text("utf-8")
