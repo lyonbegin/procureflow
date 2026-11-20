@@ -34,6 +34,16 @@ source = replace_once(
     '            full_text = conversation_lines[0][len("[User]\\n"):]',
     "SINGLE_USER_TEXT_EXACT",
 )
+# Connection and login are not sufficient for a healthy chat editor.
+# The health probe must report whether the exact owned tab has an actual
+# visible editable composer. The room pool refuses send when it is absent.
+source = replace_once(
+    source,
+    '                "driver_connected": driver_connected,',
+    '                "driver_connected": driver_connected,' + chr(10) +
+    '                "composer_ready": bool(driver_connected and await self._driver._has_composer()),',
+    "HEALTH_REAL_COMPOSER_READINESS",
+)
 api.write_text(source, encoding="utf-8")
 
 source = dom.read_text("utf-8")
