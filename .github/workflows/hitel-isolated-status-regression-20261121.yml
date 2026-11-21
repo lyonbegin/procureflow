@@ -1,0 +1,20 @@
+name: HITEL | verify task-aware public job status
+on:
+  push:
+    branches: [fix/hitel-isolated-job-status-20261121]
+    paths:
+      - chatgpt-android-relay/web/integration_public.py
+      - chatgpt-android-relay/web/tests/test_isolated_running_status.py
+      - .github/workflows/hitel-isolated-status-regression-20261121.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install -q -r chatgpt-android-relay/web/requirements.txt
+      - run: |
+          cd chatgpt-android-relay/web
+          PYTHONPATH=. python3 -m unittest discover -s tests -p test_isolated_running_status.py -v
