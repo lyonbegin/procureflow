@@ -50,6 +50,41 @@ class PublicNoLoginContract(unittest.TestCase):
         app.active_job_id=None
         app.web2api_active_jobs.clear()
 
+    def test_manual_chrome_user_test_page_has_safe_entry_and_read_only_resume(self):
+        # No real ChatGPT send: validate the production HTML/route contract.
+        response=self.client.get("/integrations/test")
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIn("text/html",response.headers["content-type"])
+        self.assertEqual(response.headers.get("cache-control"),
+                         "no-store, max-age=0")
+        self.assertIn("frame-ancestors 'none'",
+                      response.headers["content-security-policy"])
+        html=response.text
+        self.assertIn('id="send"',html)
+        self.assertIn('id="resume"',html)
+        self.assertIn('id="check"',html)
+        self.assertIn('id="evidence"',html)
+        self.assertIn('id="stage"',html)
+        self.assertIn('id="verdict"',html)
+        self.assertIn("sessionStorage",html)
+        self.assertIn("crypto.randomUUID()",html)
+        self.assertIn('BASE+"/requests/"',html)
+        self.assertIn('BASE+"/jobs/"',html)
+        self.assertIn('BASE+"/chat"',html)
+        self.assertIn("POST",html)
+        self.assertIn("result_sha256",html)
+        self.assertIn("stalled",html)
+        self.assertIn("unknown",html)
+        self.assertIn("HITEL_WEB2API_E2E_OK_20261121",html)
+        # A plain GET never emits any chat job or invokes GitHub Actions.
+        with api_v1.connection() as db:
+            count=db.execute(
+                "SELECT COUNT(*) FROM jobs WHERE user_id=?",
+                (integration_public.USER_ID,)).fetchone()[0]
+        self.assertEqual(count,0)
+        self.assertIn('/integrations/test',
+                      self.client.get("/integrations/public").text)
+
     def test_link_and_status_are_public(self):
         self.assertEqual(self.client.get("/integrations/public").status_code,200)
         p=self.client.get("/integrations/v1/public/status")
