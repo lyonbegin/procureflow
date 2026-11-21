@@ -29,6 +29,14 @@ from typing import Any
 ROOM_PATTERN = re.compile(r"^room_[a-f0-9]{32}$")
 CHROME_PORTS = frozenset((9222, 9223))
 STARTUP_SECONDS = 65
+# Only hardcoded, content-free vendor milestones may leave the child process.
+# Raw stderr/stdout can contain prompts, session URLs, or exception payloads.
+VENDOR_STAGE_PATTERN = re.compile(r"\bHITEL_W2A_STAGE=([A-Z_]+)\b")
+VENDOR_STAGES = frozenset({
+    "TYPE_STARTED", "TYPE_VERIFIED", "SEND_DISPATCHED",
+    "SEND_UI_ACKNOWLEDGED", "SEND_REQUEST_OBSERVED",
+    "SEND_UNCONFIRMED", "ASSISTANT_SEEN", "TURN_COMPLETED",
+})
 
 
 class TabIsolationError(RuntimeError):
@@ -386,6 +394,36 @@ class RoomTabPool:
         # Linked, prewarmed research rooms cannot be displaced by new QA/temporary rooms.
         self._protected_rooms: set[str] = set()
         self._lock = asyncio.Lock()
+        self._stage_events: dict[str, tuple[int, str]] = {}
+
+    def stage_snapshot(self, room_id: str) -> tuple[int, str | None]:
+        """Read-only, bounded per-room stage. Not an HTTP completion guarantee."""
+        return self._stage_events.get(room_id, (0, None))
+
+    async def _drain_safe_vendor_events(self, room_id: str, stream) -> None:
+        """Drain ALL child output to avoid deadlock; expose ONLY literal stage tags.
+
+        Never store or print raw vendor output, which may contain private text.
+        Cap line buffering so a malformed binary/unbounded log cannot stall us.
+        """
+        pending = b""
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                break
+            pending += chunk
+            if len(pending) > 16384 and b"\n" not in pending:
+                pending = b""
+            lines = pending.split(b"\n")
+            pending = lines.pop()[-2048:]
+            for raw in lines:
+                if len(raw) > 4096:
+                    continue
+                match = VENDOR_STAGE_PATTERN.search(raw.decode("utf-8", "replace"))
+                if match and match.group(1) in VENDOR_STAGES:
+                    prior = self._stage_events.get(room_id, (0, None))[0]
+                    self._stage_events[room_id] = (prior + 1, match.group(1))
+                    print("HITEL_VENDOR_SAFE_STAGE_" + match.group(1), flush=True)
 
     def pin(self, room_id: str) -> None:
         if room_id in self._busy_rooms:
@@ -493,8 +531,8 @@ class RoomTabPool:
             try:
                 process = await asyncio.create_subprocess_exec(
                     *command, env=env,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
                 )
             except (OSError, ValueError) as exc:
                 raise TabIsolationError("ROOM_TAB_START_FAILED") from exc
@@ -503,6 +541,13 @@ class RoomTabPool:
             # Persist in this worker even when readiness fails; unknown delivery
             # is not an invitation to replace this room with another tab.
             self._rooms[room_id] = slot
+            # Read concurrently; the vendor must never block on a full log pipe.
+            # Fake/legacy subprocess handles without stdout remain supported.
+            if getattr(process, "stdout", None) is not None:
+                asyncio.create_task(
+                    self._drain_safe_vendor_events(room_id, process.stdout),
+                    name="hitel-vendor-safe-events",
+                )
 
             deadline = time.monotonic() + STARTUP_SECONDS
             while time.monotonic() < deadline:
