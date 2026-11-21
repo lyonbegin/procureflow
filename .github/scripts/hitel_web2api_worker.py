@@ -356,7 +356,10 @@ async def process_job(job: dict[str, Any], account_preflight=None,
         # Observe the one and only local POST while vendor CDP milestones arrive.
         future = asyncio.create_task(asyncio.to_thread(
             post_chat_uri, content, target, api_url, internal_owned_room=True))
-        last_sequence = 0
+        # The same room may have completed earlier questions: never attribute
+        # a previous turn's Chrome stages to this new job.
+        prior_events = adapter_pool.stage_events_since(room_id, 0)
+        last_sequence = prior_events[-1][0] if prior_events else 0
         while not future.done():
             try:
                 await asyncio.wait_for(asyncio.shield(future), timeout=0.5)
