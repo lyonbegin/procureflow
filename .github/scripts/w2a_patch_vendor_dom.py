@@ -194,11 +194,11 @@ _replace_projection_once(
 _replace_projection_once(
     driver,
     "            await self.type_message(text)\n            await self.click_send()\n",
-    "            logger.info('HITEL_W2A_STAGE=TYPE_STARTED')\n"
+    "            print('HITEL_W2A_STAGE=TYPE_STARTED', flush=True)\n"
     "            await self.type_message(text)\n"
-    "            logger.info('HITEL_W2A_STAGE=TYPE_VERIFIED')\n"
+    "            print('HITEL_W2A_STAGE=TYPE_VERIFIED', flush=True)\n"
     "            await self.click_send()\n"
-    "            logger.info('HITEL_W2A_STAGE=SEND_DISPATCHED')\n",
+    "            print('HITEL_W2A_STAGE=SEND_DISPATCHED', flush=True)\n",
     "SEND_STAGE_MARKERS",
 )
 _replace_projection_once(
@@ -214,11 +214,11 @@ _replace_projection_once(
     driver,
     "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
     "            if acknowledged is True:\n"
-    "                logger.info('HITEL_W2A_STAGE=SEND_UI_ACKNOWLEDGED')\n"
+    "                print('HITEL_W2A_STAGE=SEND_UI_ACKNOWLEDGED', flush=True)\n"
     "            elif captured_uuid:\n"
-    "                logger.info('HITEL_W2A_STAGE=SEND_REQUEST_OBSERVED')\n"
+    "                print('HITEL_W2A_STAGE=SEND_REQUEST_OBSERVED', flush=True)\n"
     "            else:\n"
-    "                logger.info('HITEL_W2A_STAGE=SEND_UNCONFIRMED')\n\n"
+    "                print('HITEL_W2A_STAGE=SEND_UNCONFIRMED', flush=True)\n\n"
     "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
     "ACK_STAGE_MARKER",
 )
@@ -226,14 +226,14 @@ _replace_projection_once(
     detector,
     '        logger.info("Assistant message appeared, waiting for completion...")\n',
     '        logger.info("Assistant message appeared, waiting for completion...")\n'
-    "        logger.info('HITEL_W2A_STAGE=ASSISTANT_SEEN')\n",
+    "        print('HITEL_W2A_STAGE=ASSISTANT_SEEN', flush=True)\n",
     "ASSISTANT_STAGE_MARKER",
 )
 _replace_projection_once(
     detector,
     '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n',
     '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n'
-    "                    logger.info('HITEL_W2A_STAGE=TURN_COMPLETED')\n",
+    "                    print('HITEL_W2A_STAGE=TURN_COMPLETED', flush=True)\n",
     "COMPLETED_STAGE_MARKER",
 )
 print("PASS_VENDOR_SAFE_STAGE_MARKERS_AND_READ_ONLY_RETRY", flush=True)
