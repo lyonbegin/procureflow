@@ -44,7 +44,8 @@ jobs:
           set -euo pipefail
           git clone -q --single-branch --branch feature/stocktv-web2api-fresh-reset-20261121 \
             https://github.com/lyonbegin/autonomous-investor-backend.git "$RUNNER_TEMP/stock"
-          PYTHONPATH=.github/scripts:"$RUNNER_TEMP/stock/research/serial10" python3 - <<'PY'
+          cd "$RUNNER_TEMP/stock"
+          PYTHONPATH="$GITHUB_WORKSPACE/.github/scripts:$PWD/research/serial10" python3 - <<'PY'
           import json
           import ws_ten_runner as research
           from hitel_stocktv_json_receipt import matches_stocktv_research_json
