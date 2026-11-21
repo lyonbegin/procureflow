@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>HITEL Web2API — 실제 Chrome 통신 시험</title>
+<style>
+:root{color-scheme:light;--ink:#15304a;--muted:#54677c;--blue:#145d95;--line:#dbe5ee;--paper:#fff;--bg:#f4f7fb;--warn:#a34400;--success:#136b4a}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--ink);margin:0;font:15px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif}main{max-width:870px;margin:25px auto;padding:0 16px 60px}h1{font-size:25px;line-height:1.35;margin:0}h2{font-size:18px;margin:0 0 12px}p{margin:8px 0}header{margin-bottom:16px}section{background:var(--paper);border:1px solid var(--line);border-radius:12px;margin:12px 0;padding:18px}label{display:block;font-weight:700;margin:10px 0 4px}input,textarea{width:100%;font:inherit;color:var(--ink);border:1px solid #aebfd1;border-radius:7px;padding:10px;background:#fff}textarea{min-height:100px;resize:vertical}button{background:var(--blue);color:white;border:none;border-radius:8px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}button.secondary{background:#e8eef4;color:#22516e}button:disabled{opacity:.55;cursor:not-allowed}.controls{display:flex;flex-wrap:wrap;gap:8px;margin:13px 0}.note{font-size:13px;color:var(--muted)}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}.kpi{border:1px solid var(--line);border-radius:8px;padding:10px;min-height:70px}.kpi .label{font-size:12px;color:var(--muted)}.kpi .value{font-weight:700;overflow-wrap:anywhere}.ok{color:var(--success)}.warn{color:var(--warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:#eef3f8;max-height:450px;overflow-y:auto;min-height:45px}small{color:var(--muted)}a{color:#155e96}code{font-size:13px}#notice{font-weight:700;white-space:pre-wrap}.steps{margin:8px 0 0;padding-left:24px}.steps li{padding:2px 0}#timestamp{color:var(--muted);font-size:12px}details{padding:5px 0}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>HITEL Web2API — 실제 통신 시험</h1>
+<p>기존 GitHub Actions의 Chrome → ChatGPT 웹 → Railway 응답 경로를 직접 확인합니다. 테스트 버튼은 <strong>한 번 누를 때 질문을 한 번만 접수</strong>합니다.</p>
+<p class="note">공개 시험 대화방이므로 개인정보, 비밀번호, 비밀 문서는 입력하지 마십시오. 자동 재전송은 하지 않습니다.</p>
+</header>
+<section>
+<h2>1. 연결 상태 (질문 전송 없음)</h2>
+<div class="kpis">
+<div class="kpi"><div class="label">Railway 중계 API</div><div class="value" id="api">조회 전</div></div>
+<div class="kpi"><div class="label">Chrome 작업자</div><div class="value" id="worker">조회 전</div></div>
+<div class="kpi"><div class="label">작업자 가동 준비</div><div class="value" id="ready">조회 전</div></div>
+<div class="kpi"><div class="label">현재 처리 건수</div><div class="value" id="busy">조회 전</div></div>
+</div>
+<div class="controls"><button type="button" class="secondary" id="check">연결만 다시 확인</button><a href="/integrations/public">기존 대화 페이지 열기</a></div>
+</section>
+<section>
+<h2>2. 실제 질문 전송 시험</h2>
+<label for="room">시험 대화방 이름</label>
+<input id="room" maxlength="160" autocomplete="off">
+<p class="note">이 화면은 다른 연구 대화방에 영향을 주지 않도록 별도의 시험방을 사용합니다. 완료 후에는 같은 방으로 다음 질문도 보낼 수 있습니다.</p>
+<label for="prompt">질문</label>
+<textarea id="prompt" maxlength="24000">HITEL Web2API 실제 통신 시험입니다. 다른 설명 없이 정확히 HITEL_WEB2API_E2E_OK_20261121만 응답해 주십시오.</textarea>
+<label><input id="assertExact" type="checkbox" checked style="width:auto;vertical-align:middle"> 기본 시험: 답변이 지정된 확인 문자열과 정확히 같은지 검사</label>
+<div class="controls">
+<button type="button" id="send">실제 질문 1회 전송</button>
+<button type="button" id="resume" class="secondary">기존 작업 결과 다시 조회</button>
+<button type="button" id="newroom" class="secondary">새 시험방 준비</button>
+</div>
+<div id="notice" role="status" aria-live="polite">작업 준비 중</div>
+</section>
+<section>
+<h2>3. 실제 진행 단계</h2>
+<div class="kpis">
+<div class="kpi"><div class="label">작업 ID</div><div class="value" id="jobid">없음</div></div>
+<div class="kpi"><div class="label">작업 상태</div><div class="value" id="jobstatus">대기</div></div>
+<div class="kpi"><div class="label">마지막 내부 단계</div><div class="value" id="stage">대기</div></div>
+<div class="kpi"><div class="label">전송 확인 / 새 답변 발견</div><div class="value" id="evidence">미확인 / 미확인</div></div>
+</div>
+<p id="timestamp">연결 유지 신호(heartbeat)는 실제 답변 진행 증거가 아닙니다.</p>
+<ol class="steps">
+<li>작업 접수 → GitHub Chrome 작업자 수신</li>
+<li>ChatGPT 탭·입력창 확인 → 질문 입력 및 전송</li>
+<li>새 사용자 메시지 확인 → 새로운 assistant 응답 발견</li>
+<li>응답 완료 검증 → Railway에 최종 답변 저장</li>
+</ol>
+<p class="note">전송 확인이 '미확인'인 동안 재전송하지 마십시오. <strong>unknown 또는 stalled</strong>은 질문 미전송이 아니라 전송 결과가 불명확하다는 뜻일 수 있습니다.</p>
+</section>
+<section>
+<h2>4. 응답 및 판정</h2>
+<p id="verdict" role="status" aria-live="polite">아직 실제 송수신 시험을 하지 않았습니다.</p>
+<pre id="answer" role="region" aria-label="실제 AI 답변">미수신</pre>
+<details><summary>진단 데이터 (질문 원문 제외)</summary><pre id="debug">조회 전</pre></details>
+</section>
+</main>
+<script>
+"use strict";
+(function(){
+const BASE="/integrations/v1/public",EXPECTED="HITEL_WEB2API_E2E_OK_20261121",STORE="hitel_w2a_test_session_v1";
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let state=null,processing=false,poller=null,networkBusy=false,workerReady=false,lastStatus=null;
+function makeRoom(){return "HITEL-W2A-TEST-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+crypto.randomUUID().slice(0,12)}
+function readState(){try{const x=JSON.parse(sessionStorage.getItem(STORE)||"null");return x&&typeof x.room==="string"&&typeof x.request==="string"?x:null}catch(e){return null}}
+function save(){try{if(state)sessionStorage.setItem(STORE,JSON.stringify(state));else sessionStorage.removeItem(STORE)}catch(e){}}
+function setNotice(text,warning){$("notice").textContent=text;$("notice").className=warning?"warn":""}
+function tri(v){return v===true?"확인":v===false?"아니요":"미확인"}
+function stageLabel(s){const labels={worker_received:"작업자 수신",web2api_account_preflight_complete:"계정 사전 확인",web2api_room_navigation_started:"대화방 이동 시작",web2api_room_navigation_verified:"대화방 이동 확인",web2api_adapter_ready:"Chrome 제어 준비",web2api_local_request_started:"Web2API 요청 시작",web2api_type_started:"입력 시작",web2api_type_verified:"입력 검증",web2api_send_dispatched:"전송 명령 실행",web2api_send_ui_acknowledged:"실제 사용자 메시지 표시 확인",web2api_send_request_observed:"네트워크 요청 발생(수락 미확인)",web2api_send_unconfirmed:"전송 미확인",web2api_assistant_seen:"새 assistant 메시지 관찰",web2api_turn_completed:"응답 완료 DOM 검증",web2api_adapter_reply_parsed:"응답 파싱 완료",assistant_reply_stable:"최종 결과 확인",upstream_delivery_unknown:"전송 여부 불명확",waiting_for_verified_reply:"검증된 답변 대기"};return labels[s]||s||"미확인"}
+function refreshButtons(){const unresolved=!!state&&state.status!=="completed"&&state.status!=="failed";$("send").disabled=processing||networkBusy||unresolved;$("resume").disabled=!state||networkBusy;$("newroom").disabled=processing||networkBusy;$("room").disabled=unresolved||processing||networkBusy}
+function persistRoom(room){if(!state)state={room,request:"",job:"",status:"idle",assertion:false};state.room=room;save()}
+async function getJson(path,opts){const ac=new AbortController(),timeout=setTimeout(()=>ac.abort(),opts&&opts.method==="POST"?25000:12000);try{const res=await fetch(path,Object.assign({cache:"no-store",signal:ac.signal,headers:{"Accept":"application/json"}},opts||{}));const body=await res.json().catch(()=>({}));if(!res.ok)throw Error("HTTP "+res.status+": "+(typeof body.detail==="string"?body.detail:"요청 실패"));return body}finally{clearTimeout(timeout)}}
+async function check(){try{const d=await getJson(BASE+"/status");workerReady=d.worker_available_for_new_job===true;$("api").textContent="HTTP 응답 정상";$("api").className="value ok";$("worker").textContent=d.worker_heartbeat_recent===true?"연결·heartbeat 정상":"오프라인 또는 heartbeat 지연";$("worker").className="value "+(d.worker_heartbeat_recent?"ok":"warn");$("ready").textContent=d.worker_bootstrap_ready?"Chrome 준비 완료":"Chrome 시작 대기";$("busy").textContent=String(d.worker_active_jobs_count??"?")+"건";lastStatus=d;return d}catch(e){workerReady=false;$("api").textContent=String(e.message||e);$("api").className="value warn";$("worker").textContent="확인 불가";$("ready").textContent="확인 불가";throw e}}
+function putResult(d){state.status=d.status;state.job=d.job_id;save();$("jobid").textContent=d.job_id||"없음";$("jobstatus").textContent=d.status||"미확인";$("stage").textContent=stageLabel(d.stage);$("evidence").textContent=tri(d.chatgpt_send_confirmed)+" / "+tri(d.assistant_reply_observed);const p=d.job_last_progress_at?new Date(d.job_last_progress_at).toLocaleString("ko-KR"):"기록 없음";const hb=d.worker_heartbeat_at?new Date(d.worker_heartbeat_at).toLocaleString("ko-KR"):"기록 없음";$("timestamp").textContent="작업 실제 단계 갱신: "+p+" | 작업자 heartbeat: "+hb+" (서로 별개)";const allowed=["job_id","request_id","status","stage","worker_connected","chatgpt_send_confirmed","assistant_reply_observed","job_last_progress_at","worker_heartbeat_at","result_ready","error_code","error_stage","result_length_bytes","result_sha256"];const view={};for(const key of allowed)view[key]=d[key]??null;$("debug").textContent=JSON.stringify(view,null,2);refreshButtons()}
+async function fetchFullResult(d){if(typeof d.result_text==="string")return d.result_text;if(!d.result_ready||!d.result_url)throw Error("완료 결과 주소가 없습니다.");let offset=0,arr=[],size=0;for(let i=0;i<160;i++){const r=await getJson(d.result_url+"?offset="+offset+"&limit=65536");if(r.offset!==offset||typeof r.content_base64!=="string")throw Error("결과 청크 순서 오류");const bytes=Uint8Array.from(atob(r.content_base64),c=>c.charCodeAt(0));arr.push(bytes);size+=bytes.length;if(size>8*1024*1024)throw Error("답변이 화면 수신 한도(8MB)를 넘었습니다.");offset=r.next_offset;if(r.complete){const joined=new Uint8Array(size);let pos=0;for(const part of arr){joined.set(part,pos);pos+=part.length}if(typeof d.result_sha256==="string"&&crypto.subtle){const buf=await crypto.subtle.digest("SHA-256",joined);const hex=Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");if(hex!==d.result_sha256)throw Error("저장된 답변의 SHA-256 검증 실패");}return new TextDecoder("utf-8",{fatal:true}).decode(joined)}}throw Error("결과가 모두 수신되지 않았습니다. 기존 작업 ID로 재조회하십시오.")}
+async function readJob(){if(!state)return;networkBusy=true;refreshButtons();try{let jid=state.job;if(!jid){const recovered=await getJson(BASE+"/requests/"+encodeURIComponent(state.request));jid=recovered.job_id;state.job=jid;save()}const d=await getJson(BASE+"/jobs/"+encodeURIComponent(jid));putResult(d);if(d.status==="completed"&&d.result_ready){const answer=await fetchFullResult(d);$("answer").textContent=answer;const matches=answer.trim()===EXPECTED;$("verdict").textContent=state.assertion?(matches?"실제 ChatGPT 응답 확인: 확인 문자열 일치":"응답 수신은 성공했으나 확인 문자열이 일치하지 않습니다."):"실제 ChatGPT 응답 수신 및 저장 확인";$("verdict").className=state.assertion&&!matches?"warn":"ok";setNotice("완료: 기존 작업 ID의 결과를 수신했습니다.",false);stopPoll();}else if(["stalled","unknown","failed"].includes(d.status)){const why=d.error_code||d.error_stage||"상세 오류 미확인";$("verdict").textContent="성공 검증 실패: "+d.status+" / "+why; $("verdict").className="warn";setNotice("전송 여부가 확정되지 않아 자동 재전송하지 않습니다. 새 시험방을 명시적으로 준비하실 수 있습니다.",true);stopPoll()}else{$("verdict").textContent="아직 최종 답변이 검증되지 않았습니다.";setNotice("작업 조회 중: "+stageLabel(d.stage)+" (GET 조회만 수행)",false)}}catch(e){$("verdict").textContent="읽기 전용 조회 오류: "+String(e.message||e);$("verdict").className="warn";if(!state?.job)setNotice("접수 응답이 불명확합니다. 동일 request_id를 조회 중이며 질문을 재전송하지 않습니다.",true)}finally{networkBusy=false;refreshButtons()}}
+function stopPoll(){if(poller){clearInterval(poller);poller=null}}
+function startPoll(){stopPoll();poller=setInterval(()=>{if(!networkBusy&&state)void readJob()},3500)}
+async function send(){if(processing||networkBusy||!state)return;if(state.request&&state.status!=="completed"&&state.status!=="failed"){setNotice("미완료 작업이 있어 새 질문을 보내지 않았습니다.",true);return}const prompt=$("prompt").value.trim(),room=$("room").value.trim();if(!prompt||prompt.length>24000||!room){setNotice("유효한 시험방 이름과 질문을 입력해 주십시오.",true);return}if(!workerReady){setNotice("Chrome 작업자 준비 상태를 먼저 확인하십시오.",true);try{await check()}catch(e){}if(!workerReady)return}processing=true;stopPoll();state={room,request:"web2api-test-"+crypto.randomUUID(),job:"",status:"submitting_unknown",assertion:$("assertExact").checked};save();refreshButtons();setNotice("한 번만 전송 요청을 접수하고 있습니다.",false);try{const d=await getJson(BASE+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({room_name:room,text:prompt,request_id:state.request})});state.job=d.job_id;state.status=d.status==="existing"?"queued":d.status;save();setNotice("접수 성공 · 작업 ID "+d.job_id+" · 실제 전송은 아직 확인되지 않았습니다.",false)}catch(e){setNotice("전송 접수 응답 불명확/실패: "+String(e.message||e)+". 같은 질문을 자동으로 다시 보내지 않습니다. 기존 요청 ID만 조회하십시오.",true)}finally{processing=false;refreshButtons();startPoll();await readJob()}}
+function newRoom(){if(processing||networkBusy)return;if(state&&state.status!=="completed"&&state.status!=="failed"){if(!confirm("기존 질문의 전송 결과가 확정되지 않았습니다. 기존 작업은 그대로 보존하며 새 시험방만 준비하시겠습니까?"))return}stopPoll();state={room:makeRoom(),request:"",job:"",status:"idle",assertion:false};save();$("room").value=state.room;$("jobid").textContent="없음";$("jobstatus").textContent="대기";$("stage").textContent="대기";$("evidence").textContent="미확인 / 미확인";$("answer").textContent="미수신";$("debug").textContent="조회 전";$("verdict").textContent="아직 실제 송수신 시험을 하지 않았습니다.";setNotice("새 시험방 준비 완료 · 기존 작업은 삭제하지 않았습니다.",false);refreshButtons()}
+$("check").addEventListener("click",()=>check().catch(e=>setNotice("상태 조회 실패: "+String(e.message||e),true)));
+$("send").addEventListener("click",()=>void send());
+$("resume").addEventListener("click",()=>void readJob());
+$("newroom").addEventListener("click",newRoom);
+state=readState();if(!state)state={room:makeRoom(),request:"",job:"",status:"idle",assertion:false};
+$("room").value=state.room;$("assertExact").checked=!!state.assertion||!state.request;save();refreshButtons();check().catch(()=>{});
+if(state.request){setNotice("이전 시험 작업을 새로 전송하지 않고 복원합니다.",false);void readJob();startPoll()}else{setNotice("연결을 확인하신 후 실제 질문 전송 버튼을 누르십시오.",false)}
+setInterval(()=>{if(document.visibilityState==="visible")void check().catch(()=>{})},12000);
+})();
+</script>
+</body></html>
