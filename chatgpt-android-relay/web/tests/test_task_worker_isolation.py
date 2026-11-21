@@ -28,6 +28,9 @@ class TaskIsolationTests(unittest.TestCase):
         self.client=TestClient(app.app)
         self.client.__enter__()
         isolation.sessions.clear()
+        self.producer_patcher=patch.object(
+            isolation,"verify_isolated_task_producer",return_value=True)
+        self.mock_producer=self.producer_patcher.start()
         with api_v1.connection() as db:
             db.execute("DELETE FROM hitel_isolated_job_map")
             db.execute("DELETE FROM hitel_public_link_requests")
@@ -39,6 +42,7 @@ class TaskIsolationTests(unittest.TestCase):
     def tearDown(self):
         self.client.__exit__(None,None,None)
         isolation.sessions.clear()
+        self.producer_patcher.stop()
 
     def queue(self,task,req,room):
         return self.client.post(
@@ -107,6 +111,14 @@ class TaskIsolationTests(unittest.TestCase):
         self.assertEqual(items["stock-a"]["queued_jobs_count"],1)
         self.assertEqual(items["scribd-18109"]["queued_jobs_count"],0)
         self.assertNotIn("text",str(r.json()).lower())
+
+    def test_unsigned_project_cannot_enqueue_task(self):
+        self.mock_producer.return_value=False
+        r=self.queue("stock-a","test-stock-a-immutable-0200","Room")
+        self.assertEqual(r.status_code,403)
+        with api_v1.connection() as db:
+            self.assertEqual(db.execute(
+                "SELECT COUNT(*) FROM hitel_isolated_job_map").fetchone()[0],0)
 
     def test_unknown_task_rejected_before_creating_job(self):
         r=self.queue("unrelated","test-stock-a-immutable-0009","Room")
