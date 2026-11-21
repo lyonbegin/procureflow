@@ -1,0 +1,68 @@
+name: HITEL | stock-tv JSON-only completion regression
+on:
+  push:
+    branches: [fix/stocktv-json-first-completion-20261121]
+    paths:
+      - .github/scripts/hitel_stocktv_json_receipt.py
+      - .github/scripts/test_hitel_stocktv_json_receipt.py
+      - .github/scripts/w2a_patch_vendor_dom.py
+      - .github/workflows/hitel-stocktv-json-only-qa.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test complete received JSON without UI gating
+        run: python3 -m unittest discover -s .github/scripts -p test_hitel_stocktv_json_receipt.py -v
+      - name: Test full source-pinned Web2API patch without ChatGPT sends
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/MartinezS8/chatgpt-web2api.git "$RUNNER_TEMP/vendor"
+          git -C "$RUNNER_TEMP/vendor" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$RUNNER_TEMP/vendor"
+          python3 .github/scripts/w2a_patch_vendor_composer_20261120.py "$RUNNER_TEMP/vendor"
+          python3 -m py_compile .github/scripts/hitel_stocktv_json_receipt.py "$RUNNER_TEMP/vendor/src/chatgpt_web2api/completion_detector.py"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"vendor/src/chatgpt_web2api/completion_detector.py"
+          c=p.read_text(encoding="utf-8")
+          assert c.count("STOCKTV_VALIDATED_JSON_RECEIVED")==1
+          assert c.count("matches_stocktv_research_json")==2
+          assert c.index("STOCKTV_VALIDATED_JSON_RECEIVED")<c.index("# ── Completion detection ─")
+          assert "self.dom_completion_verified = True" in c
+          print("PASS_VENDOR_RECEIVED_JSON_COMPLETES_BEFORE_UI_GATES",flush=True)
+          PY
+      - name: Test actual 4,428-source first and last strategy questions
+        run: |
+          set -euo pipefail
+          git clone -q --single-branch --branch feature/stocktv-web2api-fresh-reset-20261121 \
+            https://github.com/lyonbegin/autonomous-investor-backend.git "$RUNNER_TEMP/stock"
+          PYTHONPATH=.github/scripts:"$RUNNER_TEMP/stock/research/serial10" python3 - <<'PY'
+          import json
+          import ws_ten_runner as research
+          from hitel_stocktv_json_receipt import matches_stocktv_research_json
+          rows=research.originals()
+          assert len(rows)==4428
+          for batch in (1,443):
+              chosen=research.group(rows,batch)
+              prompt=research.question(chosen,batch)
+              result={
+                "schema":"TV-TRADE-EVIDENCE-10-v2","batch_number":batch,"research_only":True,
+                "source_results":[{
+                  "source_order":row["order"],"script_id":row["id"],"title":row["title"],
+                  "research_status":"SEARCHED","search_queries":["evidence source lookup"],
+                  "cases":[],"exclusions":[],"limitations":"No case evidence verified"
+                } for row in chosen]}
+              assert matches_stocktv_research_json(json.dumps(result,ensure_ascii=False),prompt)
+              altered=dict(result)
+              altered["batch_number"]=batch+1
+              assert not matches_stocktv_research_json(json.dumps(altered),prompt)
+              print("PASS_REAL_SOURCE_BATCH_JSON_SCOPE",batch,len(chosen),flush=True)
+          PY
