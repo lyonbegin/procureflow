@@ -17,11 +17,11 @@ jobs:
         run: |
           set -euo pipefail
           ids=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" \
-            --jq '.workflow_runs[] | select(.name=="HITEL per-task independent Chrome (one GitHub runner per task)" and (.display_title|contains("stock-tv"))) | .id')
+            --jq '.workflow_runs[] | select(.name=="HITEL isolated Chrome stock-tv") | .id')
           ids="$(printf '%s\n44887843360\n' "$ids" | awk '/^[0-9]+$/ {print}' | sort -u)"
           for id in $ids; do
             name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '.name')
-            [[ "$name" == "HITEL per-task independent Chrome (one GitHub runner per task)" ]] || {
+            [[ "$name" == "HITEL isolated Chrome stock-tv" ]] || {
               echo "REFUSE_CANCEL_UNRELATED_CHROME=$id:$name"; exit 1;
             }
             status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '.status')
