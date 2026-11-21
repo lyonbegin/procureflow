@@ -1,5 +1,5 @@
 name: HITEL independent task Chrome scheduler - five minutes
-# Initial verified task queue: stock-a is waiting; dispatch one dedicated Chrome.
+# Trigger one immediate scheduler pass for queued stock-tv; preserve stock-a and scribd sessions.
 
 on:
   schedule:
