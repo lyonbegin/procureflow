@@ -49,7 +49,7 @@ jobs:
           from pathlib import Path
           base=Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api"
           detector=(base/"completion_detector.py").read_text()
-          present="STOCKTV_VALIDATED_JSON_RECEIVED" in detector
+          present="from .hitel_stocktv_json_receipt import matches_stocktv_research_json" in detector
           assert present == (os.environ["HITEL_TASK_ID"] == "stock-tv")
           assert (base/"hitel_stocktv_json_receipt.py").exists() == present
           print("PASS_NO_SHARED_OR_SCRIBD_BEHAVIOR_CHANGED",os.environ["HITEL_TASK_ID"],flush=True)
