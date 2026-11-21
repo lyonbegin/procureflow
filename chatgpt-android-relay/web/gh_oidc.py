@@ -223,3 +223,49 @@ def verify_isolated_worker_identity(raw_token: str) -> dict | None:
         return None
     except Exception:
         return None
+
+
+TASK_PRODUCER_AUDIENCE = "urn:lyonbegin:procureflow:hitel-isolated-task-submit"
+# Source ownership is fixed to the user-authorized GitHub repositories. A
+# public HTTP caller cannot submit expensive ChatGPT requests or impersonate
+# another task without an exact, signed GitHub Actions workflow identity.
+TASK_PRODUCER_WORKFLOWS = {
+    "stock-a": {
+        "repository":"lyonbegin/autonomous-investor-backend",
+        "repository_id":"1427623630",
+        "ref":"refs/heads/feature/hitel-a-kg-serial-20261119",
+        "workflow_ref":(
+            "lyonbegin/autonomous-investor-backend/.github/workflows/"
+            "stock-a-task-isolated-chrome.yml@"
+            "refs/heads/feature/hitel-a-kg-serial-20261119"),
+        "event_name":"workflow_dispatch",
+    },
+    "scribd-18109": {
+        "repository":"lyonbegin/hitel-scribd-runner",
+        "repository_id":"1455284203",
+        "ref":"refs/heads/main",
+        "workflow_ref":(
+            "lyonbegin/hitel-scribd-runner/.github/workflows/"
+            "hitel-public-ai-corpus.yml@refs/heads/main"),
+        "event_name":"workflow_dispatch",
+    },
+}
+
+
+def verify_isolated_task_producer(raw_token: str, task_id: str) -> bool:
+    """Prove an exact authorized project workflow owns this Railway task."""
+    expected=TASK_PRODUCER_WORKFLOWS.get(task_id)
+    if not expected or not isinstance(raw_token,str) or not 50<=len(raw_token)<=8192:
+        return False
+    try:
+        key=_jwk_client().get_signing_key_from_jwt(raw_token)
+        payload=jwt.decode(raw_token,key.key,algorithms=["RS256"],
+            audience=TASK_PRODUCER_AUDIENCE,issuer=ISSUER,leeway=15,
+            options={"require":["iss","aud","iat","nbf","exp","sub"]})
+        return (all(payload.get(k)==v for k,v in expected.items())
+                and payload.get("repository_owner_id")==OWNER_ID
+                and payload.get("runner_environment")=="github-hosted")
+    except (PyJWTError,ValueError,TypeError,OSError,TimeoutError):
+        return False
+    except Exception:
+        return False
