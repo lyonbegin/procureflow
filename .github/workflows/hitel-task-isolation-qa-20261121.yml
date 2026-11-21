@@ -1,0 +1,49 @@
+name: HITEL per-task independent worker regression QA
+on:
+  push:
+    branches: [feature/hitel-task-isolated-github-chrome-20261121]
+    paths: [.github/workflows/hitel-task-isolation-qa-20261121.yml]
+permissions:
+  contents: read
+jobs:
+  isolation-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install exact current Railway HTTP dependencies
+        run: python3 -m pip install -q -r chatgpt-android-relay/web/requirements.txt PyYAML
+      - name: Compile isolated task code and Chrome worker
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            chatgpt-android-relay/web/task_worker_isolation.py \
+            chatgpt-android-relay/web/gh_oidc.py \
+            chatgpt-android-relay/web/api_v1.py \
+            chatgpt-android-relay/web/app.py \
+            .github/scripts/hitel_web2api_worker.py \
+            .github/scripts/hitel_isolated_task_dispatcher.py
+      - name: Check no cross-task job claim or OIDC impersonation and no duplicate dispatch
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.github/scripts python3 .github/scripts/test_hitel_isolated_task_dispatcher.py
+          PYTHONPATH=chatgpt-android-relay/web python3 chatgpt-android-relay/web/tests/test_task_worker_isolation.py
+          PYTHONPATH=chatgpt-android-relay/web python3 chatgpt-android-relay/web/tests/test_integration_public.py
+      - name: Parse GitHub workflows and assert true independent concurrency
+        run: |
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          files=(".github/workflows/hitel-isolated-chrome-worker.yml",
+                 ".github/workflows/hitel-isolated-task-dispatcher.yml")
+          for f in files:
+              content=Path(f).read_text()
+              y=yaml.safe_load(content)
+              assert "jobs" in y
+              assert "on:" in content
+          worker=Path(files[0]).read_text()
+          assert 'hitel-independent-chrome-${{ inputs.task_id }}' in worker
+          assert 'RELAY_WS_URL: wss://' in worker and '/ws/task/${{ inputs.task_id }}' in worker
+          assert 'cancel-in-progress: false' in worker
+          print("PASS_INDEPENDENT_CHROME_WORKFLOW_SECURITY_AND_CONCURRENCY")
+          PY
