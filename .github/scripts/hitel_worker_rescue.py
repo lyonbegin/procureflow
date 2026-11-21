@@ -185,8 +185,45 @@ def monitor(api, status, runs, probe=lambda: railway_status(),
     return result
 
 
+def handoff_after_previous_session(api, parent_run_id):
+    """One successor for a finished worker, even when GitHub cron is delayed.
+
+    Called in a separate always-running follow-on GitHub job after the
+    Chrome owner job terminates (normally at the 4-hour boundary).
+    The parent workflow remains in_progress until this job exits, so
+    intentionally ignore the parent while detecting another worker.
+    """
+    if not str(parent_run_id).isdecimal():
+        raise ValueError("INVALID_PARENT_RUN_ID")
+    runs = list_worker_runs(api)
+    other = [r for r in runs if int(r["id"]) != int(parent_run_id)]
+    if any(r["status"] in ACTIVE for r in other):
+        return "successor_already_queued"
+    token = "rescue-after-" + str(parent_run_id)
+    if find_token(runs, token):
+        return "successor_already_dispatched"
+    payload = {"ref": "main", "inputs": {
+        "operation": "worker_only", "run_minutes": "240",
+        "rescue_token": token}}
+    code, _ = api.request("POST",
+        "actions/workflows/"+WORKFLOW+"/dispatches",payload)
+    print("WORKER_SESSION_HANDOFF_DISPATCH_HTTP",code,"PARENT",parent_run_id,
+          flush=True)
+    if code == 204:
+        return "successor_accepted"
+    if code in (500,502,503,504):
+        # No second POST. GitHub 5-min independent watchdog rechecks.
+        return "ambiguous_session_handoff_watchdog_will_recheck"
+    raise RuntimeError("WORKER_SESSION_HANDOFF_HTTP_"+str(code))
+
+
 def main():
     api = Github(os.environ["GH_TOKEN"],os.environ["GITHUB_REPOSITORY"])
+    if os.environ.get("HITEL_WORKER_AFTER_SESSION") == "1":
+        result = handoff_after_previous_session(
+            api, os.environ["GITHUB_RUN_ID"])
+        print("WORKER_AFTER_SESSION_RESULT",result,flush=True)
+        return 0
     status = railway_status()
     runs = list_worker_runs(api)
     result = monitor(api,status,runs)
