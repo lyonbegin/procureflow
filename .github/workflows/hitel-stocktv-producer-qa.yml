@@ -1,0 +1,24 @@
+name: HITEL | stock-tv isolated producer authorization QA
+on:
+  push:
+    branches: [feature/hitel-stocktv-producer-oidc-20261121]
+    paths:
+      - chatgpt-android-relay/web/gh_oidc.py
+      - chatgpt-android-relay/web/tests/test_stock_tv_task_producer_auth.py
+      - .github/workflows/hitel-stocktv-producer-qa.yml
+permissions:
+  contents: read
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install -q PyJWT==2.10.1 cryptography==44.0.2
+      - run: python3 -m py_compile chatgpt-android-relay/web/gh_oidc.py chatgpt-android-relay/web/tests/test_stock_tv_task_producer_auth.py
+      - run: |
+          cd chatgpt-android-relay/web
+          PYTHONPATH=. python3 -m unittest discover -s tests -p test_stock_tv_task_producer_auth.py -v
