@@ -8,6 +8,7 @@ Never send, retry, or cancel any ChatGPT request.
 """
 import json
 import os
+import urllib.error
 import urllib.request
 
 ROOT="https://hitel-integration-api-production.up.railway.app"
@@ -83,7 +84,18 @@ def main():
     import urllib.error
     token=os.environ["GH_TOKEN"]
     repo=os.environ["GITHUB_REPOSITORY"]
-    public=read_json(ROOT+"/integrations/v1/public/isolated/tasks/pending")
+    try:
+        public=read_json(ROOT+"/integrations/v1/public/isolated/tasks/pending")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (404,502,503,504):
+            # The Railway service may still be rolling out the additive API.
+            # This is not permission to launch a worker against an old relay.
+            print("WAIT_ISOLATED_TASK_API_ROLLOUT_HTTP",exc.code,flush=True)
+            return 0
+        raise
+    except (urllib.error.URLError,TimeoutError,OSError) as exc:
+        print("WAIT_ISOLATED_TASK_API_NETWORK",type(exc).__name__,flush=True)
+        return 0
     tasks=public.get("tasks",[])
     if len(tasks)!=len(TASKS) or set(x.get("task_id") for x in tasks)!=TASKS:
         raise ValueError("TASK_REGISTRY_MISMATCH_NO_DISPATCH")
