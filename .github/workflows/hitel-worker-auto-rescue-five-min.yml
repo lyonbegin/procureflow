@@ -7,6 +7,13 @@ on:
     branches: [main]
     paths: [.github/workflows/hitel-worker-auto-rescue-five-min.yml]
   workflow_dispatch:
+  # Cron can be delayed. Also check immediately when an existing signed
+  # Chrome worker finishes, fails, or is cancelled.
+  workflow_run:
+    workflows:
+      - HITEL - Start Chrome API worker (manual) / Verify owner pairing
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
