@@ -239,6 +239,15 @@ TASK_PRODUCER_WORKFLOWS = {
             "stock-a-task-isolated-chrome.yml@refs/heads/main"),
         "event_name":"workflow_dispatch",
     },
+    "stock-tv": {
+        "repository":"lyonbegin/autonomous-investor-backend",
+        "repository_id":"1427623630",
+        "ref":"refs/heads/main",
+        "workflow_ref":(
+            "lyonbegin/autonomous-investor-backend/.github/workflows/"
+            "stock-tv-task-isolated-research.yml@refs/heads/main"),
+        "event_name":"workflow_dispatch",
+    },
     "scribd-18109": {
         "repository":"lyonbegin/hitel-scribd-runner",
         "repository_id":"1455284203",
