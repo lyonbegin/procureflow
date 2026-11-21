@@ -14,13 +14,13 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Header
 from pydantic import BaseModel, Field
 
 import api_v1
 import integration_public as public
 import long_job_events
-from gh_oidc import verify_isolated_worker_identity
+from gh_oidc import verify_isolated_worker_identity, verify_isolated_task_producer
 
 router = APIRouter(tags=["HITEL independent task Chrome workers"])
 TASK_PATTERN = re.compile(r"^[a-z][a-z0-9-]{2,47}$")
@@ -125,13 +125,19 @@ def isolated_task_status(task_id: str):
 
 
 @router.post("/integrations/v1/public/isolated/tasks/{task_id}/chat",status_code=202)
-async def isolated_chat(task_id: str, payload: TaskChat):
+async def isolated_chat(task_id: str, payload: TaskChat,
+                        x_hitel_producer_oidc: str | None = Header(default=None)):
     """Public research-channel equivalent of /public/chat, but task fenced.
 
     The immutable request_id remains readable via the existing /public/requests
     and /public/jobs endpoints. No legacy worker can take a mapped task job.
     """
     task_id=normalized_task(task_id)
+    # The research producer is NOT an unauthenticated public chat user.
+    # A GitHub OIDC JWT must prove exactly this project's workflow and ref.
+    if not await asyncio.to_thread(
+            verify_isolated_task_producer,x_hitel_producer_oidc,task_id):
+        raise HTTPException(403,"Signed project workflow required")
     if not public.REQUEST_ID.fullmatch(payload.request_id):
         raise HTTPException(422,"Invalid immutable request ID")
     text=payload.text.strip()
