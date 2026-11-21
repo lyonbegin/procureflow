@@ -138,6 +138,32 @@ jobs:
           asyncio.run(check())
           print("PASS_WEB2API_DOM_VERIFIED_NEW_TURN_ZERO_PROJECTION_POLLS")
           PY
+      - name: Verify user-operated Web2API test page JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.active=False
+                  self.parts=[]
+              def handle_starttag(self,tag,attrs):
+                  if tag=="script" and not dict(attrs).get("src"):
+                      self.active=True
+              def handle_endtag(self,tag):
+                  if tag=="script": self.active=False
+              def handle_data(self,data):
+                  if self.active: self.parts.append(data)
+          page=Path("chatgpt-android-relay/web/static/web2api-test.html").read_text()
+          parser=Scripts()
+          parser.feed(page)
+          assert len(parser.parts)==1, "EXPECTED_ONE_INLINE_TEST_SCRIPT"
+          Path("/tmp/hitel-user-test.js").write_text(parser.parts[0],encoding="utf-8")
+          print("PASS_TEST_PAGE_SCRIPT_EXTRACTED",flush=True)
+          PY
+          node --check /tmp/hitel-user-test.js
+          echo PASS_WEB2API_MANUAL_TEST_PAGE_JAVASCRIPT_SYNTAX
       - name: Verify safe worker error classification
         run: python3 -m unittest discover -s .github/scripts -p test_safe_worker_error.py -v
       - name: Verify two durable agent sockets, cross-room isolation and read-only resume
