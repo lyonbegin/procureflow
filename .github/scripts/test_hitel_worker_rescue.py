@@ -10,7 +10,8 @@ def ts(minutes=0):
 
 
 def run(id=8,status="in_progress",minutes=20,title="normal"):
-    return {"id":id,"name":m.WORKER_NAME,
+    return {"id":id,"name":m.TITLE_PREFIX+title,
+            "path":".github/workflows/"+m.WORKFLOW,
             "status":status,"head_branch":"main",
             "display_title":m.TITLE_PREFIX+title,
             "created_at":ts(minutes)}
@@ -87,6 +88,13 @@ class WorkerRescueTests(unittest.TestCase):
             result=m.launch_existing_worker(api,"rescue-after-8")
         self.assertEqual(result,("already_dispatched",8))
         self.assertEqual(api.calls,[])
+    def test_worker_listing_recognizes_dynamic_run_name_by_immutable_path(self):
+        api=Fake([(200,{"workflow_runs":[run(11,"in_progress",8),
+             {"id":12,"name":"irrelevant","path":".github/workflows/other.yml",
+              "created_at":ts(2),"head_branch":"main"}]})])
+        actual=m.list_worker_runs(api)
+        self.assertEqual([x["id"] for x in actual],[11])
+
     def test_bad_worker_list_fails_closed(self):
         api=Fake([(500,None)])
         with self.assertRaisesRegex(RuntimeError,"DISCOVERY_HTTP_500"):
