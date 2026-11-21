@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import api_v1
+import app  # initialize genuine app modules before scoped DB connection mock
 import integration_public as p
 import long_job_events
 import task_worker_isolation as isolation
