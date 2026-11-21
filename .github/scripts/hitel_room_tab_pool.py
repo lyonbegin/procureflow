@@ -394,11 +394,12 @@ class RoomTabPool:
         # Linked, prewarmed research rooms cannot be displaced by new QA/temporary rooms.
         self._protected_rooms: set[str] = set()
         self._lock = asyncio.Lock()
-        self._stage_events: dict[str, tuple[int, str]] = {}
+        self._stage_events: dict[str, list[tuple[int, str]]] = {}
 
-    def stage_snapshot(self, room_id: str) -> tuple[int, str | None]:
-        """Read-only, bounded per-room stage. Not an HTTP completion guarantee."""
-        return self._stage_events.get(room_id, (0, None))
+    def stage_events_since(self, room_id: str, sequence: int) -> list[tuple[int, str]]:
+        """Return all new read-only milestones, never prompt content."""
+        return [event for event in self._stage_events.get(room_id, [])
+                if event[0] > sequence]
 
     async def _drain_safe_vendor_events(self, room_id: str, stream) -> None:
         """Drain ALL child output to avoid deadlock; expose ONLY literal stage tags.
@@ -421,8 +422,11 @@ class RoomTabPool:
                     continue
                 match = VENDOR_STAGE_PATTERN.search(raw.decode("utf-8", "replace"))
                 if match and match.group(1) in VENDOR_STAGES:
-                    prior = self._stage_events.get(room_id, (0, None))[0]
-                    self._stage_events[room_id] = (prior + 1, match.group(1))
+                    events = self._stage_events.setdefault(room_id, [])
+                    sequence = events[-1][0] + 1 if events else 1
+                    events.append((sequence, match.group(1)))
+                    if len(events) > 32:
+                        del events[:-32]
                     print("HITEL_VENDOR_SAFE_STAGE_" + match.group(1), flush=True)
 
     def pin(self, room_id: str) -> None:
