@@ -1,0 +1,33 @@
+name: HITEL Chrome worker independent 5-minute recovery
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-worker-auto-rescue-five-min.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: hitel-chrome-worker-watchdog-five-minute
+  cancel-in-progress: false
+
+jobs:
+  check-and-rescue:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and offline safe-fencing tests
+        run: |
+          python3 -m py_compile .github/scripts/hitel_worker_rescue.py .github/scripts/test_hitel_worker_rescue.py
+          PYTHONPATH=.github/scripts python3 .github/scripts/test_hitel_worker_rescue.py
+      - name: Recover ONLY disconnected Chrome worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/hitel_worker_rescue.py
