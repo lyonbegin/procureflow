@@ -491,5 +491,39 @@ class RoomTabIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(launched),1)
             await pool.close()
 
+
+class VendorSafeTelemetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_child_log_drained_without_leaking_private_text(self):
+        reader=asyncio.StreamReader()
+        reader.feed_data(
+            b"2026-11-21 private password=SECRET_X URL=https://chatgpt.com/c/secret\n"
+            b"INFO HITEL_W2A_STAGE=TYPE_VERIFIED\n"
+            b"INFO HITEL_W2A_STAGE=SEND_UI_ACKNOWLEDGED\n"
+            b"Raw prompt says secret=DO_NOT_REPORT\n"
+            b"INFO HITEL_W2A_STAGE=ASSISTANT_SEEN\n")
+        reader.feed_eof()
+        pool=RoomTabPool()
+        with patch("builtins.print") as out:
+            await pool._drain_safe_vendor_events(ROOM_A,reader)
+        self.assertEqual(
+            [stage for _,stage in pool.stage_events_since(ROOM_A,0)],
+            ["TYPE_VERIFIED","SEND_UI_ACKNOWLEDGED","ASSISTANT_SEEN"])
+        self.assertEqual(len(pool.stage_events_since(ROOM_A,2)),1)
+        emitted=" ".join(str(arg) for call in out.call_args_list
+                         for arg in call.args)
+        self.assertNotIn("SECRET_X",emitted)
+        self.assertNotIn("DO_NOT_REPORT",emitted)
+        self.assertNotIn("chatgpt.com",emitted)
+
+    async def test_untrusted_status_lines_cannot_escape(self):
+        reader=asyncio.StreamReader()
+        reader.feed_data(b"INFO HITEL_W2A_STAGE=LEAK_MY_SESSION\n")
+        reader.feed_eof()
+        pool=RoomTabPool()
+        with patch("builtins.print") as out:
+            await pool._drain_safe_vendor_events(ROOM_A,reader)
+        self.assertEqual(pool.stage_events_since(ROOM_A,0),[])
+        out.assert_not_called()
+
 if __name__=="__main__":
     unittest.main()
