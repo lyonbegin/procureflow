@@ -1,0 +1,29 @@
+name: HITEL Chrome five-minute rescue offline QA
+on:
+  push:
+    branches: [fix/hitel-worker-five-minute-auto-rescue-20261121]
+    paths: [.github/workflows/hitel-worker-auto-rescue-qa-20261121.yml]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/hitel_worker_rescue.py .github/scripts/test_hitel_worker_rescue.py
+          PYTHONPATH=.github/scripts python3 .github/scripts/test_hitel_worker_rescue.py
+          python3 -m pip install -q PyYAML
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          workflow=yaml.safe_load(Path(".github/workflows/hitel-worker-auto-rescue-five-min.yml").read_text())
+          assert "check-and-rescue" in workflow["jobs"]
+          content=Path(".github/workflows/hitel-integration-bridge-live-qa.yml").read_text()
+          assert "rescue_token" in content
+          assert "run-name: HITEL Chrome worker" in content
+          assert "cron: '*/5 * * * *'" in Path(".github/workflows/hitel-worker-auto-rescue-five-min.yml").read_text()
+          assert "cancel-in-progress: false" in content
+          print("PASS_CHROME_WORKER_AUTORESCUE_SOURCE_AND_WORKFLOWS",flush=True)
+          PY
