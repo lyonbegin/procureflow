@@ -75,7 +75,7 @@ def list_worker_runs(api):
         raise RuntimeError("WORKER_RUNS_DISCOVERY_HTTP_"+str(status))
     runs = [r for r in data.get("workflow_runs", [])
             if r.get("head_branch") == "main"
-            and r.get("name") == WORKER_NAME]
+            and r.get("path") == ".github/workflows/"+WORKFLOW]
     return sorted(runs, key=lambda r: r["created_at"], reverse=True)
 
 
