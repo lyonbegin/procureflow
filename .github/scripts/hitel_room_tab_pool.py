@@ -545,6 +545,8 @@ class RoomTabPool:
             # Persist in this worker even when readiness fails; unknown delivery
             # is not an invitation to replace this room with another tab.
             self._rooms[room_id] = slot
+            # A retired/recreated tab must never inherit a prior job's events.
+            self._stage_events[room_id] = []
             # Read concurrently; the vendor must never block on a full log pipe.
             # Fake/legacy subprocess handles without stdout remain supported.
             if getattr(process, "stdout", None) is not None:
