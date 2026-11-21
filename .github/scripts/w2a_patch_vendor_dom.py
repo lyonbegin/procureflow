@@ -167,3 +167,110 @@ _replace_projection_once(
     "STOP_READS_WHEN_DOM_ACTION_IS_VISIBLE",
 )
 print("PASS_VENDOR_DOM_ACTION_COMPLETION_NO_CONVERSATION_READ",flush=True)
+
+# Read-only recovery when the transcript projection is temporarily unavailable.
+# Retries are strictly observation-only; the user message is never re-sent.
+_replace_projection_once(
+    detector,
+    "        backend_observation_key = None\n        dom_confirmation_candidate = None\n",
+    "        backend_observation_key = None\n        backend_retry_at = 0.0\n        dom_confirmation_candidate = None\n",
+    "PROJECTION_RETRY_CLOCK",
+)
+_replace_projection_once(
+    detector,
+    "                and observation_key != backend_observation_key\n            ):",
+    "                and (observation_key != backend_observation_key\n                     or time.monotonic() >= backend_retry_at)\n                and time.monotonic() >= backend_retry_at\n            ):",
+    "PROJECTION_OBSERVATION_RETRY_GUARD",
+)
+_replace_projection_once(
+    detector,
+    "                backend_observation_key = observation_key\n                try:",
+    "                backend_observation_key = observation_key\n                backend_retry_at = time.monotonic() + 30.0\n                try:",
+    "PROJECTION_RETRY_BACKOFF",
+)
+
+# Vendor stdout/stderr will be consumed by the owning GitHub process, but
+# ONLY these literal milestones are allowed to leave that process.
+_replace_projection_once(
+    driver,
+    "            await self.type_message(text)\n            await self.click_send()\n",
+    "            print('HITEL_W2A_STAGE=TYPE_STARTED', flush=True)\n"
+    "            await self.type_message(text)\n"
+    "            print('HITEL_W2A_STAGE=TYPE_VERIFIED', flush=True)\n"
+    "            await self.click_send()\n"
+    "            print('HITEL_W2A_STAGE=SEND_DISPATCHED', flush=True)\n",
+    "SEND_STAGE_MARKERS",
+)
+_replace_projection_once(
+    driver,
+    "            if not captured_uuid:\n                try:\n                    acknowledged = await self._verify_send_acknowledged()\n",
+    "            acknowledged = None\n"
+    "            if not captured_uuid:\n"
+    "                try:\n"
+    "                    acknowledged = await self._verify_send_acknowledged()\n",
+    "ACK_TRI_STATE",
+)
+_replace_projection_once(
+    driver,
+    "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
+    "            if acknowledged is True:\n"
+    "                print('HITEL_W2A_STAGE=SEND_UI_ACKNOWLEDGED', flush=True)\n"
+    "            elif captured_uuid:\n"
+    "                print('HITEL_W2A_STAGE=SEND_REQUEST_OBSERVED', flush=True)\n"
+    "            else:\n"
+    "                print('HITEL_W2A_STAGE=SEND_UNCONFIRMED', flush=True)\n\n"
+    "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
+    "ACK_STAGE_MARKER",
+)
+_replace_projection_once(
+    detector,
+    '        logger.info("Assistant message appeared, waiting for completion...")\n',
+    '        logger.info("Assistant message appeared, waiting for completion...")\n'
+    "        print('HITEL_W2A_STAGE=ASSISTANT_SEEN', flush=True)\n",
+    "ASSISTANT_STAGE_MARKER",
+)
+_replace_projection_once(
+    detector,
+    '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n',
+    '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n'
+    "                    print('HITEL_W2A_STAGE=TURN_COMPLETED', flush=True)\n",
+    "COMPLETED_STAGE_MARKER",
+)
+print("PASS_VENDOR_SAFE_STAGE_MARKERS_AND_READ_ONLY_RETRY", flush=True)
+# Do not accept a completed action row from an unrelated earlier turn.
+# The exact newly rendered user message must agree with this send's anchor,
+# and the user-message count must exceed its pre-send baseline.
+_replace_projection_once(
+    detector,
+    "            if dom_candidate:\n"
+    "                if dom_confirmation_candidate == last_dom_text:\n",
+    "            if dom_candidate:\n"
+    "                try:\n"
+    "                    expected = getattr(turn_anchor, 'sent_text', None)\n"
+    "                    baseline_users = getattr(d, '_pre_send_user_count', None)\n"
+    "                    if not isinstance(expected, str) or baseline_users is None:\n"
+    "                        dom_candidate = False\n"
+    "                    else:\n"
+    "                        check_js = (\n"
+    "                            '(function(){'\n"
+    "                            \"var userMsgs=document.querySelectorAll('[data-message-author-role=\\\"user\\\"]');\"\n"
+    "                            'var count=userMsgs.length;'\n"
+    "                            'var last=count?(userMsgs[count-1].innerText||userMsgs[count-1].textContent||\\\"\\\"):\\\"\\\";'\n"
+    "                            'var norm=function(v){return v.replace(/\\\\r\\\\n?/g,\\\"\\\\n\\\").replace(/\\\\u00a0/g,\\\" \\\").normalize(\\\"NFC\\\").trim();};'\n"
+    "                            'return JSON.stringify({count:count,match:norm(last)===norm('\n"
+    "                            + json.dumps(expected) + ')});})()'\n"
+    "                        )\n"
+    "                        verified_user = json.loads(await d._js_strict(check_js))\n"
+    "                        dom_candidate = (\n"
+    "                            verified_user.get('count', 0) > baseline_users\n"
+    "                            and verified_user.get('match') is True\n"
+    "                        )\n"
+    "                except (ValueError, TypeError, KeyError, CDPJSError):\n"
+    "                    dom_candidate = False\n"
+    "            if dom_candidate:\n"
+    "                if dom_confirmation_candidate == last_dom_text:\n",
+    "CORRELATE_VISIBLE_USER_TO_ASSISTANT",
+)
+print("PASS_VENDOR_ASSISTANT_COMPLETION_REQUIRES_EXACT_NEW_USER", flush=True)
+
+
