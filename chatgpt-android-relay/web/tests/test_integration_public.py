@@ -67,6 +67,8 @@ class PublicNoLoginContract(unittest.TestCase):
         self.assertIn('id="stage"',html)
         self.assertIn('id="verdict"',html)
         self.assertIn("sessionStorage",html)
+        # An untouched idle page must allow the FIRST actual send.
+        self.assertIn("const unresolved=!!state&&!!state.request&&",html)
         self.assertIn("crypto.randomUUID()",html)
         self.assertIn('BASE+"/requests/"',html)
         self.assertIn('BASE+"/jobs/"',html)
