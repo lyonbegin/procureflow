@@ -95,6 +95,33 @@ class WorkerRescueTests(unittest.TestCase):
         actual=m.list_worker_runs(api)
         self.assertEqual([x["id"] for x in actual],[11])
 
+    def test_session_end_dispatches_exactly_one_successor(self):
+        run_self=run(123,"in_progress",240)
+        api=Fake([(200,{"workflow_runs":[run_self]}),(204,None)])
+        self.assertEqual(
+            m.handoff_after_previous_session(api,"123"),
+            "successor_accepted")
+        self.assertEqual(sum(c[0]=="POST" for c in api.calls),1)
+        self.assertEqual(api.calls[-1][2]["inputs"]["rescue_token"],
+                         "rescue-after-123")
+
+    def test_session_end_with_queued_successor_does_not_launch(self):
+        me=run(123,"in_progress",240)
+        next_run=run(124,"queued",1,"rescue-after-123")
+        api=Fake([(200,{"workflow_runs":[next_run,me]})])
+        self.assertEqual(
+            m.handoff_after_previous_session(api,"123"),
+            "successor_already_queued")
+        self.assertFalse(any(c[0]=="POST" for c in api.calls))
+
+    def test_session_end_ambiguous_500_never_reposts(self):
+        api=Fake([(200,{"workflow_runs":[run(123,"in_progress",240)]}),
+                  (500,None)])
+        self.assertEqual(
+            m.handoff_after_previous_session(api,"123"),
+            "ambiguous_session_handoff_watchdog_will_recheck")
+        self.assertEqual(sum(c[0]=="POST" for c in api.calls),1)
+
     def test_bad_worker_list_fails_closed(self):
         api=Fake([(500,None)])
         with self.assertRaisesRegex(RuntimeError,"DISCOVERY_HTTP_500"):
