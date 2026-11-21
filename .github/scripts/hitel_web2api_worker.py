@@ -277,7 +277,8 @@ def post_chat(text: str, cid: str | None) -> tuple[str,str]:
 
 
 async def process_job(job: dict[str, Any], account_preflight=None,
-                      adapter_pool: RoomTabPool | None = None) -> dict[str, Any]:
+                      adapter_pool: RoomTabPool | None = None,
+                      progress_cb=None) -> dict[str, Any]:
     """Return a server-protocol result, without leaking text into diagnostic logs."""
     jid = job.get("id")
     room_id = job.get("room_id")
@@ -335,16 +336,45 @@ async def process_job(job: dict[str, Any], account_preflight=None,
             raise AccountGateError("ACCOUNT_PREFLIGHT_UNAVAILABLE")
         await account_preflight(job,expected_email)
     if adapter_pool is not None:
+        if progress_cb is not None:
+            await progress_cb("web2api_account_preflight_complete")
         # A stable room-ID owns exactly one browser tab, via its own vendor
         # process and CDP target ID. Do not fall back to a shared tab on error.
         if target:
             # A new GitHub worker has no memory of the previous room tab.
             # Verify the saved target is visibly loaded before Web2API sends.
+            if progress_cb is not None:
+                await progress_cb("web2api_room_navigation_started")
             await adapter_pool.navigate_existing(
                 room_id,route_port,job.get("target_chatgpt_url") or "")
+            if progress_cb is not None:
+                await progress_cb("web2api_room_navigation_verified")
         api_url = await adapter_pool.endpoint(room_id, route_port)
-        answer, cid = await asyncio.to_thread(
-            post_chat_uri, content, target, api_url, internal_owned_room=True)
+        if progress_cb is not None:
+            await progress_cb("web2api_adapter_ready")
+            await progress_cb("web2api_local_request_started")
+        # Observe the one and only local POST while vendor CDP milestones arrive.
+        future = asyncio.create_task(asyncio.to_thread(
+            post_chat_uri, content, target, api_url, internal_owned_room=True))
+        last_sequence = 0
+        while not future.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(future), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
+            for sequence, stage in adapter_pool.stage_events_since(
+                    room_id, last_sequence):
+                last_sequence = sequence
+                if progress_cb is not None:
+                    await progress_cb("web2api_" + stage.lower())
+        for sequence, stage in adapter_pool.stage_events_since(
+                room_id, last_sequence):
+            last_sequence = sequence
+            if progress_cb is not None:
+                await progress_cb("web2api_" + stage.lower())
+        answer, cid = await future
+        if progress_cb is not None:
+            await progress_cb("web2api_adapter_reply_parsed")
     elif route_port == 9223:
         answer, cid = await asyncio.to_thread(
             post_chat_uri, content, target, CHAT_API_B)
@@ -457,9 +487,18 @@ async def run(max_seconds: int = 1500) -> None:
                                     "type":"job.received","job_id":jid,
                                     "room_id":rid,"stage":"web2api_received",
                                 }))
+                                async def report_progress(stage: str):
+                                    # Bounded stage names only. Never send
+                                    # account, question text, URLs or DOM data.
+                                    if not re.fullmatch(r"web2api_[a-z_]{3,60}", stage):
+                                        raise ValueError("UNSAFE_WEB2API_STAGE")
+                                    await socket.send(json.dumps({
+                                        "type":"job.progress", "job_id":jid,
+                                        "room_id":rid, "stage":stage,
+                                    }))
                                 result=await process_job(
                                     job,account_preflight=account_preflight,
-                                    adapter_pool=pool)
+                                    adapter_pool=pool,progress_cb=report_progress)
                             except asyncio.CancelledError:
                                 raise
                             except Exception as exc:
