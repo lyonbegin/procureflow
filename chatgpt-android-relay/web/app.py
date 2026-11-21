@@ -313,6 +313,22 @@ def public_chat_page():
     )
 
 
+@app.get("/integrations/test", include_in_schema=False)
+def web2api_user_test_page():
+    """Human-operated one-shot live Chrome test; no automatic ChatGPT send."""
+    return FileResponse(
+        ROOT / "static" / "web2api-test.html",
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control":"no-store, max-age=0",
+                 "X-Content-Type-Options":"nosniff",
+                 "Referrer-Policy":"no-referrer",
+                 "Content-Security-Policy":
+                    "default-src 'none'; script-src 'unsafe-inline'; "
+                    "style-src 'unsafe-inline'; connect-src 'self'; "
+                    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}
+    )
+
+
 @app.get("/integrations/worker", include_in_schema=False)
 def integration_worker_start_page():
     return FileResponse(
