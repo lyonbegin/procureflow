@@ -1,4 +1,6 @@
 name: HITEL independent task Chrome scheduler - five minutes
+# Initial verified task queue: stock-a is waiting; dispatch one dedicated Chrome.
+
 on:
   schedule:
     - cron: '*/5 * * * *'
