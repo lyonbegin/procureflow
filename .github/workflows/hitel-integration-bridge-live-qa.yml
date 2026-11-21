@@ -1,4 +1,5 @@
 name: HITEL - Start Chrome API worker (manual) / Verify owner pairing
+run-name: HITEL Chrome worker ${{ inputs.rescue_token || 'normal' }}
 
 # Start the consolidated runtime from this repository's default branch.
 # Reuse the existing registered account and signed relay; no schedule.
@@ -31,6 +32,10 @@ on:
           - "240"
       pairing_code:
         description: "Only needed to pair your HITEL browser; leave blank to start worker"
+        required: false
+        type: string
+      rescue_token:
+        description: 'Stable watchdog identity for deduplicated worker launch'
         required: false
         type: string
 
