@@ -1,0 +1,58 @@
+name: HITEL stock-tv-only Actions JSON local patch verification (temporary)
+on:
+  push:
+    branches: [fix/stocktv-action-json-completion-20261121]
+    paths:
+      - .github/workflows/hitel-stocktv-action-branch-qa-temporary.yml
+permissions:
+  contents: read
+jobs:
+  test-only-this-action:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify only stock-tv task mutates its local vendor completion path
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q pyyaml
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          p=Path(".github/workflows/hitel-isolated-chrome-worker.yml")
+          workflow=yaml.safe_load(p.read_text())
+          step=next(x for x in workflow["jobs"]["browser"]["steps"]
+                    if x.get("name")=="Run original Web2API local adapter with pinned DOM patch")
+          script=step["run"]
+          marker='if [[ "$HITEL_TASK_ID" == "stock-tv" ]]; then'
+          assert script.count(marker)==1
+          start=script.index(marker)
+          end=script.index("\nfi\n",start)+len("\nfi\n")
+          Path("/tmp/stocktv-action-only-guard.sh").write_text(script[start:end])
+          print("PASS_ONLY_STOCKTV_ACTION_CONDITIONAL_EXTRACTED",flush=True)
+          PY
+          ROOT="$RUNNER_TEMP/vendor-source"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT"
+          git -C "$ROOT" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT"
+          python3 .github/scripts/w2a_patch_vendor_composer_20261120.py "$ROOT"
+          for TASK in stock-a scribd-18109 stock-tv; do
+            T="$RUNNER_TEMP/qa-$TASK"
+            mkdir -p "$T/w2a-check"
+            cp -a "$ROOT" "$T/w2a-check/original"
+            HITEL_TASK_ID="$TASK" RUNNER_TEMP="$T" bash -e /tmp/stocktv-action-only-guard.sh
+            HITEL_TASK_ID="$TASK" RUNNER_TEMP="$T" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          base=Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api"
+          detector=(base/"completion_detector.py").read_text()
+          present="STOCKTV_VALIDATED_JSON_RECEIVED" in detector
+          assert present == (os.environ["HITEL_TASK_ID"] == "stock-tv")
+          assert (base/"hitel_stocktv_json_receipt.py").exists() == present
+          print("PASS_NO_SHARED_OR_SCRIBD_BEHAVIOR_CHANGED",os.environ["HITEL_TASK_ID"],flush=True)
+          PY
+          done
+          echo "PASS_GITHUB_ACTION_STOCKTV_ONLY_NO_CHATGPT_SEND"
