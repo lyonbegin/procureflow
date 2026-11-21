@@ -66,7 +66,7 @@ jobs:
                       "() => document.getElementById('worker').textContent.includes('heartbeat 정상')",
                       timeout=20000)
                   print("PASS_TEST_CONSOLE_AND_REAL_CHROME_WORKER_READY",flush=True)
-          assert page.locator("#send").is_enabled(),"INITIAL_TEST_SEND_BUTTON_DISABLED"
+                  assert page.locator("#send").is_enabled(),"INITIAL_TEST_SEND_BUTTON_DISABLED"
 
                   # Exactly one POST happens from this single genuine UI click.
                   # Never call click again, even when the result is unknown.
