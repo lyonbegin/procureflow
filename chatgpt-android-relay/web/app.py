@@ -703,7 +703,16 @@ async def socket(ws: WebSocket):
                             api_v1.update_job(jid, stage=stage)
                             if role=="web2api":
                                 long_job_events.observe(
-                                    jid,"worker_received" if kind=="job.received" else stage)
+                                    jid,"worker_received" if kind=="job.received" else stage,
+                                    # UI acknowledgment is not an upstream HTTP
+                                    # acceptance receipt; only mark the matching
+                                    # user's rendered send as observed.
+                                    send_confirmed=(stage=="web2api_send_ui_acknowledged"),
+                                    reply_observed=(stage in {
+                                        "web2api_assistant_seen",
+                                        "web2api_turn_completed",
+                                        "web2api_adapter_reply_parsed",
+                                    }))
                             await broadcast(event(kind, job_id=jid, stage=stage))
                             integration_agent_stream.notify_job_changed(jid)
                         else:
