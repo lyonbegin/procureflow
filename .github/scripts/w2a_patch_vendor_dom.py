@@ -274,3 +274,24 @@ _replace_projection_once(
 print("PASS_VENDOR_ASSISTANT_COMPLETION_REQUIRES_EXACT_NEW_USER", flush=True)
 
 
+
+
+# STOCK-TV ONLY: a complete JSON response matching the ten source identities
+# is sufficient. No Stop/copy button, thinking label, steady-text observation
+# or visible user-message echo is needed after that JSON has been received.
+# All other tasks retain the original vendor completion detector.
+json_gate = "            # ── Completion detection ─────────────────────────────────────\n"
+json_fast_path = (
+    "            # Stock TV research: validate the RECEIVED answer JSON only.\n"
+    "            from hitel_stocktv_json_receipt import matches_stocktv_research_json\n"
+    "            if matches_stocktv_research_json(\n"
+    "                current, getattr(turn_anchor, 'sent_text', None)\n"
+    "            ):\n"
+    "                self.dom_completion_verified = True\n"
+    "                logger.info('STOCKTV_VALIDATED_JSON_RECEIVED')\n"
+    "                print('HITEL_W2A_STAGE=TURN_COMPLETED', flush=True)\n"
+    "                break\n"
+    "            # ── Completion detection ─────────────────────────────────────\n"
+)
+_replace_projection_once(detector, json_gate, json_fast_path, "STOCK_TV_JSON_RECEIPT_ONLY")
+print("PASS_STOCKTV_VALID_JSON_DIRECT_COMPLETION_NO_UI_GATES", flush=True)
