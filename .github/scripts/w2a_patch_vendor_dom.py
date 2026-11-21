@@ -167,3 +167,74 @@ _replace_projection_once(
     "STOP_READS_WHEN_DOM_ACTION_IS_VISIBLE",
 )
 print("PASS_VENDOR_DOM_ACTION_COMPLETION_NO_CONVERSATION_READ",flush=True)
+
+# Read-only recovery when the transcript projection is temporarily unavailable.
+# Retries are strictly observation-only; the user message is never re-sent.
+_replace_projection_once(
+    detector,
+    "        backend_observation_key = None\n        dom_confirmation_candidate = None\n",
+    "        backend_observation_key = None\n        backend_retry_at = 0.0\n        dom_confirmation_candidate = None\n",
+    "PROJECTION_RETRY_CLOCK",
+)
+_replace_projection_once(
+    detector,
+    "                and observation_key != backend_observation_key\n            ):",
+    "                and (observation_key != backend_observation_key\n                     or time.monotonic() >= backend_retry_at)\n                and time.monotonic() >= backend_retry_at\n            ):",
+    "PROJECTION_OBSERVATION_RETRY_GUARD",
+)
+_replace_projection_once(
+    detector,
+    "                backend_observation_key = observation_key\n                try:",
+    "                backend_observation_key = observation_key\n                backend_retry_at = time.monotonic() + 30.0\n                try:",
+    "PROJECTION_RETRY_BACKOFF",
+)
+
+# Vendor stdout/stderr will be consumed by the owning GitHub process, but
+# ONLY these literal milestones are allowed to leave that process.
+_replace_projection_once(
+    driver,
+    "            await self.type_message(text)\n            await self.click_send()\n",
+    "            logger.info('HITEL_W2A_STAGE=TYPE_STARTED')\n"
+    "            await self.type_message(text)\n"
+    "            logger.info('HITEL_W2A_STAGE=TYPE_VERIFIED')\n"
+    "            await self.click_send()\n"
+    "            logger.info('HITEL_W2A_STAGE=SEND_DISPATCHED')\n",
+    "SEND_STAGE_MARKERS",
+)
+_replace_projection_once(
+    driver,
+    "            if not captured_uuid:\n                try:\n                    acknowledged = await self._verify_send_acknowledged()\n",
+    "            acknowledged = None\n"
+    "            if not captured_uuid:\n"
+    "                try:\n"
+    "                    acknowledged = await self._verify_send_acknowledged()\n",
+    "ACK_TRI_STATE",
+)
+_replace_projection_once(
+    driver,
+    "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
+    "            if acknowledged is True:\n"
+    "                logger.info('HITEL_W2A_STAGE=SEND_UI_ACKNOWLEDGED')\n"
+    "            elif captured_uuid:\n"
+    "                logger.info('HITEL_W2A_STAGE=SEND_REQUEST_OBSERVED')\n"
+    "            else:\n"
+    "                logger.info('HITEL_W2A_STAGE=SEND_UNCONFIRMED')\n\n"
+    "            # A2 Step 7: build the final anchor (fallback + captured UUID).\n",
+    "ACK_STAGE_MARKER",
+)
+_replace_projection_once(
+    detector,
+    '        logger.info("Assistant message appeared, waiting for completion...")\n',
+    '        logger.info("Assistant message appeared, waiting for completion...")\n'
+    "        logger.info('HITEL_W2A_STAGE=ASSISTANT_SEEN')\n",
+    "ASSISTANT_STAGE_MARKER",
+)
+_replace_projection_once(
+    detector,
+    '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n',
+    '                    logger.info("DOM_VERIFIED_NEW_ASSISTANT_COMPLETED")\n'
+    "                    logger.info('HITEL_W2A_STAGE=TURN_COMPLETED')\n",
+    "COMPLETED_STAGE_MARKER",
+)
+print("PASS_VENDOR_SAFE_STAGE_MARKERS_AND_READ_ONLY_RETRY", flush=True)
+
