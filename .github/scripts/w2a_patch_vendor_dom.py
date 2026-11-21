@@ -237,4 +237,40 @@ _replace_projection_once(
     "COMPLETED_STAGE_MARKER",
 )
 print("PASS_VENDOR_SAFE_STAGE_MARKERS_AND_READ_ONLY_RETRY", flush=True)
+# Do not accept a completed action row from an unrelated earlier turn.
+# The exact newly rendered user message must agree with this send's anchor,
+# and the user-message count must exceed its pre-send baseline.
+_replace_projection_once(
+    detector,
+    "            if dom_candidate:\n"
+    "                if dom_confirmation_candidate == last_dom_text:\n",
+    "            if dom_candidate:\n"
+    "                try:\n"
+    "                    expected = getattr(turn_anchor, 'sent_text', None)\n"
+    "                    baseline_users = getattr(d, '_pre_send_user_count', None)\n"
+    "                    if not isinstance(expected, str) or baseline_users is None:\n"
+    "                        dom_candidate = False\n"
+    "                    else:\n"
+    "                        check_js = (\n"
+    "                            '(function(){'\n"
+    "                            \"var userMsgs=document.querySelectorAll('[data-message-author-role=\\\"user\\\"]');\"\n"
+    "                            'var count=userMsgs.length;'\n"
+    "                            'var last=count?(userMsgs[count-1].innerText||userMsgs[count-1].textContent||\\\"\\\"):\\\"\\\";'\n"
+    "                            'var norm=function(v){return v.replace(/\\\\r\\\\n?/g,\\\"\\\\n\\\").replace(/\\\\u00a0/g,\\\" \\\").normalize(\\\"NFC\\\").trim();};'\n"
+    "                            'return JSON.stringify({count:count,match:norm(last)===norm('\n"
+    "                            + json.dumps(expected) + ')});})()'\n"
+    "                        )\n"
+    "                        verified_user = json.loads(await d._js_strict(check_js))\n"
+    "                        dom_candidate = (\n"
+    "                            verified_user.get('count', 0) > baseline_users\n"
+    "                            and verified_user.get('match') is True\n"
+    "                        )\n"
+    "                except (ValueError, TypeError, KeyError, CDPJSError):\n"
+    "                    dom_candidate = False\n"
+    "            if dom_candidate:\n"
+    "                if dom_confirmation_candidate == last_dom_text:\n",
+    "CORRELATE_VISIBLE_USER_TO_ASSISTANT",
+)
+print("PASS_VENDOR_ASSISTANT_COMPLETION_REQUIRES_EXACT_NEW_USER", flush=True)
+
 
