@@ -1,0 +1,272 @@
+name: HITEL per-task independent Chrome (one GitHub runner per task)
+run-name: HITEL isolated Chrome ${{ inputs.task_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Existing Railway task ID; independent VM, browser and profile"
+        required: true
+        type: choice
+        options: [stock-a, stock-tv, scribd-18109]
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+
+concurrency:
+  group: hitel-independent-chrome-${{ inputs.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  browser:
+    name: Independent GitHub VM Chrome profile and task socket
+    runs-on: ubuntu-24.04
+    timeout-minutes: 290
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FREEMOA_GOOGLE_PASSWORD: ${{ secrets.FREEMOA_GOOGLE_PASSWORD }}
+      DISPLAY: :99
+      HITEL_TASK_ID: ${{ inputs.task_id }}
+      RELAY_WS_URL: wss://hitel-integration-api-production.up.railway.app/ws/task/${{ inputs.task_id }}
+      PYTHONPATH: .github/scripts
+      PYTHONUNBUFFERED: "1"
+      W2A_WORKER_SECONDS: "14400"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: false
+
+      - name: Restore pre-registered encrypted account 1
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q cryptography==44.0.2 playwright==1.56.0 websockets==13.1
+          # GitHub ubuntu-24.04 image already provides Xvfb. Reinstalling
+          # unrelated Mesa/GBM packages made the previously signed Chrome
+          # worker fail whenever the Ubuntu mirror briefly timed out.
+          if ! command -v Xvfb >/dev/null 2>&1; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb
+          fi
+          command -v Xvfb
+          ROOT="$RUNNER_TEMP/w2a-check"
+          mkdir -p "$ROOT/download"
+          RUN_ID="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hitel-chatgpt-encrypted-multi-profiles&per_page=50" \
+            --jq '[.artifacts[]|select(.expired==false)]|sort_by(.created_at)|reverse|.[0].workflow_run.id // empty')"
+          test -n "$RUN_ID"
+          # GitHub's artifact ZIP gateway occasionally returns HTTP 503.
+          # Retry ONLY this read-only artifact download; never re-send a
+          # ChatGPT question or alter an account/profile.
+          for attempt in $(seq 1 8); do
+            if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name hitel-chatgpt-encrypted-multi-profiles --dir "$ROOT/download" >/dev/null 2>&1; then
+              echo PASS_ENCRYPTED_PROFILE_ARTIFACT_DOWNLOADED
+              break
+            fi
+            if [[ "$attempt" == "8" ]]; then
+              echo FAIL_GITHUB_PROFILE_ARTIFACT_DOWNLOAD_503_OR_UNAVAILABLE
+              exit 1
+            fi
+            echo RETRY_ONLY_ARTIFACT_READ_ATTEMPT=$attempt
+            sleep 10
+          done
+          test -s "$ROOT/download/registry.bin"
+          test -s "$ROOT/download/account-0001.bin"
+          python3 .github/scripts/w2a_profile_crypto.py restore \
+            "$ROOT/download/account-0001.bin" "$ROOT"
+          test -d "$ROOT/chrome-profile"
+          echo PASS_EXISTING_REGISTERED_CHROME_ACCOUNT_RESTORED
+
+      - name: Start real logged-in Chrome, assert session and registry email match
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          Xvfb :99 -screen 0 1440x900x24 -nolisten tcp >"$ROOT/xvfb.log" 2>&1 &
+          sleep 3
+          test -S /tmp/.X11-unix/X99
+          "$CHROME_BINARY" --no-sandbox --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$ROOT/chrome-profile" \
+            https://chatgpt.com/ >"$ROOT/chrome.log" 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+              echo PASS_LIVE_CHROME_CDP_READY
+              break
+            fi
+            if [ "$i" -eq 45 ]; then echo FAIL_CHROME_CDP_START; exit 1; fi
+            sleep 2
+          done
+          python3 .github/scripts/w2a_verify_saved_registry.py
+          echo PASS_ACCOUNT_1_LIVE_IDENTITY_REGISTRY_MATCH
+
+      - name: Run original Web2API local adapter with pinned DOM patch
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/w2a-check"
+          git clone -q https://github.com/MartinezS8/chatgpt-web2api.git "$ROOT/original"
+          git -C "$ROOT/original" checkout -q 497527dceabfa3f95961e23c291e618c5570f1ac
+          python3 .github/scripts/w2a_patch_vendor_dom.py "$ROOT/original"
+          python3 .github/scripts/w2a_patch_vendor_composer_20261120.py "$ROOT/original"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          source=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/api_server.py").read_text()
+          assert 'new_conversation = body.get("new_conversation") is True' in source, "NEW_ROOM_FORCE_NEW_CHAT_PATCH_MISSING"
+          assert '"code": type(exc).__name__' in source, "VENDOR_SAFE_ERROR_CLASS_PATCH_MISSING"
+          assert 'await self._driver.ensure_current_conversation(conversation_id)' in source, "VENDOR_NO_RELOAD_PATCH_MISSING"
+          assert 'self._driver._current_conv_id = conversation_id' in source, "VENDOR_ROOM_BINDING_PATCH_MISSING"
+          print("PASS_PINNED_VENDOR_CURRENT_PATCH_VERIFIED")
+          detector=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/completion_detector.py").read_text()
+          assert "DOM_VERIFIED_NEW_ASSISTANT_COMPLETED" in detector, "WEB2API_DOM_PROOF_PATCH_MISSING"
+          assert "backend_observation_key" in detector, "WEB2API_PROJECTION_POLL_PATCH_MISSING"
+          assert "backend_retry_at" in detector, "WEB2API_READ_ONLY_RETRY_MISSING"
+          assert "verified_user.get('match') is True" in detector, "WEB2API_NEW_USER_CORRELATION_MISSING"
+          assert "HITEL_W2A_STAGE=ASSISTANT_SEEN" in detector, "WEB2API_BROWSER_STAGE_MISSING"
+          assert "time.monotonic() - last_backend_check > 3.0" not in detector, "WEB2API_PROJECTION_READ_STORM_NOT_REMOVED"
+          assert "and not has_action" in detector, "WEB2API_DOM_ACTION_READ_SUPPRESSION_MISSING"
+          driver=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/cdp_driver.py").read_text()
+          assert "self._completion.dom_completion_verified" in driver, "WEB2API_REDUNDANT_RECONCILIATION_NOT_REMOVED"
+          assert "HITEL_W2A_STAGE=SEND_DISPATCHED" in driver, "WEB2API_SEND_STAGE_MISSING"
+          assert "full_text = await _send_and_collect()  # no automatic resend" in source, "WEB2API_SEND_REPLAY_NOT_DISABLED"
+          print("PASS_INSTALLED_WEB2API_DOM_PROJECTION_READ_FIX_NO_CHAT_SEND_RETRY")
+          PY
+          # This is an actual, source-pinned Web2API config path. The old
+          # built-in request=120s and detector=90/120s prematurely failed
+          # valid long reasoning generations. Wait for verified end_turn or
+          # an explicit upstream failure; never fail simply after 150s.
+          # The GitHub Actions job lifetime remains the outer guard.
+          mkdir -p "$HOME/.chatgpt_web2api"
+          cat > "$HOME/.chatgpt_web2api/config.json" <<'W2A_WAIT_JSON'
+          {
+            "request_timeout": 14400,
+            "tab_mode": "owned",
+            "parallel_tabs": true,
+            "detector_reasoning_first_content_timeout_seconds": 14400,
+            "detector_reasoning_stream_idle_timeout_seconds": 14400,
+            "detector_default_first_content_timeout_seconds": 14400,
+            "detector_default_stream_idle_timeout_seconds": 14400,
+            "detector_hard_timeout_seconds": 14400
+          }
+          W2A_WAIT_JSON
+          # Assert the exact runnable source contains the confirmed live
+          # ChatGPT role=textbox composer selector after both pinned patches.
+          python3 - <<'W2A_SELECTOR_CHECK'
+          from pathlib import Path
+          import os
+          p=Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/chatgpt_dom.py"
+          source=p.read_text("utf-8")
+          if source.count('[role="textbox"][contenteditable="true"]')!=1:
+              raise SystemExit("FAIL_RUNTIME_EDITOR_SELECTOR_NOT_INSTALLED")
+          print("PASS_CURRENT_LIVE_EDITOR_SELECTOR_PRESENT_IN_INSTALLED_VENDOR_SOURCE")
+          W2A_SELECTOR_CHECK
+          python3 -m pip install -q "$ROOT/original"
+          python3 - <<'W2A_WAIT_CHECK'
+          from chatgpt_web2api.config import Config
+          cfg = Config.load()
+          assert cfg.server.request_timeout >= 600, "UPSTREAM_HTTP_WAIT_BELOW_10_MIN"
+          assert cfg.chatgpt.detector_default_first_content_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_reasoning_first_content_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_default_stream_idle_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_reasoning_stream_idle_timeout_seconds >= 600
+          assert cfg.chatgpt.detector_hard_timeout_seconds >= 600
+          assert cfg.chatgpt.tab_mode == 'owned'
+          assert cfg.chatgpt.parallel_tabs is True
+          print("PASS_CHATGPT_ORIGINAL_WEB2API_LONG_RUNNING_WAIT_CONFIG")
+          W2A_WAIT_CHECK
+          # Per-room vendor instances are started by the authenticated worker,
+          # not by the workflow. No shared singleton browser tab in normal mode.
+          if [[ "${{ inputs.operation }}" == "verify_or_pair" ]]; then
+            chatgpt-web2api --port 18080 --host 127.0.0.1 --cdp-port 9222 \
+              >"$ROOT/web2api.log" 2>&1 &
+            for i in $(seq 1 50); do
+              if curl -fsS --max-time 5 http://127.0.0.1:18080/health >/dev/null 2>&1; then
+                echo PASS_PAIRING_ONLY_LOCAL_WEB2API_HEALTH
+                break
+              fi
+              if [ "$i" -eq 50 ]; then echo FAIL_PAIRING_LOCAL_WEB2API_START; exit 1; fi
+              sleep 2
+            done
+          else
+            echo PASS_LAZY_PER_ROOM_OWNED_TAB_WORKER_CONFIGURATION
+          fi
+
+      - name: Connect signed task worker; verify Railway task owner (not legacy /ws)
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/hitel_web2api_worker.py .github/scripts/hitel_room_tab_pool.py
+          date +%s >"$RUNNER_TEMP/bridge-worker.started-at"
+          python3 .github/scripts/hitel_web2api_worker.py >"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/bridge-worker.pid"
+          for i in $(seq 1 180); do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/bridge-worker.pid")" 2>/dev/null; then
+              grep -E 'RELAY_|FAIL_|Traceback|RuntimeError' "$RUNNER_TEMP/bridge-worker.log" | tail -n 30 || true
+              echo FAIL_ISOLATED_SIGNED_WORKER_BOOTSTRAP
+              exit 1
+            fi
+            if grep -q 'PASS_AUTHENTICATED_ROOM_TAB_PREWARM=0/0' "$RUNNER_TEMP/bridge-worker.log"; then
+              STATE="$(curl --max-time 8 -fsS "https://hitel-integration-api-production.up.railway.app/integrations/v1/public/isolated/tasks/$HITEL_TASK_ID/status" |
+                python3 -c 'import json,sys,os; s=json.load(sys.stdin); print(int(s.get("worker_bootstrap_ready") is True and s.get("task_id")==os.environ["HITEL_TASK_ID"]))' 2>/dev/null || echo 0)"
+              if [[ "$STATE" == "1" ]]; then
+                echo "PASS_ISOLATED_CHROME_TASK_CONNECTED=$HITEL_TASK_ID"
+                break
+              fi
+            fi
+            if ((i == 180)); then
+              tail -n 40 "$RUNNER_TEMP/bridge-worker.log" | grep -E 'RELAY_|FAIL_|PASS_' || true
+              echo FAIL_TASK_CHROME_NOT_AUTHENTICATED
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Keep only this task Chrome alive
+        run: |
+          set -euo pipefail
+          PID="$(cat "$RUNNER_TEMP/bridge-worker.pid")"
+          START="$(cat "$RUNNER_TEMP/bridge-worker.started-at")"
+          MISSED=0
+          RESTARTS=0
+          while (( $(date +%s) - START < 14360 )); do
+            HEALTH="$(curl --max-time 8 -fsS "https://hitel-integration-api-production.up.railway.app/integrations/v1/public/isolated/tasks/$HITEL_TASK_ID/status" |
+              python3 -c 'import json,sys,os; s=json.load(sys.stdin); print(int(s.get("worker_connected") is True and s.get("task_id")==os.environ["HITEL_TASK_ID"]))' 2>/dev/null || echo 0)"
+            if [[ "$HEALTH" == "1" ]] && kill -0 "$PID" 2>/dev/null; then MISSED=0; else MISSED=$((MISSED+1)); fi
+            if ((MISSED >= 3)); then
+              STATE="$(curl --max-time 8 -fsS "https://hitel-integration-api-production.up.railway.app/integrations/v1/public/isolated/tasks/$HITEL_TASK_ID/status" || echo '')"
+              COUNT="$(printf '%s' "$STATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["worker_active_jobs_count"])' 2>/dev/null || echo UNKNOWN)"
+              if [[ "$COUNT" != "0" ]]; then
+                echo "PRESERVE_ACTIVE_OR_UNCERTAIN_TASK_AI_REQUEST=$COUNT"
+                sleep 15
+                continue
+              fi
+              if ((RESTARTS >= 4)); then echo FAIL_ISOLATED_CHROME_RECOVERY_EXHAUSTED; exit 1; fi
+              echo "REBOOT_ONLY_THIS_TASK_CHROME=$HITEL_TASK_ID"
+              kill "$PID" 2>/dev/null || true
+              sleep 3
+              python3 .github/scripts/hitel_web2api_worker.py >>"$RUNNER_TEMP/bridge-worker.log" 2>&1 &
+              PID="$!"
+              echo "$PID" >"$RUNNER_TEMP/bridge-worker.pid"
+              RESTARTS=$((RESTARTS+1))
+              MISSED=0
+              sleep 25
+            else sleep 15; fi
+          done
+
+      - name: Scrubbed task-specific evidence
+        if: always()
+        run: |
+          echo "Independent task: $HITEL_TASK_ID" >> "$GITHUB_STEP_SUMMARY"
+          if test -f "$RUNNER_TEMP/bridge-worker.log"; then
+            grep -E 'PASS_GITHUB_OIDC_RELAY_WEBSOCKET_CONNECTED|PASS_RELAY_WEB2API_JOB_RESULT_VERIFIED|RELAY_CONNECTION_INTERRUPTED|FAIL_' \
+                "$RUNNER_TEMP/bridge-worker.log" | tail -n 25 >> "$GITHUB_STEP_SUMMARY" || true
+          fi

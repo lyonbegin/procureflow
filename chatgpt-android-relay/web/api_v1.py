@@ -93,6 +93,14 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_file_room ON file_objects(room_id, created_at);
         """)
+        # Task isolation mapping must exist even when api_v1 is imported
+        # alone by legacy integration tests (before the task router).
+        c.execute("""CREATE TABLE IF NOT EXISTS hitel_isolated_job_map (
+            job_id TEXT PRIMARY KEY,task_id TEXT NOT NULL,
+            room_id TEXT NOT NULL,created_at INTEGER NOT NULL
+        )""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_hitel_isolated_jobs
+            ON hitel_isolated_job_map(task_id,created_at)""")
         # Preserve all previously created Railway rooms when adding direct
         # ChatGPT conversation URLs. The database lives on a Railway volume.
         columns={row[1] for row in c.execute("PRAGMA table_info(rooms)")}
@@ -776,7 +784,8 @@ def fail_queued_jobs_with_unavailable_files():
 def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = False,
                    allow_account_bound: bool = True,
                    web_text_only: bool = False,
-                   min_created_at: int | None = None):
+                   min_created_at: int | None = None,
+                   task_id: str | None = None):
     """Atomically claim ONE queued job, never a second active job in its room.
 
     The web worker can process multiple *different* rooms concurrently but
@@ -790,6 +799,15 @@ def claim_next_job(only_user_id: str | None = None, public_trial_only: bool = Fa
             " WHERE busy.room_id=jobs.room_id AND busy.status IN ('running','unknown','stalled'))",
         ]
         args = []
+        if task_id is None:
+            # Existing shared Chrome and Android dispatch MUST NOT claim
+            # jobs assigned to the new per-task isolated worker channel.
+            filters.append("NOT EXISTS (SELECT 1 FROM hitel_isolated_job_map m"
+                           " WHERE m.job_id=jobs.id)")
+        else:
+            filters.append("EXISTS (SELECT 1 FROM hitel_isolated_job_map m"
+                           " WHERE m.job_id=jobs.id AND m.task_id=?)")
+            args.append(task_id)
         if not allow_account_bound:
             filters.append("account_id IS NULL")
         if web_text_only:

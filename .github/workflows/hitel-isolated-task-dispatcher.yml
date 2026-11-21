@@ -1,0 +1,39 @@
+name: HITEL independent task Chrome scheduler - five minutes
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  push:
+    branches: [main]
+    paths: [.github/workflows/hitel-isolated-task-dispatcher.yml]
+  workflow_run:
+    workflows:
+      - HITEL per-task independent Chrome (one GitHub runner per task)
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: hitel-task-id-isolation-scheduler-five-min
+  cancel-in-progress: false
+
+jobs:
+  schedule-task-chromes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax and task dispatch safety checks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/hitel_isolated_task_dispatcher.py
+          python3 .github/scripts/test_hitel_isolated_task_dispatcher.py
+      - name: Check Railway pending task jobs and start exactly one worker per task
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/hitel_isolated_task_dispatcher.py

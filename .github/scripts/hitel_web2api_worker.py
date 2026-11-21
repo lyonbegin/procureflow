@@ -409,8 +409,12 @@ async def process_job(job: dict[str, Any], account_preflight=None,
 def ws_destination() -> str:
     url = os.environ.get("RELAY_WS_URL", "wss://" + RELAY_HOST + "/ws")
     parsed = urllib.parse.urlsplit(url)
+    task=os.environ.get("HITEL_TASK_ID","").strip()
+    approved_path="/ws/task/"+task if re.fullmatch(r"[a-z][a-z0-9-]{2,47}",task) else "/ws"
+    if task and approved_path=="/ws":
+        raise RuntimeError("REFUSE_INVALID_TASK_ISOLATION_ID")
     if (parsed.scheme != "wss" or parsed.hostname != RELAY_HOST or
-            parsed.port not in (None, 443) or parsed.path != "/ws" or
+            parsed.port not in (None, 443) or parsed.path != approved_path or
             parsed.query or parsed.fragment or parsed.username or parsed.password):
         raise RuntimeError("REFUSE_UNTRUSTED_RELAY_URL")
     return url
@@ -455,6 +459,7 @@ async def run(max_seconds: int = 1500) -> None:
                     await socket.send(json.dumps({
                         "role":"web2api","deviceId":"web2api-main",
                         "oidc_token":token,
+                        "task_id":os.environ.get("HITEL_TASK_ID") or None,
                         "hitel_protocol_version":4,
                     }))
                     first = json.loads(await asyncio.wait_for(socket.recv(),timeout=20))

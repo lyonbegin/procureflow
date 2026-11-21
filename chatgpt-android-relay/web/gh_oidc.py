@@ -183,3 +183,88 @@ def verify_pairing_identity(raw_token: str) -> bool:
         return False
     except Exception:
         return False
+
+
+ISOLATED_WORKER_WORKFLOW_REF = (
+    "lyonbegin/procureflow/.github/workflows/"
+    "hitel-isolated-chrome-worker.yml@refs/heads/main"
+)
+
+
+def verify_isolated_worker_identity(raw_token: str) -> dict | None:
+    """OIDC-bound task worker identity; never authorize the shared /ws route.
+
+    The worker's task id comes from a fixed GitHub workflow input. The relay
+    independently restricts it to a server-known task, and fences the
+    connection by the verified run_id and monotonically increasing generation.
+    """
+    if not isinstance(raw_token,str) or not 50<=len(raw_token)<=8192:
+        return None
+    try:
+        key=_jwk_client().get_signing_key_from_jwt(raw_token)
+        claims=jwt.decode(raw_token,key.key,algorithms=["RS256"],
+            audience=AUDIENCE,issuer=ISSUER,leeway=15,
+            options={"require":["iss","aud","iat","nbf","exp","sub"]})
+        expected={
+            "repository":REPOSITORY,
+            "repository_id":REPOSITORY_ID,
+            "repository_owner_id":OWNER_ID,
+            "ref":REF,
+            "runner_environment":"github-hosted",
+            "workflow_ref":ISOLATED_WORKER_WORKFLOW_REF,
+            "event_name":"workflow_dispatch",
+        }
+        run_id=claims.get("run_id")
+        if (not all(claims.get(k)==v for k,v in expected.items())
+                or not isinstance(run_id,str) or not run_id.isdecimal()):
+            return None
+        return {"run_id":run_id}
+    except (PyJWTError,ValueError,TypeError,OSError,TimeoutError):
+        return None
+    except Exception:
+        return None
+
+
+TASK_PRODUCER_AUDIENCE = "urn:lyonbegin:procureflow:hitel-isolated-task-submit"
+# Source ownership is fixed to the user-authorized GitHub repositories. A
+# public HTTP caller cannot submit expensive ChatGPT requests or impersonate
+# another task without an exact, signed GitHub Actions workflow identity.
+TASK_PRODUCER_WORKFLOWS = {
+    "stock-a": {
+        "repository":"lyonbegin/autonomous-investor-backend",
+        "repository_id":"1427623630",
+        "ref":"refs/heads/main",
+        "workflow_ref":(
+            "lyonbegin/autonomous-investor-backend/.github/workflows/"
+            "stock-a-task-isolated-chrome.yml@refs/heads/main"),
+        "event_name":"workflow_dispatch",
+    },
+    "scribd-18109": {
+        "repository":"lyonbegin/hitel-scribd-runner",
+        "repository_id":"1455284203",
+        "ref":"refs/heads/main",
+        "workflow_ref":(
+            "lyonbegin/hitel-scribd-runner/.github/workflows/"
+            "hitel-public-ai-corpus.yml@refs/heads/main"),
+        "event_name":"workflow_dispatch",
+    },
+}
+
+
+def verify_isolated_task_producer(raw_token: str, task_id: str) -> bool:
+    """Prove an exact authorized project workflow owns this Railway task."""
+    expected=TASK_PRODUCER_WORKFLOWS.get(task_id)
+    if not expected or not isinstance(raw_token,str) or not 50<=len(raw_token)<=8192:
+        return False
+    try:
+        key=_jwk_client().get_signing_key_from_jwt(raw_token)
+        payload=jwt.decode(raw_token,key.key,algorithms=["RS256"],
+            audience=TASK_PRODUCER_AUDIENCE,issuer=ISSUER,leeway=15,
+            options={"require":["iss","aud","iat","nbf","exp","sub"]})
+        return (all(payload.get(k)==v for k,v in expected.items())
+                and payload.get("repository_owner_id")==OWNER_ID
+                and payload.get("runner_environment")=="github-hosted")
+    except (PyJWTError,ValueError,TypeError,OSError,TimeoutError):
+        return False
+    except Exception:
+        return False
