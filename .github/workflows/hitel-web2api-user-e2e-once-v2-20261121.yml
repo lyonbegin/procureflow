@@ -1,0 +1,119 @@
+name: HITEL Web2API user browser actual single-click E2E v2 (20261121)
+
+# Single real browser click to validate the newly deployed user test console.
+# NEVER retries a question on errors, timeouts, 429, unknown delivery, or reruns.
+on:
+  push:
+    branches: [test/hitel-web2api-user-oneclick-v2-20261121]
+    paths:
+      - .github/workflows/hitel-web2api-user-e2e-once-v2-20261121.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hitel-one-browser-user-e2e-20261121-v2
+  cancel-in-progress: false
+
+jobs:
+  actual-user-click-once:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install browser test driver
+        run: python3 -m pip install -q playwright==1.56.0
+      - name: Open public user test page and click send only ONCE
+        env:
+          CHROME_BINARY: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          BASE="https://hitel-integration-api-production.up.railway.app/integrations/test"
+          EXPECTED="HITEL_WEB2API_E2E_OK_20261121"
+          out=Path(os.environ["RUNNER_TEMP"])/"hitel-once-browser-evidence"
+          out.mkdir(parents=True,exist_ok=True)
+          test_started=False
+          with sync_playwright() as p:
+              browser=p.chromium.launch(
+                  headless=True,executable_path=os.environ["CHROME_BINARY"],
+                  args=["--no-sandbox"])
+              page=browser.new_page(viewport={"width":1365,"height":960},
+                                    locale="ko-KR")
+              try:
+                  response=page.goto(BASE,wait_until="domcontentloaded",timeout=45000)
+                  assert response and response.status==200,"TEST_PAGE_NOT_HTTP_200"
+                  assert "HITEL Web2API" in page.title(),"WRONG_TEST_PAGE"
+                  page.locator("#check").click(timeout=10000)
+                  page.wait_for_function(
+                      "() => document.getElementById('ready').textContent.includes('Chrome 준비 완료')",
+                      timeout=70000)
+                  page.wait_for_function(
+                      "() => document.getElementById('worker').textContent.includes('heartbeat 정상')",
+                      timeout=20000)
+                  print("PASS_TEST_CONSOLE_AND_REAL_CHROME_WORKER_READY",flush=True)
+          assert page.locator("#send").is_enabled(),"INITIAL_TEST_SEND_BUTTON_DISABLED"
+
+                  # Exactly one POST happens from this single genuine UI click.
+                  # Never call click again, even when the result is unknown.
+                  page.locator("#send").click(timeout=12000)
+                  test_started=True
+                  print("SINGLE_USER_SEND_CLICK_DISPATCHED",flush=True)
+                  deadline=time.monotonic()+420
+                  last=None
+                  while time.monotonic()<deadline:
+                      page.wait_for_timeout(2500)
+                      status=page.locator("#jobstatus").inner_text().strip()
+                      stage=page.locator("#stage").inner_text().strip()
+                      evidence=page.locator("#evidence").inner_text().strip()
+                      jid=page.locator("#jobid").inner_text().strip()
+                      verdict=page.locator("#verdict").inner_text().strip()
+                      snapshot=(jid,status,stage,evidence,verdict)
+                      if snapshot!=last:
+                          print("OBSERVED_JOB_PROGRESS",json.dumps({
+                              "job":jid,"status":status,"stage":stage,
+                              "evidence":evidence,"verdict":verdict[:120]},
+                              ensure_ascii=False),flush=True)
+                          last=snapshot
+                      if status=="completed" and "확인 문자열 일치" in verdict:
+                          answer=page.locator("#answer").inner_text().strip()
+                          if answer!=EXPECTED:
+                              raise AssertionError("REPLY_MARKER_MISMATCH")
+                          print("PASS_USER_CLICK_TO_CHROME_TO_ACTUAL_CHATGPT_REPLY",flush=True)
+                          print("VERIFIED_JOB_ID",jid,flush=True)
+                          break
+                      if status in ("failed","stalled","unknown"):
+                          raise AssertionError(
+                              "REAL_SEND_NOT_VERIFIED: status="+status+
+                              " stage="+stage+" job="+jid)
+                  else:
+                      raise AssertionError(
+                          "NO_VERIFIED_REPLY_WITHIN_TEST_WATCH_WINDOW; "+
+                          "request was NOT resent; last="+str(last))
+              finally:
+                  # A screenshot is diagnostic only; no private user data is sent.
+                  page.screenshot(path=str(out/"one-test-result.png"),full_page=True)
+                  browser.close()
+          PY
+      - name: Save one-shot UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hitel-web2api-user-click-v2-20261121-evidence
+          path: ${{ runner.temp }}/hitel-once-browser-evidence/*.png
+          if-no-files-found: ignore
+          retention-days: 2
