@@ -320,6 +320,21 @@ def read_public_result(job_id:str):
     heartbeat_age=(time.monotonic()-web2api_last_seen_monotonic
                    if connected and web2api_last_seen_monotonic>0 else None)
     heartbeat_recent=bool(heartbeat_age is not None and heartbeat_age<=75)
+    # The shared Chrome's active-job list does not include tasks owned by
+    # /ws/task/{task_id}. Read their separately fenced worker state instead.
+    active_this_job=bool(heartbeat_recent and job_id in web2api_active_jobs)
+    with api_v1.connection() as db:
+        mapping=db.execute(
+            "SELECT task_id FROM hitel_isolated_job_map WHERE job_id=?",
+            (job_id,)).fetchone()
+    if mapping:
+        from task_worker_isolation import sessions, WORKER_STALE_SECONDS
+        session=sessions.get(mapping["task_id"])
+        heartbeat_recent=bool(
+            session and session.bootstrapped and
+            time.monotonic()-session.heartbeat<=WORKER_STALE_SECONDS)
+        connected=heartbeat_recent
+        active_this_job=bool(heartbeat_recent and job_id in session.active)
     original_status=row["status"]
     stage=row["stage"]
     if stage=="server_restarted":
@@ -328,7 +343,7 @@ def read_public_result(job_id:str):
     elif stage=="connection_lost":
         status="stalled"
         error_code="WORKER_CONNECTION_LOST"
-    elif original_status=="running" and (not heartbeat_recent or job_id not in web2api_active_jobs):
+    elif original_status=="running" and not active_this_job:
         status="stalled"
         error_code="WORKER_NOT_ACTIVE_FOR_JOB"
     elif original_status in ("queued","running","completed","failed","stalled","unknown"):
