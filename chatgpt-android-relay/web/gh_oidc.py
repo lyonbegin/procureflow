@@ -233,11 +233,10 @@ TASK_PRODUCER_WORKFLOWS = {
     "stock-a": {
         "repository":"lyonbegin/autonomous-investor-backend",
         "repository_id":"1427623630",
-        "ref":"refs/heads/feature/hitel-a-kg-serial-20261119",
+        "ref":"refs/heads/main",
         "workflow_ref":(
             "lyonbegin/autonomous-investor-backend/.github/workflows/"
-            "stock-a-task-isolated-chrome.yml@"
-            "refs/heads/feature/hitel-a-kg-serial-20261119"),
+            "stock-a-task-isolated-chrome.yml@refs/heads/main"),
         "event_name":"workflow_dispatch",
     },
     "scribd-18109": {
