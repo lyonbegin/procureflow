@@ -183,3 +183,43 @@ def verify_pairing_identity(raw_token: str) -> bool:
         return False
     except Exception:
         return False
+
+
+ISOLATED_WORKER_WORKFLOW_REF = (
+    "lyonbegin/procureflow/.github/workflows/"
+    "hitel-isolated-chrome-worker.yml@refs/heads/main"
+)
+
+
+def verify_isolated_worker_identity(raw_token: str) -> dict | None:
+    """OIDC-bound task worker identity; never authorize the shared /ws route.
+
+    The worker's task id comes from a fixed GitHub workflow input. The relay
+    independently restricts it to a server-known task, and fences the
+    connection by the verified run_id and monotonically increasing generation.
+    """
+    if not isinstance(raw_token,str) or not 50<=len(raw_token)<=8192:
+        return None
+    try:
+        key=_jwk_client().get_signing_key_from_jwt(raw_token)
+        claims=jwt.decode(raw_token,key.key,algorithms=["RS256"],
+            audience=AUDIENCE,issuer=ISSUER,leeway=15,
+            options={"require":["iss","aud","iat","nbf","exp","sub"]})
+        expected={
+            "repository":REPOSITORY,
+            "repository_id":REPOSITORY_ID,
+            "repository_owner_id":OWNER_ID,
+            "ref":REF,
+            "runner_environment":"github-hosted",
+            "workflow_ref":ISOLATED_WORKER_WORKFLOW_REF,
+            "event_name":"workflow_dispatch",
+        }
+        run_id=claims.get("run_id")
+        if (not all(claims.get(k)==v for k,v in expected.items())
+                or not isinstance(run_id,str) or not run_id.isdecimal()):
+            return None
+        return {"run_id":run_id}
+    except (PyJWTError,ValueError,TypeError,OSError,TimeoutError):
+        return None
+    except Exception:
+        return None
