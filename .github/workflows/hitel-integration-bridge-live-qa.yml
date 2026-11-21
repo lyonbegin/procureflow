@@ -176,10 +176,14 @@ jobs:
           detector=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/completion_detector.py").read_text()
           assert "DOM_VERIFIED_NEW_ASSISTANT_COMPLETED" in detector, "WEB2API_DOM_PROOF_PATCH_MISSING"
           assert "backend_observation_key" in detector, "WEB2API_PROJECTION_POLL_PATCH_MISSING"
+          assert "backend_retry_at" in detector, "WEB2API_READ_ONLY_RETRY_MISSING"
+          assert "verified_user.get('match') is True" in detector, "WEB2API_NEW_USER_CORRELATION_MISSING"
+          assert "HITEL_W2A_STAGE=ASSISTANT_SEEN" in detector, "WEB2API_BROWSER_STAGE_MISSING"
           assert "time.monotonic() - last_backend_check > 3.0" not in detector, "WEB2API_PROJECTION_READ_STORM_NOT_REMOVED"
           assert "and not has_action" in detector, "WEB2API_DOM_ACTION_READ_SUPPRESSION_MISSING"
           driver=(Path(os.environ["RUNNER_TEMP"])/"w2a-check/original/src/chatgpt_web2api/cdp_driver.py").read_text()
           assert "self._completion.dom_completion_verified" in driver, "WEB2API_REDUNDANT_RECONCILIATION_NOT_REMOVED"
+          assert "HITEL_W2A_STAGE=SEND_DISPATCHED" in driver, "WEB2API_SEND_STAGE_MISSING"
           assert "full_text = await _send_and_collect()  # no automatic resend" in source, "WEB2API_SEND_REPLAY_NOT_DISABLED"
           print("PASS_INSTALLED_WEB2API_DOM_PROJECTION_READ_FIX_NO_CHAT_SEND_RETRY")
           PY
