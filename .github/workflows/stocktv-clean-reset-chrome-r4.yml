@@ -1,0 +1,76 @@
+name: RESET stock-tv-only Chrome and runtime artifacts R4
+on:
+  push:
+    branches: [ops/stocktv-clean-reset-r4-20261121]
+    paths: [.github/workflows/stocktv-clean-reset-chrome-r4.yml]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  reset-only-stock-tv:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Cancel only stock-tv independent Chrome Actions
+        run: |
+          set -euo pipefail
+          ids=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100" \
+            --jq '.workflow_runs[] | select(.name=="HITEL per-task independent Chrome (one GitHub runner per task)" and (.display_title|contains("stock-tv"))) | .id')
+          ids="$(printf '%s\n44887843360\n' "$ids" | awk '/^[0-9]+$/ {print}' | sort -u)"
+          for id in $ids; do
+            name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '.name')
+            [[ "$name" == "HITEL per-task independent Chrome (one GitHub runner per task)" ]] || {
+              echo "REFUSE_CANCEL_UNRELATED_CHROME=$id:$name"; exit 1;
+            }
+            status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '.status')
+            if [[ "$status" != "completed" ]]; then
+              gh run cancel "$id" --repo "$GITHUB_REPOSITORY"
+              echo "CANCEL_REQUESTED_STOCKTV_CHROME_RUN=$id"
+            fi
+          done
+          for i in $(seq 1 36); do
+            remaining=0
+            for id in $ids; do
+              status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '.status')
+              [[ "$status" == "completed" ]] || remaining=$((remaining+1))
+            done
+            if ((remaining==0)); then
+              echo "PASS_OLD_STOCKTV_CHROME_ACTIONS_TERMINATED"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "FAIL_OLD_STOCKTV_CHROME_STILL_ACTIVE"
+          exit 1
+      - name: Delete only stock-tv local Actions artifacts, not Chrome login profile
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            [[ -n "$artifact_id" ]] || continue
+            case "$artifact_name" in
+              stocktv-*|stock-tv-*|stock-ws10-*)
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" >/dev/null
+                count=$((count+1))
+                echo "REMOVED_STOCK_TV_ONLY_ARTIFACT=$artifact_name" ;;
+              *) : ;;
+            esac
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '.artifacts[]|[.id,.name]|@tsv')
+          echo "STOCKTV_ARTIFACTS_DELETED=$count"
+      - name: Reset only stock-tv nonsecret GitHub Actions variables
+        run: |
+          set -euo pipefail
+          count=0
+          while IFS= read -r name; do
+            case "$name" in
+              STOCKTV_*|STOCK_TV_*|HITEL_STOCKTV_*|STOCK_WS10_*)
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/variables/$name" >/dev/null
+                echo "REMOVED_STOCKTV_RUNTIME_VARIABLE=$name"
+                count=$((count+1));;
+              *) : ;;
+            esac
+          done < <(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/variables?per_page=100" --jq '.variables[].name')
+          echo "STOCKTV_GITHUB_VARIABLES_DELETED=$count"
+          echo "PASS_NO_STOCK_A_NO_SCRIBD_NO_SHARED_LOGIN_PROFILE_CHANGED"
