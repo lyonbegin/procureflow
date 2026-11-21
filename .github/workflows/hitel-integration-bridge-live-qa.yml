@@ -370,3 +370,23 @@ jobs:
 
 
 # STOCKTV 2026-11-21: queue one existing main Web2API worker after prior runner exits; no active job preemption.
+
+
+  # Secondary safety net: reserve the NEXT four-hour worker in GitHub's
+  # non-cancelling queue even if the five-minute cron scheduler is delayed.
+  worker_session_successor:
+    needs: verified-chatgpt-bridge
+    if: ${{ always() && (github.event_name == 'push' || inputs.operation == 'worker_only') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Queue exactly one successor after completed or failed worker session
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HITEL_WORKER_AFTER_SESSION: "1"
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/hitel_worker_rescue.py
+          PYTHONPATH=.github/scripts python3 .github/scripts/test_hitel_worker_rescue.py
+          python3 .github/scripts/hitel_worker_rescue.py
