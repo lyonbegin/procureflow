@@ -43,7 +43,7 @@ jobs:
             T="$RUNNER_TEMP/qa-$TASK"
             mkdir -p "$T/w2a-check"
             cp -a "$ROOT" "$T/w2a-check/original"
-            HITEL_TASK_ID="$TASK" RUNNER_TEMP="$T" bash -e /tmp/stocktv-action-only-guard.sh
+            HITEL_TASK_ID="$TASK" RUNNER_TEMP="$T" ROOT="$T/w2a-check" bash -e /tmp/stocktv-action-only-guard.sh
             HITEL_TASK_ID="$TASK" RUNNER_TEMP="$T" python3 - <<'PY'
           import os
           from pathlib import Path
